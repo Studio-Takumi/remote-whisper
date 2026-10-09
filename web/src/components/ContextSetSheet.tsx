@@ -40,7 +40,7 @@ export function ContextSetSheet() {
                     <FileTextIcon className='size-3' />
                     参考資料
                 </p>
-                <SheetTrigger className='flex h-8 w-fit max-w-48 items-center justify-between gap-1.5 rounded-lg py-2 pr-2 pl-2.5 text-sm whitespace-nowrap outline-none focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30 dark:hover:bg-input/50'>
+                <SheetTrigger className='flex h-8 w-fit max-w-40 items-center justify-between gap-1.5 rounded-lg py-2 pr-2 pl-2.5 text-sm whitespace-nowrap outline-none focus-visible:ring-3 focus-visible:ring-ring/50 md:max-w-48 dark:bg-input/30 dark:hover:bg-input/50'>
                     <span className='truncate'>
                         {current ? `${contextSetName(current)}${statusLabel[current.status]}` : 'なし'}
                     </span>
@@ -104,7 +104,7 @@ export function ContextSetSheet() {
                     </div>
                 ) : (
                     <p className='px-4 text-sm text-muted-foreground'>
-                        参考資料はプロジェクトごとに選びます。先に左のメニューからプロジェクトを選んでください。
+                        参考資料はプロジェクトごとに選びます。先にメニューからプロジェクトを選んでください。
                     </p>
                 )}
                 <MaterialPickerDialog
