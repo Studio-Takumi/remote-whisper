@@ -1,0 +1,24 @@
+# Python (server)
+__pycache__/
+*.py[cod]
+.venv/
+.python/
+.uv-cache/
+hf/
+
+# Node (web)
+node_modules/
+dist/
+.vite/
+
+# Env / OS
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
+
+# Audio
+*.wav
+*.mp3
+*.m4a
