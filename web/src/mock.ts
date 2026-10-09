@@ -1,3 +1,5 @@
+import type { SettingsOptions } from '@/protocol';
+
 // 仮データ。後で /api/projects と /api/projects/{pid}/sessions/… から取る
 export type TranscriptLine = {
     time: string;
@@ -191,10 +193,20 @@ export const initialProjects: Project[] = seedProjects.map((p) => ({
     })),
 }));
 
-// 選べる値。後で GET /api/settings/options から取る
-export const whisperModels = ['large-v3-turbo', 'large-v3', 'medium', 'small'];
-export const computeTypes = ['float16', 'int8_float16', 'int8'];
-export const ollamaModels = ['qwen3.5:4b', 'gemma3:4b', 'llama3.2:3b'];
+// 選べる値。GET /api/settings/options が取れるまで（サーバーがないとき）はこれを使う
+export const fallbackOptions: SettingsOptions = {
+    whisper: {
+        models: ['large-v3-turbo', 'large-v3', 'medium', 'small'],
+        computeTypes: ['float16', 'int8_float16', 'int8'],
+    },
+    ollama: {
+        models: [
+            { name: 'qwen3.5:4b', thinking: true },
+            { name: 'gemma3:4b', thinking: false },
+            { name: 'llama3.2:3b', thinking: false },
+        ],
+    },
+};
 
 // フォルダの中身。後で GET /api/fs?path=… から取る。null はファイル
 type DirTree = { [name: string]: DirTree | null };

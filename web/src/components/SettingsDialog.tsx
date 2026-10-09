@@ -16,7 +16,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { computeTypes, ollamaModels, whisperModels } from '@/mock';
+import { ollamaModelNames, thinkingNote, withCurrent } from '@/options';
+import type { SettingsOptions } from '@/protocol';
 import type { Settings } from '@/settings';
 
 // 全体設定のモーダル。左にカテゴリ、右に項目を並べる
@@ -24,11 +25,13 @@ export function SettingsDialog({
     open,
     onOpenChange,
     settings,
+    options,
     onSave,
 }: {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     settings: Settings;
+    options: SettingsOptions;
     onSave: (settings: Settings) => void;
 }) {
     return (
@@ -41,6 +44,7 @@ export function SettingsDialog({
                 {/* DialogContent は閉じると消えるので、開くたびに今の設定から下書きを作り直せる */}
                 <SettingsForm
                     settings={settings}
+                    options={options}
                     onSave={(s) => {
                         onSave(s);
                         onOpenChange(false);
@@ -51,8 +55,22 @@ export function SettingsDialog({
     );
 }
 
-function SettingsForm({ settings, onSave }: { settings: Settings; onSave: (settings: Settings) => void }) {
+function SettingsForm({
+    settings,
+    options,
+    onSave,
+}: {
+    settings: Settings;
+    options: SettingsOptions;
+    onSave: (settings: Settings) => void;
+}) {
     const [draft, setDraft] = useState(settings);
+    const ollamaModels = withCurrent(
+        ollamaModelNames(options),
+        draft.ollama.liveSummaryModel,
+        draft.ollama.finalSummaryModel,
+        draft.ollama.contextModel,
+    );
 
     function update<K extends Exclude<keyof Settings, 'version'>>(section: K, patch: Partial<Settings[K]>) {
         setDraft((d) => ({ ...d, [section]: { ...d[section], ...patch } }));
@@ -96,7 +114,7 @@ function SettingsForm({ settings, onSave }: { settings: Settings; onSave: (setti
                             <OptionSelect
                                 id='whisper-model'
                                 value={draft.whisper.model}
-                                options={whisperModels}
+                                options={withCurrent(options.whisper.models, draft.whisper.model)}
                                 onChange={(model) => update('whisper', { model })}
                             />
                         </Row>
@@ -108,7 +126,7 @@ function SettingsForm({ settings, onSave }: { settings: Settings; onSave: (setti
                             <OptionSelect
                                 id='compute-type'
                                 value={draft.whisper.computeType}
-                                options={computeTypes}
+                                options={withCurrent(options.whisper.computeTypes, draft.whisper.computeType)}
                                 onChange={(computeType) => update('whisper', { computeType })}
                             />
                         </Row>
@@ -202,7 +220,7 @@ function SettingsForm({ settings, onSave }: { settings: Settings; onSave: (setti
                         <Row
                             id='final-model'
                             label='最終の要約のモデル'
-                            description='録音が終わった後に作る。思考モードはオン'
+                            description={`録音が終わった後に作る。${thinkingNote(options, draft.ollama.finalSummaryModel)}`}
                         >
                             <OptionSelect
                                 id='final-model'
@@ -214,7 +232,7 @@ function SettingsForm({ settings, onSave }: { settings: Settings; onSave: (setti
                         <Row
                             id='context-model'
                             label='参考資料セットのモデル'
-                            description='用語リストとコンテキストを作る。思考モードはオン'
+                            description={`用語リストとコンテキストを作る。${thinkingNote(options, draft.ollama.contextModel)}`}
                         >
                             <OptionSelect
                                 id='context-model'

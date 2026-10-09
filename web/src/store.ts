@@ -7,9 +7,12 @@ import {
     type Generating,
     type Project,
     type Session,
+    fallbackOptions,
     initialContextSets,
     initialProjects,
 } from '@/mock';
+import { fetchOptions } from '@/options';
+import type { SettingsOptions } from '@/protocol';
 import type { RecordingState } from '@/recording';
 import { type Settings, defaultSettings } from '@/settings';
 import { type ServerStatus, initialServerStatus } from '@/status';
@@ -28,6 +31,8 @@ type AppState = {
     // 録音の経過時間（秒）。一時停止中は止まる
     elapsed: number;
     settings: Settings;
+    // 設定で選べる値。サーバーから取れなければダミーのまま
+    options: SettingsOptions;
     server: ServerStatus;
     contextSets: Record<string, ContextSet[]>;
     contextSelections: Record<string, ContextSelection>;
@@ -37,6 +42,7 @@ type AppState = {
     // 開発用パネルで、プロジェクトが 0 件の状態を確かめるためのもの
     noProjects: boolean;
 
+    loadOptions: () => Promise<void>;
     selectSession: (projectId: string, sessionId: string) => void;
     newSession: (projectId: string) => void;
     startRecording: () => void;
@@ -97,6 +103,7 @@ export const useAppStore = create<AppState>()((set, get) => {
         recordingSessionId: null,
         elapsed: 0,
         settings: defaultSettings,
+        options: fallbackOptions,
         server: initialServerStatus,
         contextSets: initialContextSets,
         contextSelections: {},
@@ -104,6 +111,19 @@ export const useAppStore = create<AppState>()((set, get) => {
         settingsOpen: false,
         newProjectOpen: false,
         noProjects: false,
+
+        loadOptions: async () => {
+            try {
+                const options = await fetchOptions();
+                // Ollama のモデルがまだ取れないサーバー（#25 より前）では、ダミーの一覧を残す
+                set({
+                    options:
+                        options.ollama.models.length > 0 ? options : { ...options, ollama: fallbackOptions.ollama },
+                });
+            } catch {
+                // サーバーがないときはダミーの一覧のまま
+            }
+        },
 
         selectSession: (projectId, sessionId) => set({ selection: { projectId, sessionId } }),
         newSession: (projectId) => set({ selection: { projectId, sessionId: null } }),

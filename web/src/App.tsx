@@ -1,3 +1,5 @@
+import { useEffect } from 'react';
+
 import { toast } from 'sonner';
 
 import { AppSidebar } from '@/components/AppSidebar';
@@ -18,6 +20,12 @@ function App() {
     const setSettingsOpen = useAppStore((s) => s.setSettingsOpen);
     const newProjectOpen = useAppStore((s) => s.newProjectOpen);
     const setNewProjectOpen = useAppStore((s) => s.setNewProjectOpen);
+    const loadOptions = useAppStore((s) => s.loadOptions);
+    const options = useAppStore((s) => s.options);
+
+    useEffect(() => {
+        loadOptions();
+    }, [loadOptions]);
 
     return (
         <SidebarProvider>
@@ -37,6 +45,7 @@ function App() {
                 open={settingsOpen}
                 onOpenChange={setSettingsOpen}
                 settings={settings}
+                options={options}
                 onSave={(s) => {
                     changeSettings(s);
                     toast.success('設定を保存しました');
