@@ -23,9 +23,12 @@ function App() {
     const loadOptions = useAppStore((s) => s.loadOptions);
     const options = useAppStore((s) => s.options);
 
+    const watchMicrophone = useAppStore((s) => s.watchMicrophone);
+
     useEffect(() => {
         loadOptions();
-    }, [loadOptions]);
+        watchMicrophone();
+    }, [loadOptions, watchMicrophone]);
 
     return (
         <SidebarProvider>
