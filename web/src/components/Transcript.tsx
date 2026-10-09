@@ -20,7 +20,10 @@ export function Transcript({ lines, partial }: { lines: TranscriptLine[]; partia
             ))}
             {partial && (
                 <div className='flex gap-3'>
-                    <span className='w-[4.5em] shrink-0' />
+                    {/* 時刻の列と幅をそろえるため、見えない時刻を置く */}
+                    <span aria-hidden className='invisible shrink-0 font-mono text-xs leading-6'>
+                        00:00:00
+                    </span>
                     <p className='leading-6'>
                         {committed}
                         <span className='text-muted-foreground/70'>{pending}</span>
@@ -28,7 +31,7 @@ export function Transcript({ lines, partial }: { lines: TranscriptLine[]; partia
                 </div>
             )}
             {/* 下のマイクのボタン（sticky）に隠れないよう、その高さぶん余白をとって止める */}
-            <div ref={bottomRef} className='scroll-mb-56' />
+            <div ref={bottomRef} className='scroll-mb-64' />
         </>
     );
 }

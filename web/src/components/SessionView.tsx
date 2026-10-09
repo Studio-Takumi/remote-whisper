@@ -34,7 +34,8 @@ export function SessionView() {
                     <TabsTrigger value='summary'>要約</TabsTrigger>
                 </TabsList>
             </div>
-            <div className='mx-auto flex w-full max-w-3xl flex-col gap-4 pt-4'>
+            {/* 下の pb は、マイクのボタンの上に出す経過時間（絶対配置）が本文に重ならないようにするため */}
+            <div className='mx-auto flex w-full max-w-3xl flex-col gap-4 pt-4 pb-16'>
                 {session ? (
                     <div>
                         <h1 className='text-lg font-semibold'>{session.title}</h1>
