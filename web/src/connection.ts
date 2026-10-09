@@ -31,7 +31,11 @@ class Connection {
 
     private reconnect() {
         clearTimeout(this.retryTimer);
-        this.open().catch(() => this.scheduleRetry());
+        this.open().catch(() => {
+            // 一度もつながっていないときも、つながっていないことを知らせる
+            this.setConnected(false);
+            this.scheduleRetry();
+        });
     }
 
     private scheduleRetry() {

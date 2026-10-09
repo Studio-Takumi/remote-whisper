@@ -361,6 +361,10 @@ export const useAppStore = create<AppState>()((set, get) => {
                     set((s) => ({ server: { ...s.server, whisper: m.whisper, ollama: m.ollama } }));
                 } else if (m.type === 'error' && !starting) {
                     // 録音を始めるときのエラーは、startRecording がまとめて出す
+                    // 録音中につなぎ直した接続は、resume（#19）するまで音声を受け付けないので、その not_recording は出さない
+                    if (m.code === 'not_recording' && get().recordingSessionId) {
+                        return;
+                    }
                     toast.error(m.message);
                 }
             });
