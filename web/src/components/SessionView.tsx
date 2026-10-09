@@ -2,6 +2,7 @@ import { AudioLinesIcon, FolderPlusIcon } from 'lucide-react';
 
 import { Markdown } from '@/components/Markdown';
 import { StatusIndicator } from '@/components/StatusIndicator';
+import { Transcript } from '@/components/Transcript';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { Generating, Session, Summary } from '@/mock';
 import { summaryStatus, transcriptStatus } from '@/status';
@@ -17,6 +18,7 @@ export function SessionView() {
     const liveIntervalMin = useAppStore((s) => s.settings.ollama.liveSummaryIntervalMin);
     const finalModel = useAppStore((s) => s.settings.ollama.finalSummaryModel);
     const generating = useAppStore((s) => s.generating);
+    const partial = useAppStore((s) => s.partial);
 
     if (!project) {
         return <EmptyState hasProjects={hasProjects} />;
@@ -32,7 +34,8 @@ export function SessionView() {
                     <TabsTrigger value='summary'>要約</TabsTrigger>
                 </TabsList>
             </div>
-            <div className='mx-auto flex w-full max-w-3xl flex-col gap-4 pt-4'>
+            {/* 下の pb は、マイクのボタンの上に出す経過時間（絶対配置）が本文に重ならないようにするため */}
+            <div className='mx-auto flex w-full max-w-3xl flex-col gap-4 pt-4 pb-16'>
                 {session ? (
                     <div>
                         <h1 className='text-lg font-semibold'>{session.title}</h1>
@@ -52,14 +55,12 @@ export function SessionView() {
                 )}
 
                 <TabsContent value='transcript' className='flex flex-col gap-2'>
-                    {session?.transcript.map((line) => (
-                        <div key={line.time} className='flex gap-3'>
-                            <span className='shrink-0 font-mono text-xs leading-6 text-muted-foreground'>
-                                {line.time}
-                            </span>
-                            <p className='leading-6'>{line.text}</p>
-                        </div>
-                    ))}
+                    {session && (
+                        <Transcript
+                            lines={session.transcript}
+                            partial={partial?.sessionId === session.id ? partial : null}
+                        />
+                    )}
                     {!session && recordingState === 'idle' && (
                         <p className='text-sm text-muted-foreground'>マイクボタンを押すと録音が始まります。</p>
                     )}
