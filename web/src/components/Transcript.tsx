@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
-import type { TranscriptLine } from '@/mock';
 import type { LivePartial } from '@/store';
+import type { TranscriptLine } from '@/types';
 
 // 文字起こしの本文。確定した行（final）と、文字起こし中の区間（partial）を出す（spec 6.2・8）
 export function Transcript({ lines, partial }: { lines: TranscriptLine[]; partial: LivePartial | null }) {

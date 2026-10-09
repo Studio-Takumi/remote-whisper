@@ -11,6 +11,7 @@
 //   CHROMIUM_PATH   使う Chromium の実行ファイル（省略すると Playwright のもの。`npx playwright install chromium` で入る）
 //
 // 画面のデータは web/src/mock.ts のダミー（架空の打ち合わせと講義）と、モックサーバーが流すダミーの文字起こし・要約
+// （URL に ?demo を付けて開くと、サーバーのデータではなく mock.ts のダミーを出す）
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -53,9 +54,18 @@ const scenes = [
             await openNewSession(page, mobile, 'meetings');
             await page.getByLabel('クリックして録音開始').click();
             // 途中の要約（モックサーバーは --mock-live-summary-sec の間隔で送る）が届くまで待つ
-            await page.waitForFunction(() => window.appStore?.getState().projects[0].sessions[0].liveSummary, null, {
-                timeout: 30000,
-            });
+            await page.waitForFunction(
+                () => {
+                    // 開いている（録音中の）セッション
+                    const s = window.appStore?.getState();
+                    const id = s?.selection.sessionId;
+                    return s?.projects.flatMap((p) => p.sessions).find((x) => x.id === id)?.liveSummary;
+                },
+                null,
+                {
+                    timeout: 30000,
+                },
+            );
             await waitForPartial(page);
             // 待つと区間が確定してしまうので、すぐ撮る
             await shot('recording', 0);
@@ -154,7 +164,9 @@ for (const [layoutName, layout] of Object.entries(layouts)) {
         const context = await browser.newContext({ ...layout, colorScheme });
         for (const scene of scenes) {
             const page = await context.newPage();
-            await page.goto(url);
+            const demo = new URL(url);
+            demo.searchParams.set('demo', '');
+            await page.goto(demo.toString());
             // 開発用パネルのボタンは写さない
             await page.addStyleTag({ content: '[aria-label="開発用パネル"] { display: none !important; }' });
             const shot = async (name, wait = 700) => {

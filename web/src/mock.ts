@@ -1,46 +1,9 @@
+// ダミーデータ。サーバーがないとき（選べるモデルの一覧）と、URL に ?demo を付けたとき（説明用のスクリーンショット）だけ使う
+// 中身はすべて架空のもの
 import type { SettingsOptions } from '@/protocol';
+import type { ContextSet, Project, Session } from '@/types';
 
-// 仮データ。後で /api/projects と /api/projects/{pid}/sessions/… から取る
-export type TranscriptLine = {
-    time: string;
-    text: string;
-};
-
-// 最終の要約。作り直すたびに増えていく（spec 6.5 節）
-export type Summary = {
-    generationId: string;
-    model: string;
-    generatedAt: string;
-    text: string;
-};
-
-export type Session = {
-    id: string;
-    title: string;
-    startedAt: string;
-    // 録音を終えた日時。録音中はない
-    endedAt?: string;
-    // recording は録音中（ほかの端末で録音しているものも含む）
-    status: 'recording' | 'done' | 'interrupted';
-    transcript: TranscriptLine[];
-    summaries: Summary[];
-    // 途中の要約（いちばん新しいもの）。最終の要約がまだないときに代わりに出す
-    liveSummary?: string;
-    // タイトルが仮のもの（途中の要約から作ったもの）かどうか
-    provisionalTitle?: boolean;
-};
-
-export type Project = {
-    id: string;
-    name: string;
-    path: string;
-    sessions: Session[];
-};
-
-// 作成中の最終の要約。summary.delta（spec 7.2 節）で届いた分
-export type Generating = { sessionId: string; model: string; text: string };
-
-// 下のダミーデータは要約を1つだけ書いておき、initialProjects で Summary の形にする
+// 下のダミーデータは要約を1つだけ書いておき、demoProjects で Summary の形にする
 type SeedProject = Omit<Project, 'sessions'> & {
     sessions: (Omit<Session, 'summaries'> & { summary: string })[];
 };
@@ -189,10 +152,11 @@ $$
     },
 ];
 
-export const initialProjects: Project[] = seedProjects.map((p) => ({
+export const demoProjects: Project[] = seedProjects.map((p) => ({
     ...p,
     sessions: p.sessions.map(({ summary, ...s }) => ({
         ...s,
+        loaded: true,
         summaries: [{ generationId: s.id, model: 'qwen3.5:4b', generatedAt: s.startedAt, text: summary }],
     })),
 }));
@@ -212,71 +176,7 @@ export const fallbackOptions: SettingsOptions = {
     },
 };
 
-// フォルダの中身。後で GET /api/fs?path=… から取る。null はファイル
-type DirTree = { [name: string]: DirTree | null };
-
-const mockFs: Record<string, DirTree> = {
-    'D:\\work': {
-        meetings: {
-            weekly: { 'agenda.md': null, 'notes.md': null },
-            'kick-off': { 'slides.pdf': null, 'photo.png': null },
-            'release-plan.md': null,
-            'glossary.txt': null,
-        },
-        lectures: {
-            math: { 'syllabus.pdf': null, 'week3.md': null },
-            physics: {},
-            english: {},
-            'algorithms.html': null,
-        },
-        interviews: {},
-        notes: { 'todo.txt': null, 'memo.docx': null },
-    },
-};
-
-function findTree(root: string, segments: string[]): DirTree {
-    let tree: DirTree | null | undefined = mockFs[root];
-    for (const s of segments) {
-        tree = tree?.[s];
-    }
-    return tree ?? {};
-}
-
-// root の下の segments をたどった先にあるフォルダの名前を返す
-export function listDirs(root: string, segments: string[]): string[] {
-    const tree = findTree(root, segments);
-    return Object.keys(tree)
-        .filter((name) => tree[name] !== null)
-        .sort();
-}
-
-// root の下の segments をたどった先にあるファイルのうち、指定した拡張子のものを返す
-export function listFiles(root: string, segments: string[], extensions: string[]): string[] {
-    const tree = findTree(root, segments);
-    return Object.keys(tree)
-        .filter((name) => tree[name] === null && extensions.some((ext) => name.toLowerCase().endsWith(ext)))
-        .sort();
-}
-
-// 参考資料セット（spec 5.4 節の contextSets）。後で /api/projects/{pid}/context-sets から取る
-export type ContextSet = {
-    id: string;
-    status: 'generating' | 'ready' | 'failed';
-    materials: string[];
-};
-
-// プロジェクトで今選んでいる状態（spec 5.4 節の selection）
-export type ContextSelection = {
-    setId: string | null;
-    useHotwords: boolean;
-    useContext: boolean;
-};
-
-// 資料のファイル名だけを並べた、セットの表示名
-export function contextSetName(set: ContextSet) {
-    return set.materials.map((m) => m.split('\\').at(-1)).join(', ');
-}
-
+// 参考資料セットは #31 で API につなぐまで、このダミーを使う
 export const initialContextSets: Record<string, ContextSet[]> = {
     'D--work-meetings-a1b2c3': [
         {

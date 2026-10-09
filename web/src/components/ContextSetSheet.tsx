@@ -8,8 +8,8 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { Switch } from '@/components/ui/switch';
-import { type ContextSet, contextSetName } from '@/mock';
 import { currentContextSelection, currentContextSets, currentProject, useAppStore } from '@/store';
+import { type ContextSet, contextSetName } from '@/types';
 
 const NONE = 'none';
 
@@ -25,7 +25,6 @@ export function ContextSetSheet() {
     const project = useAppStore(currentProject);
     const sets = useAppStore(currentContextSets);
     const selection = useAppStore(useShallow(currentContextSelection));
-    const roots = useAppStore((s) => s.settings.materials.roots);
     const extensions = useAppStore((s) => s.settings.materials.extensions);
     const onChangeSelection = useAppStore((s) => s.changeContextSelection);
     const onCreate = useAppStore((s) => s.createContextSet);
@@ -110,7 +109,6 @@ export function ContextSetSheet() {
                 <MaterialPickerDialog
                     open={pickerOpen}
                     onOpenChange={setPickerOpen}
-                    roots={roots}
                     extensions={extensions}
                     onCreate={onCreate}
                 />
