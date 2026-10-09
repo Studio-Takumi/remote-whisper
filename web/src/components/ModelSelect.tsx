@@ -1,10 +1,20 @@
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
-export function ModelSelect({ label, value, options }: { label: string; value: string; options: string[] }) {
+export function ModelSelect({
+    label,
+    value,
+    options,
+    onChange,
+}: {
+    label: string;
+    value: string;
+    options: string[];
+    onChange: (value: string) => void;
+}) {
     return (
         <div className='flex flex-col'>
             <p className='px-2 text-xs'>{label}</p>
-            <Select defaultValue={value}>
+            <Select value={value} onValueChange={onChange}>
                 <SelectTrigger className='w-full max-w-48 border-0'>
                     <SelectValue />
                 </SelectTrigger>

@@ -1,0 +1,465 @@
+import { useState } from 'react';
+
+import { FileTextIcon, FolderIcon, HardDriveIcon, MicIcon, PlusIcon, SparklesIcon, Trash2Icon } from 'lucide-react';
+
+import { Button } from '@/components/ui/button';
+import {
+    Dialog,
+    DialogClose,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { computeTypes, ollamaModels, whisperModels } from '@/mock';
+import type { Settings } from '@/settings';
+
+// 全体設定のモーダル。左にカテゴリ、右に項目を並べる
+export function SettingsDialog({
+    open,
+    onOpenChange,
+    settings,
+    onSave,
+}: {
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    settings: Settings;
+    onSave: (settings: Settings) => void;
+}) {
+    return (
+        <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent className='flex h-[min(640px,85vh)] flex-col sm:max-w-3xl'>
+                <DialogHeader>
+                    <DialogTitle>設定</DialogTitle>
+                    <DialogDescription>録音中は変更できません。</DialogDescription>
+                </DialogHeader>
+                {/* DialogContent は閉じると消えるので、開くたびに今の設定から下書きを作り直せる */}
+                <SettingsForm
+                    settings={settings}
+                    onSave={(s) => {
+                        onSave(s);
+                        onOpenChange(false);
+                    }}
+                />
+            </DialogContent>
+        </Dialog>
+    );
+}
+
+function SettingsForm({ settings, onSave }: { settings: Settings; onSave: (settings: Settings) => void }) {
+    const [draft, setDraft] = useState(settings);
+
+    function update<K extends Exclude<keyof Settings, 'version'>>(section: K, patch: Partial<Settings[K]>) {
+        setDraft((d) => ({ ...d, [section]: { ...d[section], ...patch } }));
+    }
+
+    function save() {
+        // 拡張子は入力途中の空要素を落とし、先頭の . をそろえてから保存する
+        const extensions = draft.materials.extensions
+            .map((e) => e.trim())
+            .filter((e) => e !== '')
+            .map((e) => (e.startsWith('.') ? e : `.${e}`));
+        const roots = draft.materials.roots.map((r) => r.trim()).filter((r) => r !== '');
+        onSave({ ...draft, materials: { roots, extensions } });
+    }
+
+    return (
+        <>
+            <Tabs defaultValue='whisper' orientation='vertical' className='min-h-0 flex-1 gap-6'>
+                <TabsList variant='line' className='w-40 shrink-0 items-stretch'>
+                    <TabsTrigger value='whisper'>
+                        <MicIcon />
+                        文字起こし
+                    </TabsTrigger>
+                    <TabsTrigger value='ollama'>
+                        <SparklesIcon />
+                        要約
+                    </TabsTrigger>
+                    <TabsTrigger value='storage'>
+                        <HardDriveIcon />
+                        録音と保存
+                    </TabsTrigger>
+                    <TabsTrigger value='materials'>
+                        <FileTextIcon />
+                        参考資料
+                    </TabsTrigger>
+                </TabsList>
+
+                <TabsContent value='whisper' className='min-h-0 overflow-y-auto pr-2'>
+                    <Section>
+                        <Row id='whisper-model' label='モデル'>
+                            <OptionSelect
+                                id='whisper-model'
+                                value={draft.whisper.model}
+                                options={whisperModels}
+                                onChange={(model) => update('whisper', { model })}
+                            />
+                        </Row>
+                        <Row
+                            id='compute-type'
+                            label='計算の精度'
+                            description='int8 にすると VRAM が減るが、精度が少し落ちる'
+                        >
+                            <OptionSelect
+                                id='compute-type'
+                                value={draft.whisper.computeType}
+                                options={computeTypes}
+                                onChange={(computeType) => update('whisper', { computeType })}
+                            />
+                        </Row>
+                        <Row id='beam-size' label='ビームサイズ' description='大きいほど精度が上がるが遅くなる'>
+                            <NumberInput
+                                id='beam-size'
+                                value={draft.whisper.beamSize}
+                                min={1}
+                                onChange={(beamSize) => update('whisper', { beamSize })}
+                            />
+                        </Row>
+                        <Row
+                            id='partial-interval'
+                            label='途中結果の間隔'
+                            description='話している間、この間隔で文字起こしを更新する'
+                        >
+                            <NumberInput
+                                id='partial-interval'
+                                value={draft.whisper.partialIntervalSec}
+                                min={0.1}
+                                step={0.1}
+                                unit='秒'
+                                onChange={(partialIntervalSec) => update('whisper', { partialIntervalSec })}
+                            />
+                        </Row>
+                        <Row
+                            id='silence-ms'
+                            label='区切りとみなす無音'
+                            description='この長さだけ無音が続いたら区間を確定する'
+                        >
+                            <NumberInput
+                                id='silence-ms'
+                                value={draft.whisper.silenceMs}
+                                min={100}
+                                step={100}
+                                unit='ミリ秒'
+                                onChange={(silenceMs) => update('whisper', { silenceMs })}
+                            />
+                        </Row>
+                        <Row
+                            id='max-segment'
+                            label='区間の最大の長さ'
+                            description='無音がなくても、この長さで区間を確定する'
+                        >
+                            <NumberInput
+                                id='max-segment'
+                                value={draft.whisper.maxSegmentSec}
+                                min={1}
+                                unit='秒'
+                                onChange={(maxSegmentSec) => update('whisper', { maxSegmentSec })}
+                            />
+                        </Row>
+                        <Row
+                            id='unload-after'
+                            label='モデルを下ろすまで'
+                            description='最後に使ってからこの時間たったら VRAM から下ろす'
+                        >
+                            <NumberInput
+                                id='unload-after'
+                                value={draft.whisper.unloadAfterMin}
+                                min={1}
+                                unit='分'
+                                onChange={(unloadAfterMin) => update('whisper', { unloadAfterMin })}
+                            />
+                        </Row>
+                    </Section>
+                </TabsContent>
+
+                <TabsContent value='ollama' className='min-h-0 overflow-y-auto pr-2'>
+                    <Section>
+                        <Row id='ollama-host' label='Ollama の URL'>
+                            <Input
+                                id='ollama-host'
+                                className='w-56'
+                                value={draft.ollama.host}
+                                onChange={(e) => update('ollama', { host: e.target.value })}
+                            />
+                        </Row>
+                        <Row
+                            id='live-model'
+                            label='途中の要約のモデル'
+                            description='録音中に数分おきに作る。思考モードはオフ'
+                        >
+                            <OptionSelect
+                                id='live-model'
+                                value={draft.ollama.liveSummaryModel}
+                                options={ollamaModels}
+                                onChange={(liveSummaryModel) => update('ollama', { liveSummaryModel })}
+                            />
+                        </Row>
+                        <Row
+                            id='final-model'
+                            label='最終の要約のモデル'
+                            description='録音が終わった後に作る。思考モードはオン'
+                        >
+                            <OptionSelect
+                                id='final-model'
+                                value={draft.ollama.finalSummaryModel}
+                                options={ollamaModels}
+                                onChange={(finalSummaryModel) => update('ollama', { finalSummaryModel })}
+                            />
+                        </Row>
+                        <Row
+                            id='context-model'
+                            label='参考資料セットのモデル'
+                            description='用語リストとコンテキストを作る。思考モードはオン'
+                        >
+                            <OptionSelect
+                                id='context-model'
+                                value={draft.ollama.contextModel}
+                                options={ollamaModels}
+                                onChange={(contextModel) => update('ollama', { contextModel })}
+                            />
+                        </Row>
+                        <Row id='live-interval' label='途中の要約の間隔'>
+                            <NumberInput
+                                id='live-interval'
+                                value={draft.ollama.liveSummaryIntervalMin}
+                                min={1}
+                                unit='分'
+                                onChange={(liveSummaryIntervalMin) => update('ollama', { liveSummaryIntervalMin })}
+                            />
+                        </Row>
+                        <Row id='keep-alive' label='モデルを下ろすまで' description='録音中は下ろさない'>
+                            <NumberInput
+                                id='keep-alive'
+                                value={draft.ollama.keepAliveMin}
+                                min={1}
+                                unit='分'
+                                onChange={(keepAliveMin) => update('ollama', { keepAliveMin })}
+                            />
+                        </Row>
+                    </Section>
+                </TabsContent>
+
+                <TabsContent value='storage' className='min-h-0 overflow-y-auto pr-2'>
+                    <Section title='録音'>
+                        <Row id='max-concurrent' label='同時に録音できる数'>
+                            <NumberInput
+                                id='max-concurrent'
+                                value={draft.recording.maxConcurrent}
+                                min={1}
+                                onChange={(maxConcurrent) => update('recording', { maxConcurrent })}
+                            />
+                        </Row>
+                    </Section>
+                    <Section title='保存期間' description='期間を過ぎたファイルは自動で消える。0 にすると無期限'>
+                        <Row id='keep-recording' label='録音ファイル'>
+                            <NumberInput
+                                id='keep-recording'
+                                value={draft.retentionDays.recording}
+                                min={0}
+                                unit='日'
+                                onChange={(recording) => update('retentionDays', { recording })}
+                            />
+                        </Row>
+                        <Row id='keep-transcript' label='文字起こし'>
+                            <NumberInput
+                                id='keep-transcript'
+                                value={draft.retentionDays.transcript}
+                                min={0}
+                                unit='日'
+                                onChange={(transcript) => update('retentionDays', { transcript })}
+                            />
+                        </Row>
+                        <Row id='keep-summary' label='要約' description='選んだディレクトリに置いたコピーは消さない'>
+                            <NumberInput
+                                id='keep-summary'
+                                value={draft.retentionDays.summary}
+                                min={0}
+                                unit='日'
+                                onChange={(summary) => update('retentionDays', { summary })}
+                            />
+                        </Row>
+                        <Row id='keep-context' label='参考資料セット'>
+                            <NumberInput
+                                id='keep-context'
+                                value={draft.retentionDays.contextSet}
+                                min={0}
+                                unit='日'
+                                onChange={(contextSet) => update('retentionDays', { contextSet })}
+                            />
+                        </Row>
+                    </Section>
+                </TabsContent>
+
+                <TabsContent value='materials' className='min-h-0 overflow-y-auto pr-2'>
+                    <Section
+                        title='読み込めるフォルダ'
+                        description='参考資料を選んだり、プロジェクトとして登録したりできるのは、このフォルダの中だけ'
+                    >
+                        <div className='flex flex-col gap-2'>
+                            {draft.materials.roots.map((root, i) => (
+                                <div key={i} className='flex items-center gap-2'>
+                                    <FolderIcon className='size-4 shrink-0 text-muted-foreground' />
+                                    <Input
+                                        value={root}
+                                        placeholder='D:\work'
+                                        aria-label={`フォルダ ${i + 1}`}
+                                        onChange={(e) =>
+                                            update('materials', {
+                                                roots: draft.materials.roots.map((r, j) =>
+                                                    j === i ? e.target.value : r,
+                                                ),
+                                            })
+                                        }
+                                    />
+                                    <Button
+                                        variant='ghost'
+                                        size='icon-sm'
+                                        aria-label='このフォルダを外す'
+                                        onClick={() =>
+                                            update('materials', {
+                                                roots: draft.materials.roots.filter((_, j) => j !== i),
+                                            })
+                                        }
+                                    >
+                                        <Trash2Icon />
+                                    </Button>
+                                </div>
+                            ))}
+                            <Button
+                                variant='outline'
+                                size='sm'
+                                className='w-fit'
+                                onClick={() => update('materials', { roots: [...draft.materials.roots, ''] })}
+                            >
+                                <PlusIcon />
+                                フォルダを追加
+                            </Button>
+                        </div>
+                    </Section>
+                    <Section title='読み込める拡張子'>
+                        <Row id='extensions' label='拡張子' description='カンマ区切りで書く'>
+                            <Input
+                                id='extensions'
+                                className='w-56'
+                                value={draft.materials.extensions.join(', ')}
+                                onChange={(e) => update('materials', { extensions: e.target.value.split(',') })}
+                            />
+                        </Row>
+                    </Section>
+                </TabsContent>
+            </Tabs>
+            <DialogFooter>
+                <DialogClose asChild>
+                    <Button variant='outline'>キャンセル</Button>
+                </DialogClose>
+                <Button onClick={save}>保存</Button>
+            </DialogFooter>
+        </>
+    );
+}
+
+function Section({
+    title,
+    description,
+    children,
+}: {
+    title?: string;
+    description?: string;
+    children: React.ReactNode;
+}) {
+    return (
+        <section className='flex flex-col gap-1 not-first:mt-6'>
+            {title && <h3 className='text-sm font-semibold'>{title}</h3>}
+            {description && <p className='text-xs text-muted-foreground'>{description}</p>}
+            <div className='flex flex-col divide-y'>{children}</div>
+        </section>
+    );
+}
+
+// 左に項目名と説明、右に入力欄
+function Row({
+    id,
+    label,
+    description,
+    children,
+}: {
+    id: string;
+    label: string;
+    description?: string;
+    children: React.ReactNode;
+}) {
+    return (
+        <div className='flex items-center justify-between gap-4 py-3'>
+            <div className='flex flex-col gap-1'>
+                <Label htmlFor={id}>{label}</Label>
+                {description && <p className='text-xs text-muted-foreground'>{description}</p>}
+            </div>
+            {children}
+        </div>
+    );
+}
+
+function OptionSelect({
+    id,
+    value,
+    options,
+    onChange,
+}: {
+    id: string;
+    value: string;
+    options: string[];
+    onChange: (value: string) => void;
+}) {
+    return (
+        <Select value={value} onValueChange={onChange}>
+            <SelectTrigger id={id} className='w-44'>
+                <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+                <SelectGroup>
+                    {options.map((o) => (
+                        <SelectItem key={o} value={o}>
+                            {o}
+                        </SelectItem>
+                    ))}
+                </SelectGroup>
+            </SelectContent>
+        </Select>
+    );
+}
+
+function NumberInput({
+    id,
+    value,
+    min,
+    step = 1,
+    unit,
+    onChange,
+}: {
+    id: string;
+    value: number;
+    min?: number;
+    step?: number;
+    unit?: string;
+    onChange: (value: number) => void;
+}) {
+    return (
+        <div className='flex shrink-0 items-center gap-2'>
+            <Input
+                id={id}
+                type='number'
+                className='w-24 text-right'
+                value={value}
+                min={min}
+                step={step}
+                onChange={(e) => onChange(e.target.valueAsNumber || 0)}
+            />
+            {unit && <span className='w-10 text-xs text-muted-foreground'>{unit}</span>}
+        </div>
+    );
+}

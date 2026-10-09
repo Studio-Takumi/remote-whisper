@@ -19,10 +19,12 @@ export function AppSidebar({
     recording,
     activeSession,
     onSelectSession,
+    onOpenSettings,
 }: {
     recording: boolean;
     activeSession: string;
     onSelectSession: (session: string) => void;
+    onOpenSettings: () => void;
 }) {
     return (
         <Sidebar collapsible='icon'>
@@ -49,7 +51,7 @@ export function AppSidebar({
                 <RecordingLock locked={recording}>
                     <SidebarMenu>
                         <SidebarMenuItem>
-                            <SidebarMenuButton tooltip='設定'>
+                            <SidebarMenuButton tooltip='設定' onClick={onOpenSettings}>
                                 <SettingsIcon />
                                 <span>設定</span>
                             </SidebarMenuButton>
