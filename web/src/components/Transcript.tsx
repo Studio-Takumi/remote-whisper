@@ -8,7 +8,7 @@ export function Transcript({ lines, partial }: { lines: TranscriptLine[]; partia
     const committed = useTypewriter(partial?.committed ?? '', partial?.segment ?? -1);
     // 文字送りが追いついていない分は、未確定の部分と同じく薄く出す
     const pending = (partial?.committed ?? '').slice(committed.length) + (partial?.tentative ?? '');
-    const bottomRef = useStickToBottom([lines.length, committed, pending]);
+    const bottomRef = useStickToBottom(`${lines.length}:${committed}:${pending}`);
 
     return (
         <>
@@ -57,7 +57,8 @@ function useTypewriter(text: string, key: number) {
 }
 
 // 新しい行が来たら下までスクロールする。ユーザーが上のほうを見ているときは追わない
-function useStickToBottom(deps: unknown[]) {
+// trigger は中身が変わったら動かすためのキー
+function useStickToBottom(trigger: string) {
     const ref = useRef<HTMLDivElement>(null);
     const atBottom = useRef(true);
 
@@ -71,11 +72,10 @@ function useStickToBottom(deps: unknown[]) {
     }, []);
 
     useEffect(() => {
-        if (atBottom.current) {
+        if (trigger && atBottom.current) {
             ref.current?.scrollIntoView({ block: 'end' });
         }
-        // 呼ぶ側が渡した deps の中身が変わったときだけ動かす
-    }, deps);
+    }, [trigger]);
 
     return ref;
 }

@@ -150,7 +150,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                         ...x,
                         transcript: [...x.transcript, line],
                     })),
-                    partial: s.partial?.segment === m.segment ? null : s.partial,
+                    partial: s.partial?.sessionId === m.session && s.partial.segment === m.segment ? null : s.partial,
                 }));
             } else if (m.type === 'status') {
                 // 表示の配線は #18 でまとめて行う。ここでは Whisper の読み込みの状態だけ反映する
