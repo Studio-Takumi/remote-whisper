@@ -16,6 +16,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { ollamaModelNames, thinkingNote, withCurrent } from '@/options';
 import type { SettingsOptions } from '@/protocol';
 import type { Settings } from '@/settings';
@@ -65,6 +66,7 @@ function SettingsForm({
     onSave: (settings: Settings) => void;
 }) {
     const [draft, setDraft] = useState(settings);
+    const isMobile = useIsMobile();
     const ollamaModels = withCurrent(
         ollamaModelNames(options),
         draft.ollama.liveSummaryModel,
@@ -88,8 +90,19 @@ function SettingsForm({
 
     return (
         <>
-            <Tabs defaultValue='whisper' orientation='vertical' className='min-h-0 flex-1 gap-6'>
-                <TabsList variant='line' className='w-40 shrink-0 items-stretch'>
+            {/* スマホの幅では、カテゴリを上に横並びにする */}
+            <Tabs
+                defaultValue='whisper'
+                orientation={isMobile ? 'horizontal' : 'vertical'}
+                className='min-h-0 flex-1 gap-4 md:gap-6'
+            >
+                <TabsList
+                    variant='line'
+                    className={
+                        // 横に並べたときは左寄せにする（中央寄せだと、はみ出したときに先頭が切れてスクロールできない）
+                        isMobile ? 'w-full shrink-0 justify-start overflow-x-auto' : 'w-40 shrink-0 items-stretch'
+                    }
+                >
                     <TabsTrigger value='whisper'>
                         <MicIcon />
                         文字起こし
@@ -416,7 +429,8 @@ function Row({
     children: React.ReactNode;
 }) {
     return (
-        <div className='flex items-center justify-between gap-4 py-3'>
+        // スマホの幅では、項目名と説明の下に入力欄を置く
+        <div className='flex flex-col items-start gap-2 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4'>
             <div className='flex flex-col gap-1'>
                 <Label htmlFor={id}>{label}</Label>
                 {description && <p className='text-xs text-muted-foreground'>{description}</p>}
