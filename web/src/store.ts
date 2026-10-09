@@ -64,6 +64,8 @@ type AppState = {
     stopRecording: () => Promise<void>;
     // マイクの許可の状態を見張り始める
     watchMicrophone: () => void;
+    // サーバーにつなぎ、状態の通知を受け取り始める
+    connectServer: () => void;
     changeSettings: (settings: Settings) => void;
     generateSummary: (session: Session, model: string) => void;
     changeContextSelection: (selection: ContextSelection) => void;
@@ -110,6 +112,7 @@ let mic: Microphone | null = null;
 let sender: AudioSender | null = null;
 let unsubscribe: (() => void) | null = null;
 let starting = false;
+let serverSubscribed = false;
 
 type StartedMessage = Extract<ServerMessage, { type: 'started' }>;
 type ErrorMessage = Extract<ServerMessage, { type: 'error' }>;
@@ -178,12 +181,6 @@ export const useAppStore = create<AppState>()((set, get) => {
                         provisionalTitle: m.provisional,
                     })),
                 }));
-            } else if (m.type === 'status') {
-                // 表示の配線は #18 でまとめて行う。ここでは Whisper の読み込みの状態だけ反映する
-                set((s) => ({ server: { ...s.server, whisper: m.whisper, ollama: m.ollama } }));
-            } else if (m.type === 'error' && !starting) {
-                // 録音を始めるときのエラーは、startRecording がまとめて出す
-                toast.error(m.message);
             }
         });
         await connection.open();
@@ -346,6 +343,32 @@ export const useAppStore = create<AppState>()((set, get) => {
             void watchMicrophonePermission((denied) =>
                 set((s) => ({ server: { ...s.server, microphone: denied ? 'denied' : 'granted' } })),
             );
+        },
+
+        // サーバーにつなぎ続け、状態（status）とエラーを受け取る（spec 7.2）
+        // 接続が切れているかどうかは status に含まれないので、ブラウザ側で判定する
+        connectServer: () => {
+            if (serverSubscribed) {
+                return;
+            }
+            serverSubscribed = true;
+            connection.onStateChange((connected) =>
+                set((s) => ({ server: { ...s.server, connection: connected ? 'connected' : 'reconnecting' } })),
+            );
+            connection.subscribe((m) => {
+                if (m.type === 'status') {
+                    // recordings と queue は今のところ画面に出さない
+                    set((s) => ({ server: { ...s.server, whisper: m.whisper, ollama: m.ollama } }));
+                } else if (m.type === 'error' && !starting) {
+                    // 録音を始めるときのエラーは、startRecording がまとめて出す
+                    // 録音中につなぎ直した接続は、resume（#19）するまで音声を受け付けないので、その not_recording は出さない
+                    if (m.code === 'not_recording' && get().recordingSessionId) {
+                        return;
+                    }
+                    toast.error(m.message);
+                }
+            });
+            connection.start();
         },
 
         // 簡易設定・設定モーダルのどちらからでも呼ぶ。最終の要約のモデルを変えたとき、そのモデルの要約がなければ作る

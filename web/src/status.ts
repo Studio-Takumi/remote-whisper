@@ -1,6 +1,7 @@
 import type { RecordingState } from '@/recording';
 
-// サーバーとブラウザの状態。後で WebSocket の status メッセージ（spec 7.2 節）とマイクの許可から作る
+// サーバーとブラウザの状態。whisper と ollama は WebSocket の status メッセージ（spec 7.2 節）から、
+// connection は WebSocket がつながっているか、microphone はマイクの許可から、ブラウザ側で決める
 export type ServerStatus = {
     whisper: 'unloaded' | 'loading' | 'ready' | 'error';
     ollama: 'ready' | 'error';
@@ -22,7 +23,9 @@ export type Status = { tone: Tone; text: string };
 // 文字起こしタブ用
 export function transcriptStatus(state: RecordingState, server: ServerStatus): Status {
     if (state === 'idle') {
-        return { tone: 'idle', text: '待機中' };
+        return server.connection === 'reconnecting'
+            ? { tone: 'warning', text: 'サーバーにつながっていません。つなぎ直しています…' }
+            : { tone: 'idle', text: '待機中' };
     }
     if (server.connection === 'reconnecting') {
         return { tone: 'warning', text: 'サーバーに再接続しています…（録音は続けています）' };
