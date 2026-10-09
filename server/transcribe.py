@@ -1,6 +1,6 @@
 """音声ファイルを文字起こしする
 
-使い方: .venv\\Scripts\\python.exe transcribe.py <音声ファイル>
+使い方: uv run python transcribe.py <音声ファイル>
 """
 
 import os
