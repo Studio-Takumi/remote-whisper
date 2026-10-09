@@ -155,7 +155,8 @@ export const useAppStore = create<AppState>()((set, get) => {
                     partial: s.partial?.sessionId === m.session && s.partial.segment === m.segment ? null : s.partial,
                 }));
             } else if (m.type === 'summary.delta' && m.kind === 'live') {
-                // 途中の要約は毎回まるごと作り直されるので、届き始めたら新しい下書きにする
+                // 途中の要約は毎回まるごと作り直される。summary.done で下書きを消すので、
+                // その後に届いた最初の delta から、新しい下書きとして積んでいく
                 set((s) => ({
                     liveDraft: {
                         sessionId: m.session,
@@ -328,6 +329,8 @@ export const useAppStore = create<AppState>()((set, get) => {
                 recordingState: 'idle',
                 recordingSessionId: null,
                 micLevel: 0,
+                // 流れている途中で終えると summary.done（live）が来ないので、書きかけの途中の要約は捨てる
+                liveDraft: null,
                 projects: sessionId
                     ? updateSession(s.projects, sessionId, (x) => ({ ...x, status: 'done', endedAt }))
                     : s.projects,
