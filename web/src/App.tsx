@@ -5,17 +5,17 @@ import { toast } from 'sonner';
 import { AppSidebar } from '@/components/AppSidebar';
 import { MicButton } from '@/components/MicButton';
 import { NewProjectDialog } from '@/components/NewProjectDialog';
+import { SessionView } from '@/components/SessionView';
 import { SettingsDialog } from '@/components/SettingsDialog';
-import { StatusIndicator } from '@/components/StatusIndicator';
 import { TopBar } from '@/components/TopBar';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { Toaster } from '@/components/ui/sonner';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { findSession, projects } from '@/mock';
 import { defaultSettings } from '@/settings';
 
 function App() {
     const [recording, setRecording] = useState(false);
-    const [activeSession, setActiveSession] = useState('セッションA1');
+    const [activeSession, setActiveSession] = useState(projects[0].sessions[0].id);
     const [settings, setSettings] = useState(defaultSettings);
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [newProjectOpen, setNewProjectOpen] = useState(false);
@@ -31,19 +31,7 @@ function App() {
             />
             <SidebarInset className='gap-4 p-4'>
                 <TopBar recording={recording} settings={settings} onChangeSettings={setSettings} />
-                <Tabs defaultValue='transcript'>
-                    <div className='flex justify-center'>
-                        <TabsList>
-                            <TabsTrigger value='transcript'>文字起こし</TabsTrigger>
-                            <TabsTrigger value='summary'>要約</TabsTrigger>
-                        </TabsList>
-                    </div>
-                    <TabsContent value='transcript' className='flex flex-col gap-2'>
-                        <p>文字起こし</p>
-                        <StatusIndicator recording={recording} />
-                    </TabsContent>
-                    <TabsContent value='summary'>要約</TabsContent>
-                </Tabs>
+                <SessionView session={findSession(activeSession)} recording={recording} />
                 <MicButton recording={recording} onToggle={() => setRecording((r) => !r)} />
             </SidebarInset>
             <NewProjectDialog

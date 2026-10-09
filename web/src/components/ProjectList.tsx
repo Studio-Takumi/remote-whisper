@@ -12,7 +12,7 @@ export function ProjectList({
 }: {
     projects: Project[];
     activeSession: string;
-    onSelectSession: (session: string) => void;
+    onSelectSession: (sessionId: string) => void;
 }) {
     return (
         <Accordion type='multiple' defaultValue={projects.map((p) => p.id)}>
@@ -33,12 +33,12 @@ export function ProjectList({
                     <AccordionContent className='pb-2'>
                         <SidebarMenu>
                             {project.sessions.map((session) => (
-                                <SidebarMenuItem key={session}>
+                                <SidebarMenuItem key={session.id}>
                                     <SidebarMenuButton
-                                        isActive={session === activeSession}
-                                        onClick={() => onSelectSession(session)}
+                                        isActive={session.id === activeSession}
+                                        onClick={() => onSelectSession(session.id)}
                                     >
-                                        <span>{session}</span>
+                                        <span>{session.title}</span>
                                     </SidebarMenuButton>
                                 </SidebarMenuItem>
                             ))}
