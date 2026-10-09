@@ -2,6 +2,7 @@
 
 使い方: .venv\\Scripts\\python.exe transcribe.py <音声ファイル>
 """
+
 import os
 import sys
 import time
