@@ -4,7 +4,13 @@ import sys
 import pytest
 
 from remote_whisper.fsaccess import is_within, real_path
-from remote_whisper.projects import ProjectFile, display_name, project_id
+from remote_whisper.projects import (
+    ProjectError,
+    ProjectFile,
+    ProjectStore,
+    display_name,
+    project_id,
+)
 
 windows_only = pytest.mark.skipif(sys.platform != "win32", reason="Windows のパスの扱い")
 
@@ -144,3 +150,43 @@ def test_register_outside_roots(client, workdir, tmp_path):
 def test_register_missing_or_relative(client, workdir):
     assert client.post("/api/projects", json={"path": str(workdir / "nope")}).status_code == 404
     assert client.post("/api/projects", json={"path": "meetings"}).status_code == 400
+    (workdir / "a.txt").write_text("x", encoding="utf-8")
+    assert client.post("/api/projects", json={"path": str(workdir / "a.txt")}).status_code == 400
+
+
+def test_register_link_pointing_outside_roots(client, workdir, tmp_path, make_dir_link):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    make_dir_link(workdir / "link", outside)
+    res = client.post("/api/projects", json={"path": str(workdir / "link")})
+    assert res.status_code == 403
+
+
+def test_register_link_inside_roots_uses_real_path(client, workdir, make_dir_link):
+    make_dir_link(workdir / "alias", workdir / "meetings")
+    a = client.post("/api/projects", json={"path": str(workdir / "alias")}).json()
+    b = client.post("/api/projects", json={"path": str(workdir / "meetings")}).json()
+    assert a["id"] == b["id"]
+    assert a["name"] == "meetings"
+
+
+def test_broken_project_json_is_skipped_in_list(client, workdir, home):
+    good = client.post("/api/projects", json={"path": str(workdir / "meetings")}).json()
+    broken = home / "projects" / "D--broken-abcdef"
+    broken.mkdir()
+    (broken / "project.json").write_text("{not json", encoding="utf-8")
+    newer = home / "projects" / "D--newer-abcdef"
+    newer.mkdir()
+    (newer / "project.json").write_text(json.dumps({"version": 99, "path": "D:\\x"}), "utf-8")
+
+    res = client.get("/api/projects")
+    assert res.status_code == 200
+    assert [p["id"] for p in res.json()] == [good["id"]]
+
+
+def test_invalid_pid_is_rejected(home):
+    store = ProjectStore(home)
+    for pid in ["..", "../x", "a/b", "a\\b", ""]:
+        with pytest.raises(ProjectError) as e:
+            store.load(pid)
+        assert e.value.status == 404
