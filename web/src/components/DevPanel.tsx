@@ -27,13 +27,17 @@ export function DevPanel() {
                         label='Whisper'
                         value={server.whisper}
                         options={['unloaded', 'loading', 'ready', 'error']}
-                        onChange={(whisper) => onChangeServer({ ...server, whisper })}
+                        onChange={(whisper) =>
+                            setMockStatus({ whisper }).catch(() => onChangeServer({ ...server, whisper }))
+                        }
                     />
                     <Field
                         label='Ollama'
                         value={server.ollama}
                         options={['ready', 'error']}
-                        onChange={(ollama) => onChangeServer({ ...server, ollama })}
+                        onChange={(ollama) =>
+                            setMockStatus({ ollama }).catch(() => onChangeServer({ ...server, ollama }))
+                        }
                     />
                     <Field
                         label='接続'
@@ -62,6 +66,19 @@ export function DevPanel() {
             </button>
         </div>
     );
+}
+
+// モックサーバー（--mock）の状態を変える。サーバーから全員に status が届いて、表示が変わる
+// モックサーバーでないとき（404 など）や、つながらないときは reject するので、画面の中だけで切り替える
+async function setMockStatus(status: { whisper?: string; ollama?: string }) {
+    const res = await fetch('/api/mock/status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(status),
+    });
+    if (!res.ok) {
+        throw new Error(`POST /api/mock/status: ${res.status}`);
+    }
 }
 
 function Field<T extends string>({

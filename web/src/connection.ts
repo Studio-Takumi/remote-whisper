@@ -8,10 +8,53 @@ function wsUrl() {
     return `${protocol}//${location.host}/ws`;
 }
 
+// 切れたらつなぎ直すまでの待ち時間（ミリ秒）。失敗するたびに伸ばす
+const RETRY_DELAYS = [500, 1000, 2000, 4000, 8000];
+
 class Connection {
     private ws: WebSocket | null = null;
     private opening: Promise<void> | null = null;
     private readonly listeners = new Set<Listener>();
+    private readonly stateListeners = new Set<(connected: boolean) => void>();
+    private keepAlive = false;
+    private retries = 0;
+    private retryTimer: ReturnType<typeof setTimeout> | undefined;
+
+    // つなぎ続ける。切れたら、間隔を伸ばしながらつなぎ直す（アプリの起動時に1回呼ぶ）
+    start() {
+        if (this.keepAlive) {
+            return;
+        }
+        this.keepAlive = true;
+        this.reconnect();
+    }
+
+    private reconnect() {
+        clearTimeout(this.retryTimer);
+        this.open().catch(() => this.scheduleRetry());
+    }
+
+    private scheduleRetry() {
+        if (!this.keepAlive) {
+            return;
+        }
+        const delay = RETRY_DELAYS[Math.min(this.retries, RETRY_DELAYS.length - 1)];
+        this.retries += 1;
+        clearTimeout(this.retryTimer);
+        this.retryTimer = setTimeout(() => this.reconnect(), delay);
+    }
+
+    // つながった・切れたときに呼ぶ。戻り値の関数でやめる
+    onStateChange(listener: (connected: boolean) => void) {
+        this.stateListeners.add(listener);
+        return () => {
+            this.stateListeners.delete(listener);
+        };
+    }
+
+    private setConnected(connected: boolean) {
+        this.stateListeners.forEach((l) => l(connected));
+    }
 
     // つながっていなければつなぐ。つながったら resolve する
     open(timeoutMs = 5000): Promise<void> {
@@ -31,6 +74,8 @@ class Connection {
             ws.onopen = () => {
                 clearTimeout(timer);
                 this.ws = ws;
+                this.retries = 0;
+                this.setConnected(true);
                 resolve();
             };
             ws.onerror = () => {
@@ -40,6 +85,8 @@ class Connection {
             ws.onclose = () => {
                 if (this.ws === ws) {
                     this.ws = null;
+                    this.setConnected(false);
+                    this.scheduleRetry();
                 }
             };
             ws.onmessage = (e: MessageEvent) => {
