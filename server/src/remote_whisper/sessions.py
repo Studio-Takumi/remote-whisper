@@ -48,13 +48,15 @@ class SessionFiles:
         """最終の要約のフロントマター。生成 ID の昇順（古いものから）。読めないものは飛ばす"""
         result = []
         for path in sorted(self.dir.glob(f"summary-{self.id}-*.md")):
-            if not SUMMARY_RE.fullmatch(path.name):
+            m = SUMMARY_RE.fullmatch(path.name)
+            if not m or m.group(1) != self.id:
                 continue
             try:
                 meta, _ = read_doc(path, SummaryMeta)
             except (OSError, ValueError):
                 continue
-            result.append(meta)
+            # ID はファイル名を正とする（フロントマターと食い違っても、ファイルを開けるように）
+            result.append(meta.model_copy(update={"id": self.id, "generation_id": m.group(2)}))
         return sorted(result, key=lambda s: s.generation_id)
 
     def availability(self) -> dict[str, Any]:

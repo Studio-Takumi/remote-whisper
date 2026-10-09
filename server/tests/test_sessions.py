@@ -171,6 +171,41 @@ def test_summary_by_generation_id(client, project):
     assert client.get(f"{base(pid)}/{SID}/summaries/..%2Fx").status_code == 404
 
 
+def test_broken_yaml_does_not_break_the_list(client, project):
+    pid, d = project
+    (d / f"summary-{SID}-20261009-190000.md").write_text(
+        "---\ntitle: [unclosed\n---\nbody\n", encoding="utf-8"
+    )
+    (d / f"transcript-{SID}.md").write_text("---\nid: : :\n  - x\n---\n", encoding="utf-8")
+    body = client.get(base(pid)).json()
+    assert body[0]["files"]["summaries"] == 2
+    assert "transcriptMeta" not in client.get(f"{base(pid)}/{SID}").json()
+    assert client.get(f"{base(pid)}/{SID}/transcript").status_code == 500
+    assert client.get(f"{base(pid)}/{SID}/summaries/latest").status_code == 200
+
+
+def test_file_name_wins_over_frontmatter_ids(client, project):
+    pid, d = project
+    meta = summary("20261009-000000", "qwen3.5:4b")  # フロントマターの ID がファイル名と違う
+    write_doc(d / f"summary-{SID}-20261009-200000.md", meta, "新しい要約\n")
+    ids = [s["generationId"] for s in client.get(f"{base(pid)}/{SID}/summaries").json()]
+    assert ids[-1] == "20261009-200000"
+    body = client.get(f"{base(pid)}/{SID}/summaries/latest").json()
+    assert (body["generationId"], body["text"]) == ("20261009-200000", "新しい要約\n")
+
+
+def test_m4a_recording_counts(client, project):
+    pid, d = project
+    (d / f"recording-{SID}.mp3").unlink()
+    (d / f"recording-{SID}.m4a").write_bytes(b"\0")
+    assert client.get(base(pid)).json()[0]["files"]["recording"] is True
+
+
+def test_invalid_session_id(client, project):
+    pid, _ = project
+    assert client.get(f"{base(pid)}/not-an-id").status_code == 404
+
+
 def test_latest_falls_back_to_the_live_summary(client, project):
     pid, d = project
     sid = "20261002-100000"

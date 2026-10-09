@@ -9,7 +9,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException
 
 from remote_whisper.context import AppContext, get_ctx
-from remote_whisper.documents import SummaryMeta, parse, read_doc
+from remote_whisper.documents import SummaryMeta, read_doc
 from remote_whisper.projects import ProjectError, ProjectFile, SessionEntry
 from remote_whisper.sessions import (
     ID_RE,
@@ -116,6 +116,7 @@ def get_summary(pid: str, sid: str, gid: str, ctx: Ctx) -> dict[str, Any]:
         meta, body = read_doc(path, SummaryMeta)
     except (OSError, ValueError) as e:
         raise HTTPException(status_code=500, detail=f"要約を読み込めません: {e}") from e
+    meta = meta.model_copy(update={"id": sid, "generation_id": gid})  # ファイル名を正とする
     return {"kind": "final", **_summary_json(meta), "text": body}
 
 
@@ -123,10 +124,8 @@ def _live_summary(files: SessionFiles) -> dict[str, Any]:
     path = files.live_summary
     if not path.is_file():
         raise HTTPException(status_code=404, detail="要約はまだありません")
-    text = path.read_text(encoding="utf-8")
-    # 途中の要約にフロントマターがあれば外す（なくてもよい）
     try:
-        _, text = parse(text)
-    except ValueError:
-        pass
+        text = path.read_text(encoding="utf-8")
+    except (OSError, ValueError) as e:
+        raise HTTPException(status_code=500, detail=f"途中の要約を読み込めません: {e}") from e
     return {"kind": "live", "text": text}
