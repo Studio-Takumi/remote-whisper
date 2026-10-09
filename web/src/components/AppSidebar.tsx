@@ -36,14 +36,16 @@ export function AppSidebar({
             </SidebarHeader>
             <SidebarContent>
                 <SidebarGroup>
-                    <SidebarMenu>
-                        <SidebarMenuItem>
-                            <SidebarMenuButton tooltip='新規プロジェクト作成' onClick={onNewProject}>
-                                <PlusIcon />
-                                <span>新規プロジェクト作成</span>
-                            </SidebarMenuButton>
-                        </SidebarMenuItem>
-                    </SidebarMenu>
+                    <RecordingLock locked={recording} message='録音中はプロジェクトを作成できません'>
+                        <SidebarMenu>
+                            <SidebarMenuItem>
+                                <SidebarMenuButton tooltip='新規プロジェクト作成' onClick={onNewProject}>
+                                    <PlusIcon />
+                                    <span>新規プロジェクト作成</span>
+                                </SidebarMenuButton>
+                            </SidebarMenuItem>
+                        </SidebarMenu>
+                    </RecordingLock>
                 </SidebarGroup>
                 <SidebarGroup className='group-data-[collapsible=icon]:hidden'>
                     <ProjectList projects={projects} activeSession={activeSession} onSelectSession={onSelectSession} />
