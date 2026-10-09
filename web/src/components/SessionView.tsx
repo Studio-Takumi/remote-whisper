@@ -1,3 +1,4 @@
+import { Markdown } from '@/components/Markdown';
 import { StatusIndicator } from '@/components/StatusIndicator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { Session } from '@/mock';
@@ -34,8 +35,7 @@ export function SessionView({ session, recording }: { session: Session | undefin
                     <StatusIndicator recording={recording} />
                 </TabsContent>
                 <TabsContent value='summary'>
-                    {/* 本物は Markdown で届くので、後で Markdown として表示する */}
-                    <p className='leading-6 whitespace-pre-wrap'>{session?.summary}</p>
+                    <Markdown>{session?.summary ?? ''}</Markdown>
                 </TabsContent>
             </div>
         </Tabs>
