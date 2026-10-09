@@ -17,6 +17,12 @@ export function formatElapsed(sec: number) {
     return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
 }
 
+// 文字起こしの行の時刻。録音の開始からの秒数を HH:MM:SS にする（transcript-<ID>.md と同じ形）
+export function formatClock(sec: number) {
+    const s = Math.floor(sec);
+    return `${pad(Math.floor(s / 3600))}:${pad(Math.floor((s % 3600) / 60))}:${pad(s % 60)}`;
+}
+
 export function formatDateTime(date = new Date()) {
     const d = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
     return `${d} ${pad(date.getHours())}:${pad(date.getMinutes())}`;

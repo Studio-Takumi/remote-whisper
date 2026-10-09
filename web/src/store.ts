@@ -18,11 +18,14 @@ import type { ServerMessage, SettingsOptions } from '@/protocol';
 import type { RecordingState } from '@/recording';
 import { type Settings, defaultSettings } from '@/settings';
 import { type ServerStatus, initialServerStatus } from '@/status';
-import { formatDateTime, newId } from '@/time';
+import { formatClock, formatDateTime, newId } from '@/time';
 
 // 画面の状態をまとめて持つストア。サーバーのデータ（projects など）は、後で TanStack Query に移す想定
 
 type Selection = { projectId: string | null; sessionId: string | null };
+
+// partial（spec 7.2）。committed は確定した部分、tentative はまだ変わるかもしれない部分
+export type LivePartial = { sessionId: string; segment: number; committed: string; tentative: string };
 
 type AppState = {
     projects: Project[];
@@ -36,6 +39,8 @@ type AppState = {
     micLevel: number;
     // 送ったが ack がまだ来ていない音声のチャンクの数
     pendingAudio: number;
+    // 文字起こし中の区間（partial）。final が来たら消える
+    partial: LivePartial | null;
     settings: Settings;
     // 設定で選べる値。サーバーから取れなければダミーのまま
     options: SettingsOptions;
@@ -128,6 +133,25 @@ export const useAppStore = create<AppState>()((set, get) => {
         unsubscribe = connection.subscribe((m) => {
             if (m.type === 'ack') {
                 sender?.ack(m.seq);
+            } else if (m.type === 'partial') {
+                set({
+                    partial: {
+                        sessionId: m.session,
+                        segment: m.segment,
+                        committed: m.committed,
+                        tentative: m.tentative,
+                    },
+                });
+            } else if (m.type === 'final') {
+                // 区間全体の文字起こしで、partial を置き換える
+                const line = { time: formatClock(m.start), text: m.text };
+                set((s) => ({
+                    projects: updateSession(s.projects, m.session, (x) => ({
+                        ...x,
+                        transcript: [...x.transcript, line],
+                    })),
+                    partial: s.partial?.segment === m.segment ? null : s.partial,
+                }));
             } else if (m.type === 'status') {
                 // 表示の配線は #18 でまとめて行う。ここでは Whisper の読み込みの状態だけ反映する
                 set((s) => ({ server: { ...s.server, whisper: m.whisper, ollama: m.ollama } }));
@@ -160,6 +184,7 @@ export const useAppStore = create<AppState>()((set, get) => {
             recordingState: 'recording',
             recordingSessionId: created.id,
             elapsed: 0,
+            partial: null,
         }));
         startElapsedTimer();
     }
@@ -181,6 +206,7 @@ export const useAppStore = create<AppState>()((set, get) => {
         elapsed: 0,
         micLevel: 0,
         pendingAudio: 0,
+        partial: null,
         settings: defaultSettings,
         options: fallbackOptions,
         server: initialServerStatus,

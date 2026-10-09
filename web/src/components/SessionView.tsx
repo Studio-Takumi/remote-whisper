@@ -2,6 +2,7 @@ import { AudioLinesIcon, FolderPlusIcon } from 'lucide-react';
 
 import { Markdown } from '@/components/Markdown';
 import { StatusIndicator } from '@/components/StatusIndicator';
+import { Transcript } from '@/components/Transcript';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { Generating, Session, Summary } from '@/mock';
 import { summaryStatus, transcriptStatus } from '@/status';
@@ -17,6 +18,7 @@ export function SessionView() {
     const liveIntervalMin = useAppStore((s) => s.settings.ollama.liveSummaryIntervalMin);
     const finalModel = useAppStore((s) => s.settings.ollama.finalSummaryModel);
     const generating = useAppStore((s) => s.generating);
+    const partial = useAppStore((s) => s.partial);
 
     if (!project) {
         return <EmptyState hasProjects={hasProjects} />;
@@ -52,14 +54,12 @@ export function SessionView() {
                 )}
 
                 <TabsContent value='transcript' className='flex flex-col gap-2'>
-                    {session?.transcript.map((line) => (
-                        <div key={line.time} className='flex gap-3'>
-                            <span className='shrink-0 font-mono text-xs leading-6 text-muted-foreground'>
-                                {line.time}
-                            </span>
-                            <p className='leading-6'>{line.text}</p>
-                        </div>
-                    ))}
+                    {session && (
+                        <Transcript
+                            lines={session.transcript}
+                            partial={partial?.sessionId === session.id ? partial : null}
+                        />
+                    )}
                     {!session && recordingState === 'idle' && (
                         <p className='text-sm text-muted-foreground'>マイクボタンを押すと録音が始まります。</p>
                     )}
