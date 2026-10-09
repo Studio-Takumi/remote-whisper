@@ -113,8 +113,10 @@ let sender: AudioSender | null = null;
 let unsubscribe: (() => void) | null = null;
 let starting = false;
 let serverSubscribed = false;
-// つなぎ直して resume を送っている間
+// つなぎ直して resume を送り、started を待っている間
 let resuming = false;
+// resume の世代。切れるたびに増やし、前の接続で待っていた resume の結果は捨てる
+let resumeGeneration = 0;
 // resume の後、最初の ack を受けたら ack されていない音声を送り直す
 let resendAfterAck = false;
 // 接続が切れている間に録音を終えたセッション。つながり直したら resume して、残りの音声と stop を送る
@@ -149,10 +151,14 @@ export const useAppStore = create<AppState>()((set, get) => {
                 if (resendAfterAck) {
                     resendAfterAck = false;
                     sender?.resend();
-                    // 切れている間に録音を終えていたら、溜めた音声を送り終えてから stop を送る
+                    // 溜めた音声を送り終えてから、切れている間の操作を今の状態に合わせて伝える
                     if (stoppedWhileOffline) {
+                        // 切れている間に録音を終えていた
                         stoppedWhileOffline = null;
                         connection.send({ type: 'stop' });
+                    } else {
+                        // 切れている間の一時停止・再開は届いていないので、必ず今の状態を送る
+                        connection.send({ type: get().recordingState === 'paused' ? 'pause' : 'unpause' });
                     }
                 }
             } else if (m.type === 'partial') {
@@ -234,32 +240,51 @@ export const useAppStore = create<AppState>()((set, get) => {
     // 切れている間もマイクは止めず、音声は ack されるまで手元に溜めておく
     async function resumeAfterReconnect() {
         const sessionId = get().recordingSessionId ?? stoppedWhileOffline;
-        if (!sessionId || !sender || resuming) {
+        if (!sessionId || !sender) {
             return;
         }
+        const generation = ++resumeGeneration;
         resuming = true;
-        resendAfterAck = true;
+        resendAfterAck = false;
         try {
             connection.send({ type: 'resume', session: sessionId, nextSeq: sender.nextSeq });
             const reply = await connection.waitFor(
                 (m): m is StartedMessage | ErrorMessage =>
                     (m.type === 'started' && m.session === sessionId) || m.type === 'error',
             );
-            if (reply.type === 'error') {
-                // サーバーが待てる時間（60秒）を過ぎて、録音が途中で終わった
-                interruptRecording(sessionId);
+            // 待っている間に切れた（またはつなぎ直した）なら、この結果は使わない
+            if (generation !== resumeGeneration) {
                 return;
             }
-            // 切れている間に一時停止していたら、サーバーにも伝える
-            if (get().recordingState === 'paused') {
-                connection.send({ type: 'pause' });
+            if (reply.type === 'error') {
+                if (reply.code === 'session_not_found') {
+                    // サーバーが待てる時間（60秒）を過ぎた、サーバーが再起動したなど
+                    interruptRecording(sessionId);
+                } else {
+                    retryResume(generation);
+                }
+                return;
             }
+            // 続く ack（サーバーが受け取り済みの最後の連番）を受けたら、その次から送り直す
+            resendAfterAck = true;
         } catch {
-            // 応答がないまま切れたときは、次につながったときにもう一度試す
-            resendAfterAck = false;
+            // 応答がない。つながったままなら、少し待ってもう一度試す（切れたなら、つながり直したときに試す）
+            if (generation === resumeGeneration) {
+                retryResume(generation);
+            }
         } finally {
-            resuming = false;
+            if (generation === resumeGeneration) {
+                resuming = false;
+            }
         }
+    }
+
+    function retryResume(generation: number) {
+        setTimeout(() => {
+            if (generation === resumeGeneration && connection.isOpen) {
+                void resumeAfterReconnect();
+            }
+        }, 1000);
     }
 
     // 録音が途中で終わったことにする（resume できなかったとき）
@@ -350,6 +375,13 @@ export const useAppStore = create<AppState>()((set, get) => {
             if (s.recordingState !== 'idle' || starting) {
                 return;
             }
+            // 切れている間に終えた録音の残りをまだ送っていない。始めると、その残りが捨てられてしまう
+            if (stoppedWhileOffline) {
+                toast.warning(
+                    '前の録音の残りをサーバーに送るのを待っています。サーバーにつながってから、もう一度押してください',
+                );
+                return;
+            }
             starting = true;
             try {
                 await beginRecording(project.id);
@@ -393,10 +425,10 @@ export const useAppStore = create<AppState>()((set, get) => {
             }
             sender?.flush();
             const sessionId = get().recordingSessionId;
-            if (connection.isOpen && !resuming) {
+            if (sender && !sender.holding) {
                 connection.send({ type: 'stop' });
             } else {
-                // つながっていないときは、つながり直して溜めた音声を送ってから stop を送る
+                // 切れていて音声を溜めている間は、つながり直して溜めた音声を送ってから stop を送る
                 stoppedWhileOffline = sessionId;
             }
             // 最後に送った音声の ack を受け取れるように、購読は次の録音を始めるまで続ける
@@ -444,6 +476,10 @@ export const useAppStore = create<AppState>()((set, get) => {
                 } else {
                     // 新しい接続ではセッションが resume されるまで音声を受け付けないので、それまで溜めておく
                     sender?.hold();
+                    // 前の接続で待っていた resume は打ち切る
+                    resumeGeneration += 1;
+                    resuming = false;
+                    resendAfterAck = false;
                 }
             });
             connection.subscribe((m) => {

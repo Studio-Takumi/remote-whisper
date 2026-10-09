@@ -155,7 +155,7 @@ export class AudioSender {
     private readonly pending = new Map<number, ArrayBuffer>();
     private buffer = new Int16Array(CHUNK_SAMPLES);
     private length = 0;
-    private holding = false;
+    private isHolding = false;
 
     private readonly onPendingChange: (count: number) => void;
 
@@ -185,7 +185,7 @@ export class AudioSender {
         new DataView(frame).setUint32(0, this.seq, true);
         new Int16Array(frame, 4).set(this.buffer.subarray(0, this.length));
         this.pending.set(this.seq, frame);
-        if (!this.holding) {
+        if (!this.isHolding) {
             connection.sendBinary(frame);
         }
         this.seq += 1;
@@ -208,14 +208,19 @@ export class AudioSender {
         return this.pending.size > 0 ? Math.min(...this.pending.keys()) : this.seq;
     }
 
+    // 送らずに溜めているか（切れてから、resume して送り直すまで）
+    get holding() {
+        return this.isHolding;
+    }
+
     // 接続が切れたので、つなぎ直して resume が済むまで送らずに溜めておく
     hold() {
-        this.holding = true;
+        this.isHolding = true;
     }
 
     // ack されていない音声を、連番の順に送り直して、送信を再開する（つなぎ直した後、サーバーの ack を受けてから呼ぶ）
     resend() {
-        this.holding = false;
+        this.isHolding = false;
         for (const key of [...this.pending.keys()].sort((a, b) => a - b)) {
             connection.sendBinary(this.pending.get(key)!);
         }
