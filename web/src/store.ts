@@ -167,15 +167,16 @@ export const useAppStore = create<AppState>()((set, get) => {
             startElapsedTimer();
         },
 
-        // 録音を終えたら、セッションを確定して、最終の要約を作り始める
+        // 録音を終えたら、セッションの終了日時と状態を確定して、最終の要約を作り始める
         stopRecording: () => {
             clearInterval(elapsedTimer);
             const sessionId = get().recordingSessionId;
+            const endedAt = formatDateTime();
             set((s) => ({
                 recordingState: 'idle',
                 recordingSessionId: null,
                 projects: sessionId
-                    ? updateSession(s.projects, sessionId, (x) => ({ ...x, status: 'done' }))
+                    ? updateSession(s.projects, sessionId, (x) => ({ ...x, status: 'done', endedAt }))
                     : s.projects,
             }));
             const s = get();

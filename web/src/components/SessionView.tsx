@@ -105,7 +105,10 @@ function SummaryPanel({
     const summary: Summary | undefined =
         session.summaries.findLast((s) => s.model === finalModel) ?? session.summaries.at(-1);
     if (!summary) {
-        return <p className='text-sm text-muted-foreground'>まだ要約がありません。</p>;
+        // 録音中は下に途中の要約の状態が出るので、何も出さない
+        return session.status === 'recording' ? null : (
+            <p className='text-sm text-muted-foreground'>まだ要約がありません。</p>
+        );
     }
 
     return (
