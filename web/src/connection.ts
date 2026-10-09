@@ -199,4 +199,16 @@ export class AudioSender {
         }
         this.onPendingChange(this.pending.size);
     }
+
+    // サーバーに受け取ってほしい次の連番（ack されていない最初のもの）。resume の nextSeq に使う
+    get nextSeq() {
+        return this.pending.size > 0 ? Math.min(...this.pending.keys()) : this.seq;
+    }
+
+    // ack されていない音声を、連番の順に送り直す（つなぎ直した後、サーバーの ack を受けてから呼ぶ）
+    resend() {
+        for (const key of [...this.pending.keys()].sort((a, b) => a - b)) {
+            connection.sendBinary(this.pending.get(key)!);
+        }
+    }
 }

@@ -113,6 +113,10 @@ let sender: AudioSender | null = null;
 let unsubscribe: (() => void) | null = null;
 let starting = false;
 let serverSubscribed = false;
+// つなぎ直して resume を送っている間
+let resuming = false;
+// resume の後、最初の ack を受けたら ack されていない音声を送り直す
+let resendAfterAck = false;
 
 type StartedMessage = Extract<ServerMessage, { type: 'started' }>;
 type ErrorMessage = Extract<ServerMessage, { type: 'error' }>;
@@ -138,6 +142,11 @@ export const useAppStore = create<AppState>()((set, get) => {
         unsubscribe = connection.subscribe((m) => {
             if (m.type === 'ack') {
                 sender?.ack(m.seq);
+                // つなぎ直した直後の ack は、サーバーが受け取り済みの最後の連番。その次から送り直す
+                if (resendAfterAck) {
+                    resendAfterAck = false;
+                    sender?.resend();
+                }
             } else if (m.type === 'partial') {
                 set({
                     partial: {
@@ -211,6 +220,64 @@ export const useAppStore = create<AppState>()((set, get) => {
             liveDraft: null,
         }));
         startElapsedTimer();
+    }
+
+    // 録音中に切れた接続がつながり直したら、resume を送って続きから録音する（spec 6.7・7.2）
+    // 切れている間もマイクは止めず、音声は ack されるまで手元に溜めておく
+    async function resumeAfterReconnect() {
+        const sessionId = get().recordingSessionId;
+        if (!sessionId || !sender || resuming) {
+            return;
+        }
+        resuming = true;
+        resendAfterAck = true;
+        try {
+            connection.send({ type: 'resume', session: sessionId, nextSeq: sender.nextSeq });
+            const reply = await connection.waitFor(
+                (m): m is StartedMessage | ErrorMessage =>
+                    (m.type === 'started' && m.session === sessionId) || m.type === 'error',
+            );
+            if (reply.type === 'error') {
+                // サーバーが待てる時間（60秒）を過ぎて、録音が途中で終わった
+                interruptRecording(sessionId);
+                return;
+            }
+            // 切れている間に一時停止していたら、サーバーにも伝える
+            if (get().recordingState === 'paused') {
+                connection.send({ type: 'pause' });
+            }
+        } catch {
+            // 応答がないまま切れたときは、次につながったときにもう一度試す
+            resendAfterAck = false;
+        } finally {
+            resuming = false;
+        }
+    }
+
+    // 録音が途中で終わったことにする（resume できなかったとき）
+    function interruptRecording(sessionId: string) {
+        clearInterval(elapsedTimer);
+        resendAfterAck = false;
+        closeRecording();
+        set((s) => ({
+            recordingState: 'idle',
+            recordingSessionId: null,
+            micLevel: 0,
+            pendingAudio: 0,
+            partial: null,
+            liveDraft: null,
+            projects: updateSession(s.projects, sessionId, (x) => ({
+                ...x,
+                status: 'interrupted',
+                endedAt: formatDateTime(),
+            })),
+        }));
+        toast.error(
+            'サーバーとの接続が長く切れていたため、録音は途中で終わりました。そこまでの録音は保存されています',
+            {
+                duration: 10000,
+            },
+        );
     }
 
     // マイクを閉じ、録音のためのメッセージの受け取りをやめる
@@ -352,19 +419,19 @@ export const useAppStore = create<AppState>()((set, get) => {
                 return;
             }
             serverSubscribed = true;
-            connection.onStateChange((connected) =>
-                set((s) => ({ server: { ...s.server, connection: connected ? 'connected' : 'reconnecting' } })),
-            );
+            connection.onStateChange((connected) => {
+                set((s) => ({ server: { ...s.server, connection: connected ? 'connected' : 'reconnecting' } }));
+                // 録音中に切れていたら、続きから録音する
+                if (connected && get().recordingSessionId) {
+                    void resumeAfterReconnect();
+                }
+            });
             connection.subscribe((m) => {
                 if (m.type === 'status') {
                     // recordings と queue は今のところ画面に出さない
                     set((s) => ({ server: { ...s.server, whisper: m.whisper, ollama: m.ollama } }));
-                } else if (m.type === 'error' && !starting) {
-                    // 録音を始めるときのエラーは、startRecording がまとめて出す
-                    // 録音中につなぎ直した接続は、resume（#19）するまで音声を受け付けないので、その not_recording は出さない
-                    if (m.code === 'not_recording' && get().recordingSessionId) {
-                        return;
-                    }
+                } else if (m.type === 'error' && !starting && !resuming) {
+                    // 録音を始める・続けるときのエラーは、それぞれの処理でまとめて出す
                     toast.error(m.message);
                 }
             });

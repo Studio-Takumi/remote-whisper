@@ -2,6 +2,7 @@ import time
 
 import pytest
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 from remote_whisper.app import create_app
 from remote_whisper.mock import FINAL_TITLE, LIVE_TITLE, SCRIPT, MockTiming
@@ -254,6 +255,25 @@ def test_ollama_error(mock_client):
         ws.send_json({"type": "stop"})
         error = receive_until(ws, of_type("error"))[-1]
         assert error["code"] == "ollama_unavailable"
+
+
+def test_disconnect_then_resume(mock_client):
+    with mock_client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        sid = start(ws)
+        ws.send_bytes(audio(0))
+        receive_until(ws, of_type("ack", seq=0))
+        assert mock_client.post("/api/mock/disconnect").json()["closed"] == 1
+        with pytest.raises(WebSocketDisconnect):
+            while True:
+                ws.receive_json()
+
+    with mock_client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        ws.send_json({"type": "resume", "session": sid, "nextSeq": 1})
+        assert receive_until(ws, of_type("ack"))[-1]["seq"] == 0
+        ws.send_bytes(audio(1))
+        assert receive_until(ws, of_type("ack"))[-1]["seq"] == 1
 
 
 def test_context_set_messages(mock_client):
