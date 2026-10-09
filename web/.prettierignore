@@ -1,3 +1,7 @@
 dist
 node_modules
 package-lock.json
+
+# shadcn が生成するファイル（再生成のたびに差分が出ないように、生成されたままにしておく）
+src/components/ui
+src/hooks/use-mobile.ts
