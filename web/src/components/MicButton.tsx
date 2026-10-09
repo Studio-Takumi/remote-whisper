@@ -1,33 +1,29 @@
 import { MicIcon, PauseIcon, PlayIcon, PlusIcon, SquareIcon } from 'lucide-react';
 
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { formatElapsed } from '@/hooks/useRecordingTimer';
-import type { RecordingState } from '@/recording';
+import { currentProject, currentSession, useAppStore } from '@/store';
+import { formatElapsed } from '@/time';
 
 // 待機中に押したら何が起きるか
 // none: プロジェクトを選んでいない / new: 新しいセッションの画面 / session: 既存のセッションを開いている
-export type MicTarget = { kind: 'none' } | { kind: 'new' } | { kind: 'session'; projectName: string };
+type MicTarget = { kind: 'none' } | { kind: 'new' } | { kind: 'session'; projectName: string };
 
 // sticky + mx-auto で、サイドバーの開閉に関係なくメイン領域の中央下に置く
 // 大きいボタンは開始・一時停止・再開。録音を終えるのは取り返しがつかないので、右横の小さいボタンに分ける
 // 小さいボタンと経過時間は、マイクボタンが中央からずれないよう絶対配置にする
-export function MicButton({
-    state,
-    target,
-    elapsed,
-    onStart,
-    onStop,
-    onPause,
-    onResume,
-}: {
-    state: RecordingState;
-    target: MicTarget;
-    elapsed: number;
-    onStart: () => void;
-    onStop: () => void;
-    onPause: () => void;
-    onResume: () => void;
-}) {
+export function MicButton() {
+    const state = useAppStore((s) => s.recordingState);
+    const elapsed = useAppStore((s) => s.elapsed);
+    const projectName = useAppStore((s) => currentProject(s)?.name);
+    const hasSession = useAppStore((s) => currentSession(s) !== undefined);
+    const onStart = useAppStore((s) => s.startRecording);
+    const onStop = useAppStore((s) => s.stopRecording);
+    const onPause = useAppStore((s) => s.pauseRecording);
+    const onResume = useAppStore((s) => s.resumeRecording);
+
+    const target: MicTarget =
+        projectName === undefined ? { kind: 'none' } : hasSession ? { kind: 'session', projectName } : { kind: 'new' };
+
     const main =
         state === 'recording'
             ? {

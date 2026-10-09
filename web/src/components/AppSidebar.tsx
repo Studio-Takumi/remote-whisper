@@ -13,27 +13,17 @@ import {
     SidebarMenuItem,
     SidebarTrigger,
 } from '@/components/ui/sidebar';
-import type { Project } from '@/mock';
+import { useAppStore, visibleProjects } from '@/store';
 
-export function AppSidebar({
-    recording,
-    projects,
-    activeProject,
-    activeSession,
-    onSelectSession,
-    onNewSession,
-    onNewProject,
-    onOpenSettings,
-}: {
-    recording: boolean;
-    projects: Project[];
-    activeProject: string | null;
-    activeSession: string | null;
-    onSelectSession: (projectId: string, sessionId: string) => void;
-    onNewSession: (projectId: string) => void;
-    onNewProject: () => void;
-    onOpenSettings: () => void;
-}) {
+export function AppSidebar() {
+    const recording = useAppStore((s) => s.recordingState !== 'idle');
+    const projects = useAppStore(visibleProjects);
+    const selection = useAppStore((s) => s.selection);
+    const selectSession = useAppStore((s) => s.selectSession);
+    const newSession = useAppStore((s) => s.newSession);
+    const setNewProjectOpen = useAppStore((s) => s.setNewProjectOpen);
+    const setSettingsOpen = useAppStore((s) => s.setSettingsOpen);
+
     return (
         <Sidebar collapsible='icon'>
             <SidebarHeader className='flex flex-row items-center justify-between'>
@@ -45,7 +35,10 @@ export function AppSidebar({
                     <RecordingLock locked={recording} message='録音中はプロジェクトを作成できません'>
                         <SidebarMenu>
                             <SidebarMenuItem>
-                                <SidebarMenuButton tooltip='新規プロジェクト作成' onClick={onNewProject}>
+                                <SidebarMenuButton
+                                    tooltip='新規プロジェクト作成'
+                                    onClick={() => setNewProjectOpen(true)}
+                                >
                                     <PlusIcon />
                                     <span>新規プロジェクト作成</span>
                                 </SidebarMenuButton>
@@ -58,10 +51,10 @@ export function AppSidebar({
                     <RecordingLock locked={recording} message='録音中は他のセッションを開けません'>
                         <ProjectList
                             projects={projects}
-                            activeProject={activeProject}
-                            activeSession={activeSession}
-                            onSelectSession={onSelectSession}
-                            onNewSession={onNewSession}
+                            activeProject={selection.projectId}
+                            activeSession={selection.sessionId}
+                            onSelectSession={selectSession}
+                            onNewSession={newSession}
                         />
                     </RecordingLock>
                 </SidebarGroup>
@@ -70,7 +63,7 @@ export function AppSidebar({
                 <RecordingLock locked={recording}>
                     <SidebarMenu>
                         <SidebarMenuItem>
-                            <SidebarMenuButton tooltip='設定' onClick={onOpenSettings}>
+                            <SidebarMenuButton tooltip='設定' onClick={() => setSettingsOpen(true)}>
                                 <SettingsIcon />
                                 <span>設定</span>
                             </SidebarMenuButton>

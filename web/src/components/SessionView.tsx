@@ -3,30 +3,21 @@ import { AudioLinesIcon, FolderPlusIcon } from 'lucide-react';
 import { Markdown } from '@/components/Markdown';
 import { StatusIndicator } from '@/components/StatusIndicator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import type { Generating, Project, Session, Summary } from '@/mock';
-import type { RecordingState } from '@/recording';
-import { type ServerStatus, summaryStatus, transcriptStatus } from '@/status';
+import type { Generating, Session, Summary } from '@/mock';
+import { summaryStatus, transcriptStatus } from '@/status';
+import { currentProject, currentSession, useAppStore, visibleProjects } from '@/store';
 
 // メイン画面の中身。何も選んでいない・新しいセッション・既存のセッションの3つを出し分ける
-export function SessionView({
-    hasProjects,
-    project,
-    session,
-    recordingState,
-    server,
-    liveIntervalMin,
-    finalModel,
-    generating,
-}: {
-    hasProjects: boolean;
-    project: Project | undefined;
-    session: Session | undefined;
-    recordingState: RecordingState;
-    server: ServerStatus;
-    liveIntervalMin: number;
-    finalModel: string;
-    generating: Generating | null;
-}) {
+export function SessionView() {
+    const hasProjects = useAppStore((s) => visibleProjects(s).length > 0);
+    const project = useAppStore(currentProject);
+    const session = useAppStore(currentSession);
+    const recordingState = useAppStore((s) => s.recordingState);
+    const server = useAppStore((s) => s.server);
+    const liveIntervalMin = useAppStore((s) => s.settings.ollama.liveSummaryIntervalMin);
+    const finalModel = useAppStore((s) => s.settings.ollama.finalSummaryModel);
+    const generating = useAppStore((s) => s.generating);
+
     if (!project) {
         return <EmptyState hasProjects={hasProjects} />;
     }

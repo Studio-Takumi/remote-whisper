@@ -1,13 +1,15 @@
 import { useState } from 'react';
 
 import { ChevronDownIcon, FileTextIcon, PlusIcon } from 'lucide-react';
+import { useShallow } from 'zustand/react/shallow';
 
 import { MaterialPickerDialog } from '@/components/MaterialPickerDialog';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { Switch } from '@/components/ui/switch';
-import { type ContextSelection, type ContextSet, type Project, contextSetName } from '@/mock';
+import { type ContextSet, contextSetName } from '@/mock';
+import { currentContextSelection, currentContextSets, currentProject, useAppStore } from '@/store';
 
 const NONE = 'none';
 
@@ -18,23 +20,15 @@ const statusLabel: Record<ContextSet['status'], string> = {
 };
 
 // 参考資料セットを選ぶ。右上では ModelSelect と同じ見た目で、押すと右から Sheet が開く
-export function ContextSetSheet({
-    project,
-    sets,
-    selection,
-    roots,
-    extensions,
-    onChangeSelection,
-    onCreate,
-}: {
-    project: Project | undefined;
-    sets: ContextSet[];
-    selection: ContextSelection;
-    roots: string[];
-    extensions: string[];
-    onChangeSelection: (selection: ContextSelection) => void;
-    onCreate: (materials: string[]) => void;
-}) {
+// セットと選択はプロジェクトごとに持つ
+export function ContextSetSheet() {
+    const project = useAppStore(currentProject);
+    const sets = useAppStore(currentContextSets);
+    const selection = useAppStore(useShallow(currentContextSelection));
+    const roots = useAppStore((s) => s.settings.materials.roots);
+    const extensions = useAppStore((s) => s.settings.materials.extensions);
+    const onChangeSelection = useAppStore((s) => s.changeContextSelection);
+    const onCreate = useAppStore((s) => s.createContextSet);
     const [pickerOpen, setPickerOpen] = useState(false);
     const current = sets.find((s) => s.id === selection.setId);
 

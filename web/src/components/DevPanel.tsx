@@ -4,20 +4,14 @@ import { WrenchIcon } from 'lucide-react';
 
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import type { ServerStatus } from '@/status';
+import { useAppStore } from '@/store';
 
 // 開発中だけ出す、状態を切り替えるパネル。サーバーがなくても、状態ごとの表示を確かめられるようにする
-export function DevPanel({
-    server,
-    onChangeServer,
-    noProjects,
-    onChangeNoProjects,
-}: {
-    server: ServerStatus;
-    onChangeServer: (server: ServerStatus) => void;
-    noProjects: boolean;
-    onChangeNoProjects: (noProjects: boolean) => void;
-}) {
+export function DevPanel() {
+    const server = useAppStore((s) => s.server);
+    const onChangeServer = useAppStore((s) => s.setServer);
+    const noProjects = useAppStore((s) => s.noProjects);
+    const onChangeNoProjects = useAppStore((s) => s.setNoProjects);
     const [open, setOpen] = useState(false);
 
     if (!import.meta.env.DEV) {
