@@ -361,7 +361,7 @@ export const useAppStore = create<AppState>()((set, get) => {
             const s = get();
             const project = currentProject(s);
             if (!project) {
-                toast.info('録音するプロジェクトを左のメニューから選んでください');
+                toast.info('録音するプロジェクトをメニューから選んでください');
                 return;
             }
             // 既存のセッションを開いていたら、同じプロジェクトの新しいセッションの画面に切り替えるだけにする

@@ -4,6 +4,10 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { currentProject, currentSession, useAppStore } from '@/store';
 import { formatElapsed } from '@/time';
 
+// アイコンの大きさ。スマホの幅ではボタンが小さいので、アイコンも小さくする
+const smallIcon = 'size-10 md:size-14';
+const largeIcon = 'size-12 md:size-16';
+
 // 待機中に押したら何が起きるか
 // none: プロジェクトを選んでいない / new: 新しいセッションの画面 / session: 既存のセッションを開いている
 type MicTarget = { kind: 'none' } | { kind: 'new' } | { kind: 'session'; projectName: string };
@@ -31,50 +35,63 @@ export function MicButton() {
             ? {
                   onClick: onPause,
                   label: 'クリックして一時停止',
+                  hint: '',
                   color: 'bg-red-500',
-                  icon: <PauseIcon size={56} fill='currentColor' />,
+                  icon: <PauseIcon className={smallIcon} fill='currentColor' />,
               }
             : state === 'paused'
               ? {
                     onClick: onResume,
                     label: 'クリックして録音再開',
+                    hint: '',
                     color: 'bg-amber-500',
-                    icon: <PlayIcon size={56} fill='currentColor' />,
+                    icon: <PlayIcon className={smallIcon} fill='currentColor' />,
                 }
               : target.kind === 'session'
                 ? {
                       onClick: onStart,
                       label: `クリックして「${target.projectName}」に新しいセッションを作成`,
+                      hint: '押すと新しいセッション',
                       color: 'bg-neutral-500',
-                      icon: <PlusIcon size={64} />,
+                      icon: <PlusIcon className={largeIcon} />,
                   }
                 : target.kind === 'new' && micDenied
                   ? {
                         // 押すともう一度マイクの許可を求める（ブラウザの設定で許可し直した場合のため）
                         onClick: onStart,
                         label: 'マイクが許可されていません。ブラウザの設定でマイクを許可してください',
+                        hint: 'マイクが許可されていません',
                         color: 'bg-blue-500 opacity-50',
-                        icon: <MicOffIcon size={64} />,
+                        icon: <MicOffIcon className={largeIcon} />,
                     }
                   : target.kind === 'new'
                     ? {
                           onClick: onStart,
                           label: 'クリックして録音開始',
+                          hint: '押すと録音開始',
                           color: 'bg-blue-500',
-                          icon: <MicIcon size={64} />,
+                          icon: <MicIcon className={largeIcon} />,
                       }
                     : {
                           onClick: onStart,
-                          label: '録音するプロジェクトを左のメニューから選んでください',
+                          label: '録音するプロジェクトをメニューから選んでください',
+                          hint: 'プロジェクトを選んでください',
                           color: 'cursor-not-allowed bg-blue-500 opacity-50',
-                          icon: <MicIcon size={64} />,
+                          icon: <MicIcon className={largeIcon} />,
                       };
 
     // 録音中は上に経過時間を出すので、Tooltip は左右に出して被らないようにする
     const recording = state !== 'idle';
 
     return (
-        <div className='sticky bottom-8 mx-auto mt-auto shrink-0'>
+        // スマホでは画面の下端（ホームバーなど）を避ける
+        <div className='sticky bottom-[max(1.5rem,env(safe-area-inset-bottom))] mx-auto mt-auto shrink-0 md:bottom-8'>
+            {/* タッチではツールチップが出ないので、待機中はボタンの上に短い説明を出す */}
+            {!recording && (
+                <p className='absolute bottom-full left-1/2 mb-3 hidden -translate-x-1/2 rounded-full bg-background/90 px-2 py-0.5 text-xs whitespace-nowrap text-muted-foreground shadow-sm pointer-coarse:block'>
+                    {main.hint}
+                </p>
+            )}
             {recording && (
                 <p
                     className={`absolute bottom-full left-1/2 mb-6 -translate-x-1/2 font-mono text-lg tabular-nums ${state === 'paused' ? 'animate-pulse text-muted-foreground' : ''}`}
@@ -94,7 +111,7 @@ export function MicButton() {
             <Tooltip>
                 <TooltipTrigger asChild>
                     <button
-                        className={`relative flex h-32 w-32 items-center justify-center rounded-full text-white transition-colors ${main.color}`}
+                        className={`relative flex size-24 items-center justify-center rounded-full text-white transition-colors md:size-32 ${main.color}`}
                         onClick={main.onClick}
                         aria-label={main.label}
                     >
@@ -113,6 +130,9 @@ export function MicButton() {
                             aria-label='クリックして録音終了'
                         >
                             <SquareIcon className='size-4' fill='currentColor' />
+                            <span className='absolute top-full mt-1 hidden text-xs text-muted-foreground pointer-coarse:block'>
+                                終了
+                            </span>
                         </button>
                     </TooltipTrigger>
                     <TooltipContent side='right'>クリックして録音終了</TooltipContent>
