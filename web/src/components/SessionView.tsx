@@ -38,6 +38,7 @@ export function SessionView() {
                         <h1 className='text-lg font-semibold'>{session.title}</h1>
                         <p className='text-xs text-muted-foreground'>
                             {session.startedAt}
+                            {session.status === 'recording' && '・録音中'}
                             {session.status === 'interrupted' && '・途中で中断'}
                         </p>
                     </div>

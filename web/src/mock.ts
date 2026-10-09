@@ -16,7 +16,8 @@ export type Session = {
     id: string;
     title: string;
     startedAt: string;
-    status: 'done' | 'interrupted';
+    // recording は録音中（ほかの端末で録音しているものも含む）
+    status: 'recording' | 'done' | 'interrupted';
     transcript: TranscriptLine[];
     summaries: Summary[];
 };

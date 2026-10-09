@@ -23,6 +23,8 @@ type AppState = {
     projects: Project[];
     selection: Selection;
     recordingState: RecordingState;
+    // 録音中のセッション。録音を始めたときに作る（spec 5.2・6.2）
+    recordingSessionId: string | null;
     // 録音の経過時間（秒）。一時停止中は止まる
     elapsed: number;
     settings: Settings;
@@ -92,6 +94,7 @@ export const useAppStore = create<AppState>()((set, get) => {
         projects: initialProjects,
         selection: { projectId: null, sessionId: null },
         recordingState: 'idle',
+        recordingSessionId: null,
         elapsed: 0,
         settings: defaultSettings,
         server: initialServerStatus,
@@ -122,7 +125,25 @@ export const useAppStore = create<AppState>()((set, get) => {
                 toast.error('マイクが使えません。ブラウザの設定でマイクを許可してください');
                 return;
             }
-            set({ recordingState: 'recording', elapsed: 0 });
+            // セッションは録音を始めたときに作る。ID と開始日時は録音を始めた時刻（spec 5.2）
+            const now = new Date();
+            const created: Session = {
+                id: newId(now),
+                title: '新しいセッション',
+                startedAt: formatDateTime(now),
+                status: 'recording',
+                transcript: [],
+                summaries: [],
+            };
+            set({
+                projects: s.projects.map((p) =>
+                    p.id === project.id ? { ...p, sessions: [created, ...p.sessions] } : p,
+                ),
+                selection: { projectId: project.id, sessionId: created.id },
+                recordingState: 'recording',
+                recordingSessionId: created.id,
+                elapsed: 0,
+            });
             startElapsedTimer();
             // Whisper は録音を始めたときに読み込む（spec 6.2 節）
             if (s.server.whisper === 'unloaded') {
@@ -146,31 +167,22 @@ export const useAppStore = create<AppState>()((set, get) => {
             startElapsedTimer();
         },
 
-        // 録音を終えたら、セッションを作って開き、最終の要約を作り始める
+        // 録音を終えたら、セッションを確定して、最終の要約を作り始める
         stopRecording: () => {
             clearInterval(elapsedTimer);
+            const sessionId = get().recordingSessionId;
+            set((s) => ({
+                recordingState: 'idle',
+                recordingSessionId: null,
+                projects: sessionId
+                    ? updateSession(s.projects, sessionId, (x) => ({ ...x, status: 'done' }))
+                    : s.projects,
+            }));
             const s = get();
-            set({ recordingState: 'idle' });
-            const project = currentProject(s);
-            if (!project) {
-                return;
+            const done = s.projects.flatMap((p) => p.sessions).find((x) => x.id === sessionId);
+            if (done) {
+                get().generateSummary(done, s.settings.ollama.finalSummaryModel);
             }
-            const now = new Date();
-            const created: Session = {
-                id: newId(now),
-                title: '新しいセッション',
-                startedAt: formatDateTime(now),
-                status: 'done',
-                transcript: [],
-                summaries: [],
-            };
-            set({
-                projects: s.projects.map((p) =>
-                    p.id === project.id ? { ...p, sessions: [created, ...p.sessions] } : p,
-                ),
-                selection: { projectId: project.id, sessionId: created.id },
-            });
-            get().generateSummary(created, s.settings.ollama.finalSummaryModel);
         },
 
         // 簡易設定・設定モーダルのどちらからでも呼ぶ。最終の要約のモデルを変えたとき、そのモデルの要約がなければ作る
