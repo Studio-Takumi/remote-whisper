@@ -261,16 +261,16 @@ export const useAppStore = create<AppState>()((set, get) => {
                     // サーバーが待てる時間（60秒）を過ぎた、サーバーが再起動したなど
                     interruptRecording(sessionId);
                 } else {
-                    retryResume(generation);
+                    retryResume();
                 }
                 return;
             }
             // 続く ack（サーバーが受け取り済みの最後の連番）を受けたら、その次から送り直す
             resendAfterAck = true;
         } catch {
-            // 応答がない。つながったままなら、少し待ってもう一度試す（切れたなら、つながり直したときに試す）
+            // 応答がない（切れたなら、つながり直したときにもう一度試す）
             if (generation === resumeGeneration) {
-                retryResume(generation);
+                retryResume();
             }
         } finally {
             if (generation === resumeGeneration) {
@@ -279,12 +279,10 @@ export const useAppStore = create<AppState>()((set, get) => {
         }
     }
 
-    function retryResume(generation: number) {
-        setTimeout(() => {
-            if (generation === resumeGeneration && connection.isOpen) {
-                void resumeAfterReconnect();
-            }
-        }, 1000);
+    // resume がうまくいかなかったら、接続を切ってつなぎ直す。つながったら、もう一度 resume する
+    // 同じ接続でやり直さないのは、遅れて届いた started で、サーバーがこの接続にセッションを付けているかもしれないため
+    function retryResume() {
+        connection.drop();
     }
 
     // 録音が途中で終わったことにする（resume できなかったとき）

@@ -110,6 +110,11 @@ class Connection {
         return this.ws?.readyState === WebSocket.OPEN;
     }
 
+    // 今の接続を切る。start() していれば、つなぎ直す（サーバーとのやりとりがおかしくなったときに、やり直すため）
+    drop() {
+        this.ws?.close();
+    }
+
     // 届いたメッセージを受け取る。戻り値の関数で受け取りをやめる
     subscribe(listener: Listener) {
         this.listeners.add(listener);
