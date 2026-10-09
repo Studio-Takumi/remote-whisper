@@ -30,6 +30,22 @@ flowchart LR
 
 > 🚧 開発中です。現時点では、サーバーの雛形と `server/transcribe.py`（音声ファイルの文字起こし）、`web/` の画面のモック（ダミーデータ）しかありません。
 
+## 画面
+
+録音中は、話している内容が流れるように文字起こしされ、数分おきに途中の要約が更新されます。録音が終わると、時間をかけて最終の要約を作ります。
+
+![録音中の文字起こし](docs/images/desktop-light-recording.png)
+
+| 要約（Markdown・数式・コード） | 録音中の途中の要約（ダーク） |
+| --- | --- |
+| ![要約](docs/images/desktop-light-summary.png) | ![途中の要約](docs/images/desktop-dark-recording-summary.png) |
+
+| スマホ | 設定 | 参考資料の選択 |
+| --- | --- | --- |
+| ![スマホ](docs/images/mobile-light-recording.png) | ![設定](docs/images/desktop-light-settings.png) | ![参考資料](docs/images/desktop-light-materials.png) |
+
+ほかの画面（ライト・ダーク、デスクトップ・スマホ）は [docs/images/](docs/images/) にあります。画像の中のプロジェクトや会話はすべて架空のものです。
+
 ## 構成
 
 | ディレクトリ | 内容 |
@@ -113,6 +129,19 @@ uv run remote-whisper --mock --mock-live-summary-sec 10   # 途中の要約を 1
 
 - `POST /api/mock/status` … `{"whisper": "error"}` や `{"ollama": "error"}` で、サーバーの状態を変えて全員に `status` を送る
 - `POST /api/mock/context-set` … 参考資料セットの作成をまねて、`contextSet` を `generating` → `ready`（`{"result": "failed"}` なら `failed`）の順に送る
+- `POST /api/mock/disconnect` … WebSocket をすべて切る（再接続と録音の再開を確かめる用）
+
+### スクリーンショットを撮り直す
+
+`docs/images/` の画像は、モックサーバーとダミーデータを使って Playwright で撮っています。
+
+```bash
+cd server && uv run remote-whisper --mock --mock-live-summary-sec 5   # ターミナル 1
+cd web && npm run dev                                                  # ターミナル 2
+cd web && npx playwright install chromium && npm run screenshots       # ターミナル 3
+```
+
+画面の URL は `SCREENSHOT_URL`（既定: `http://localhost:5173`）、手元の Chromium を使うときは `CHROMIUM_PATH` で指定できます。
 
 ## ネットワークと HTTPS について
 
