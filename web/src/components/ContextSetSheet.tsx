@@ -1,4 +1,4 @@
-import { ChevronDownIcon, PlusIcon } from 'lucide-react';
+import { ChevronDownIcon, FileTextIcon, PlusIcon } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -11,7 +11,10 @@ export function ContextSetSheet() {
         <Sheet>
             {/* 見た目は ModelSelect にそろえる（SelectTrigger と同じクラス） */}
             <div className='flex flex-col'>
-                <p className='px-2 text-xs'>参考資料</p>
+                <p className='flex items-center gap-1 px-2 text-xs'>
+                    <FileTextIcon className='size-3' />
+                    参考資料
+                </p>
                 <SheetTrigger className='flex h-8 w-fit max-w-48 items-center justify-between gap-1.5 rounded-lg py-2 pr-2 pl-2.5 text-sm whitespace-nowrap outline-none focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30 dark:hover:bg-input/50'>
                     <span className='truncate'>agenda.pdf, notes.md</span>
                     <ChevronDownIcon className='pointer-events-none size-4 shrink-0 text-muted-foreground' />

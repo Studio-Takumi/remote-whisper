@@ -1,3 +1,5 @@
+import { MicIcon, SparklesIcon } from 'lucide-react';
+
 import { ContextSetSheet } from '@/components/ContextSetSheet';
 import { ModelSelect } from '@/components/ModelSelect';
 import { RecordingLock } from '@/components/RecordingLock';
@@ -24,12 +26,14 @@ export function TopBar({
             <RecordingLock locked={recording} className='ml-auto'>
                 <div className='flex flex-row items-center gap-2'>
                     <ModelSelect
+                        icon={MicIcon}
                         label='文字起こし'
                         value={settings.whisper.model}
                         options={whisperModels}
                         onChange={(model) => onChangeSettings({ ...settings, whisper: { ...settings.whisper, model } })}
                     />
                     <ModelSelect
+                        icon={SparklesIcon}
                         label='要約(リアルタイム)'
                         value={settings.ollama.liveSummaryModel}
                         options={ollamaModels}
@@ -38,6 +42,7 @@ export function TopBar({
                         }
                     />
                     <ModelSelect
+                        icon={SparklesIcon}
                         label='要約(最終)'
                         value={settings.ollama.finalSummaryModel}
                         options={ollamaModels}

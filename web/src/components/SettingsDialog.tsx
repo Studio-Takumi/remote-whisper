@@ -163,8 +163,8 @@ function SettingsForm({ settings, onSave }: { settings: Settings; onSave: (setti
                         </Row>
                         <Row
                             id='unload-after'
-                            label='モデルを下ろすまで'
-                            description='最後に使ってからこの時間たったら VRAM から下ろす'
+                            label='使い終わってからモデルを止めるまで'
+                            description='最後に文字起こししてからこの時間がたったら、モデルを止めて VRAM を空ける'
                         >
                             <NumberInput
                                 id='unload-after'
@@ -232,7 +232,11 @@ function SettingsForm({ settings, onSave }: { settings: Settings; onSave: (setti
                                 onChange={(liveSummaryIntervalMin) => update('ollama', { liveSummaryIntervalMin })}
                             />
                         </Row>
-                        <Row id='keep-alive' label='モデルを下ろすまで' description='録音中は下ろさない'>
+                        <Row
+                            id='keep-alive'
+                            label='使い終わってからモデルを止めるまで'
+                            description='最後に要約してからこの時間がたったら、モデルを止めて VRAM を空ける。録音中は止めない'
+                        >
                             <NumberInput
                                 id='keep-alive'
                                 value={draft.ollama.keepAliveMin}
