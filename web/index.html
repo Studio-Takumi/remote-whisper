@@ -3,7 +3,8 @@
     <head>
         <meta charset="UTF-8" />
         <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <!-- viewport-fit=cover は、スマホのホームバーなどの安全領域（env(safe-area-inset-*)）を使うため -->
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
         <title>web</title>
         <script>
             // 読み込み時のちらつきを防ぐため、React より先にテーマ（.dark）を付ける

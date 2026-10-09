@@ -13,6 +13,7 @@ import {
     SidebarMenuButton,
     SidebarMenuItem,
     SidebarTrigger,
+    useSidebar,
 } from '@/components/ui/sidebar';
 import { useAppStore, visibleProjects } from '@/store';
 
@@ -22,6 +23,8 @@ export function AppSidebar() {
     const selection = useAppStore((s) => s.selection);
     const selectSession = useAppStore((s) => s.selectSession);
     const newSession = useAppStore((s) => s.newSession);
+    // スマホの幅ではサイドバーはシートとして重なるので、セッションを選んだら閉じる
+    const { setOpenMobile } = useSidebar();
     const setNewProjectOpen = useAppStore((s) => s.setNewProjectOpen);
     const setSettingsOpen = useAppStore((s) => s.setSettingsOpen);
 
@@ -38,7 +41,10 @@ export function AppSidebar() {
                             <SidebarMenuItem>
                                 <SidebarMenuButton
                                     tooltip='新規プロジェクト作成'
-                                    onClick={() => setNewProjectOpen(true)}
+                                    onClick={() => {
+                                        setOpenMobile(false);
+                                        setNewProjectOpen(true);
+                                    }}
                                 >
                                     <PlusIcon />
                                     <span>新規プロジェクト作成</span>
@@ -54,8 +60,14 @@ export function AppSidebar() {
                             projects={projects}
                             activeProject={selection.projectId}
                             activeSession={selection.sessionId}
-                            onSelectSession={selectSession}
-                            onNewSession={newSession}
+                            onSelectSession={(projectId, sessionId) => {
+                                selectSession(projectId, sessionId);
+                                setOpenMobile(false);
+                            }}
+                            onNewSession={(projectId) => {
+                                newSession(projectId);
+                                setOpenMobile(false);
+                            }}
                         />
                     </RecordingLock>
                 </SidebarGroup>
@@ -70,7 +82,13 @@ export function AppSidebar() {
                 <RecordingLock locked={recording}>
                     <SidebarMenu>
                         <SidebarMenuItem>
-                            <SidebarMenuButton tooltip='設定' onClick={() => setSettingsOpen(true)}>
+                            <SidebarMenuButton
+                                tooltip='設定'
+                                onClick={() => {
+                                    setOpenMobile(false);
+                                    setSettingsOpen(true);
+                                }}
+                            >
                                 <SettingsIcon />
                                 <span>設定</span>
                             </SidebarMenuButton>
