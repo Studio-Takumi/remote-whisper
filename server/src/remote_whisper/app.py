@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from remote_whisper.context import AppContext
 from remote_whisper.projects import ProjectStore
+from remote_whisper.routes import fs as fs_routes
 from remote_whisper.routes import projects as projects_routes
 from remote_whisper.routes import settings as settings_routes
 from remote_whisper.settings import SettingsStore, default_home
@@ -34,6 +35,7 @@ def create_app(home: Path | None = None) -> FastAPI:
 
     app.include_router(settings_routes.router)
     app.include_router(projects_routes.router)
+    app.include_router(fs_routes.router)
 
     # API より後にマウントする。ビルドしていなければ配信しない（開発中は Vite から開く）
     dist = web_dist_dir()
