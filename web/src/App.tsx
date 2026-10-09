@@ -11,25 +11,38 @@ import { SettingsDialog } from '@/components/SettingsDialog';
 import { TopBar } from '@/components/TopBar';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { Toaster } from '@/components/ui/sonner';
-import { findSession, projects } from '@/mock';
+import { projects } from '@/mock';
 import type { RecordingState } from '@/recording';
 import { defaultSettings } from '@/settings';
 import { initialServerStatus } from '@/status';
 
+type Selection = { projectId: string | null; sessionId: string | null };
+
 function App() {
+    const [selection, setSelection] = useState<Selection>({ projectId: null, sessionId: null });
     const [recordingState, setRecordingState] = useState<RecordingState>('idle');
     const recording = recordingState !== 'idle';
-    const [activeSession, setActiveSession] = useState(projects[0].sessions[0].id);
     const [settings, setSettings] = useState(defaultSettings);
     const [server, setServer] = useState(initialServerStatus);
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [newProjectOpen, setNewProjectOpen] = useState(false);
+    const [noProjects, setNoProjects] = useState(false);
+
+    const visibleProjects = noProjects ? [] : projects;
+    const project = visibleProjects.find((p) => p.id === selection.projectId);
+    const session = project?.sessions.find((s) => s.id === selection.sessionId);
 
     function startRecording() {
+        if (!project) {
+            toast.info('録音するプロジェクトを左のメニューから選んでください');
+            return;
+        }
         if (server.microphone === 'denied') {
             toast.error('マイクが使えません。ブラウザの設定でマイクを許可してください');
             return;
         }
+        // 既存のセッションを開いていたら、同じプロジェクトの新しいセッションの画面に切り替える
+        setSelection({ projectId: project.id, sessionId: null });
         setRecordingState('recording');
         // Whisper は録音を始めたときに読み込む（spec 6.2 節）
         if (server.whisper === 'unloaded') {
@@ -42,15 +55,20 @@ function App() {
         <SidebarProvider>
             <AppSidebar
                 recording={recording}
-                activeSession={activeSession}
-                onSelectSession={setActiveSession}
+                projects={visibleProjects}
+                activeProject={selection.projectId}
+                activeSession={selection.sessionId}
+                onSelectSession={(projectId, sessionId) => setSelection({ projectId, sessionId })}
+                onNewSession={(projectId) => setSelection({ projectId, sessionId: null })}
                 onNewProject={() => setNewProjectOpen(true)}
                 onOpenSettings={() => setSettingsOpen(true)}
             />
             <SidebarInset className='gap-4 p-4'>
                 <TopBar recording={recording} settings={settings} onChangeSettings={setSettings} />
                 <SessionView
-                    session={findSession(activeSession)}
+                    hasProjects={visibleProjects.length > 0}
+                    project={project}
+                    session={session}
                     recordingState={recordingState}
                     server={server}
                     liveIntervalMin={settings.ollama.liveSummaryIntervalMin}
@@ -78,7 +96,12 @@ function App() {
                     toast.success('設定を保存しました');
                 }}
             />
-            <DevPanel server={server} onChangeServer={setServer} />
+            <DevPanel
+                server={server}
+                onChangeServer={setServer}
+                noProjects={noProjects}
+                onChangeNoProjects={setNoProjects}
+            />
             <Toaster />
         </SidebarProvider>
     );

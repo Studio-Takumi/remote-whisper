@@ -1,22 +1,32 @@
+import { AudioLinesIcon, FolderPlusIcon } from 'lucide-react';
+
 import { Markdown } from '@/components/Markdown';
 import { StatusIndicator } from '@/components/StatusIndicator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import type { Session } from '@/mock';
+import type { Project, Session } from '@/mock';
 import type { RecordingState } from '@/recording';
 import { type ServerStatus, summaryStatus, transcriptStatus } from '@/status';
 
-// 選んだセッションの文字起こしと要約
+// メイン画面の中身。何も選んでいない・新しいセッション・既存のセッションの3つを出し分ける
 export function SessionView({
+    hasProjects,
+    project,
     session,
     recordingState,
     server,
     liveIntervalMin,
 }: {
+    hasProjects: boolean;
+    project: Project | undefined;
     session: Session | undefined;
     recordingState: RecordingState;
     server: ServerStatus;
     liveIntervalMin: number;
 }) {
+    if (!project) {
+        return <EmptyState hasProjects={hasProjects} />;
+    }
+
     const live = summaryStatus(recordingState, server, liveIntervalMin);
 
     return (
@@ -28,7 +38,7 @@ export function SessionView({
                 </TabsList>
             </div>
             <div className='mx-auto flex w-full max-w-3xl flex-col gap-4 pt-4'>
-                {session && (
+                {session ? (
                     <div>
                         <h1 className='text-lg font-semibold'>{session.title}</h1>
                         <p className='text-xs text-muted-foreground'>
@@ -36,7 +46,15 @@ export function SessionView({
                             {session.status === 'interrupted' && '・途中で中断'}
                         </p>
                     </div>
+                ) : (
+                    <div>
+                        <h1 className='text-lg font-semibold'>新しいセッション</h1>
+                        <p className='text-xs text-muted-foreground'>
+                            {project.name}（{project.path}）に録音します
+                        </p>
+                    </div>
                 )}
+
                 <TabsContent value='transcript' className='flex flex-col gap-2'>
                     {session?.transcript.map((line) => (
                         <div key={line.time} className='flex gap-3'>
@@ -46,13 +64,42 @@ export function SessionView({
                             <p className='leading-6'>{line.text}</p>
                         </div>
                     ))}
+                    {!session && recordingState === 'idle' && (
+                        <p className='text-sm text-muted-foreground'>マイクボタンを押すと録音が始まります。</p>
+                    )}
                     <StatusIndicator status={transcriptStatus(recordingState, server)} />
                 </TabsContent>
+
                 <TabsContent value='summary' className='flex flex-col gap-4'>
-                    <Markdown>{session?.summary ?? ''}</Markdown>
+                    {session ? (
+                        <Markdown>{session.summary}</Markdown>
+                    ) : (
+                        recordingState === 'idle' && (
+                            <p className='text-sm text-muted-foreground'>
+                                録音が始まると、{liveIntervalMin} 分おきに途中の要約がここに出ます。
+                            </p>
+                        )
+                    )}
                     {live && <StatusIndicator status={live} />}
                 </TabsContent>
             </div>
         </Tabs>
+    );
+}
+
+// 何も選んでいないとき
+function EmptyState({ hasProjects }: { hasProjects: boolean }) {
+    return (
+        <div className='flex flex-1 flex-col items-center justify-center gap-3 text-center text-muted-foreground'>
+            {hasProjects ? <AudioLinesIcon className='size-10' /> : <FolderPlusIcon className='size-10' />}
+            <p className='text-lg font-semibold text-foreground'>
+                {hasProjects ? 'セッションを開くか、新しく録音しましょう' : 'まずはプロジェクトを作りましょう'}
+            </p>
+            <p className='max-w-md text-sm'>
+                {hasProjects
+                    ? '左のメニューから過去のセッションを開くか、プロジェクトの ＋ から新しいセッションを作れます。'
+                    : '左のメニューの「新規プロジェクト作成」から、録音をまとめるフォルダを選んでください。'}
+            </p>
+        </div>
     );
 }

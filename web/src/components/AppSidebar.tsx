@@ -13,18 +13,24 @@ import {
     SidebarMenuItem,
     SidebarTrigger,
 } from '@/components/ui/sidebar';
-import { projects } from '@/mock';
+import type { Project } from '@/mock';
 
 export function AppSidebar({
     recording,
+    projects,
+    activeProject,
     activeSession,
     onSelectSession,
+    onNewSession,
     onNewProject,
     onOpenSettings,
 }: {
     recording: boolean;
-    activeSession: string;
-    onSelectSession: (session: string) => void;
+    projects: Project[];
+    activeProject: string | null;
+    activeSession: string | null;
+    onSelectSession: (projectId: string, sessionId: string) => void;
+    onNewSession: (projectId: string) => void;
     onNewProject: () => void;
     onOpenSettings: () => void;
 }) {
@@ -48,7 +54,16 @@ export function AppSidebar({
                     </RecordingLock>
                 </SidebarGroup>
                 <SidebarGroup className='group-data-[collapsible=icon]:hidden'>
-                    <ProjectList projects={projects} activeSession={activeSession} onSelectSession={onSelectSession} />
+                    {/* 録音中に別のセッションを開くと、録音中の画面に戻れなくなるのでロックする */}
+                    <RecordingLock locked={recording} message='録音中は他のセッションを開けません'>
+                        <ProjectList
+                            projects={projects}
+                            activeProject={activeProject}
+                            activeSession={activeSession}
+                            onSelectSession={onSelectSession}
+                            onNewSession={onNewSession}
+                        />
+                    </RecordingLock>
                 </SidebarGroup>
             </SidebarContent>
             <SidebarFooter>

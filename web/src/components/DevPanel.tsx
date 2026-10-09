@@ -3,15 +3,20 @@ import { useState } from 'react';
 import { WrenchIcon } from 'lucide-react';
 
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import type { ServerStatus } from '@/status';
 
 // 開発中だけ出す、状態を切り替えるパネル。サーバーがなくても、状態ごとの表示を確かめられるようにする
 export function DevPanel({
     server,
     onChangeServer,
+    noProjects,
+    onChangeNoProjects,
 }: {
     server: ServerStatus;
     onChangeServer: (server: ServerStatus) => void;
+    noProjects: boolean;
+    onChangeNoProjects: (noProjects: boolean) => void;
 }) {
     const [open, setOpen] = useState(false);
 
@@ -48,6 +53,10 @@ export function DevPanel({
                         options={['granted', 'denied']}
                         onChange={(microphone) => onChangeServer({ ...server, microphone })}
                     />
+                    <label className='flex items-center justify-between'>
+                        プロジェクトを空にする
+                        <Switch checked={noProjects} onCheckedChange={onChangeNoProjects} />
+                    </label>
                 </div>
             )}
             <button
