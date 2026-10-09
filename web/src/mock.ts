@@ -173,23 +173,77 @@ export const whisperModels = ['large-v3-turbo', 'large-v3', 'medium', 'small'];
 export const computeTypes = ['float16', 'int8_float16', 'int8'];
 export const ollamaModels = ['qwen3.5:4b'];
 
-// フォルダの中身。後で GET /api/fs?path=… から取る
-type DirTree = { [name: string]: DirTree };
+// フォルダの中身。後で GET /api/fs?path=… から取る。null はファイル
+type DirTree = { [name: string]: DirTree | null };
 
 const mockFs: Record<string, DirTree> = {
     'D:\\work': {
-        meetings: { weekly: {}, 'kick-off': {} },
-        lectures: { math: {}, physics: {}, english: {} },
+        meetings: {
+            weekly: { 'agenda.md': null, 'notes.md': null },
+            'kick-off': { 'slides.pdf': null, 'photo.png': null },
+            'release-plan.md': null,
+            'glossary.txt': null,
+        },
+        lectures: {
+            math: { 'syllabus.pdf': null, 'week3.md': null },
+            physics: {},
+            english: {},
+            'algorithms.html': null,
+        },
         interviews: {},
-        notes: {},
+        notes: { 'todo.txt': null, 'memo.docx': null },
     },
 };
 
-// root の下の segments をたどった先にあるフォルダの名前を返す
-export function listDirs(root: string, segments: string[]): string[] {
-    let tree: DirTree | undefined = mockFs[root];
+function findTree(root: string, segments: string[]): DirTree {
+    let tree: DirTree | null | undefined = mockFs[root];
     for (const s of segments) {
         tree = tree?.[s];
     }
-    return Object.keys(tree ?? {}).sort();
+    return tree ?? {};
 }
+
+// root の下の segments をたどった先にあるフォルダの名前を返す
+export function listDirs(root: string, segments: string[]): string[] {
+    const tree = findTree(root, segments);
+    return Object.keys(tree)
+        .filter((name) => tree[name] !== null)
+        .sort();
+}
+
+// root の下の segments をたどった先にあるファイルのうち、指定した拡張子のものを返す
+export function listFiles(root: string, segments: string[], extensions: string[]): string[] {
+    const tree = findTree(root, segments);
+    return Object.keys(tree)
+        .filter((name) => tree[name] === null && extensions.some((ext) => name.toLowerCase().endsWith(ext)))
+        .sort();
+}
+
+// 参考資料セット（spec 5.4 節の contextSets）。後で /api/projects/{pid}/context-sets から取る
+export type ContextSet = {
+    id: string;
+    status: 'generating' | 'ready' | 'failed';
+    materials: string[];
+};
+
+// プロジェクトで今選んでいる状態（spec 5.4 節の selection）
+export type ContextSelection = {
+    setId: string | null;
+    useHotwords: boolean;
+    useContext: boolean;
+};
+
+// 資料のファイル名だけを並べた、セットの表示名
+export function contextSetName(set: ContextSet) {
+    return set.materials.map((m) => m.split('\\').at(-1)).join(', ');
+}
+
+export const initialContextSets: Record<string, ContextSet[]> = {
+    'D--work-meetings-a1b2c3': [
+        {
+            id: '20261009-090501',
+            status: 'ready',
+            materials: ['D:\\work\\meetings\\weekly\\agenda.md', 'D:\\work\\meetings\\weekly\\notes.md'],
+        },
+    ],
+};
