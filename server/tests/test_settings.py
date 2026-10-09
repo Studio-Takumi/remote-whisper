@@ -3,7 +3,13 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from remote_whisper.settings import Settings, SettingsStore, deep_merge, default_home
+from remote_whisper.settings import (
+    Settings,
+    SettingsError,
+    SettingsStore,
+    deep_merge,
+    default_home,
+)
 
 
 def test_default_home(monkeypatch, tmp_path):
@@ -43,6 +49,20 @@ def test_reads_existing_file_and_fills_missing_keys(home):
     assert data["ollama"]["host"] == "http://localhost:11434"
 
 
+def test_broken_file_raises_with_path(home):
+    home.mkdir()
+    (home / "setting.json").write_text("{not json", encoding="utf-8")
+    with pytest.raises(SettingsError, match="setting.json"):
+        SettingsStore(home)
+
+
+def test_newer_version_is_rejected(home):
+    home.mkdir()
+    (home / "setting.json").write_text(json.dumps({"version": 2}), encoding="utf-8")
+    with pytest.raises(SettingsError, match="version 2"):
+        SettingsStore(home)
+
+
 def test_update_is_partial_and_persisted(home):
     store = SettingsStore(home)
     store.update({"ollama": {"finalSummaryModel": "gemma3:4b"}})
@@ -58,6 +78,8 @@ def test_update_rejects_invalid_values(home):
         store.update({"whisper": {"beamSize": 0}})
     with pytest.raises(ValidationError):
         store.update({"whisper": {"unknownKey": 1}})
+    with pytest.raises(ValidationError):
+        store.update({"ollama": {"host": ""}})
     assert (home / "setting.json").read_text(encoding="utf-8") == before
 
 
@@ -122,9 +144,13 @@ def test_patch_settings(client, home):
     assert data["whisper"]["beamSize"] == 3
 
 
-def test_patch_settings_invalid(client):
+def test_patch_settings_invalid(client, home):
+    before = (home / "setting.json").read_text(encoding="utf-8")
     res = client.patch("/api/settings", json={"whisper": {"beamSize": "many"}})
     assert res.status_code == 422
+    res = client.patch("/api/settings", json={"whisper": {"unknownKey": 1}})
+    assert res.status_code == 422
+    assert (home / "setting.json").read_text(encoding="utf-8") == before
 
 
 def test_patch_settings_while_recording(client, app):

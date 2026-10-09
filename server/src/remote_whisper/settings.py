@@ -6,12 +6,16 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from pydantic.alias_generators import to_camel
 
 from remote_whisper.fsutil import atomic_write_json
 
 SETTINGS_VERSION = 1
+
+
+class SettingsError(Exception):
+    """setting.json が壊れていて読み込めない"""
 
 
 def default_home() -> Path:
@@ -22,7 +26,10 @@ def default_home() -> Path:
 
 class _Model(BaseModel):
     # setting.json のキーは camelCase。知らないキーは受け付けない（打ち間違いに気づけるように）
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True, extra="forbid")
+    # 文字列は空にできない（モデル名やホストが空だと動かないため）
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, extra="forbid", str_min_length=1
+    )
 
 
 class WhisperSettings(_Model):
@@ -95,8 +102,17 @@ class SettingsStore:
 
     def _load(self) -> Settings:
         if self.path.is_file():
-            data = json.loads(self.path.read_text(encoding="utf-8"))
-            settings = Settings.model_validate(data)
+            try:
+                data = json.loads(self.path.read_text(encoding="utf-8"))
+                settings = Settings.model_validate(data)
+            except (json.JSONDecodeError, ValidationError) as e:
+                raise SettingsError(f"{self.path} を読み込めません: {e}") from e
+            # 古い version からの移行が必要になったら、ここで変換する
+            if settings.version > SETTINGS_VERSION:
+                raise SettingsError(
+                    f"{self.path} の version {settings.version} はこのサーバーより新しいため"
+                    f"読み込めません（対応しているのは {SETTINGS_VERSION} まで）"
+                )
             # 足りないキーは既定値で埋まるので、書き戻して揃えておく
             if settings.to_json() != data:
                 atomic_write_json(self.path, settings.to_json())
