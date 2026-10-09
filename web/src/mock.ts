@@ -83,6 +83,40 @@ export const projects: Project[] = [
         path: 'D:\\work\\lectures',
         sessions: [
             {
+                id: '20261009-130000',
+                title: 'アルゴリズム 二分探索',
+                startedAt: '2026-10-09 13:00',
+                status: 'done',
+                transcript: [
+                    { time: '00:00:06', text: '今日はソート済みの配列から値を探す二分探索をやります。' },
+                    { time: '00:01:12', text: '探す範囲を毎回半分にしていくので、計算量はログ n になります。' },
+                    {
+                        time: '00:02:45',
+                        text: '境界の扱いで無限ループになりやすいので、left と right の更新に注意してください。',
+                    },
+                ],
+                summary: `## 要点
+- ソート済みの配列で、探す範囲を毎回半分にしていく
+- 計算量は $O(\\log n)$
+- \`left\` と \`right\` の更新を間違えると無限ループになる
+
+## 実装例
+
+\`\`\`python
+def binary_search(a: list[int], target: int) -> int:
+    left, right = 0, len(a) - 1
+    while left <= right:
+        mid = (left + right) // 2
+        if a[mid] == target:
+            return mid
+        if a[mid] < target:
+            left = mid + 1
+        else:
+            right = mid - 1
+    return -1
+\`\`\``,
+            },
+            {
                 id: '20261008-090000',
                 title: '線形代数 固有値と固有ベクトル',
                 startedAt: '2026-10-08 09:00',
