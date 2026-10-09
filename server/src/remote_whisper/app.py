@@ -13,6 +13,7 @@ from remote_whisper.routes import fs as fs_routes
 from remote_whisper.routes import mock as mock_routes
 from remote_whisper.routes import options as options_routes
 from remote_whisper.routes import projects as projects_routes
+from remote_whisper.routes import sessions as sessions_routes
 from remote_whisper.routes import settings as settings_routes
 from remote_whisper.routes import ws as ws_routes
 from remote_whisper.settings import SettingsStore, default_home
@@ -54,6 +55,7 @@ def create_app(
     app.include_router(settings_routes.router)
     app.include_router(options_routes.router)
     app.include_router(projects_routes.router)
+    app.include_router(sessions_routes.router)
     app.include_router(fs_routes.router)
     app.include_router(ws_routes.router)
     if mock:

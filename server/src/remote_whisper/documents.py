@@ -65,7 +65,11 @@ def parse(text: str) -> tuple[dict[str, Any], str]:
         raise FrontmatterError("フロントマターがありません")
     for i, line in enumerate(lines[1:], start=1):
         if line.rstrip("\r\n") == "---":
-            meta = yaml.load("".join(lines[1:i]), Loader=_Loader) or {}
+            try:
+                meta = yaml.load("".join(lines[1:i]), Loader=_Loader) or {}
+            except yaml.YAMLError as e:
+                # YAMLError は ValueError ではないので、呼ぶ側でまとめて扱えるように包む
+                raise FrontmatterError(f"フロントマターの YAML を読めません: {e}") from e
             if not isinstance(meta, dict):
                 raise FrontmatterError("フロントマターが辞書ではありません")
             return meta, "".join(lines[i + 1 :])
