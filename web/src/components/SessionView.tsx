@@ -2,9 +2,16 @@ import { Markdown } from '@/components/Markdown';
 import { StatusIndicator } from '@/components/StatusIndicator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { Session } from '@/mock';
+import type { RecordingState } from '@/recording';
 
 // 選んだセッションの文字起こしと要約
-export function SessionView({ session, recording }: { session: Session | undefined; recording: boolean }) {
+export function SessionView({
+    session,
+    recordingState,
+}: {
+    session: Session | undefined;
+    recordingState: RecordingState;
+}) {
     return (
         <Tabs defaultValue='transcript'>
             <div className='flex justify-center'>
@@ -32,7 +39,7 @@ export function SessionView({ session, recording }: { session: Session | undefin
                             <p className='leading-6'>{line.text}</p>
                         </div>
                     ))}
-                    <StatusIndicator recording={recording} />
+                    <StatusIndicator state={recordingState} />
                 </TabsContent>
                 <TabsContent value='summary'>
                     <Markdown>{session?.summary ?? ''}</Markdown>

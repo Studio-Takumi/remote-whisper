@@ -1,11 +1,22 @@
+import type { RecordingState } from '@/recording';
+
 // 文字起こしの一番下に出す今の状態。Claude Code の「Pondering…」のようなイメージ
 // 後で WebSocket の status（whisper / ollama の状態）から出し分ける
-export function StatusIndicator({ recording }: { recording: boolean }) {
-    if (!recording) {
+export function StatusIndicator({ state }: { state: RecordingState }) {
+    if (state === 'idle') {
         return (
             <div className='flex items-center gap-2 text-sm text-muted-foreground'>
                 <span className='size-2 rounded-full bg-muted-foreground/40' />
                 待機中
+            </div>
+        );
+    }
+
+    if (state === 'paused') {
+        return (
+            <div className='flex items-center gap-2 text-sm'>
+                <span className='size-2 rounded-full bg-amber-500' />
+                一時停止中
             </div>
         );
     }

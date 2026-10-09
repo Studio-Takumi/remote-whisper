@@ -11,10 +11,12 @@ import { TopBar } from '@/components/TopBar';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { Toaster } from '@/components/ui/sonner';
 import { findSession, projects } from '@/mock';
+import type { RecordingState } from '@/recording';
 import { defaultSettings } from '@/settings';
 
 function App() {
-    const [recording, setRecording] = useState(false);
+    const [recordingState, setRecordingState] = useState<RecordingState>('idle');
+    const recording = recordingState !== 'idle';
     const [activeSession, setActiveSession] = useState(projects[0].sessions[0].id);
     const [settings, setSettings] = useState(defaultSettings);
     const [settingsOpen, setSettingsOpen] = useState(false);
@@ -31,8 +33,14 @@ function App() {
             />
             <SidebarInset className='gap-4 p-4'>
                 <TopBar recording={recording} settings={settings} onChangeSettings={setSettings} />
-                <SessionView session={findSession(activeSession)} recording={recording} />
-                <MicButton recording={recording} onToggle={() => setRecording((r) => !r)} />
+                <SessionView session={findSession(activeSession)} recordingState={recordingState} />
+                <MicButton
+                    state={recordingState}
+                    onStart={() => setRecordingState('recording')}
+                    onStop={() => setRecordingState('idle')}
+                    onPause={() => setRecordingState('paused')}
+                    onResume={() => setRecordingState('recording')}
+                />
             </SidebarInset>
             <NewProjectDialog
                 open={newProjectOpen}
