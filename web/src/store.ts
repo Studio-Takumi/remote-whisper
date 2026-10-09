@@ -1,6 +1,8 @@
 import { toast } from 'sonner';
 import { create } from 'zustand';
 
+import { Microphone, MicrophoneError, watchMicrophonePermission } from '@/audio/microphone';
+import { AudioSender, connection } from '@/connection';
 import {
     type ContextSelection,
     type ContextSet,
@@ -12,7 +14,7 @@ import {
     initialProjects,
 } from '@/mock';
 import { fetchOptions } from '@/options';
-import type { SettingsOptions } from '@/protocol';
+import type { ServerMessage, SettingsOptions } from '@/protocol';
 import type { RecordingState } from '@/recording';
 import { type Settings, defaultSettings } from '@/settings';
 import { type ServerStatus, initialServerStatus } from '@/status';
@@ -30,6 +32,10 @@ type AppState = {
     recordingSessionId: string | null;
     // 録音の経過時間（秒）。一時停止中は止まる
     elapsed: number;
+    // マイクの音量（RMS、0〜1）。ボタンのアニメーションに使う
+    micLevel: number;
+    // 送ったが ack がまだ来ていない音声のチャンクの数
+    pendingAudio: number;
     settings: Settings;
     // 設定で選べる値。サーバーから取れなければダミーのまま
     options: SettingsOptions;
@@ -45,10 +51,12 @@ type AppState = {
     loadOptions: () => Promise<void>;
     selectSession: (projectId: string, sessionId: string) => void;
     newSession: (projectId: string) => void;
-    startRecording: () => void;
+    startRecording: () => Promise<void>;
     pauseRecording: () => void;
     resumeRecording: () => void;
     stopRecording: () => void;
+    // マイクの許可の状態を見張り始める
+    watchMicrophone: () => void;
     changeSettings: (settings: Settings) => void;
     generateSummary: (session: Session, model: string) => void;
     changeContextSelection: (selection: ContextSelection) => void;
@@ -90,10 +98,78 @@ function updateSession(projects: Project[], sessionId: string, fn: (s: Session) 
 let elapsedTimer: ReturnType<typeof setInterval> | undefined;
 let generationTimer: ReturnType<typeof setInterval> | undefined;
 
+// 録音に使うもの。React の状態にする必要がないので外に置く
+let mic: Microphone | null = null;
+let sender: AudioSender | null = null;
+let unsubscribe: (() => void) | null = null;
+let starting = false;
+
+type StartedMessage = Extract<ServerMessage, { type: 'started' }>;
+type ErrorMessage = Extract<ServerMessage, { type: 'error' }>;
+
 export const useAppStore = create<AppState>()((set, get) => {
     function startElapsedTimer() {
         clearInterval(elapsedTimer);
         elapsedTimer = setInterval(() => set((s) => ({ elapsed: s.elapsed + 1 })), 1000);
+    }
+
+    // マイクを開き、サーバーに start を送り、started が来たらセッションを作る
+    async function beginRecording(projectId: string) {
+        closeRecording();
+        sender = new AudioSender((pendingAudio) => set({ pendingAudio }));
+        mic = await Microphone.open((pcm, level) => {
+            // 一時停止中の音声は送らない
+            if (get().recordingState === 'recording') {
+                sender?.push(pcm);
+                set({ micLevel: level });
+            }
+        });
+        // 接続した直後に届く status も受け取れるように、つなぐ前に購読する
+        unsubscribe = connection.subscribe((m) => {
+            if (m.type === 'ack') {
+                sender?.ack(m.seq);
+            } else if (m.type === 'status') {
+                // 表示の配線は #18 でまとめて行う。ここでは Whisper の読み込みの状態だけ反映する
+                set((s) => ({ server: { ...s.server, whisper: m.whisper, ollama: m.ollama } }));
+            } else if (m.type === 'error') {
+                toast.error(m.message);
+            }
+        });
+        await connection.open();
+        connection.send({ type: 'start', project: projectId });
+        const reply = await connection.waitFor(
+            (m): m is StartedMessage | ErrorMessage => m.type === 'started' || m.type === 'error',
+        );
+        if (reply.type === 'error') {
+            throw new Error(reply.message);
+        }
+
+        // セッションは録音を始めたときに作る。ID はサーバーが決めた、録音を始めた時刻（spec 5.2）
+        const created: Session = {
+            id: reply.session,
+            title: '新しいセッション',
+            startedAt: formatDateTime(),
+            status: 'recording',
+            transcript: [],
+            summaries: [],
+        };
+        set((s) => ({
+            projects: s.projects.map((p) => (p.id === projectId ? { ...p, sessions: [created, ...p.sessions] } : p)),
+            selection: { projectId, sessionId: created.id },
+            recordingState: 'recording',
+            recordingSessionId: created.id,
+            elapsed: 0,
+        }));
+        startElapsedTimer();
+    }
+
+    // マイクを閉じ、録音のためのメッセージの受け取りをやめる
+    function closeRecording() {
+        mic?.close();
+        mic = null;
+        sender = null;
+        unsubscribe?.();
+        unsubscribe = null;
     }
 
     return {
@@ -102,6 +178,8 @@ export const useAppStore = create<AppState>()((set, get) => {
         recordingState: 'idle',
         recordingSessionId: null,
         elapsed: 0,
+        micLevel: 0,
+        pendingAudio: 0,
         settings: defaultSettings,
         options: fallbackOptions,
         server: initialServerStatus,
@@ -128,7 +206,7 @@ export const useAppStore = create<AppState>()((set, get) => {
         selectSession: (projectId, sessionId) => set({ selection: { projectId, sessionId } }),
         newSession: (projectId) => set({ selection: { projectId, sessionId: null } }),
 
-        startRecording: () => {
+        startRecording: async () => {
             const s = get();
             const project = currentProject(s);
             if (!project) {
@@ -141,48 +219,34 @@ export const useAppStore = create<AppState>()((set, get) => {
                 set({ selection: { projectId: project.id, sessionId: null } });
                 return;
             }
-            if (s.server.microphone === 'denied') {
-                toast.error('マイクが使えません。ブラウザの設定でマイクを許可してください');
+            if (s.recordingState !== 'idle' || starting) {
                 return;
             }
-            // セッションは録音を始めたときに作る。ID と開始日時は録音を始めた時刻（spec 5.2）
-            const now = new Date();
-            const created: Session = {
-                id: newId(now),
-                title: '新しいセッション',
-                startedAt: formatDateTime(now),
-                status: 'recording',
-                transcript: [],
-                summaries: [],
-            };
-            set({
-                projects: s.projects.map((p) =>
-                    p.id === project.id ? { ...p, sessions: [created, ...p.sessions] } : p,
-                ),
-                selection: { projectId: project.id, sessionId: created.id },
-                recordingState: 'recording',
-                recordingSessionId: created.id,
-                elapsed: 0,
-            });
-            startElapsedTimer();
-            // Whisper は録音を始めたときに読み込む（spec 6.2 節）
-            if (s.server.whisper === 'unloaded') {
-                set({ server: { ...s.server, whisper: 'loading' } });
-                setTimeout(() => {
-                    const server = get().server;
-                    if (server.whisper === 'loading') {
-                        set({ server: { ...server, whisper: 'ready' } });
-                    }
-                }, 2000);
+            starting = true;
+            try {
+                await beginRecording(project.id);
+            } catch (e) {
+                closeRecording();
+                if (e instanceof MicrophoneError && e.reason === 'denied') {
+                    set({ server: { ...get().server, microphone: 'denied' } });
+                    toast.error('マイクが使えません。ブラウザの設定でマイクを許可してください');
+                } else {
+                    toast.error((e as Error).message);
+                }
+                return;
+            } finally {
+                starting = false;
             }
         },
 
         pauseRecording: () => {
             clearInterval(elapsedTimer);
-            set({ recordingState: 'paused' });
+            connection.send({ type: 'pause' });
+            set({ recordingState: 'paused', micLevel: 0 });
         },
 
         resumeRecording: () => {
+            connection.send({ type: 'unpause' });
             set({ recordingState: 'recording' });
             startElapsedTimer();
         },
@@ -190,11 +254,17 @@ export const useAppStore = create<AppState>()((set, get) => {
         // 録音を終えたら、セッションの終了日時と状態を確定して、最終の要約を作り始める
         stopRecording: () => {
             clearInterval(elapsedTimer);
+            sender?.flush();
+            connection.send({ type: 'stop' });
+            // 最後に送った音声の ack を受け取れるように、購読は次の録音を始めるまで続ける
+            mic?.close();
+            mic = null;
             const sessionId = get().recordingSessionId;
             const endedAt = formatDateTime();
             set((s) => ({
                 recordingState: 'idle',
                 recordingSessionId: null,
+                micLevel: 0,
                 projects: sessionId
                     ? updateSession(s.projects, sessionId, (x) => ({ ...x, status: 'done', endedAt }))
                     : s.projects,
@@ -204,6 +274,12 @@ export const useAppStore = create<AppState>()((set, get) => {
             if (done) {
                 get().generateSummary(done, s.settings.ollama.finalSummaryModel);
             }
+        },
+
+        watchMicrophone: () => {
+            void watchMicrophonePermission((denied) =>
+                set((s) => ({ server: { ...s.server, microphone: denied ? 'denied' : 'granted' } })),
+            );
         },
 
         // 簡易設定・設定モーダルのどちらからでも呼ぶ。最終の要約のモデルを変えたとき、そのモデルの要約がなければ作る
@@ -294,3 +370,8 @@ export const useAppStore = create<AppState>()((set, get) => {
         setNoProjects: (noProjects) => set({ noProjects }),
     };
 });
+
+// 開発中は、ブラウザの開発者ツールや Playwright からストアを見られるようにする
+if (import.meta.env.DEV) {
+    Object.assign(window, { appStore: useAppStore });
+}
