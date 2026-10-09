@@ -1,7 +1,25 @@
+import os
+import sys
+
 import pytest
 from fastapi.testclient import TestClient
 
 from remote_whisper.app import create_app
+
+
+def _make_dir_link(link, target):
+    """ディレクトリへのリンクを作る。Windows ではジャンクション（管理者権限なしで作れる）"""
+    if sys.platform == "win32":
+        import _winapi
+
+        _winapi.CreateJunction(str(target), str(link))
+    else:
+        os.symlink(target, link, target_is_directory=True)
+
+
+@pytest.fixture
+def make_dir_link():
+    return _make_dir_link
 
 
 @pytest.fixture(autouse=True)

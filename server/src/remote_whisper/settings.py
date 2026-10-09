@@ -105,7 +105,8 @@ class SettingsStore:
             try:
                 data = json.loads(self.path.read_text(encoding="utf-8"))
                 settings = Settings.model_validate(data)
-            except (json.JSONDecodeError, ValidationError) as e:
+            # ValueError は JSON の構文エラーと UTF-8 として読めないもの
+            except (OSError, ValueError, ValidationError) as e:
                 raise SettingsError(f"{self.path} を読み込めません: {e}") from e
             # 古い version からの移行が必要になったら、ここで変換する
             if settings.version > SETTINGS_VERSION:

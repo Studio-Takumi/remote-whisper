@@ -5,6 +5,7 @@ from pathlib import Path
 
 from fastapi import HTTPException, Request
 
+from remote_whisper.projects import ProjectStore
 from remote_whisper.settings import SettingsStore
 
 
@@ -12,6 +13,7 @@ from remote_whisper.settings import SettingsStore
 class AppContext:
     home: Path
     settings: SettingsStore
+    projects: ProjectStore
     # 録音中のセッションの数。録音マネージャ（#20）ができるまでは常に 0
     recordings: int = 0
 
