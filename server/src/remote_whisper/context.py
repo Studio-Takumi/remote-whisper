@@ -6,6 +6,7 @@ from typing import Any
 
 from fastapi import HTTPException, Request
 
+from remote_whisper.gpu_queue import GpuQueue
 from remote_whisper.hub import Hub
 from remote_whisper.projects import ProjectStore
 from remote_whisper.settings import SettingsStore
@@ -23,6 +24,11 @@ class AppContext:
     recorder: Any = None
     # 録音中のセッションの数
     recordings: int = 0
+    # GPU を使う処理（Whisper・Ollama）を順番に実行するキュー。待っている数は status の queue で送る
+    gpu: GpuQueue = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.gpu = GpuQueue(lambda n: self.hub.set_status(queue=n))
 
     @property
     def is_recording(self) -> bool:
