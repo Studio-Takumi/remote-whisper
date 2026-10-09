@@ -424,6 +424,10 @@ GPU を使う処理は、1つのキューを通して順番に実行する。
 | POST | `/api/projects/{pid}/context-sets` | 参考資料を指定して、セットの作成を始める |
 | PATCH | `/api/projects/{pid}/selection` | 使うセットと、用語リスト・コンテキストそれぞれを使うかどうかを設定する。録音中は `409` |
 
+- セッションの一覧とメタ情報には、`files`（`recording`・`transcript` があるか、最終の要約の数 `summaries`、途中の要約があるか `liveSummary`）を付ける。UI はこれを見て「期限切れ」を出す。
+- 文字起こしのファイルが消えたセッションの `GET .../transcript` は `410`（セッション自体がなければ `404`）。文字起こしは `lines`（`[{time, text}]`）とフロントマター `meta` で返す。
+- `GET .../summaries/latest` で途中の要約を返すときは `kind: "live"`、最終の要約は `kind: "final"` を付ける。どちらもなければ `404`。
+
 ### 7.2 WebSocket `/ws`
 
 接続は1本で、録音とサーバーの状態の通知の両方に使う。サーバーから送るメッセージには、関係するセッション ID を付ける。
