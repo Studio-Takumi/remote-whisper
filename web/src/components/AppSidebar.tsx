@@ -1,7 +1,7 @@
 import { PlusIcon, SettingsIcon } from 'lucide-react';
 
-import { ProjectList } from '@/components/project-list';
-import { RecordingLock } from '@/components/recording-lock';
+import { ProjectList } from '@/components/ProjectList';
+import { RecordingLock } from '@/components/RecordingLock';
 import {
     Sidebar,
     SidebarContent,

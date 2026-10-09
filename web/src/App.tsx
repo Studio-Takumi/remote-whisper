@@ -1,8 +1,8 @@
 import { useState } from 'react';
 
-import { AppSidebar } from '@/components/app-sidebar';
-import { MicButton } from '@/components/mic-button';
-import { TopBar } from '@/components/top-bar';
+import { AppSidebar } from '@/components/AppSidebar';
+import { MicButton } from '@/components/MicButton';
+import { TopBar } from '@/components/TopBar';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { Toaster } from '@/components/ui/sonner';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';

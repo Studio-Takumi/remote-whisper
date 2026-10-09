@@ -1,6 +1,6 @@
-import { ContextSetSheet } from '@/components/context-set-sheet';
-import { ModelSelect } from '@/components/model-select';
-import { RecordingLock } from '@/components/recording-lock';
+import { ContextSetSheet } from '@/components/ContextSetSheet';
+import { ModelSelect } from '@/components/ModelSelect';
+import { RecordingLock } from '@/components/RecordingLock';
 
 // メイン画面の上部。左に状態、右に簡易設定
 export function TopBar({ recording }: { recording: boolean }) {
