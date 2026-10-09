@@ -1,42 +1,82 @@
-import { MicIcon, PauseIcon, PlayIcon, SquareIcon } from 'lucide-react';
+import { MicIcon, PauseIcon, PlayIcon, PlusIcon, SquareIcon } from 'lucide-react';
 
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { formatElapsed } from '@/hooks/useRecordingTimer';
 import type { RecordingState } from '@/recording';
+
+// 待機中に押したら何が起きるか
+// none: プロジェクトを選んでいない / new: 新しいセッションの画面 / session: 既存のセッションを開いている
+export type MicTarget = { kind: 'none' } | { kind: 'new' } | { kind: 'session'; projectName: string };
 
 // sticky + mx-auto で、サイドバーの開閉に関係なくメイン領域の中央下に置く
 // 大きいボタンは開始・一時停止・再開。録音を終えるのは取り返しがつかないので、右横の小さいボタンに分ける
-// 小さいボタンは、マイクボタンが中央からずれないよう絶対配置にする
+// 小さいボタンと経過時間は、マイクボタンが中央からずれないよう絶対配置にする
 export function MicButton({
     state,
+    target,
+    elapsed,
     onStart,
     onStop,
     onPause,
     onResume,
 }: {
     state: RecordingState;
+    target: MicTarget;
+    elapsed: number;
     onStart: () => void;
     onStop: () => void;
     onPause: () => void;
     onResume: () => void;
 }) {
-    const main = {
-        idle: { onClick: onStart, label: 'クリックして録音開始', color: 'bg-blue-500', icon: <MicIcon size={64} /> },
-        recording: {
-            onClick: onPause,
-            label: 'クリックして一時停止',
-            color: 'animate-pulse bg-red-500',
-            icon: <PauseIcon size={56} fill='currentColor' />,
-        },
-        paused: {
-            onClick: onResume,
-            label: 'クリックして録音再開',
-            color: 'bg-green-500',
-            icon: <PlayIcon size={56} fill='currentColor' />,
-        },
-    }[state];
+    const main =
+        state === 'recording'
+            ? {
+                  onClick: onPause,
+                  label: 'クリックして一時停止',
+                  color: 'animate-pulse bg-red-500',
+                  icon: <PauseIcon size={56} fill='currentColor' />,
+              }
+            : state === 'paused'
+              ? {
+                    onClick: onResume,
+                    label: 'クリックして録音再開',
+                    color: 'bg-amber-500',
+                    icon: <PlayIcon size={56} fill='currentColor' />,
+                }
+              : target.kind === 'session'
+                ? {
+                      onClick: onStart,
+                      label: `クリックして「${target.projectName}」に新しいセッションを作って録音開始`,
+                      color: 'bg-neutral-500',
+                      icon: <PlusIcon size={64} />,
+                  }
+                : target.kind === 'new'
+                  ? {
+                        onClick: onStart,
+                        label: 'クリックして録音開始',
+                        color: 'bg-blue-500',
+                        icon: <MicIcon size={64} />,
+                    }
+                  : {
+                        onClick: onStart,
+                        label: '録音するプロジェクトを左のメニューから選んでください',
+                        color: 'cursor-not-allowed bg-blue-500 opacity-50',
+                        icon: <MicIcon size={64} />,
+                    };
+
+    // 録音中は上に経過時間を出すので、Tooltip は左右に出して被らないようにする
+    const recording = state !== 'idle';
 
     return (
         <div className='sticky bottom-8 mx-auto mt-auto shrink-0'>
+            {recording && (
+                <p
+                    className={`absolute bottom-full left-1/2 mb-3 -translate-x-1/2 font-mono text-lg tabular-nums ${state === 'paused' ? 'animate-pulse text-muted-foreground' : ''}`}
+                >
+                    {formatElapsed(elapsed)}
+                </p>
+            )}
+
             <Tooltip>
                 <TooltipTrigger asChild>
                     <button
@@ -47,10 +87,10 @@ export function MicButton({
                         {main.icon}
                     </button>
                 </TooltipTrigger>
-                <TooltipContent side='top'>{main.label}</TooltipContent>
+                <TooltipContent side={recording ? 'left' : 'top'}>{main.label}</TooltipContent>
             </Tooltip>
 
-            {state !== 'idle' && (
+            {recording && (
                 <Tooltip>
                     <TooltipTrigger asChild>
                         <button
@@ -61,7 +101,7 @@ export function MicButton({
                             <SquareIcon className='size-4' fill='currentColor' />
                         </button>
                     </TooltipTrigger>
-                    <TooltipContent side='top'>クリックして録音終了</TooltipContent>
+                    <TooltipContent side='right'>クリックして録音終了</TooltipContent>
                 </Tooltip>
             )}
         </div>

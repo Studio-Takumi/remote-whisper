@@ -4,13 +4,14 @@ import { toast } from 'sonner';
 
 import { AppSidebar } from '@/components/AppSidebar';
 import { DevPanel } from '@/components/DevPanel';
-import { MicButton } from '@/components/MicButton';
+import { MicButton, type MicTarget } from '@/components/MicButton';
 import { NewProjectDialog } from '@/components/NewProjectDialog';
 import { SessionView } from '@/components/SessionView';
 import { SettingsDialog } from '@/components/SettingsDialog';
 import { TopBar } from '@/components/TopBar';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { Toaster } from '@/components/ui/sonner';
+import { useRecordingTimer } from '@/hooks/useRecordingTimer';
 import { projects } from '@/mock';
 import type { RecordingState } from '@/recording';
 import { defaultSettings } from '@/settings';
@@ -22,6 +23,7 @@ function App() {
     const [selection, setSelection] = useState<Selection>({ projectId: null, sessionId: null });
     const [recordingState, setRecordingState] = useState<RecordingState>('idle');
     const recording = recordingState !== 'idle';
+    const timer = useRecordingTimer(recordingState);
     const [settings, setSettings] = useState(defaultSettings);
     const [server, setServer] = useState(initialServerStatus);
     const [settingsOpen, setSettingsOpen] = useState(false);
@@ -31,6 +33,12 @@ function App() {
     const visibleProjects = noProjects ? [] : projects;
     const project = visibleProjects.find((p) => p.id === selection.projectId);
     const session = project?.sessions.find((s) => s.id === selection.sessionId);
+
+    const micTarget: MicTarget = !project
+        ? { kind: 'none' }
+        : session
+          ? { kind: 'session', projectName: project.name }
+          : { kind: 'new' };
 
     function startRecording() {
         if (!project) {
@@ -43,6 +51,7 @@ function App() {
         }
         // 既存のセッションを開いていたら、同じプロジェクトの新しいセッションの画面に切り替える
         setSelection({ projectId: project.id, sessionId: null });
+        timer.reset();
         setRecordingState('recording');
         // Whisper は録音を始めたときに読み込む（spec 6.2 節）
         if (server.whisper === 'unloaded') {
@@ -75,6 +84,8 @@ function App() {
                 />
                 <MicButton
                     state={recordingState}
+                    target={micTarget}
+                    elapsed={timer.elapsed}
                     onStart={startRecording}
                     onStop={() => setRecordingState('idle')}
                     onPause={() => setRecordingState('paused')}
