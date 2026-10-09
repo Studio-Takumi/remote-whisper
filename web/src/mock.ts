@@ -16,7 +16,10 @@ export type Session = {
     id: string;
     title: string;
     startedAt: string;
-    status: 'done' | 'interrupted';
+    // 録音を終えた日時。録音中はない
+    endedAt?: string;
+    // recording は録音中（ほかの端末で録音しているものも含む）
+    status: 'recording' | 'done' | 'interrupted';
     transcript: TranscriptLine[];
     summaries: Summary[];
 };
