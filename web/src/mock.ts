@@ -4,13 +4,21 @@ export type TranscriptLine = {
     text: string;
 };
 
+// 最終の要約。作り直すたびに増えていく（spec 6.5 節）
+export type Summary = {
+    generationId: string;
+    model: string;
+    generatedAt: string;
+    text: string;
+};
+
 export type Session = {
     id: string;
     title: string;
     startedAt: string;
     status: 'done' | 'interrupted';
     transcript: TranscriptLine[];
-    summary: string;
+    summaries: Summary[];
 };
 
 export type Project = {
@@ -20,7 +28,15 @@ export type Project = {
     sessions: Session[];
 };
 
-export const projects: Project[] = [
+// 作成中の最終の要約。summary.delta（spec 7.2 節）で届いた分
+export type Generating = { sessionId: string; model: string; text: string };
+
+// 下のダミーデータは要約を1つだけ書いておき、initialProjects で Summary の形にする
+type SeedProject = Omit<Project, 'sessions'> & {
+    sessions: (Omit<Session, 'summaries'> & { summary: string })[];
+};
+
+const seedProjects: SeedProject[] = [
     {
         id: 'D--work-meetings-a1b2c3',
         name: 'meetings',
@@ -164,14 +180,18 @@ $$
     },
 ];
 
-export function findSession(id: string): Session | undefined {
-    return projects.flatMap((p) => p.sessions).find((s) => s.id === id);
-}
+export const initialProjects: Project[] = seedProjects.map((p) => ({
+    ...p,
+    sessions: p.sessions.map(({ summary, ...s }) => ({
+        ...s,
+        summaries: [{ generationId: s.id, model: 'qwen3.5:4b', generatedAt: s.startedAt, text: summary }],
+    })),
+}));
 
 // 選べる値。後で GET /api/settings/options から取る
 export const whisperModels = ['large-v3-turbo', 'large-v3', 'medium', 'small'];
 export const computeTypes = ['float16', 'int8_float16', 'int8'];
-export const ollamaModels = ['qwen3.5:4b'];
+export const ollamaModels = ['qwen3.5:4b', 'gemma3:4b', 'llama3.2:3b'];
 
 // フォルダの中身。後で GET /api/fs?path=… から取る。null はファイル
 type DirTree = { [name: string]: DirTree | null };

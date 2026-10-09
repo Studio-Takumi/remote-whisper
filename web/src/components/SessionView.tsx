@@ -3,7 +3,7 @@ import { AudioLinesIcon, FolderPlusIcon } from 'lucide-react';
 import { Markdown } from '@/components/Markdown';
 import { StatusIndicator } from '@/components/StatusIndicator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import type { Project, Session } from '@/mock';
+import type { Generating, Project, Session, Summary } from '@/mock';
 import type { RecordingState } from '@/recording';
 import { type ServerStatus, summaryStatus, transcriptStatus } from '@/status';
 
@@ -15,6 +15,8 @@ export function SessionView({
     recordingState,
     server,
     liveIntervalMin,
+    finalModel,
+    generating,
 }: {
     hasProjects: boolean;
     project: Project | undefined;
@@ -22,6 +24,8 @@ export function SessionView({
     recordingState: RecordingState;
     server: ServerStatus;
     liveIntervalMin: number;
+    finalModel: string;
+    generating: Generating | null;
 }) {
     if (!project) {
         return <EmptyState hasProjects={hasProjects} />;
@@ -72,7 +76,7 @@ export function SessionView({
 
                 <TabsContent value='summary' className='flex flex-col gap-4'>
                     {session ? (
-                        <Markdown>{session.summary}</Markdown>
+                        <SummaryPanel session={session} finalModel={finalModel} generating={generating} />
                     ) : (
                         recordingState === 'idle' && (
                             <p className='text-sm text-muted-foreground'>
@@ -84,6 +88,42 @@ export function SessionView({
                 </TabsContent>
             </div>
         </Tabs>
+    );
+}
+
+// 最終の要約。今選んでいるモデルの要約があればそれを、なければいちばん新しいものを出す
+function SummaryPanel({
+    session,
+    finalModel,
+    generating,
+}: {
+    session: Session;
+    finalModel: string;
+    generating: Generating | null;
+}) {
+    if (generating?.sessionId === session.id) {
+        return (
+            <>
+                <StatusIndicator status={{ tone: 'active', text: `${generating.model} で要約を作成中…` }} />
+                <Markdown streaming>{generating.text}</Markdown>
+            </>
+        );
+    }
+
+    const summary: Summary | undefined =
+        session.summaries.findLast((s) => s.model === finalModel) ?? session.summaries.at(-1);
+    if (!summary) {
+        return <p className='text-sm text-muted-foreground'>まだ要約がありません。</p>;
+    }
+
+    return (
+        <>
+            <p className='text-xs text-muted-foreground'>
+                {summary.model} で生成・{summary.generatedAt}
+                {summary.model !== finalModel && `（${finalModel} の要約はまだありません）`}
+            </p>
+            <Markdown>{summary.text}</Markdown>
+        </>
     );
 }
 
