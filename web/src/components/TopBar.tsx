@@ -3,14 +3,21 @@ import { MicIcon, SparklesIcon } from 'lucide-react';
 import { ContextSetSheet } from '@/components/ContextSetSheet';
 import { ModelSelect } from '@/components/ModelSelect';
 import { RecordingLock } from '@/components/RecordingLock';
-import { ollamaModels, whisperModels } from '@/mock';
+import { ollamaModelNames, withCurrent } from '@/options';
 import { useAppStore } from '@/store';
 
 // メイン画面の右上の簡易設定。全体設定をそのまま書き換える
 export function TopBar() {
     const recording = useAppStore((s) => s.recordingState !== 'idle');
     const settings = useAppStore((s) => s.settings);
+    const options = useAppStore((s) => s.options);
     const onChangeSettings = useAppStore((s) => s.changeSettings);
+    const whisperModels = withCurrent(options.whisper.models, settings.whisper.model);
+    const ollamaModels = withCurrent(
+        ollamaModelNames(options),
+        settings.ollama.liveSummaryModel,
+        settings.ollama.finalSummaryModel,
+    );
 
     return (
         <div className='flex flex-row items-center gap-2'>
