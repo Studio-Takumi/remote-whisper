@@ -28,7 +28,7 @@ flowchart LR
     WS -- "partial / final（JSON）" --> View
 ```
 
-> 🚧 開発中です。現時点では `server/transcribe.py`（音声ファイルの文字起こし）と、`web/` のプロジェクトの雛形しかありません。
+> 🚧 開発中です。現時点では、サーバーの雛形と `server/transcribe.py`（音声ファイルの文字起こし）、`web/` の画面のモック（ダミーデータ）しかありません。
 
 ## 構成
 
@@ -48,19 +48,36 @@ flowchart LR
 
 ```bash
 cd server
-uv venv --python 3.11
-uv pip install faster-whisper nvidia-cublas-cu12 "nvidia-cudnn-cu12==9.*"
+uv sync
 ```
 
-cuBLAS と cuDNN の DLL は pip で入れた `nvidia-*` パッケージから読み込むので、CUDA Toolkit を別途インストールする必要はありません。
+依存（faster-whisper、FastAPI など）は `server/pyproject.toml` にまとめてあります。cuBLAS と cuDNN の DLL は pip で入れた `nvidia-*` パッケージから読み込むので、CUDA Toolkit を別途インストールする必要はありません。
+
+### 起動
+
+```bash
+uv run remote-whisper              # http://127.0.0.1:8000
+uv run remote-whisper --host 0.0.0.0 --port 8000
+```
+
+- `GET /api/health` が `{"status":"ok"}` を返せば起動しています。
+- `web/dist` にフロントのビルド結果があれば、同じサーバーから画面も配信します（`cd web && npm run build`）。場所は環境変数 `REMOTE_WHISPER_WEB_DIST` で変えられます。
 
 ### 動作確認（ファイルの文字起こし）
 
 ```bash
-.venv/Scripts/python transcribe.py sample.wav
+uv run python transcribe.py sample.wav
 ```
 
-モデルの既定は `large-v3-turbo` です。large-v3 と同程度の精度で、2倍以上速く動きます。日本語向けのモデル [`kotoba-tech/kotoba-whisper-v2.0-faster`](https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0-faster) も試しましたが、turbo のほうが誤変換が少なくなりました。モデルは初回実行時にダウンロードされ、`server/hf/` に保存されます。
+モデルの既定は `large-v3-turbo` です。large-v3 と同程度の精度で、2倍以上速く動きます。日本語向けのモデル [`kotoba-tech/kotoba-whisper-v2.0-faster`](https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0-faster) も試しましたが、turbo のほうが誤変換が少なくなりました。モデルは初回実行時にダウンロードされ、`server/hf/` に保存されます（環境変数 `HF_HOME` で場所を変えられます）。
+
+### 開発
+
+```bash
+uv run ruff check
+uv run ruff format --check
+uv run pytest
+```
 
 ### Ollama（要約・用語リスト）
 
@@ -80,6 +97,8 @@ cd web
 npm install
 npm run dev
 ```
+
+開発中は、Vite の dev server が `/api` と `/ws` をサーバー（既定は `http://localhost:8000`）へ転送します。転送先は環境変数 `REMOTE_WHISPER_SERVER` で変えられます。
 
 ## ネットワークと HTTPS について
 
