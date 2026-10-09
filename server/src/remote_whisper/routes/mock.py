@@ -1,6 +1,7 @@
 """モックの状態を変える開発用の API（--mock のときだけ）。画面の表示を確かめるのに使う"""
 
 import asyncio
+import contextlib
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends
@@ -23,6 +24,16 @@ async def set_status(body: StatusBody, ctx: Annotated[AppContext, Depends(get_ct
     """Whisper と Ollama の状態を変えて、全員に status を送る"""
     await ctx.hub.set_status(**body.model_dump(exclude_none=True))
     return ctx.hub.status.message()
+
+
+@router.post("/disconnect")
+async def disconnect(ctx: Annotated[AppContext, Depends(get_ctx)]) -> dict:
+    """WebSocket をすべて切る。ネットワークが切れたときの再接続（resume）を確かめる用"""
+    connections = list(ctx.hub.connections)
+    for ws in connections:
+        with contextlib.suppress(Exception):
+            await ws.close(code=1012)
+    return {"closed": len(connections)}
 
 
 class ContextSetBody(BaseModel):

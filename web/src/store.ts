@@ -113,6 +113,14 @@ let sender: AudioSender | null = null;
 let unsubscribe: (() => void) | null = null;
 let starting = false;
 let serverSubscribed = false;
+// つなぎ直して resume を送り、started を待っている間
+let resuming = false;
+// resume の世代。切れるたびに増やし、前の接続で待っていた resume の結果は捨てる
+let resumeGeneration = 0;
+// resume の後、最初の ack を受けたら ack されていない音声を送り直す
+let resendAfterAck = false;
+// 接続が切れている間に録音を終えたセッション。つながり直したら resume して、残りの音声と stop を送る
+let stoppedWhileOffline: string | null = null;
 
 type StartedMessage = Extract<ServerMessage, { type: 'started' }>;
 type ErrorMessage = Extract<ServerMessage, { type: 'error' }>;
@@ -126,6 +134,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     // マイクを開き、サーバーに start を送り、started が来たらセッションを作る
     async function beginRecording(projectId: string) {
         closeRecording();
+        stoppedWhileOffline = null;
         sender = new AudioSender((pendingAudio) => set({ pendingAudio }));
         mic = await Microphone.open((pcm, level) => {
             // 一時停止中の音声は送らない
@@ -138,6 +147,20 @@ export const useAppStore = create<AppState>()((set, get) => {
         unsubscribe = connection.subscribe((m) => {
             if (m.type === 'ack') {
                 sender?.ack(m.seq);
+                // つなぎ直した直後の ack は、サーバーが受け取り済みの最後の連番。その次から送り直す
+                if (resendAfterAck) {
+                    resendAfterAck = false;
+                    sender?.resend();
+                    // 溜めた音声を送り終えてから、切れている間の操作を今の状態に合わせて伝える
+                    if (stoppedWhileOffline) {
+                        // 切れている間に録音を終えていた
+                        stoppedWhileOffline = null;
+                        connection.send({ type: 'stop' });
+                    } else {
+                        // 切れている間の一時停止・再開は届いていないので、必ず今の状態を送る
+                        connection.send({ type: get().recordingState === 'paused' ? 'pause' : 'unpause' });
+                    }
+                }
             } else if (m.type === 'partial') {
                 set({
                     partial: {
@@ -213,6 +236,82 @@ export const useAppStore = create<AppState>()((set, get) => {
         startElapsedTimer();
     }
 
+    // 録音中に切れた接続がつながり直したら、resume を送って続きから録音する（spec 6.7・7.2）
+    // 切れている間もマイクは止めず、音声は ack されるまで手元に溜めておく
+    async function resumeAfterReconnect() {
+        const sessionId = get().recordingSessionId ?? stoppedWhileOffline;
+        if (!sessionId || !sender) {
+            return;
+        }
+        const generation = ++resumeGeneration;
+        resuming = true;
+        resendAfterAck = false;
+        try {
+            connection.send({ type: 'resume', session: sessionId, nextSeq: sender.nextSeq });
+            const reply = await connection.waitFor(
+                (m): m is StartedMessage | ErrorMessage =>
+                    (m.type === 'started' && m.session === sessionId) || m.type === 'error',
+            );
+            // 待っている間に切れた（またはつなぎ直した）なら、この結果は使わない
+            if (generation !== resumeGeneration) {
+                return;
+            }
+            if (reply.type === 'error') {
+                if (reply.code === 'session_not_found') {
+                    // サーバーが待てる時間（60秒）を過ぎた、サーバーが再起動したなど
+                    interruptRecording(sessionId);
+                } else {
+                    retryResume();
+                }
+                return;
+            }
+            // 続く ack（サーバーが受け取り済みの最後の連番）を受けたら、その次から送り直す
+            resendAfterAck = true;
+        } catch {
+            // 応答がない（切れたなら、つながり直したときにもう一度試す）
+            if (generation === resumeGeneration) {
+                retryResume();
+            }
+        } finally {
+            if (generation === resumeGeneration) {
+                resuming = false;
+            }
+        }
+    }
+
+    // resume がうまくいかなかったら、接続を切ってつなぎ直す。つながったら、もう一度 resume する
+    // 同じ接続でやり直さないのは、遅れて届いた started で、サーバーがこの接続にセッションを付けているかもしれないため
+    function retryResume() {
+        connection.drop();
+    }
+
+    // 録音が途中で終わったことにする（resume できなかったとき）
+    function interruptRecording(sessionId: string) {
+        clearInterval(elapsedTimer);
+        resendAfterAck = false;
+        stoppedWhileOffline = null;
+        closeRecording();
+        set((s) => ({
+            recordingState: 'idle',
+            recordingSessionId: null,
+            micLevel: 0,
+            pendingAudio: 0,
+            partial: null,
+            liveDraft: null,
+            projects: updateSession(s.projects, sessionId, (x) => ({
+                ...x,
+                status: 'interrupted',
+                endedAt: formatDateTime(),
+            })),
+        }));
+        toast.error(
+            'サーバーで録音を続けられなくなったため、録音は途中で終わりました（接続が長く切れていた、サーバーが再起動したなど）。そこまでの録音はサーバーに残っています',
+            {
+                duration: 10000,
+            },
+        );
+    }
+
     // マイクを閉じ、録音のためのメッセージの受け取りをやめる
     function closeRecording() {
         mic?.close();
@@ -274,6 +373,13 @@ export const useAppStore = create<AppState>()((set, get) => {
             if (s.recordingState !== 'idle' || starting) {
                 return;
             }
+            // 切れている間に終えた録音の残りをまだ送っていない。始めると、その残りが捨てられてしまう
+            if (stoppedWhileOffline) {
+                toast.warning(
+                    '前の録音の残りをサーバーに送るのを待っています。サーバーにつながってから、もう一度押してください',
+                );
+                return;
+            }
             starting = true;
             try {
                 await beginRecording(project.id);
@@ -316,11 +422,16 @@ export const useAppStore = create<AppState>()((set, get) => {
                 await mic?.flush();
             }
             sender?.flush();
-            connection.send({ type: 'stop' });
+            const sessionId = get().recordingSessionId;
+            if (sender && !sender.holding) {
+                connection.send({ type: 'stop' });
+            } else {
+                // 切れていて音声を溜めている間は、つながり直して溜めた音声を送ってから stop を送る
+                stoppedWhileOffline = sessionId;
+            }
             // 最後に送った音声の ack を受け取れるように、購読は次の録音を始めるまで続ける
             mic?.close();
             mic = null;
-            const sessionId = get().recordingSessionId;
             const endedAt = formatDateTime();
             set((s) => ({
                 recordingState: 'idle',
@@ -352,19 +463,29 @@ export const useAppStore = create<AppState>()((set, get) => {
                 return;
             }
             serverSubscribed = true;
-            connection.onStateChange((connected) =>
-                set((s) => ({ server: { ...s.server, connection: connected ? 'connected' : 'reconnecting' } })),
-            );
+            connection.onStateChange((connected) => {
+                set((s) => ({ server: { ...s.server, connection: connected ? 'connected' : 'reconnecting' } }));
+                if (!get().recordingSessionId && !stoppedWhileOffline) {
+                    return;
+                }
+                if (connected) {
+                    // 録音中に切れていたら、続きから録音する
+                    void resumeAfterReconnect();
+                } else {
+                    // 新しい接続ではセッションが resume されるまで音声を受け付けないので、それまで溜めておく
+                    sender?.hold();
+                    // 前の接続で待っていた resume は打ち切る
+                    resumeGeneration += 1;
+                    resuming = false;
+                    resendAfterAck = false;
+                }
+            });
             connection.subscribe((m) => {
                 if (m.type === 'status') {
                     // recordings と queue は今のところ画面に出さない
                     set((s) => ({ server: { ...s.server, whisper: m.whisper, ollama: m.ollama } }));
-                } else if (m.type === 'error' && !starting) {
-                    // 録音を始めるときのエラーは、startRecording がまとめて出す
-                    // 録音中につなぎ直した接続は、resume（#19）するまで音声を受け付けないので、その not_recording は出さない
-                    if (m.code === 'not_recording' && get().recordingSessionId) {
-                        return;
-                    }
+                } else if (m.type === 'error' && !starting && !resuming) {
+                    // 録音を始める・続けるときのエラーは、それぞれの処理でまとめて出す
                     toast.error(m.message);
                 }
             });

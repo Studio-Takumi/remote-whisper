@@ -110,6 +110,11 @@ class Connection {
         return this.ws?.readyState === WebSocket.OPEN;
     }
 
+    // 今の接続を切る。start() していれば、つなぎ直す（サーバーとのやりとりがおかしくなったときに、やり直すため）
+    drop() {
+        this.ws?.close();
+    }
+
     // 届いたメッセージを受け取る。戻り値の関数で受け取りをやめる
     subscribe(listener: Listener) {
         this.listeners.add(listener);
@@ -155,6 +160,7 @@ export class AudioSender {
     private readonly pending = new Map<number, ArrayBuffer>();
     private buffer = new Int16Array(CHUNK_SAMPLES);
     private length = 0;
+    private isHolding = false;
 
     private readonly onPendingChange: (count: number) => void;
 
@@ -184,7 +190,9 @@ export class AudioSender {
         new DataView(frame).setUint32(0, this.seq, true);
         new Int16Array(frame, 4).set(this.buffer.subarray(0, this.length));
         this.pending.set(this.seq, frame);
-        connection.sendBinary(frame);
+        if (!this.isHolding) {
+            connection.sendBinary(frame);
+        }
         this.seq += 1;
         this.length = 0;
         this.onPendingChange(this.pending.size);
@@ -198,5 +206,28 @@ export class AudioSender {
             }
         }
         this.onPendingChange(this.pending.size);
+    }
+
+    // サーバーに受け取ってほしい次の連番（ack されていない最初のもの）。resume の nextSeq に使う
+    get nextSeq() {
+        return this.pending.size > 0 ? Math.min(...this.pending.keys()) : this.seq;
+    }
+
+    // 送らずに溜めているか（切れてから、resume して送り直すまで）
+    get holding() {
+        return this.isHolding;
+    }
+
+    // 接続が切れたので、つなぎ直して resume が済むまで送らずに溜めておく
+    hold() {
+        this.isHolding = true;
+    }
+
+    // ack されていない音声を、連番の順に送り直して、送信を再開する（つなぎ直した後、サーバーの ack を受けてから呼ぶ）
+    resend() {
+        this.isHolding = false;
+        for (const key of [...this.pending.keys()].sort((a, b) => a - b)) {
+            connection.sendBinary(this.pending.get(key)!);
+        }
     }
 }
