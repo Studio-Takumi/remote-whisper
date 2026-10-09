@@ -85,7 +85,7 @@ export function MicButton() {
 
     return (
         // スマホでは画面の下端（ホームバーなど）を避ける
-        <div className='sticky bottom-[max(1.5rem,env(safe-area-inset-bottom))] mx-auto mt-auto shrink-0 md:bottom-8'>
+        <div className='sticky bottom-[calc(1.5rem+env(safe-area-inset-bottom))] mx-auto mt-auto shrink-0 md:bottom-8'>
             {/* タッチではツールチップが出ないので、待機中はボタンの上に短い説明を出す */}
             {!recording && (
                 <p className='absolute bottom-full left-1/2 mb-3 hidden -translate-x-1/2 rounded-full bg-background/90 px-2 py-0.5 text-xs whitespace-nowrap text-muted-foreground shadow-sm pointer-coarse:block'>

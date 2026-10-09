@@ -430,7 +430,7 @@ function Row({
 }) {
     return (
         // スマホの幅では、項目名と説明の下に入力欄を置く
-        <div className='flex flex-col items-start gap-2 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4'>
+        <div className='flex flex-col items-start gap-2 py-3 md:flex-row md:items-center md:justify-between md:gap-4'>
             <div className='flex flex-col gap-1'>
                 <Label htmlFor={id}>{label}</Label>
                 {description && <p className='text-xs text-muted-foreground'>{description}</p>}
