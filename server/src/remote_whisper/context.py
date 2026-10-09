@@ -1,10 +1,12 @@
 """アプリ全体で共有する状態"""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from fastapi import HTTPException, Request
 
+from remote_whisper.hub import Hub
 from remote_whisper.projects import ProjectStore
 from remote_whisper.settings import SettingsStore
 
@@ -14,7 +16,12 @@ class AppContext:
     home: Path
     settings: SettingsStore
     projects: ProjectStore
-    # 録音中のセッションの数。録音マネージャ（#20）ができるまでは常に 0
+    hub: Hub = field(default_factory=Hub)
+    # True なら Whisper と Ollama の代わりにダミーを使う（--mock）
+    mock: bool = False
+    # 録音を受け持つもの。モックでは MockRecorder。本物は録音マネージャ（#20）ができるまでない
+    recorder: Any = None
+    # 録音中のセッションの数
     recordings: int = 0
 
     @property
