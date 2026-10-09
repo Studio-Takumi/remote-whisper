@@ -95,13 +95,13 @@ class ProjectFile(_Model):
 def rebuild_project_file(project_dir: Path) -> ProjectFile | None:
     """同じディレクトリのファイルのフロントマターから project.json の中身を作る。spec 5.4
 
-    プロジェクトのパスはフロントマターの `project` から取る。
+    プロジェクトのパスはフロントマターの `project` から取る（ID がディレクトリ名と合うものだけ）。
     どのファイルにもなければ作れない（None）。
     `selection` はファイルに残っていないので、既定（未保存）に戻る。
     """
     if not project_dir.is_dir():
         return None
-    path: str | None = None
+    candidates: list[str] = []
     sessions: dict[str, SessionEntry] = {}
     summaries: dict[str, list[SummaryMeta]] = {}
     sets: dict[str, ContextSetEntry] = {}
@@ -110,7 +110,7 @@ def rebuild_project_file(project_dir: Path) -> ProjectFile | None:
         try:
             if TRANSCRIPT_RE.fullmatch(f.name):
                 t, _ = read_doc(f, TranscriptMeta)
-                path = path or t.project
+                candidates.append(t.project or "")
                 sessions[t.id] = SessionEntry(
                     id=t.id,
                     title=t.title,
@@ -121,11 +121,11 @@ def rebuild_project_file(project_dir: Path) -> ProjectFile | None:
                 )
             elif SUMMARY_RE.fullmatch(f.name):
                 s, _ = read_doc(f, SummaryMeta)
-                path = path or s.project
+                candidates.append(s.project or "")
                 summaries.setdefault(s.id, []).append(s)
             elif HOTWORDS_RE.fullmatch(f.name) or CONTEXT_RE.fullmatch(f.name):
                 c, _ = read_doc(f, ContextSetMeta)
-                path = path or c.project
+                candidates.append(c.project or "")
                 sets[c.id] = ContextSetEntry(
                     id=c.id, status="ready", materials=[m.path for m in c.materials]
                 )
@@ -147,6 +147,8 @@ def rebuild_project_file(project_dir: Path) -> ProjectFile | None:
         elif sessions[sid].title is None:
             sessions[sid].title = latest.title
 
+    # ID がディレクトリ名と合うパスだけを使う。手で動かしたファイルなどで取り違えないように
+    path = next((p for p in candidates if project_id(p) == project_dir.name), None)
     if path is None:
         return None
     return ProjectFile(
@@ -161,6 +163,10 @@ class ProjectError(Exception):
         super().__init__(message)
         self.status = status
         self.message = message
+
+
+class _Unreadable(ProjectError):
+    """project.json がない・壊れている（作り直せば読めるかもしれない）"""
 
 
 class ProjectStore:
@@ -187,36 +193,56 @@ class ProjectStore:
             p.name for p in self.root.iterdir() if p.is_dir() and _PID_RE.fullmatch(p.name)
         )
 
-    def load(self, pid: str) -> ProjectFile:
-        """project.json を読む。ない・壊れているときは、フロントマターから作り直して保存する"""
+    def _read(self, pid: str) -> ProjectFile:
+        """project.json を読む。ない・壊れているときは _Unreadable を投げる"""
         path = self._file(pid)
         if not path.is_file():
-            return self._rebuild(pid, f"プロジェクト {pid} はありません", 404)
+            raise _Unreadable(404, f"プロジェクト {pid} はありません")
         try:
-            project = ProjectFile.model_validate(json.loads(path.read_text(encoding="utf-8")))
+            data = json.loads(path.read_text(encoding="utf-8"))
         # ValueError は JSON の構文エラーと UTF-8 として読めないもの、OSError は権限やロック
-        except (OSError, ValueError, ValidationError) as e:
-            return self._rebuild(pid, f"{path} を読み込めません: {e}", 500)
-        # 新しい version のファイルは作り直さない（古い形式で上書きしてしまうため）
-        if project.version > PROJECT_VERSION:
+        except (OSError, ValueError) as e:
+            raise _Unreadable(500, f"{path} を読み込めません: {e}") from e
+        # 新しい version は中身を検証する前に弾く。作り直すと古い形式で上書きしてしまうため
+        version = data.get("version") if isinstance(data, dict) else None
+        if isinstance(version, int) and version > PROJECT_VERSION:
             raise ProjectError(
-                500,
-                f"{path} の version {project.version} はこのサーバーより新しいため読み込めません",
+                500, f"{path} の version {version} はこのサーバーより新しいため読み込めません"
             )
-        return project
+        try:
+            return ProjectFile.model_validate(data)
+        except ValidationError as e:
+            raise _Unreadable(500, f"{path} を読み込めません: {e}") from e
 
-    def _rebuild(self, pid: str, reason: str, status: int) -> ProjectFile:
+    def load(self, pid: str) -> ProjectFile:
+        """project.json を読む。ない・壊れているときは、フロントマターから作り直して保存する"""
+        try:
+            return self._read(pid)
+        except _Unreadable:
+            pass
         with self._lock:
-            project = rebuild_project_file(self.dir(pid))
-            if project is None:
-                raise ProjectError(status, reason)
-            log.warning("%s。フロントマターから project.json を作り直します", reason)
-            path = self._file(pid)
-            if path.is_file():
-                # 壊れたファイルは消さずに残しておく
-                path.replace(path.with_name(f"project.json.broken-{make_id(now())}"))
-            self.save(pid, project)
-            return project
+            # ロックを待っている間に、ほかのスレッドが作り直しているかもしれない
+            try:
+                return self._read(pid)
+            except _Unreadable as e:
+                return self._rebuild(pid, e)
+
+    def _rebuild(self, pid: str, reason: "_Unreadable") -> ProjectFile:
+        project = rebuild_project_file(self.dir(pid))
+        if project is None:
+            raise ProjectError(reason.status, reason.message)
+        log.warning("%s。フロントマターから project.json を作り直します", reason.message)
+        path = self._file(pid)
+        if path.is_file():
+            # 壊れたファイルは消さずに残しておく。同じ名前があれば番号を付ける
+            backup = path.with_name(f"project.json.broken-{make_id(now())}")
+            n = 2
+            while backup.exists():
+                backup = path.with_name(f"project.json.broken-{make_id(now())}-{n}")
+                n += 1
+            path.replace(backup)
+        self.save(pid, project)
+        return project
 
     def save(self, pid: str, project: ProjectFile) -> None:
         atomic_write_json(self._file(pid), project.to_json())

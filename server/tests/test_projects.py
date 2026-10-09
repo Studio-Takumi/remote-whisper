@@ -1,5 +1,6 @@
 import json
 import sys
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
@@ -329,7 +330,7 @@ def test_register_again_rebuilds_instead_of_resetting(client, workdir, app):
 
 def test_rebuild_ignores_broken_documents(home):
     store = ProjectStore(home)
-    d = store.dir("D--work-abcdef")
+    d = store.dir(project_id("D:\\work"))
     d.mkdir(parents=True)
     (d / "transcript-20261009-143012.md").write_text("no frontmatter", encoding="utf-8")
     write_doc(
@@ -345,6 +346,54 @@ def test_rebuild_ignores_broken_documents(home):
     project = rebuild_project_file(d)
     assert project is not None
     assert [s.id for s in project.sessions] == ["20261009-150000"]
+
+
+def test_rebuild_ignores_paths_that_do_not_match_the_directory(home):
+    store = ProjectStore(home)
+    d = store.dir(project_id("D:\\work"))
+    d.mkdir(parents=True)
+    write_doc(
+        d / "transcript-20261009-150000.md",
+        TranscriptMeta(
+            id="20261009-150000",
+            project="D:\\other",
+            status="done",
+            started_at="2026-10-09T15:00:00+09:00",
+        ),
+        "",
+    )
+    assert rebuild_project_file(d) is None
+
+
+def test_newer_version_is_not_rebuilt(client, workdir, app):
+    created = client.post("/api/projects", json={"path": str(workdir / "meetings")}).json()
+    store = app.state.ctx.projects
+    _populate(store, created["id"], created["path"])
+    pj = store.dir(created["id"]) / "project.json"
+    # 新しい版で、今の型に合わない中身になっている
+    newer = json.dumps({"version": 2, "path": created["path"], "sessions": [{"status": "paused"}]})
+    pj.write_text(newer, encoding="utf-8")
+
+    with pytest.raises(ProjectError) as e:
+        store.load(created["id"])
+    assert e.value.status == 500
+    assert pj.read_text(encoding="utf-8") == newer
+    assert list(store.dir(created["id"]).glob("project.json.broken-*")) == []
+
+
+def test_concurrent_loads_keep_the_broken_backup(client, workdir, app):
+    created = client.post("/api/projects", json={"path": str(workdir / "meetings")}).json()
+    store = app.state.ctx.projects
+    original = _populate(store, created["id"], created["path"])
+    (store.dir(created["id"]) / "project.json").write_text("{broken", encoding="utf-8")
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(pool.map(lambda _: store.load(created["id"]), range(8)))
+
+    assert all(r == original for r in results)
+    backups = list(store.dir(created["id"]).glob("project.json.broken-*"))
+    assert len(backups) == 1
+    assert backups[0].read_text(encoding="utf-8") == "{broken"
 
 
 def test_rebuild_without_any_documents_is_not_possible(home):
