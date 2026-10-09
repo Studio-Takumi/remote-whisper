@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { AppSidebar } from '@/components/AppSidebar';
 import { MicButton } from '@/components/MicButton';
 import { SettingsDialog } from '@/components/SettingsDialog';
+import { StatusIndicator } from '@/components/StatusIndicator';
 import { TopBar } from '@/components/TopBar';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { Toaster } from '@/components/ui/sonner';
@@ -34,7 +35,10 @@ function App() {
                             <TabsTrigger value='summary'>要約</TabsTrigger>
                         </TabsList>
                     </div>
-                    <TabsContent value='transcript'>文字起こし</TabsContent>
+                    <TabsContent value='transcript' className='flex flex-col gap-2'>
+                        <p>文字起こし</p>
+                        <StatusIndicator recording={recording} />
+                    </TabsContent>
                     <TabsContent value='summary'>要約</TabsContent>
                 </Tabs>
                 <MicButton recording={recording} onToggle={() => setRecording((r) => !r)} />

@@ -6,7 +6,7 @@ import { RecordingLock } from '@/components/RecordingLock';
 import { ollamaModels, whisperModels } from '@/mock';
 import type { Settings } from '@/settings';
 
-// メイン画面の上部。左に状態、右に簡易設定。簡易設定は全体設定をそのまま書き換える
+// メイン画面の右上の簡易設定。全体設定をそのまま書き換える
 export function TopBar({
     recording,
     settings,
@@ -18,11 +18,6 @@ export function TopBar({
 }) {
     return (
         <div className='flex flex-row items-center gap-2'>
-            {/* Whisper / Ollama の状態。後で WebSocket の status から出す */}
-            <div className='flex items-center gap-2 text-sm'>
-                <div className={`h-2 w-2 rounded-full ${recording ? 'bg-green-500' : 'bg-muted-foreground/40'}`} />
-                <p>{recording ? '文字起こし中' : '待機中'}</p>
-            </div>
             <RecordingLock locked={recording} className='ml-auto'>
                 <div className='flex flex-row items-center gap-2'>
                     <ModelSelect
