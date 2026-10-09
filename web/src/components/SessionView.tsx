@@ -19,6 +19,7 @@ export function SessionView() {
     const finalModel = useAppStore((s) => s.settings.ollama.finalSummaryModel);
     const generating = useAppStore((s) => s.generating);
     const partial = useAppStore((s) => s.partial);
+    const liveDraft = useAppStore((s) => s.liveDraft);
 
     if (!project) {
         return <EmptyState hasProjects={hasProjects} />;
@@ -38,7 +39,12 @@ export function SessionView() {
             <div className='mx-auto flex w-full max-w-3xl flex-col gap-4 pt-4 pb-16'>
                 {session ? (
                     <div>
-                        <h1 className='text-lg font-semibold'>{session.title}</h1>
+                        <h1 className='text-lg font-semibold'>
+                            {session.title}
+                            {session.provisionalTitle && (
+                                <span className='ml-2 text-xs font-normal text-muted-foreground'>（仮のタイトル）</span>
+                            )}
+                        </h1>
                         <p className='text-xs text-muted-foreground'>
                             {session.startedAt}
                             {session.status === 'recording' && '・録音中'}
@@ -69,7 +75,12 @@ export function SessionView() {
 
                 <TabsContent value='summary' className='flex flex-col gap-4'>
                     {session ? (
-                        <SummaryPanel session={session} finalModel={finalModel} generating={generating} />
+                        <SummaryPanel
+                            session={session}
+                            finalModel={finalModel}
+                            generating={generating}
+                            liveDraft={liveDraft}
+                        />
                     ) : (
                         recordingState === 'idle' && (
                             <p className='text-sm text-muted-foreground'>
@@ -89,10 +100,12 @@ function SummaryPanel({
     session,
     finalModel,
     generating,
+    liveDraft,
 }: {
     session: Session;
     finalModel: string;
     generating: Generating | null;
+    liveDraft: { sessionId: string; text: string } | null;
 }) {
     if (generating?.sessionId === session.id) {
         return (
@@ -106,6 +119,18 @@ function SummaryPanel({
     const summary: Summary | undefined =
         session.summaries.findLast((s) => s.model === finalModel) ?? session.summaries.at(-1);
     if (!summary) {
+        // 最終の要約がまだないときは、途中の要約を代わりに出す（届いている途中なら、それを少しずつ）
+        const live = liveDraft?.sessionId === session.id ? liveDraft.text : session.liveSummary;
+        if (live) {
+            return (
+                <>
+                    <p className='text-xs text-muted-foreground'>
+                        途中の要約{session.status === 'recording' ? '（録音中に数分おきに更新します）' : ''}
+                    </p>
+                    <Markdown streaming={liveDraft?.sessionId === session.id}>{live}</Markdown>
+                </>
+            );
+        }
         // 録音中は下に途中の要約の状態が出るので、何も出さない
         return session.status === 'recording' ? null : (
             <p className='text-sm text-muted-foreground'>まだ要約がありません。</p>

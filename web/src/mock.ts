@@ -24,6 +24,10 @@ export type Session = {
     status: 'recording' | 'done' | 'interrupted';
     transcript: TranscriptLine[];
     summaries: Summary[];
+    // 途中の要約（いちばん新しいもの）。最終の要約がまだないときに代わりに出す
+    liveSummary?: string;
+    // タイトルが仮のもの（途中の要約から作ったもの）かどうか
+    provisionalTitle?: boolean;
 };
 
 export type Project = {
