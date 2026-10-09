@@ -20,7 +20,7 @@ for sub in ("cublas", "cudnn"):
 
 from faster_whisper import WhisperModel  # noqa: E402
 
-MODEL = "kotoba-tech/kotoba-whisper-v2.0-faster"
+MODEL = "large-v3-turbo"
 
 
 def load_model():
