@@ -2,6 +2,7 @@ import { PlusIcon, SettingsIcon } from 'lucide-react';
 
 import { ProjectList } from '@/components/ProjectList';
 import { RecordingLock } from '@/components/RecordingLock';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import {
     Sidebar,
     SidebarContent,
@@ -60,6 +61,12 @@ export function AppSidebar() {
                 </SidebarGroup>
             </SidebarContent>
             <SidebarFooter>
+                {/* テーマは録音中でも切り替えられる（全体設定ではなく、この端末の見た目なので） */}
+                <SidebarMenu>
+                    <SidebarMenuItem>
+                        <ThemeToggle />
+                    </SidebarMenuItem>
+                </SidebarMenu>
                 <RecordingLock locked={recording}>
                     <SidebarMenu>
                         <SidebarMenuItem>
