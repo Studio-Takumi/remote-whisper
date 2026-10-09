@@ -61,6 +61,7 @@ uv run remote-whisper --host 0.0.0.0 --port 8000
 ```
 
 - `GET /api/health` が `{"status":"ok"}` を返せば起動しています。
+- データ（設定・録音・文字起こし・要約）は `~/.remote-whisper/` に置きます。環境変数 `REMOTE_WHISPER_HOME` で場所を変えられます（システムドライブの空きが少ないときは、別のドライブを指定してください）。全体設定は `setting.json` で、初回の起動時に既定値で作られます。
 - `web/dist` にフロントのビルド結果があれば、同じサーバーから画面も配信します（`cd web && npm run build`）。場所は環境変数 `REMOTE_WHISPER_WEB_DIST` で変えられます。
 
 ### 動作確認（ファイルの文字起こし）
