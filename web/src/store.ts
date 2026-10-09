@@ -117,6 +117,8 @@ let serverSubscribed = false;
 let resuming = false;
 // resume の後、最初の ack を受けたら ack されていない音声を送り直す
 let resendAfterAck = false;
+// 接続が切れている間に録音を終えたセッション。つながり直したら resume して、残りの音声と stop を送る
+let stoppedWhileOffline: string | null = null;
 
 type StartedMessage = Extract<ServerMessage, { type: 'started' }>;
 type ErrorMessage = Extract<ServerMessage, { type: 'error' }>;
@@ -130,6 +132,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     // マイクを開き、サーバーに start を送り、started が来たらセッションを作る
     async function beginRecording(projectId: string) {
         closeRecording();
+        stoppedWhileOffline = null;
         sender = new AudioSender((pendingAudio) => set({ pendingAudio }));
         mic = await Microphone.open((pcm, level) => {
             // 一時停止中の音声は送らない
@@ -146,6 +149,11 @@ export const useAppStore = create<AppState>()((set, get) => {
                 if (resendAfterAck) {
                     resendAfterAck = false;
                     sender?.resend();
+                    // 切れている間に録音を終えていたら、溜めた音声を送り終えてから stop を送る
+                    if (stoppedWhileOffline) {
+                        stoppedWhileOffline = null;
+                        connection.send({ type: 'stop' });
+                    }
                 }
             } else if (m.type === 'partial') {
                 set({
@@ -225,7 +233,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     // 録音中に切れた接続がつながり直したら、resume を送って続きから録音する（spec 6.7・7.2）
     // 切れている間もマイクは止めず、音声は ack されるまで手元に溜めておく
     async function resumeAfterReconnect() {
-        const sessionId = get().recordingSessionId;
+        const sessionId = get().recordingSessionId ?? stoppedWhileOffline;
         if (!sessionId || !sender || resuming) {
             return;
         }
@@ -258,6 +266,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     function interruptRecording(sessionId: string) {
         clearInterval(elapsedTimer);
         resendAfterAck = false;
+        stoppedWhileOffline = null;
         closeRecording();
         set((s) => ({
             recordingState: 'idle',
@@ -273,7 +282,7 @@ export const useAppStore = create<AppState>()((set, get) => {
             })),
         }));
         toast.error(
-            'サーバーとの接続が長く切れていたため、録音は途中で終わりました。そこまでの録音は保存されています',
+            'サーバーで録音を続けられなくなったため、録音は途中で終わりました（接続が長く切れていた、サーバーが再起動したなど）。そこまでの録音はサーバーに残っています',
             {
                 duration: 10000,
             },
@@ -383,11 +392,16 @@ export const useAppStore = create<AppState>()((set, get) => {
                 await mic?.flush();
             }
             sender?.flush();
-            connection.send({ type: 'stop' });
+            const sessionId = get().recordingSessionId;
+            if (connection.isOpen && !resuming) {
+                connection.send({ type: 'stop' });
+            } else {
+                // つながっていないときは、つながり直して溜めた音声を送ってから stop を送る
+                stoppedWhileOffline = sessionId;
+            }
             // 最後に送った音声の ack を受け取れるように、購読は次の録音を始めるまで続ける
             mic?.close();
             mic = null;
-            const sessionId = get().recordingSessionId;
             const endedAt = formatDateTime();
             set((s) => ({
                 recordingState: 'idle',
@@ -421,9 +435,15 @@ export const useAppStore = create<AppState>()((set, get) => {
             serverSubscribed = true;
             connection.onStateChange((connected) => {
                 set((s) => ({ server: { ...s.server, connection: connected ? 'connected' : 'reconnecting' } }));
-                // 録音中に切れていたら、続きから録音する
-                if (connected && get().recordingSessionId) {
+                if (!get().recordingSessionId && !stoppedWhileOffline) {
+                    return;
+                }
+                if (connected) {
+                    // 録音中に切れていたら、続きから録音する
                     void resumeAfterReconnect();
+                } else {
+                    // 新しい接続ではセッションが resume されるまで音声を受け付けないので、それまで溜めておく
+                    sender?.hold();
                 }
             });
             connection.subscribe((m) => {
