@@ -79,7 +79,12 @@ class MockSession:
         # 一時停止中は clear。経過時間と途中の要約のタイマーも止まる
         self.running = asyncio.Event()
         self.running.set()
-        self.elapsed = 0.0
+        # 経過時間は実時間から一時停止していた時間を引いて求める
+        self._loop = asyncio.get_running_loop()
+        self._started = self._loop.time()
+        self._paused_total = 0.0
+        self._paused_since: float | None = None
+        self._frozen: float | None = None  # 録音を終えた時点の経過時間
         self.current: str | None = None  # 文字起こし中の文（partial を送っている途中）
         self.current_start = 0.0
         self.segment = 0
@@ -93,7 +98,6 @@ class MockSession:
 
     def begin(self) -> None:
         self._tasks = [
-            asyncio.create_task(self._clock()),
             asyncio.create_task(self._transcribe()),
             asyncio.create_task(self._live_summaries()),
         ]
@@ -107,17 +111,23 @@ class MockSession:
             await asyncio.sleep(step)
             left -= step
 
-    async def _clock(self) -> None:
-        while True:
-            await self._sleep(0.1)
-            self.elapsed += 0.1
+    @property
+    def elapsed(self) -> float:
+        """録音を始めてからの秒数。一時停止していた時間は含めない"""
+        if self._frozen is not None:
+            return self._frozen
+        until = self._paused_since or self._loop.time()
+        return until - self._started - self._paused_total
+
+    async def _whisper_ready(self) -> None:
+        """Whisper が使えるまで待つ（読み込み中・エラーのときは文字起こしを止める）"""
+        while self.recorder.hub.status.whisper != "ready":
+            await asyncio.sleep(0.05)
 
     async def _transcribe(self) -> None:
-        hub = self.recorder.hub
-        while hub.status.whisper != "ready":
-            await asyncio.sleep(0.05)
         i = 0
         while True:
+            await self._whisper_ready()
             text = SCRIPT[i % len(SCRIPT)]
             i += 1
             start = self.current_start = self.elapsed
@@ -125,6 +135,7 @@ class MockSession:
             n = self.timing.chars_per_partial
             for k in range(n, len(text) + n, n):
                 await self._sleep(self.timing.partial)
+                await self._whisper_ready()
                 # 最後の数文字はまだ変わるかもしれないもの（未確定）として送る
                 cut = max(0, k - 2 * n)
                 await self.send(
@@ -183,9 +194,14 @@ class MockSession:
         await self.send({"type": "ack", "seq": self.last_seq})
 
     def pause(self) -> None:
+        if self._paused_since is None:
+            self._paused_since = self._loop.time()
         self.running.clear()
 
     def unpause(self) -> None:
+        if self._paused_since is not None:
+            self._paused_total += self._loop.time() - self._paused_since
+            self._paused_since = None
         self.running.set()
 
     async def stop(self) -> None:
@@ -224,6 +240,7 @@ class MockSession:
     async def _end(self) -> None:
         if self.ended:
             return
+        self._frozen = self.elapsed
         self.ended = True
         for task in self._tasks:
             task.cancel()
@@ -248,6 +265,7 @@ class MockRecorder:
         self.sessions: dict[str, MockSession] = {}
         # 録音中のセッションの数が変わったときに呼ぶ（設定のロックに使う）
         self.on_count = on_count or (lambda n: None)
+        self._loading: asyncio.Task | None = None
 
     def active(self) -> list[MockSession]:
         return [s for s in self.sessions.values() if not s.ended]
@@ -266,7 +284,8 @@ class MockRecorder:
         await session.send({"type": "started"})
         session.begin()
         if self.hub.status.whisper in ("unloaded", "error"):
-            asyncio.create_task(self._load_whisper())
+            # 参照を持っておかないと、タスクが途中でガベージコレクションされることがある
+            self._loading = asyncio.create_task(self._load_whisper())
         return session
 
     async def _load_whisper(self) -> None:

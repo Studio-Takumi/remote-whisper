@@ -134,10 +134,59 @@ def test_pause_stops_the_clock(mock_client, mock_app):
         time.sleep(0.1)
         paused_at = session.elapsed
         time.sleep(0.3)
-        assert session.elapsed == pytest.approx(paused_at, abs=0.11)
+        assert session.elapsed == pytest.approx(paused_at, abs=0.01)
         ws.send_json({"type": "unpause"})
         time.sleep(0.3)
         assert session.elapsed > paused_at + 0.1
+
+
+def test_clock_follows_real_time(mock_client, mock_app):
+    with mock_client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        sid = start(ws)
+        t0 = time.monotonic()
+        time.sleep(1.0)
+        session = mock_app.state.ctx.recorder.sessions[sid]
+        assert session.elapsed == pytest.approx(time.monotonic() - t0, abs=0.1)
+
+
+def test_stop_in_the_middle_of_a_sentence_makes_it_final(mock_client):
+    with mock_client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        start(ws)
+        receive_until(ws, of_type("final"))
+        receive_until(ws, of_type("partial", segment=1))
+        ws.send_json({"type": "stop"})
+        final = receive_until(ws, of_type("final"))[-1]
+        assert (final["segment"], final["text"]) == (1, SCRIPT[1])
+        assert final["start"] <= final["end"]
+
+
+def test_whisper_error_stops_partials(mock_client, mock_app):
+    with mock_client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        sid = start(ws)
+        receive_until(ws, of_type("status", whisper="ready"))
+        mock_client.post("/api/mock/status", json={"whisper": "error"})
+        receive_until(ws, of_type("status", whisper="error"))
+        session = mock_app.state.ctx.recorder.sessions[sid]
+        segment = session.segment
+        time.sleep(0.5)
+        assert session.segment == segment
+
+
+def test_old_connection_cannot_control_after_resume(mock_client):
+    with mock_client.websocket_connect("/ws") as old:
+        old.receive_json()
+        sid = start(old)
+        with mock_client.websocket_connect("/ws") as new:
+            new.receive_json()
+            new.send_json({"type": "resume", "session": sid, "nextSeq": 0})
+            receive_until(new, of_type("started", resumed=True))
+            old.send_json({"type": "pause"})
+            assert receive_until(old, of_type("error"))[-1]["code"] == "not_recording"
+            old.send_bytes(audio(0))
+            assert receive_until(old, of_type("error"))[-1]["code"] == "not_recording"
 
 
 def test_errors(mock_client):

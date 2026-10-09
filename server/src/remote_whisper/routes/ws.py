@@ -29,7 +29,7 @@ async def websocket(ws: WebSocket) -> None:
                 break
             try:
                 if msg.get("bytes") is not None:
-                    await _audio(session, msg["bytes"])
+                    await _audio(ws, session, msg["bytes"])
                 elif msg.get("text") is not None:
                     session = await _control(ctx, ws, session, msg["text"])
             except RecordingError as e:
@@ -42,9 +42,14 @@ async def websocket(ws: WebSocket) -> None:
             session.detach()
 
 
-async def _audio(session: Any, data: bytes) -> None:
+def _owns(ws: WebSocket, session: Any) -> bool:
+    """この接続がセッションを録音しているか。resume でほかの接続に引き継がれたら False"""
+    return session is not None and not session.ended and session.ws is ws
+
+
+async def _audio(ws: WebSocket, session: Any, data: bytes) -> None:
     """先頭4バイトが連番（uint32、リトルエンディアン）、続きが 16kHz・モノラル・Int16 の PCM"""
-    if session is None or session.ended:
+    if not _owns(ws, session):
         raise RecordingError("not_recording", "録音していません")
     if len(data) < 4:
         raise RecordingError("bad_message", "音声のチャンクが短すぎます")
@@ -62,7 +67,7 @@ async def _control(ctx: AppContext, ws: WebSocket, session: Any, text: str) -> A
     if recorder is None:
         raise RecordingError("not_available", "このサーバーではまだ録音できません")
 
-    active = session is not None and not session.ended
+    active = _owns(ws, session)
     if kind == "start":
         if active:
             raise RecordingError("already_recording", "すでに録音しています")

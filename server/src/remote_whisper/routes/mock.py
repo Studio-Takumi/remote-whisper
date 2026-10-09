@@ -40,5 +40,11 @@ async def context_set(body: ContextSetBody, ctx: Annotated[AppContext, Depends(g
         await asyncio.sleep(body.seconds)
         await ctx.hub.broadcast({"type": "contextSet", "id": set_id, "status": body.result})
 
-    asyncio.create_task(finish())
+    # 参照を持っておかないと、タスクが途中でガベージコレクションされることがある
+    task = asyncio.create_task(finish())
+    _tasks.add(task)
+    task.add_done_callback(_tasks.discard)
     return {"id": set_id}
+
+
+_tasks: set[asyncio.Task] = set()
