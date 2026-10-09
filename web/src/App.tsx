@@ -109,12 +109,16 @@ function App() {
             toast.info('録音するプロジェクトを左のメニューから選んでください');
             return;
         }
+        // 既存のセッションを開いていたら、同じプロジェクトの新しいセッションの画面に切り替えるだけにする
+        // 録音を始める前に、モデルや参考資料を選び直せるようにするため
+        if (session) {
+            setSelection({ projectId: project.id, sessionId: null });
+            return;
+        }
         if (server.microphone === 'denied') {
             toast.error('マイクが使えません。ブラウザの設定でマイクを許可してください');
             return;
         }
-        // 既存のセッションを開いていたら、同じプロジェクトの新しいセッションの画面に切り替える
-        setSelection({ projectId: project.id, sessionId: null });
         timer.reset();
         setRecordingState('recording');
         // Whisper は録音を始めたときに読み込む（spec 6.2 節）

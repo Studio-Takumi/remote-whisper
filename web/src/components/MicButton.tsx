@@ -46,7 +46,7 @@ export function MicButton({
               : target.kind === 'session'
                 ? {
                       onClick: onStart,
-                      label: `クリックして「${target.projectName}」に新しいセッションを作って録音開始`,
+                      label: `クリックして「${target.projectName}」に新しいセッションを作成`,
                       color: 'bg-neutral-500',
                       icon: <PlusIcon size={64} />,
                   }
