@@ -7,7 +7,7 @@ def test_health():
     client = TestClient(create_app())
     res = client.get("/api/health")
     assert res.status_code == 200
-    assert res.json() == {"status": "ok"}
+    assert res.json() == {"status": "ok", "mock": False}
 
 
 def test_serves_web_dist(tmp_path, monkeypatch):
@@ -17,7 +17,7 @@ def test_serves_web_dist(tmp_path, monkeypatch):
 
     assert "remote-whisper" in client.get("/").text
     # API はフロントの配信より優先される
-    assert client.get("/api/health").json() == {"status": "ok"}
+    assert client.get("/api/health").json()["status"] == "ok"
 
 
 def test_without_web_dist(tmp_path, monkeypatch):

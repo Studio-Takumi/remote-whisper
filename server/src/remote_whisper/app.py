@@ -7,10 +7,14 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from remote_whisper.context import AppContext
+from remote_whisper.mock import MockRecorder, MockTiming
 from remote_whisper.projects import ProjectStore
 from remote_whisper.routes import fs as fs_routes
+from remote_whisper.routes import mock as mock_routes
+from remote_whisper.routes import options as options_routes
 from remote_whisper.routes import projects as projects_routes
 from remote_whisper.routes import settings as settings_routes
+from remote_whisper.routes import ws as ws_routes
 from remote_whisper.settings import SettingsStore, default_home
 
 # server/src/remote_whisper/app.py から見たリポジトリの web/dist。
@@ -23,19 +27,37 @@ def web_dist_dir() -> Path:
     return Path(os.environ.get("REMOTE_WHISPER_WEB_DIST", DEFAULT_WEB_DIST))
 
 
-def create_app(home: Path | None = None) -> FastAPI:
-    """home はデータのルート。省略すると REMOTE_WHISPER_HOME か ~/.remote-whisper"""
+def create_app(
+    home: Path | None = None, mock: bool = False, mock_timing: MockTiming | None = None
+) -> FastAPI:
+    """home はデータのルート。省略すると REMOTE_WHISPER_HOME か ~/.remote-whisper
+
+    mock が True なら、Whisper と Ollama の代わりにダミーを使う（GPU なしでフロントを開発するため）
+    """
     home = home or default_home()
     app = FastAPI(title="remote-whisper")
-    app.state.ctx = AppContext(home=home, settings=SettingsStore(home), projects=ProjectStore(home))
+    ctx = AppContext(
+        home=home, settings=SettingsStore(home), projects=ProjectStore(home), mock=mock
+    )
+    app.state.ctx = ctx
+    if mock:
+
+        def on_count(n: int) -> None:
+            ctx.recordings = n
+
+        ctx.recorder = MockRecorder(ctx.hub, mock_timing, on_count)
 
     @app.get("/api/health")
     def health() -> dict:
-        return {"status": "ok"}
+        return {"status": "ok", "mock": mock}
 
     app.include_router(settings_routes.router)
+    app.include_router(options_routes.router)
     app.include_router(projects_routes.router)
     app.include_router(fs_routes.router)
+    app.include_router(ws_routes.router)
+    if mock:
+        app.include_router(mock_routes.router)
 
     # API より後にマウントする。ビルドしていなければ配信しない（開発中は Vite から開く）
     dist = web_dist_dir()
