@@ -52,9 +52,9 @@ type AppState = {
     selectSession: (projectId: string, sessionId: string) => void;
     newSession: (projectId: string) => void;
     startRecording: () => Promise<void>;
-    pauseRecording: () => void;
+    pauseRecording: () => Promise<void>;
     resumeRecording: () => void;
-    stopRecording: () => void;
+    stopRecording: () => Promise<void>;
     // マイクの許可の状態を見張り始める
     watchMicrophone: () => void;
     changeSettings: (settings: Settings) => void;
@@ -131,7 +131,8 @@ export const useAppStore = create<AppState>()((set, get) => {
             } else if (m.type === 'status') {
                 // 表示の配線は #18 でまとめて行う。ここでは Whisper の読み込みの状態だけ反映する
                 set((s) => ({ server: { ...s.server, whisper: m.whisper, ollama: m.ollama } }));
-            } else if (m.type === 'error') {
+            } else if (m.type === 'error' && !starting) {
+                // 録音を始めるときのエラーは、startRecording がまとめて出す
                 toast.error(m.message);
             }
         });
@@ -239,21 +240,30 @@ export const useAppStore = create<AppState>()((set, get) => {
             }
         },
 
-        pauseRecording: () => {
+        // 一時停止の前までの音声を送り切ってから pause を送る
+        pauseRecording: async () => {
             clearInterval(elapsedTimer);
+            await mic?.flush();
+            sender?.flush();
             connection.send({ type: 'pause' });
             set({ recordingState: 'paused', micLevel: 0 });
         },
 
         resumeRecording: () => {
+            // 一時停止中に worklet に溜まった音は送らない
+            mic?.discard();
             connection.send({ type: 'unpause' });
             set({ recordingState: 'recording' });
             startElapsedTimer();
         },
 
         // 録音を終えたら、セッションの終了日時と状態を確定して、最終の要約を作り始める
-        stopRecording: () => {
+        stopRecording: async () => {
             clearInterval(elapsedTimer);
+            // 終了の前までの音声（worklet と手元に溜まっている分）を送り切ってから stop を送る
+            if (get().recordingState === 'recording') {
+                await mic?.flush();
+            }
             sender?.flush();
             connection.send({ type: 'stop' });
             // 最後に送った音声の ack を受け取れるように、購読は次の録音を始めるまで続ける

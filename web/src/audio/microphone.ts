@@ -18,10 +18,42 @@ export class MicrophoneError extends Error {
 export class Microphone {
     private readonly stream: MediaStream;
     private readonly context: AudioContext;
+    private readonly source: MediaStreamAudioSourceNode;
+    private readonly node: AudioWorkletNode;
+    // flush の返事（'flushed'）を待っているもの
+    private readonly flushing: (() => void)[] = [];
 
-    private constructor(stream: MediaStream, context: AudioContext) {
+    private constructor(
+        stream: MediaStream,
+        context: AudioContext,
+        source: MediaStreamAudioSourceNode,
+        node: AudioWorkletNode,
+        onPcm: PcmHandler,
+    ) {
         this.stream = stream;
         this.context = context;
+        this.source = source;
+        this.node = node;
+        node.port.onmessage = (e: MessageEvent<'flushed' | { pcm: Int16Array; level: number }>) => {
+            if (e.data === 'flushed') {
+                this.flushing.shift()?.();
+            } else {
+                onPcm(e.data.pcm, e.data.level);
+            }
+        };
+    }
+
+    // worklet に溜まっている分（最大 0.1 秒）を送らせる。届いたら resolve する（一時停止・終了の前に呼ぶ）
+    flush(): Promise<void> {
+        return new Promise((resolve) => {
+            this.flushing.push(resolve);
+            this.node.port.postMessage('flush');
+        });
+    }
+
+    // worklet に溜まっている分を捨てる（一時停止から再開するとき。一時停止中の音を送らないため）
+    discard() {
+        this.node.port.postMessage('discard');
     }
 
     static async open(onPcm: PcmHandler): Promise<Microphone> {
@@ -45,20 +77,25 @@ export class Microphone {
             await context.audioWorklet.addModule(workletUrl);
             const source = context.createMediaStreamSource(stream);
             const node = new AudioWorkletNode(context, 'pcm-processor');
-            node.port.onmessage = (e: MessageEvent<{ pcm: Int16Array; level: number }>) =>
-                onPcm(e.data.pcm, e.data.level);
+            const mic = new Microphone(stream, context, source, node, onPcm);
             source.connect(node);
+            // Safari などでは、AudioContext が止まった状態（suspended）で作られることがある
+            await context.resume();
+            return mic;
         } catch (e) {
             stream.getTracks().forEach((t) => t.stop());
             await context.close();
             throw new MicrophoneError('unavailable', `音声の処理を始められません: ${(e as Error).message}`);
         }
-        return new Microphone(stream, context);
     }
 
     close() {
+        this.node.port.onmessage = null;
+        this.source.disconnect();
         this.stream.getTracks().forEach((t) => t.stop());
         void this.context.close();
+        // 待っている flush があれば終わらせる
+        this.flushing.splice(0).forEach((resolve) => resolve());
     }
 }
 
