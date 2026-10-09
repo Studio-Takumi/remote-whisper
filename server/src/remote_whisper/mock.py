@@ -12,7 +12,10 @@ from typing import Any
 from fastapi import WebSocket
 
 from remote_whisper.hub import Hub, send
+from remote_whisper.projects import ProjectError, ProjectStore
 from remote_whisper.recording import RecordingError
+from remote_whisper.session_writer import SessionWriter
+from remote_whisper.settings import SettingsStore
 from remote_whisper.timeutil import make_id, now
 
 log = logging.getLogger(__name__)
@@ -65,11 +68,20 @@ def fmt_time(sec: float) -> str:
 
 
 class MockSession:
-    def __init__(self, recorder: "MockRecorder", sid: str, project: str, ws: WebSocket):
+    def __init__(
+        self,
+        recorder: "MockRecorder",
+        sid: str,
+        project: str,
+        ws: WebSocket,
+        writer: SessionWriter | None = None,
+    ):
         self.recorder = recorder
         self.timing = recorder.timing
         self.id = sid
         self.project = project
+        # 登録されたプロジェクトなら、文字起こしと要約をファイルに書く（画面を API で作れるように）
+        self.writer = writer
         self.ws: WebSocket | None = ws
         self.last_seq = -1
         self.audio_bytes = 0
@@ -152,6 +164,8 @@ class MockSession:
     async def _final(self, text: str, start: float) -> None:
         self.current = None
         self.finals.append(text)
+        if self.writer:
+            self.writer.append_final(start, text)
         await self.send(
             {
                 "type": "final",
@@ -176,6 +190,9 @@ class MockSession:
             text = "## 途中の要約\n" + "".join(f"- {t}\n" for t in self.finals)
             await self._stream("live", text)
             self.live_summary = text
+            if self.writer:
+                self.writer.save_live_summary(text)
+                self.writer.set_title(LIVE_TITLE)
             await self.send({"type": "title", "title": LIVE_TITLE, "provisional": True})
 
     async def _stream(self, kind: str, text: str) -> None:
@@ -210,6 +227,8 @@ class MockSession:
         # 話している途中の文は、そこまでを final にする
         if current is not None:
             await self._final(current, start)
+        if self.writer:
+            self.writer.finish(self.elapsed)
         # 要約は時間がかかるので、受信の処理を止めないように別のタスクで流す
         self.summary_task = asyncio.create_task(self._final_summary())
 
@@ -218,6 +237,11 @@ class MockSession:
             await self.send(_ollama_error("最終の要約"))
             return
         await self._stream("final", FINAL_SUMMARY)
+        if self.writer:
+            # 最終の要約のモデルは、今の全体設定のもの（思考モードはモデルが対応していればオン）
+            model = self.recorder.final_summary_model()
+            self.writer.set_title(FINAL_TITLE)
+            self.writer.save_final_summary(model, mock_thinking(model), FINAL_SUMMARY)
         await self.send({"type": "title", "title": FINAL_TITLE, "provisional": False})
 
     def detach(self) -> None:
@@ -230,6 +254,8 @@ class MockSession:
         await asyncio.sleep(self.timing.resume_timeout)
         log.info("session %s interrupted", self.id)
         await self._end()
+        if self.writer:
+            self.writer.finish(self.elapsed, status="interrupted")
 
     async def attach(self, ws: WebSocket) -> None:
         if self._expire is not None:
@@ -250,6 +276,18 @@ class MockSession:
         await self.recorder.ended(self)
 
 
+# モックで返す Ollama のモデル。思考モードに対応するもの・しないものを両方入れる
+MOCK_OLLAMA_MODELS = [
+    {"name": "qwen3.5:4b", "thinking": True},
+    {"name": "gemma3:4b", "thinking": False},
+    {"name": "llama3.2:3b", "thinking": False},
+]
+
+
+def mock_thinking(model: str) -> bool:
+    return any(m["name"] == model and m["thinking"] for m in MOCK_OLLAMA_MODELS)
+
+
 def _ollama_error(what: str) -> dict[str, Any]:
     return {
         "type": "error",
@@ -259,13 +297,36 @@ def _ollama_error(what: str) -> dict[str, Any]:
 
 
 class MockRecorder:
-    def __init__(self, hub: Hub, timing: MockTiming | None = None, on_count=None):
+    def __init__(
+        self,
+        hub: Hub,
+        timing: MockTiming | None = None,
+        on_count=None,
+        projects: ProjectStore | None = None,
+        settings: SettingsStore | None = None,
+    ):
         self.hub = hub
         self.timing = timing or MockTiming()
         self.sessions: dict[str, MockSession] = {}
         # 録音中のセッションの数が変わったときに呼ぶ（設定のロックに使う）
         self.on_count = on_count or (lambda n: None)
         self._loading: asyncio.Task | None = None
+        self.projects = projects
+        self.settings = settings
+
+    def final_summary_model(self) -> str:
+        return self.settings.get().ollama.final_summary_model if self.settings else "qwen3.5:4b"
+
+    def _writer(self, project: str, sid: str) -> SessionWriter | None:
+        """登録されたプロジェクトなら、ファイルを書く SessionWriter を作る。知らなければ None"""
+        if self.projects is None or self.settings is None:
+            return None
+        try:
+            writer = SessionWriter(self.projects, project, sid, now(), self.settings.get())
+        except ProjectError:
+            return None
+        writer.start()
+        return writer
 
     def active(self) -> list[MockSession]:
         return [s for s in self.sessions.values() if not s.ended]
@@ -278,7 +339,7 @@ class MockRecorder:
         while sid in self.sessions:
             await asyncio.sleep(0.2)
             sid = make_id(now())
-        session = MockSession(self, sid, project, ws)
+        session = MockSession(self, sid, project, ws, self._writer(project, sid))
         self.sessions[sid] = session
         await self._count_changed()
         await session.send({"type": "started"})
