@@ -14,3 +14,24 @@ export const projects: Project[] = [
 export const whisperModels = ['large-v3-turbo', 'large-v3', 'medium', 'small'];
 export const computeTypes = ['float16', 'int8_float16', 'int8'];
 export const ollamaModels = ['qwen3.5:4b'];
+
+// フォルダの中身。後で GET /api/fs?path=… から取る
+type DirTree = { [name: string]: DirTree };
+
+const mockFs: Record<string, DirTree> = {
+    'D:\\work': {
+        meetings: { weekly: {}, 'kick-off': {} },
+        lectures: { math: {}, physics: {}, english: {} },
+        interviews: {},
+        notes: {},
+    },
+};
+
+// root の下の segments をたどった先にあるフォルダの名前を返す
+export function listDirs(root: string, segments: string[]): string[] {
+    let tree: DirTree | undefined = mockFs[root];
+    for (const s of segments) {
+        tree = tree?.[s];
+    }
+    return Object.keys(tree ?? {}).sort();
+}

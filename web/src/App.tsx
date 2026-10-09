@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 
 import { AppSidebar } from '@/components/AppSidebar';
 import { MicButton } from '@/components/MicButton';
+import { NewProjectDialog } from '@/components/NewProjectDialog';
 import { SettingsDialog } from '@/components/SettingsDialog';
 import { StatusIndicator } from '@/components/StatusIndicator';
 import { TopBar } from '@/components/TopBar';
@@ -17,6 +18,7 @@ function App() {
     const [activeSession, setActiveSession] = useState('セッションA1');
     const [settings, setSettings] = useState(defaultSettings);
     const [settingsOpen, setSettingsOpen] = useState(false);
+    const [newProjectOpen, setNewProjectOpen] = useState(false);
 
     return (
         <SidebarProvider>
@@ -24,6 +26,7 @@ function App() {
                 recording={recording}
                 activeSession={activeSession}
                 onSelectSession={setActiveSession}
+                onNewProject={() => setNewProjectOpen(true)}
                 onOpenSettings={() => setSettingsOpen(true)}
             />
             <SidebarInset className='gap-4 p-4'>
@@ -43,6 +46,12 @@ function App() {
                 </Tabs>
                 <MicButton recording={recording} onToggle={() => setRecording((r) => !r)} />
             </SidebarInset>
+            <NewProjectDialog
+                open={newProjectOpen}
+                onOpenChange={setNewProjectOpen}
+                roots={settings.materials.roots}
+                onCreate={(path) => toast.success(`${path} をプロジェクトにしました`)}
+            />
             <SettingsDialog
                 open={settingsOpen}
                 onOpenChange={setSettingsOpen}

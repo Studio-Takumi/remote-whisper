@@ -19,11 +19,13 @@ export function AppSidebar({
     recording,
     activeSession,
     onSelectSession,
+    onNewProject,
     onOpenSettings,
 }: {
     recording: boolean;
     activeSession: string;
     onSelectSession: (session: string) => void;
+    onNewProject: () => void;
     onOpenSettings: () => void;
 }) {
     return (
@@ -36,7 +38,7 @@ export function AppSidebar({
                 <SidebarGroup>
                     <SidebarMenu>
                         <SidebarMenuItem>
-                            <SidebarMenuButton tooltip='新規プロジェクト作成'>
+                            <SidebarMenuButton tooltip='新規プロジェクト作成' onClick={onNewProject}>
                                 <PlusIcon />
                                 <span>新規プロジェクト作成</span>
                             </SidebarMenuButton>
