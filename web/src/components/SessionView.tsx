@@ -3,15 +3,22 @@ import { StatusIndicator } from '@/components/StatusIndicator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { Session } from '@/mock';
 import type { RecordingState } from '@/recording';
+import { type ServerStatus, summaryStatus, transcriptStatus } from '@/status';
 
 // 選んだセッションの文字起こしと要約
 export function SessionView({
     session,
     recordingState,
+    server,
+    liveIntervalMin,
 }: {
     session: Session | undefined;
     recordingState: RecordingState;
+    server: ServerStatus;
+    liveIntervalMin: number;
 }) {
+    const live = summaryStatus(recordingState, server, liveIntervalMin);
+
     return (
         <Tabs defaultValue='transcript'>
             <div className='flex justify-center'>
@@ -39,10 +46,11 @@ export function SessionView({
                             <p className='leading-6'>{line.text}</p>
                         </div>
                     ))}
-                    <StatusIndicator state={recordingState} />
+                    <StatusIndicator status={transcriptStatus(recordingState, server)} />
                 </TabsContent>
-                <TabsContent value='summary'>
+                <TabsContent value='summary' className='flex flex-col gap-4'>
                     <Markdown>{session?.summary ?? ''}</Markdown>
+                    {live && <StatusIndicator status={live} />}
                 </TabsContent>
             </div>
         </Tabs>
