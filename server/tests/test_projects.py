@@ -178,6 +178,9 @@ def test_broken_project_json_is_skipped_in_list(client, workdir, home):
     newer = home / "projects" / "D--newer-abcdef"
     newer.mkdir()
     (newer / "project.json").write_text(json.dumps({"version": 99, "path": "D:\\x"}), "utf-8")
+    sjis = home / "projects" / "D--sjis-abcdef"
+    sjis.mkdir()
+    (sjis / "project.json").write_bytes('{"path": "D:\\\\会議"}'.encode("shift_jis"))
 
     res = client.get("/api/projects")
     assert res.status_code == 200

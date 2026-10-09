@@ -115,7 +115,8 @@ class ProjectStore:
             raise ProjectError(404, f"プロジェクト {pid} はありません")
         try:
             project = ProjectFile.model_validate(json.loads(path.read_text(encoding="utf-8")))
-        except (json.JSONDecodeError, ValidationError) as e:
+        # ValueError は JSON の構文エラーと UTF-8 として読めないもの、OSError は権限やロック
+        except (OSError, ValueError, ValidationError) as e:
             raise ProjectError(500, f"{path} を読み込めません: {e}") from e
         if project.version > PROJECT_VERSION:
             raise ProjectError(
