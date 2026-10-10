@@ -114,6 +114,18 @@ def test_ollama_unavailable_keeps_the_live_summary(client, project, fake_ollama)
     assert "最終の要約" in error["message"]
     assert (d / ".tmp" / sid / "live-summary.md").exists()
     assert list(d.glob(f"summary-{sid}-*.md")) == []
+    # 失敗したことを記録する（後で作り直せるように。spec 6.7）
+    meta, _ = read_doc(d / f"transcript-{sid}.md", TranscriptMeta)
+    assert meta.summary_failed is True
+    url = f"/api/projects/{pid}/sessions/{sid}"
+    assert client.get(url).json()["summaryFailed"] is True
+    # 作り直して作れたら、記録を消す
+    fake_ollama.up = True
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        assert client.post(f"{url}/summaries").status_code == 202
+        receive_until(ws, lambda m: m["type"] == "title" and not m["provisional"])
+    assert client.get(url).json()["summaryFailed"] is False
 
 
 def test_title_falls_back_when_it_cannot_be_made(client, project, monkeypatch):
@@ -252,6 +264,9 @@ class StubWriter:
 
     def set_title(self, title):
         self.meta.title = title
+
+    def set_summary_failed(self, failed):
+        self.summary_failed = failed
 
     def save_final_summary(self, model, think, text, generated=None):
         self.saved = (model, think, text, generated)

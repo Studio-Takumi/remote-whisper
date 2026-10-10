@@ -129,6 +129,15 @@ class SessionWriter:
             self.meta.recording = name
             self._rewrite_meta()
 
+    def set_summary_failed(self, failed: bool) -> None:
+        """最終の要約を作れなかった（作れた）ことを、フロントマターと project.json に記録する"""
+        if self.meta.summary_failed == failed:
+            return
+        with self._lock:
+            self.meta.summary_failed = failed
+            self._rewrite_meta()
+        self._update_entry(summary_failed=failed)
+
     def finish(self, duration_sec: float, status: str = "done", ended: datetime | None = None):
         """録音を終えた。終了日時・長さ・状態を確定する"""
         ended = ended or now()

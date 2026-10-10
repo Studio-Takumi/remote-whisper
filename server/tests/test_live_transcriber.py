@@ -125,6 +125,23 @@ def test_skips_segments_while_whisper_is_unavailable():
     assert [(m["segment"], m["text"]) for m in h.of_type("final")] == [(1, "1秒")]
 
 
+def test_append_failure_is_reported_but_final_is_sent():
+    async def main():
+        h = Harness(partial_interval_sec=10)
+
+        def broken(start, text):
+            raise OSError("disk full")
+
+        h.live.append_final = broken
+        h.live.feed(tone(1.0) + silence(0.5))
+        await h.close()
+        return h
+
+    h = run(main())
+    assert [m["code"] for m in h.of_type("error")] == ["write_failed"]
+    assert [m["text"] for m in h.of_type("final")] == ["1秒"]
+
+
 def test_load_hotwords(tmp_path):
     (tmp_path / hotwords_name("s1")).write_text(
         dump({"id": "s1"}, "用語A\n\n 用語B \n"), encoding="utf-8"

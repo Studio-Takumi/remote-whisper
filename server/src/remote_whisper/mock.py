@@ -236,6 +236,8 @@ class MockSession:
 
     async def _final_summary(self) -> None:
         if self.recorder.hub.status.ollama != "ready":
+            if self.writer:
+                self.writer.set_summary_failed(True)
             await self.send(ollama_error("最終の要約"))
             return
         await self._stream("final", FINAL_SUMMARY)
@@ -326,6 +328,7 @@ class MockFinalSummarizer:
 
     async def run(self, writer: SessionWriter, send, model: str | None = None) -> str | None:
         if self.hub.status.ollama != "ready":
+            writer.set_summary_failed(True)
             await send(ollama_error("最終の要約"))
             return None
         model = model or self.settings.get().ollama.final_summary_model
@@ -335,6 +338,7 @@ class MockFinalSummarizer:
         await send({"type": "summary.done", "kind": "final"})
         writer.set_title(FINAL_TITLE)
         gid = writer.save_final_summary(model, mock_thinking(model), FINAL_SUMMARY)
+        writer.set_summary_failed(False)
         await send({"type": "title", "title": FINAL_TITLE, "provisional": False})
         return gid
 

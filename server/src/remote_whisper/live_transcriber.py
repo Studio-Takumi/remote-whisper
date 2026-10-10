@@ -108,7 +108,19 @@ class LiveTranscriber:
         text = _join(result)
         if not text:
             return
-        self.append_final(segment.start, text)
+        try:
+            self.append_final(segment.start, text)
+        except OSError as e:
+            # 文字起こしのファイルに書けない（ディスクが一杯など）。
+            # 画面には出し、書けなかったことも伝える
+            log.error("failed to append segment %d: %s", segment.index, e)
+            await self.send(
+                {
+                    "type": "error",
+                    "code": "write_failed",
+                    "message": f"文字起こしを保存できません: {e}",
+                }
+            )
         await self.send(
             {
                 "type": "final",

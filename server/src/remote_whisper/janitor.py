@@ -42,7 +42,7 @@ class Report:
     context_sets: list[str] = field(default_factory=list)
 
 
-def _expired(start: str | None, days: int, at: datetime) -> bool:
+def expired(start: str | None, days: int, at: datetime) -> bool:
     if days <= 0 or not start:
         return False
     try:
@@ -107,15 +107,15 @@ def clean_project(
         ended = s.ended_at or s.started_at
         files = SessionFiles(project_dir, s.id)
         tmp = project_dir / ".tmp" / s.id
-        if _expired(ended, days.recording, at):
+        if expired(ended, days.recording, at):
             recording = files.recording()
             if recording is not None:
                 _remove(recording, project_dir, report)
             # mp3 に変換できずに残っている WAV も録音なので、録音の期限で消す
             _remove(tmp / "audio.wav", project_dir, report)
-        if _expired(ended, days.transcript, at):
+        if expired(ended, days.transcript, at):
             _remove(files.transcript, project_dir, report)
-        if _expired(ended, days.summary, at):
+        if expired(ended, days.summary, at):
             for path in sorted(project_dir.glob(f"summary-{s.id}-*.md")):
                 m = SUMMARY_RE.fullmatch(path.name)
                 if m and m.group(1) == s.id:
@@ -130,26 +130,26 @@ def clean_project(
         if entry.status == "generating" or not ID_RE.fullmatch(entry.id):
             continue
         created = _set_created_at(project_dir, entry.id) or _id_time(entry.id)
-        if _expired(created, days.context_set, at):
+        if expired(created, days.context_set, at):
             candidates.append(entry.id)
     if not candidates:
         return
-    expired: list[str] = []
+    dropped: list[str] = []
 
     def drop(project: ProjectFile) -> None:
         # 録音中のセッションが使っているセットは消さない。読み直した最新の内容で確かめる
         # （確かめてから消すまでの間に、録音を始めてそのセットを選ぶことがあるため）
         in_use = {s.context_set for s in project.sessions if s.status == "recording"}
-        expired.extend(i for i in candidates if i not in in_use)
-        project.context_sets = [s for s in project.context_sets if s.id not in expired]
-        if project.selection is not None and project.selection.context_set in expired:
+        dropped.extend(i for i in candidates if i not in in_use)
+        project.context_sets = [s for s in project.context_sets if s.id not in dropped]
+        if project.selection is not None and project.selection.context_set in dropped:
             project.selection.context_set = None
 
     store.update(pid, drop)
-    for set_id in expired:
+    for set_id in dropped:
         _remove(project_dir / hotwords_name(set_id), project_dir, report)
         _remove(project_dir / context_name(set_id), project_dir, report)
-    report.context_sets.extend(expired)
+    report.context_sets.extend(dropped)
 
 
 def _id_time(set_id: str) -> str | None:

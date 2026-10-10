@@ -129,6 +129,8 @@ class TranscriptMeta(_Meta):
     context_set: str | None = None
     use_hotwords: bool = False
     recording: str | None = None
+    # 最終の要約を作れなかった（Ollama につながらないなど）。作れたら false に戻す（spec 6.7）
+    summary_failed: bool = False
 
 
 class SummaryMeta(_Meta):

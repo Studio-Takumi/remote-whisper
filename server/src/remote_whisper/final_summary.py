@@ -57,6 +57,14 @@ def split_lines(lines: list[str], limit: int | None = None) -> list[list[str]]:
     return chunks
 
 
+def _mark_failed(writer: SessionWriter, failed: bool) -> None:
+    """要約の失敗を記録する。記録できなくても要約の処理は止めない"""
+    try:
+        writer.set_summary_failed(failed)
+    except OSError as e:
+        log.warning("failed to record the summary state of %s: %s", writer.id, e)
+
+
 def fallback_title(summary: str) -> str | None:
     """タイトルを作れなかったとき、要約の最初の見出しか行から作る"""
     for line in summary.splitlines():
@@ -141,6 +149,8 @@ class FinalSummarizer:
                 raise OllamaUnavailable("要約が空でした")
         except OllamaUnavailable as e:
             log.warning("final summary of %s failed: %s", writer.id, e)
+            # 失敗したことを記録して、後で作り直せるようにする（spec 6.7。UI は #17）
+            _mark_failed(writer, True)
             await send(ollama_error("最終の要約"))
             return None
         await send({"type": "summary.done", "kind": "final"})
@@ -158,6 +168,7 @@ class FinalSummarizer:
             gid = writer.save_final_summary(model, think, text, generated=started)
         except OSError:
             log.exception("failed to save the final summary of %s", writer.id)
+            _mark_failed(writer, True)
             await send(
                 {
                     "type": "error",
@@ -171,6 +182,7 @@ class FinalSummarizer:
         except OSError as e:
             # コピーできなくても、データのルートには保存できている
             log.warning("failed to copy the summary of %s: %s", writer.id, e)
+        _mark_failed(writer, False)
         await send({"type": "title", "title": writer.meta.title or "", "provisional": False})
         return gid
 
