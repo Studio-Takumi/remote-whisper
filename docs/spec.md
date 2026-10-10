@@ -122,7 +122,9 @@ erDiagram
     "partialIntervalSec": 1.0,
     "silenceMs": 600,
     "maxSegmentSec": 25,
-    "unloadAfterMin": 10
+    "unloadAfterMin": 10,
+    "speechThreshold": "auto",
+    "speechDbfs": -40
   },
   "ollama": {
     "host": "http://localhost:11434",
@@ -133,7 +135,9 @@ erDiagram
     "keepAliveMin": 10
   },
   "recording": {
-    "maxConcurrent": 1
+    "maxConcurrent": 1,
+    "noiseSuppression": true,
+    "autoGainControl": true
   },
   "retentionDays": {
     "recording": 10,
@@ -153,6 +157,8 @@ erDiagram
 - ファイルがなければ既定値で作る。足りないキーは既定値で埋めて書き戻す。知らないキーや範囲外の値は受け付けない（`PATCH /api/settings` は `422`）。
 - `recording.maxConcurrent` は、サーバー全体で同時に録音できるセッションの数。1つのクライアント（ブラウザのタブ）が同時に録音できるのは1つだけなので、2以上にするのは複数の端末から同時に録音する場合。
 - 思考モードは処理ごとに固定する。参考資料セットの作成と最終の要約はオン、途中の要約はオフ。思考モードに対応していないモデルが選ばれた場合は、オフで実行する（9.3 節）。
+- `whisper.speechThreshold` は、話していると見なす音量の決め方（6.2 節）。`auto`（既定）は周りの雑音の大きさに合わせて変える。`manual` は `whisper.speechDbfs`（dBFS、-70〜-10）より大きい音を話し声とみなす。自動の結果が悪いときのために手動を残している。
+- `recording.noiseSuppression`・`recording.autoGainControl` は、ブラウザのマイクの処理（`getUserMedia` の制約の同じ名前の項目）。サーバーは使わず、ブラウザが録音を始めるときに読む。既定はどちらもオン（指定しなかったときのブラウザの既定と同じ）。
 - 数値の既定値は仮のもので、実際に測ってから決める。
 
 ### 5.4 project.json
@@ -245,6 +251,8 @@ whisper:
   model: large-v3-turbo
   beamSize: 5
   silenceMs: 600
+  speechThreshold: auto
+  speechDbfs: null            # speechThreshold が manual のときだけ値が入る
 contextSet: 20261009-090501   # 使わなかった場合は null
 useHotwords: true
 recording: recording-20261009-143012.mp3
@@ -344,6 +352,7 @@ sequenceDiagram
 ```
 
 - Whisper の読み込みが終わる前に届いた音声は、溜めておいて後でまとめて文字起こしする。
+- 区間の切り出しでは、20ms ごとの音量が「話し声とみなす音量」を超えたら話しているとみなす。`whisper.speechThreshold` が `auto` なら、直近 10 秒の音量の静かな方から 15% のところを雑音の大きさとみなし、それより 10dB 大きい音を話し声とみなす（-55〜-35 dBFS の範囲に収める。0.5 秒ごとに見直し、最初の 1 秒は -40 dBFS）。`manual` なら `whisper.speechDbfs` を使う。入り口は緩めにして、雑音は次の VAD と信頼度ではじく分担にする。
 - 無音や弱い雑音を Whisper に渡すと、「ご視聴ありがとうございました」などの定番の文を作ることがある（ハルシネーション）。これを抑えるため、partial と final のどちらも次のようにする。
   - Whisper の `vad_filter`（Silero VAD）で、話していない部分を除いてから文字起こしする。
   - Whisper が返す区間ごとの信頼度（`no_speech_prob`・`avg_logprob`・`compression_ratio`）を見て、話していないのに出てきた文を捨てる。定番の文の一覧に一致しても、信頼度が低いときだけ捨てる（本当に話した「ありがとうございました」を消さないため）。
