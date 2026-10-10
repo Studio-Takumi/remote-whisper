@@ -140,7 +140,13 @@ function SummaryPanel({
             ? (session.summaries.find((s) => s.generationId === picked.generationId) ?? fallback)
             : fallback;
     // 作り直せるのは、録音を終えていて文字起こしが残っているセッション
-    const canRegenerate = session.status !== 'recording' && session.loaded === true && session.transcript.length > 0;
+    // ほかのセッションの要約を作っている間は押せない（作成中の表示は1つだけ持つので、二重に頼まないように）
+    const canRegenerate =
+        session.status !== 'recording' &&
+        session.loaded === true &&
+        session.files?.transcript !== false &&
+        session.transcript.length > 0 &&
+        generating === null;
     const regenerateButton = canRegenerate && (
         <Button variant='outline' size='sm' onClick={() => void regenerate(session.id)}>
             <RefreshCwIcon />

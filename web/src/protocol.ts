@@ -26,7 +26,7 @@ export type ServerMessage =
     | { type: 'summary.delta'; session: string; kind: SummaryKind; text: string }
     | { type: 'summary.done'; session: string; kind: SummaryKind }
     | { type: 'title'; session: string; title: string; provisional: boolean }
-    | { type: 'contextSet'; project?: string; id: string; status: ContextSetStatus }
+    | { type: 'contextSet'; project: string; id: string; status: ContextSetStatus }
     | { type: 'status'; whisper: WhisperState; ollama: OllamaState; recordings: number; queue: number }
     | { type: 'error'; session?: string; code: ErrorCode; message: string };
 
