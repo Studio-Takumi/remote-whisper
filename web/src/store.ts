@@ -254,7 +254,12 @@ export const useAppStore = create<AppState>()((set, get) => {
             summaries: [],
         };
         set((s) => ({
-            projects: s.projects.map((p) => (p.id === projectId ? { ...p, sessions: [created, ...p.sessions] } : p)),
+            // 先に一覧の取り直しでサーバーのものが入っていることがあるので、同じ ID のものは置き換える
+            projects: s.projects.map((p) =>
+                p.id === projectId
+                    ? { ...p, sessions: [created, ...p.sessions.filter((x) => x.id !== created.id)] }
+                    : p,
+            ),
             selection: { projectId, sessionId: created.id },
             recordingState: 'recording',
             recordingSessionId: created.id,
@@ -365,6 +370,8 @@ export const useAppStore = create<AppState>()((set, get) => {
             }));
         } catch (e) {
             toast.error(`セッションを読み込めません: ${(e as Error).message}`);
+            // 「読み込んでいます…」のままにしない
+            set((s) => ({ projects: updateSession(s.projects, session.id, (x) => ({ ...x, loaded: true })) }));
         }
     }
 
@@ -427,9 +434,25 @@ export const useAppStore = create<AppState>()((set, get) => {
             }
             try {
                 const projects = await fetchProjects();
-                set((s) => ({ projects: mergeProjects(s.projects, projects) }));
+                set((s) => {
+                    // 手元で中身を積み上げているセッションは、取り直しで消さない
+                    const keep = new Set(
+                        [s.recordingSessionId, s.generating?.sessionId, stoppedWhileOffline].filter(
+                            (id): id is string => !!id,
+                        ),
+                    );
+                    return { projects: mergeProjects(s.projects, projects, keep) };
+                });
             } catch (e) {
                 toast.error(`プロジェクトを読み込めません: ${(e as Error).message}`);
+                return;
+            }
+            // 開いているセッションの中身が取り直しで無くなっていたら、読み直す
+            const s = get();
+            const project = currentProject(s);
+            const session = currentSession(s);
+            if (project && session && !session.loaded) {
+                await loadSession(project.id, session);
             }
         },
 

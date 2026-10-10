@@ -1,5 +1,6 @@
 // ダミーデータ。サーバーがないとき（選べるモデルの一覧）と、URL に ?demo を付けたとき（説明用のスクリーンショット）だけ使う
 // 中身はすべて架空のもの
+import type { DirListing } from '@/api';
 import type { SettingsOptions } from '@/protocol';
 import type { ContextSet, Project, Session } from '@/types';
 
@@ -175,6 +176,44 @@ export const fallbackOptions: SettingsOptions = {
         ],
     },
 };
+
+// ?demo のときのフォルダの中身（GET /api/fs の代わり）。null はファイル
+type DirTree = { [name: string]: DirTree | null };
+
+const demoRoot = 'D:\\work';
+const demoFs: DirTree = {
+    meetings: {
+        weekly: { 'agenda.md': null, 'notes.md': null },
+        'kick-off': { 'slides.pdf': null },
+        'release-plan.md': null,
+        'glossary.txt': null,
+    },
+    lectures: {
+        math: { 'syllabus.pdf': null, 'week3.md': null },
+        physics: {},
+        'algorithms.html': null,
+    },
+    interviews: {},
+    notes: { 'todo.txt': null },
+};
+
+export function demoDirListing(path: string | null): DirListing {
+    if (path === null) {
+        return { path: null, parent: null, dirs: [{ name: demoRoot, path: demoRoot }], files: [] };
+    }
+    let tree: DirTree | null | undefined = demoFs;
+    for (const name of path.slice(demoRoot.length).split('\\').filter(Boolean)) {
+        tree = tree?.[name];
+    }
+    const entries = Object.entries(tree ?? {}).sort(([a], [b]) => a.localeCompare(b));
+    const entry = (name: string) => ({ name, path: `${path}\\${name}` });
+    return {
+        path,
+        parent: null,
+        dirs: entries.filter(([, v]) => v !== null).map(([name]) => entry(name)),
+        files: entries.filter(([, v]) => v === null).map(([name]) => entry(name)),
+    };
+}
 
 // 参考資料セットは #31 で API につなぐまで、このダミーを使う
 export const initialContextSets: Record<string, ContextSet[]> = {

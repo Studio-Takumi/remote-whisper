@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 
 import { type DirListing, api } from '@/api';
+import { isDemo } from '@/data';
+import { demoDirListing } from '@/mock';
 
 // ディレクトリの中身（GET /api/fs）。path を省略すると、読み込めるフォルダ（materials.roots）の一覧
 // enabled が false の間は取りに行かない（ツリーの閉じているフォルダの分は取らない）
@@ -13,7 +15,7 @@ export function useDirListing(path: string | null, enabled = true) {
     const key = path ?? '';
 
     useEffect(() => {
-        if (!enabled) {
+        if (!enabled || isDemo) {
             return;
         }
         let cancelled = false;
@@ -26,6 +28,10 @@ export function useDirListing(path: string | null, enabled = true) {
         };
     }, [key, path, enabled]);
 
+    // ?demo のときは、架空のフォルダを出す（説明用のスクリーンショット）
+    if (isDemo) {
+        return { listing: enabled ? demoDirListing(path) : null, error: null, loading: false };
+    }
     const current = state.key === key ? state : { listing: null, error: null };
     return { listing: current.listing, error: current.error, loading: enabled && !current.listing && !current.error };
 }

@@ -43,25 +43,33 @@ export async function fetchProjects(): Promise<Project[]> {
 }
 
 // 前に取った文字起こしと要約は、同じセッションならそのまま使う（セッションを開くたびに取り直さないように）
-export function mergeProjects(previous: Project[], next: Project[]): Project[] {
+// keep は、手元で中身を積み上げているセッション（自分が録音中・最終の要約を待っているもの）。
+// それらは手元の中身を残し、サーバーの一覧にまだなければ手元のものを足す
+export function mergeProjects(previous: Project[], next: Project[], keep: Set<string>): Project[] {
     const loaded = new Map(previous.flatMap((p) => p.sessions).map((s) => [s.id, s]));
-    return next.map((p) => ({
-        ...p,
-        sessions: p.sessions.map((s) => {
-            const old = loaded.get(s.id);
-            // 録音中だったものや、ファイルの数が変わったものは取り直す
-            if (!old?.loaded || old.status === 'recording' || old.files?.summaries !== s.files?.summaries) {
-                return s;
-            }
-            return {
-                ...s,
-                loaded: true,
-                transcript: old.transcript,
-                summaries: old.summaries,
-                liveSummary: old.liveSummary,
-            };
-        }),
-    }));
+    return next.map((p) => {
+        const kept = previous
+            .find((q) => q.id === p.id)
+            ?.sessions.filter((s) => keep.has(s.id) && !p.sessions.some((x) => x.id === s.id));
+        return { ...p, sessions: [...(kept ?? []), ...p.sessions.map((s) => mergeSession(loaded.get(s.id), s, keep))] };
+    });
+}
+
+function mergeSession(old: Session | undefined, s: Session, keep: Set<string>): Session {
+    // 手元で積み上げているものは、手元のまま
+    if (old && keep.has(s.id)) {
+        return old;
+    }
+    // 録音中だったものや、ファイルが増えた・消えたものは取り直す
+    if (
+        !old?.loaded ||
+        old.status === 'recording' ||
+        old.files?.summaries !== s.files?.summaries ||
+        old.files?.transcript !== s.files?.transcript
+    ) {
+        return s;
+    }
+    return { ...s, loaded: true, transcript: old.transcript, summaries: old.summaries, liveSummary: old.liveSummary };
 }
 
 // セッションの文字起こしと要約。ファイルが消えているもの（期限切れ）は取らない
