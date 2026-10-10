@@ -79,6 +79,24 @@ def test_leftover_wav_is_removed_when_the_recording_exists(home, tmp_path):
     assert not (d / f"recording-{sid}.mp3.tmp").exists()
 
 
+def test_crash_before_any_segment_uses_the_wav_length(home, tmp_path):
+    with TestClient(create_app(home)) as client:
+        pid, d = register(client, tmp_path)
+        with client.websocket_connect("/ws") as ws:
+            ws.receive_json()
+            sid = start(ws, pid)
+            # 黙っている 2 秒だけ（区間ができない）
+            for seq in range(4):
+                ws.send_bytes(chunk(seq))
+                receive_until(ws, of_type("ack", seq=seq))
+    with TestClient(create_app(home)):
+        meta, _ = read_doc(d / f"transcript-{sid}.md", TranscriptMeta)
+    assert meta.status == "interrupted"
+    started = datetime.fromisoformat(meta.started_at)
+    assert datetime.fromisoformat(meta.ended_at) == started + timedelta(seconds=2)
+    assert meta.duration_sec == 2
+
+
 def test_session_started_after_startup_is_not_touched(home, tmp_path):
     with TestClient(create_app(home)) as client:
         pid, d = register(client, tmp_path)

@@ -3,7 +3,8 @@
 起動したときに、前に動いていたサーバーが残したものを直す。
 
 - `status: recording` のままの文字起こしは `interrupted` にする。終了日時は最後の区間の時刻
-  （区間がなければ開始日時）、長さは残っている WAV の長さ（なければ最後の区間の時刻）
+  （区間がなければ開始日時に WAV の長さを足したもの）、長さは残っている WAV の長さ
+  （なければ最後の区間の時刻）
 - `.tmp/<ID>/audio.wav` が残っていれば mp3 に変換してフロントマターに記録し、WAV を消す。
   録音ファイルがもうあれば（変換の途中で止まったが mp3 はできていた）、WAV を消すだけにする
 - 書きかけの録音ファイル（`recording-<ID>.mp3.tmp`）を消す
@@ -79,15 +80,15 @@ def _wav_seconds(path: Path) -> float | None:
         return None
 
 
-def _last_offset(body: str) -> float:
-    """最後の区間の時刻（録音の開始からの秒数）"""
-    seconds = 0.0
+def _last_offset(body: str) -> float | None:
+    """最後の区間の時刻（録音の開始からの秒数）。区間がなければ None"""
+    seconds: float | None = None
     for line in parse_transcript_lines(body):
         try:
             h, m, s = (int(x) for x in line["time"].split(":"))
         except ValueError:
             continue
-        seconds = max(seconds, float(h * 3600 + m * 60 + s))
+        seconds = max(seconds or 0.0, float(h * 3600 + m * 60 + s))
     return seconds
 
 
@@ -100,10 +101,12 @@ def _mark_interrupted(store: ProjectStore, pid: str, sid: str, report: Report) -
     wav = writer.files.dir / ".tmp" / sid / "audio.wav"
     duration = _wav_seconds(wav) if wav.is_file() else None
     started = datetime.fromisoformat(writer.meta.started_at)
+    # 終了日時は最後の区間の時刻。区間が1つもなければ（文字起こしの前に落ちた）録音の長さ
+    end = last if last is not None else (duration or 0.0)
     writer.finish(
-        duration if duration is not None else last,
+        duration if duration is not None else end,
         status="interrupted",
-        ended=started + timedelta(seconds=last),
+        ended=started + timedelta(seconds=end),
     )
     report.interrupted.append(sid)
 
