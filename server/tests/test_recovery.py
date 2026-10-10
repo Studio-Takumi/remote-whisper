@@ -8,6 +8,7 @@ from test_recorder import chunk, of_type, receive_until, start
 from remote_whisper.app import create_app
 from remote_whisper.documents import TranscriptMeta, read_doc, write_doc
 from remote_whisper.projects import ProjectStore, SessionEntry
+from remote_whisper.timeutil import iso, make_id, now
 
 
 def register(client, tmp_path):
@@ -124,8 +125,9 @@ def test_wav_that_cannot_be_converted_is_kept(home, tmp_path):
 def test_session_stopped_during_the_final_summary_is_marked_failed(home, tmp_path):
     with TestClient(create_app(home)) as client:
         pid, d = register(client, tmp_path)
-    sid = "20261010-100000"
-    started = "2026-10-10T10:00:00+09:00"
+    # 1 時間前に終わったセッション（要約の保存期間の中）
+    t = now() - timedelta(hours=1)
+    sid, started = make_id(t), iso(t)
 
     def add(project):
         project.sessions.append(
@@ -147,8 +149,9 @@ def test_summary_removed_by_retention_is_not_a_failure(home, tmp_path):
         pid, d = register(client, tmp_path)
         # 要約は 30 日、文字起こしは無期限
         client.patch("/api/settings", json={"retentionDays": {"summary": 30, "transcript": 0}})
-    sid = "20260801-100000"
-    started = "2026-08-01T10:00:00+09:00"
+    # 60 日前に終わったセッション（要約の保存期間の 30 日を過ぎている）
+    t = now() - timedelta(days=60)
+    sid, started = make_id(t), iso(t)
 
     def add(project):
         project.sessions.append(
