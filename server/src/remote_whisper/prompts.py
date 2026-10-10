@@ -48,7 +48,12 @@ def _context_block(context: str | None) -> str:
 def live_summary_messages(
     previous: str | None, new_lines: list[str], context: str | None
 ) -> list[dict[str, str]]:
-    """途中の要約。前回の要約に、前回から増えた文字起こしを反映する（会話履歴には足していかない）"""
+    """途中の要約。前回の要約に、前回から増えた文字起こしを反映する（会話履歴には足していかない）
+
+    「これまでの要約」を文字起こしの一部と言い切るのは、system の
+    「文字起こしにないことは書かない」に引っぱられて、前回の要約の中身（決まったことや日付）を
+    削ってしまうのを防ぐため（#79 で測った）
+    """
     user = (
         _context_block(context)
         + f"## これまでの要約\n{previous.strip() if previous else '（まだありません）'}\n\n"
