@@ -203,13 +203,15 @@ export const useAppStore = create<AppState>()((set, get) => {
                     },
                 });
             } else if (m.type === 'final') {
-                // 区間全体の文字起こしで、partial を置き換える
+                // 区間全体の文字起こしで、partial を置き換える。text が空なら文字にならなかった区間なので、partial を消すだけ（#89）
                 const line = { time: formatClock(m.start), text: m.text };
                 set((s) => ({
-                    projects: updateSession(s.projects, m.session, (x) => ({
-                        ...x,
-                        transcript: [...x.transcript, line],
-                    })),
+                    projects: m.text
+                        ? updateSession(s.projects, m.session, (x) => ({
+                              ...x,
+                              transcript: [...x.transcript, line],
+                          }))
+                        : s.projects,
                     partial: s.partial?.sessionId === m.session && s.partial.segment === m.segment ? null : s.partial,
                 }));
             } else if (
