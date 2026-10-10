@@ -1,6 +1,7 @@
 """FastAPI のアプリ"""
 
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -36,7 +37,14 @@ def create_app(
     mock が True なら、Whisper と Ollama の代わりにダミーを使う（GPU なしでフロントを開発するため）
     """
     home = home or default_home()
-    app = FastAPI(title="remote-whisper")
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        yield
+        # 止めるときは、GPU のジョブキューを止める（待っているジョブは cancel する）
+        await ctx.gpu.stop()
+
+    app = FastAPI(title="remote-whisper", lifespan=lifespan)
     ctx = AppContext(
         home=home, settings=SettingsStore(home), projects=ProjectStore(home), mock=mock
     )

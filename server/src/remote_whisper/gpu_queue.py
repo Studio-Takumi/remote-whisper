@@ -35,29 +35,47 @@ class GpuQueue:
         self._order = itertools.count()
         self._on_change = on_change
         self._worker: asyncio.Task | None = None
+        # 待っているジョブ（まだ始まっていない Future）と、実行中のジョブの数
+        self._waiting: set[asyncio.Future] = set()
         self._running = 0
-        self._notifying: set[asyncio.Task] = set()
+        # 数の通知。1本のタスクで、変わったら最新の値だけを送る（送る順番が前後しないように）
+        self._notifier: asyncio.Task | None = None
+        self._dirty = False
 
     @property
     def size(self) -> int:
         """待っているジョブと実行中のジョブの数"""
-        return self._queue.qsize() + self._running
+        return len(self._waiting) + self._running
 
     def start(self) -> None:
-        if self._worker is None:
+        if self._worker is None or self._worker.done():
             self._worker = asyncio.create_task(self._work())
 
     async def stop(self) -> None:
+        """ワーカーを止める。待っているジョブは実行せずに cancel する"""
         if self._worker is not None:
             self._worker.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._worker
             self._worker = None
+        for future in list(self._waiting):
+            future.cancel()
+        self._waiting.clear()
+        while not self._queue.empty():
+            self._queue.get_nowait()
+        self._changed()
+        if self._notifier is not None:
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._notifier
 
     def submit(self, priority: Priority, job: Callable[[], Awaitable[T]]) -> asyncio.Future[T]:
-        """ジョブを積む。結果（か例外）は返す Future に入る。cancel すると、まだなら実行しない"""
+        """ジョブを積む。結果（か例外）は返す Future に入る。cancel すると、まだなら実行しない
+        （実行中のジョブを cancel しても、GPU の処理そのものは止まらない）"""
         self.start()
         future: asyncio.Future[T] = asyncio.get_running_loop().create_future()
+        self._waiting.add(future)
+        # 待っている間に cancel されたら、すぐ数から外す
+        future.add_done_callback(self._on_waiting_done)
         self._queue.put_nowait((int(priority), next(self._order), (job, future)))
         self._changed()
         return future
@@ -66,26 +84,44 @@ class GpuQueue:
         """ジョブを積んで、終わるまで待つ"""
         return await self.submit(priority, job)
 
+    def _on_waiting_done(self, future: asyncio.Future) -> None:
+        if future in self._waiting:
+            self._waiting.discard(future)
+            self._changed()
+
     def _changed(self) -> None:
-        if self._on_change is not None:
-            task = asyncio.create_task(self._on_change(self.size))
-            # 参照を持っておかないと、タスクが途中でガベージコレクションされることがある
-            self._notifying.add(task)
-            task.add_done_callback(self._notifying.discard)
+        if self._on_change is None:
+            return
+        self._dirty = True
+        if self._notifier is None or self._notifier.done():
+            self._notifier = asyncio.create_task(self._notify())
+
+    async def _notify(self) -> None:
+        while self._dirty:
+            self._dirty = False
+            try:
+                await self._on_change(self.size)
+            except Exception:  # noqa: BLE001 通知の失敗でキューを止めない
+                log.exception("failed to notify the queue size")
 
     async def _work(self) -> None:
         while True:
             _, _, (job, future) = await self._queue.get()
-            if future.cancelled():
-                self._changed()
+            if future.done():
+                # 待っている間に cancel された
                 continue
+            self._waiting.discard(future)
             self._running = 1
+            self._changed()
             try:
                 result = await job()
             except asyncio.CancelledError:
                 if not future.done():
                     future.cancel()
-                raise
+                # stop() で止められたときだけワーカーを終える。ジョブ自身の cancel なら続ける
+                current = asyncio.current_task()
+                if current is not None and current.cancelling():
+                    raise
             except Exception as e:  # noqa: BLE001 ジョブの失敗でワーカーを止めない
                 log.exception("GPU job failed")
                 if not future.done():

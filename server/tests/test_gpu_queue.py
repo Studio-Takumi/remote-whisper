@@ -19,9 +19,11 @@ def test_jobs_run_in_priority_order():
             sizes.append(n)
 
         queue = GpuQueue(on_change)
+        started = asyncio.Event()
         release = asyncio.Event()
 
         async def blocker():
+            started.set()
             await release.wait()
             order.append("blocker")
 
@@ -33,7 +35,7 @@ def test_jobs_run_in_priority_order():
             return run
 
         first = queue.submit(Priority.BACKGROUND, blocker)
-        await asyncio.sleep(0.01)  # ワーカーが blocker を始めるのを待つ
+        await started.wait()  # ワーカーが blocker を始めるのを待つ
         futures = [
             queue.submit(Priority.BACKGROUND, job("final-summary")),
             queue.submit(Priority.LIVE_SUMMARY, job("live-summary")),
@@ -100,6 +102,82 @@ def test_cancelled_job_is_skipped():
         return ran
 
     assert run(main()) == []
+
+
+def test_job_raising_cancelled_error_does_not_stop_the_worker():
+    async def main():
+        queue = GpuQueue()
+
+        async def cancels_itself():
+            raise asyncio.CancelledError
+
+        async def ok():
+            return "ok"
+
+        first = queue.submit(Priority.TRANSCRIBE, cancels_itself)
+        value = await queue.run(Priority.TRANSCRIBE, ok)
+        await queue.stop()
+        return first.cancelled(), value
+
+    assert run(main()) == (True, "ok")
+
+
+def test_stop_cancels_waiting_jobs_and_reports_zero():
+    async def main():
+        sizes = []
+
+        async def on_change(n):
+            sizes.append(n)
+
+        queue = GpuQueue(on_change)
+        started = asyncio.Event()
+
+        async def blocker():
+            started.set()
+            await asyncio.sleep(10)
+
+        running = queue.submit(Priority.TRANSCRIBE, blocker)
+        await started.wait()
+        waiting = queue.submit(Priority.TRANSCRIBE, blocker)
+        await queue.stop()
+        return running.cancelled(), waiting.cancelled(), queue.size, sizes
+
+    running, waiting, size, sizes = run(main())
+    assert running and waiting
+    assert size == 0
+    assert sizes[-1] == 0
+
+
+def test_cancelling_a_waiting_job_updates_the_size_at_once():
+    async def main():
+        sizes = []
+
+        async def on_change(n):
+            sizes.append(n)
+
+        queue = GpuQueue(on_change)
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def blocker():
+            started.set()
+            await release.wait()
+
+        queue.submit(Priority.TRANSCRIBE, blocker)
+        await started.wait()
+        waiting = queue.submit(Priority.TRANSCRIBE, blocker)
+        await asyncio.sleep(0)
+        before = queue.size
+        waiting.cancel()
+        await asyncio.sleep(0)
+        after = queue.size
+        await asyncio.sleep(0.01)
+        last = sizes[-1]
+        release.set()
+        await queue.stop()
+        return before, after, last
+
+    assert run(main()) == (2, 1, 1)
 
 
 def test_queue_size_is_sent_as_status(app):
