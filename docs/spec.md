@@ -456,7 +456,7 @@ GPU を使う処理は、1つのキューを通して順番に実行する。
 
 - `resume` を受け付けたら、`started`（`resumed: true`）と、受け取り済みの最後の連番の `ack` を返す。ブラウザはその次から送り直す。再開できるセッションがなければ `error`（`session_not_found`）。
 - 音声の連番は 0 から始める。抜けがあったチャンクは受け取らず、受け取り済みの最後の連番の `ack` を返す。受け取り済みの連番がもう一度届いたら、捨てて `ack` だけ返す。
-- `error` の `code`: `bad_message`（読めないメッセージ）、`not_recording`、`already_recording`（1つの接続で録音できるのは1つだけ）、`too_many_recordings`（`recording.maxConcurrent` を超えた）、`session_not_found`、`project_not_found`（`start` のプロジェクトが登録されていない）、`ollama_unavailable`、`not_available`（録音を受け付けられないサーバー）。
+- `error` の `code`: `bad_message`（読めないメッセージ）、`not_recording`、`already_recording`（1つの接続で録音できるのは1つだけ）、`too_many_recordings`（`recording.maxConcurrent` を超えた）、`session_not_found`、`project_not_found`（`start` のプロジェクトが登録されていない）、`write_failed`（ディスクが一杯などで音声を保存できない。そのチャンクは受け取らずに、受け取り済みの最後の連番の `ack` を返す）、`ollama_unavailable`、`not_available`（録音を受け付けられないサーバー）。
 - サーバーとの接続（再接続中かどうか）とマイクの許可は、`status` には含めず、ブラウザ側で判定して表示する。
 - `recordings` と `queue` は、今のところ UI には出さない。
 

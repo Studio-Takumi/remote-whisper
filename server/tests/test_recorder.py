@@ -137,6 +137,63 @@ def test_unknown_project_and_max_concurrent(client, project):
         assert receive_until(b, of_type("error"))[-1]["code"] == "too_many_recordings"
 
 
+def test_failure_while_finishing_still_releases_the_lock(client, project, monkeypatch):
+    pid, _ = project
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        sid = start(ws, pid)
+        session = client.app.state.ctx.recorder.sessions[sid]
+
+        def broken(*args, **kwargs):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(session.writer, "finish", broken)
+        ws.send_json({"type": "stop"})
+        receive_until(ws, of_type("status", recordings=0))
+    assert client.patch("/api/settings", json={"whisper": {"beamSize": 3}}).status_code == 200
+
+
+def test_audio_write_failure_returns_an_error_and_keeps_the_connection(
+    client, project, monkeypatch
+):
+    pid, _ = project
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        sid = start(ws, pid)
+        session = client.app.state.ctx.recorder.sessions[sid]
+        original = session.wav.write
+
+        def broken(pcm):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(session.wav, "write", broken)
+        ws.send_bytes(chunk(0, samples=100))
+        assert receive_until(ws, of_type("error"))[-1]["code"] == "write_failed"
+        assert receive_until(ws, of_type("ack"))[-1]["seq"] == -1
+        # 書けるようになれば、同じ連番から受け取る
+        monkeypatch.setattr(session.wav, "write", original)
+        ws.send_bytes(chunk(0, samples=100))
+        assert receive_until(ws, of_type("ack"))[-1]["seq"] == 0
+
+
+def test_pause_is_not_counted_in_the_duration(client, project):
+    pid, d = project
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        sid = start(ws, pid)
+        ws.send_bytes(chunk(0, samples=16000))
+        receive_until(ws, of_type("ack", seq=0))
+        ws.send_json({"type": "pause"})
+        time.sleep(1.2)
+        ws.send_json({"type": "unpause"})
+        ws.send_bytes(chunk(1, samples=16000))
+        receive_until(ws, of_type("ack", seq=1))
+        ws.send_json({"type": "stop"})
+        receive_until(ws, of_type("status", recordings=0))
+    meta, _ = read_doc(d / f"transcript-{sid}.md", TranscriptMeta)
+    assert meta.duration_sec == 2
+
+
 def test_resume_and_interrupted(client, project):
     pid, d = project
     with client.websocket_connect("/ws") as ws:
@@ -157,6 +214,9 @@ def test_resume_and_interrupted(client, project):
     time.sleep(0.6)
     meta, _ = read_doc(d / f"transcript-{sid}.md", TranscriptMeta)
     assert meta.status == "interrupted"
+    # 録音中の数が 0 に戻り、設定を変えられる
+    assert client.app.state.ctx.recordings == 0
+    assert client.patch("/api/settings", json={"whisper": {"beamSize": 3}}).status_code == 200
     with wave.open(str(d / ".tmp" / sid / "audio.wav")) as w:
         assert w.getnframes() == 200
     with client.websocket_connect("/ws") as ws:

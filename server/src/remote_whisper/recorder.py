@@ -82,7 +82,20 @@ class RecordingSession:
     async def audio(self, seq: int, data: bytes) -> None:
         # 抜けがあれば受け取らず、受け取り済みの最後の連番を返す（ブラウザが続きから送り直す）
         if seq == self.last_seq + 1 and not self.paused:
-            self.wav.write(data)
+            try:
+                self.wav.write(data)
+            except OSError as e:
+                # ディスクが一杯などで書けない。受け取らずにエラーを返す（接続は落とさない）
+                log.error("failed to write audio of %s: %s", self.id, e)
+                await self.send(
+                    {
+                        "type": "error",
+                        "code": "write_failed",
+                        "message": f"音声を保存できません: {e}",
+                    }
+                )
+                await self.send({"type": "ack", "seq": self.last_seq})
+                return
             self.last_seq = seq
         elif seq == self.last_seq + 1:
             # 一時停止中に届いた分は保存しないが、受け取ったことにする（送り直させない）
@@ -119,9 +132,14 @@ class RecordingSession:
         if self.ended:
             return
         self.ended = True
-        self.wav.close()
-        self.writer.finish(self.elapsed, status=status)
-        await self.manager.ended(self)
+        try:
+            self.wav.close()
+            self.writer.finish(self.elapsed, status=status)
+        except OSError:
+            log.exception("failed to finish %s", self.id)
+        finally:
+            # 失敗しても、録音中の数は必ず減らす（設定のロックが外れなくなるため）
+            await self.manager.ended(self)
 
 
 class RecordingManager:
@@ -158,8 +176,9 @@ class RecordingManager:
             writer = SessionWriter(self.projects, project, sid, started, self.settings.get())
         except ProjectError as e:
             raise RecordingError("project_not_found", "プロジェクトがありません") from e
-        writer.start()
+        # WAV を先に開いてから、文字起こしと project.json を作る（WAV を開けなければ何も残さない）
         session = RecordingSession(self, writer, ws)
+        writer.start()
         self.sessions[sid] = session
         await self._count_changed()
         await session.send({"type": "started"})
