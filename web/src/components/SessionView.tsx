@@ -174,6 +174,10 @@ function SummaryPanel({
 
     const fallback: Summary | undefined =
         session.summaries.findLast((s) => s.model === finalModel) ?? session.summaries.at(-1);
+    const summary =
+        picked?.sessionId === session.id && picked.count === session.summaries.length
+            ? (session.summaries.find((s) => s.generationId === picked.generationId) ?? fallback)
+            : fallback;
 
     if (generating?.sessionId === session.id) {
         const status = <StatusIndicator status={{ tone: 'active', text: `${generating.model} で要約を作成中…` }} />;
@@ -186,12 +190,13 @@ function SummaryPanel({
             );
         }
         // 本文が届き始めるまで（モデルの読み込み・思考・長い録音の部分ごとの要約の間）は、空にせず
-        // 途中の要約を出しておく。作り直しなら今の要約を出しておく（#80）
+        // 作り直しなら今表示している要約を、録音を終えた直後なら途中の要約を出しておく（#80）
+        // 途中の要約は最終の要約ができた後も手元に残ることがあるので、最終の要約を先に見る
         const live = liveDraft?.sessionId === session.id ? liveDraft.text : session.liveSummary;
-        const placeholder = live
-            ? { label: '途中の要約（最終の要約が届いたら差し替えます）', text: live }
-            : fallback?.text
-              ? { label: '今の要約（作り直した要約が届いたら差し替えます）', text: fallback.text }
+        const placeholder = summary?.text
+            ? { label: '今の要約（作り直した要約が届いたら差し替えます）', text: summary.text }
+            : live
+              ? { label: '途中の要約（最終の要約が届いたら差し替えます）', text: live }
               : null;
         return (
             <>
@@ -205,10 +210,6 @@ function SummaryPanel({
             </>
         );
     }
-    const summary =
-        picked?.sessionId === session.id && picked.count === session.summaries.length
-            ? (session.summaries.find((s) => s.generationId === picked.generationId) ?? fallback)
-            : fallback;
     // 作り直せるのは、録音を終えていて文字起こしが残っているセッション
     // ほかのセッションの要約を作っている間は押せない（作成中の表示は1つだけ持つので、二重に頼まないように）
     const canRegenerate =
