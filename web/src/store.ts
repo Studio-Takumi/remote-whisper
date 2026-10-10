@@ -66,6 +66,8 @@ type AppState = {
     // サーバーにつなぎ、状態の通知を受け取り始める
     connectServer: () => void;
     changeSettings: (settings: Settings) => Promise<boolean>;
+    // 今の全体設定（finalSummaryModel）で、最終の要約を作り直す（POST .../summaries）
+    regenerateSummary: (sessionId: string) => Promise<void>;
     changeContextSelection: (selection: ContextSelection) => void;
     createContextSet: (materials: string[]) => void;
     setServer: (server: ServerStatus) => void;
@@ -81,6 +83,17 @@ const NO_SETS: ContextSet[] = [];
 export const visibleProjects = (s: AppState) => (s.noProjects ? NO_PROJECTS : s.projects);
 export const currentProject = (s: AppState) => visibleProjects(s).find((p) => p.id === s.selection.projectId);
 export const currentSession = (s: AppState) => currentProject(s)?.sessions.find((x) => x.id === s.selection.sessionId);
+
+// 録音を終えていて文字起こしがあるのに、そのモデルの最終の要約がまだないか（作り直すかどうか）
+export function needsSummaryFor(session: Session, model: string) {
+    return (
+        session.loaded === true &&
+        session.status !== 'recording' &&
+        session.files?.transcript !== false &&
+        session.transcript.length > 0 &&
+        !session.summaries.some((x) => x.model === model)
+    );
+}
 export const currentContextSets = (s: AppState) => {
     const project = currentProject(s);
     return project ? (s.contextSets[project.id] ?? NO_SETS) : NO_SETS;
@@ -216,40 +229,9 @@ export const useAppStore = create<AppState>()((set, get) => {
                         : s.projects,
                     liveDraft: null,
                 }));
-            } else if (m.type === 'summary.delta' && m.kind === 'final') {
-                // 録音を終えた後の最終の要約。少しずつ届く
-                set((s) => ({
-                    generating: {
-                        sessionId: m.session,
-                        model: s.generating?.model ?? s.settings.ollama.finalSummaryModel,
-                        text: (s.generating?.sessionId === m.session ? s.generating.text : '') + m.text,
-                    },
-                }));
-            } else if (m.type === 'title') {
-                set((s) => ({
-                    projects: updateSession(s.projects, m.session, (x) => ({
-                        ...x,
-                        title: m.title,
-                        provisionalTitle: m.provisional,
-                    })),
-                }));
-                // 最終のタイトルは、最終の要約を保存した後に届く。保存されたものを取り直して表示を置き換える
-                if (!m.provisional) {
-                    void reloadAfterFinalSummary(m.session);
-                }
-            } else if (
-                m.type === 'error' &&
-                (m.code === 'ollama_unavailable' || m.code === 'summary_skipped' || m.code === 'write_failed')
-            ) {
-                // 要約を作れなかった（作らなかった）。作成中の表示を消す（失敗の表示と作り直しは #17）。
-                // Ollama の失敗なら、途中の要約の下書きも捨てる（届きかけの分が、次の回の要約に混ざらないように。
-                // 音声の write_failed では捨てない）
-                set((s) => ({
-                    generating: s.generating?.sessionId === m.session ? null : s.generating,
-                    liveDraft:
-                        m.code === 'ollama_unavailable' && s.liveDraft?.sessionId === m.session ? null : s.liveDraft,
-                }));
             }
+            // 最終の要約・タイトル・要約の失敗は、作り直し（ほかの端末から頼んだものも）でも届くので、
+            // 録音ごとではなく、常時の購読（connectServer）で受け取る
         });
         await connection.open();
         connection.send({ type: 'start', project: projectId });
@@ -641,7 +623,48 @@ export const useAppStore = create<AppState>()((set, get) => {
                         lastRecordings = m.recordings;
                         void get().loadProjects();
                     }
-                } else if (m.type === 'error' && !starting && !resuming) {
+                } else if (m.type === 'summary.delta' && m.kind === 'final') {
+                    // 最終の要約（録音を終えた後と、作り直し）。少しずつ届く
+                    set((s) => ({
+                        generating: {
+                            sessionId: m.session,
+                            model:
+                                s.generating?.sessionId === m.session
+                                    ? s.generating.model
+                                    : s.settings.ollama.finalSummaryModel,
+                            text: (s.generating?.sessionId === m.session ? s.generating.text : '') + m.text,
+                        },
+                    }));
+                } else if (m.type === 'title') {
+                    set((s) => ({
+                        projects: updateSession(s.projects, m.session, (x) => ({
+                            ...x,
+                            title: m.title,
+                            provisionalTitle: m.provisional,
+                        })),
+                    }));
+                    // 最終のタイトルは、最終の要約を保存した後に届く。保存されたものを取り直して表示を置き換える
+                    if (!m.provisional) {
+                        void reloadAfterFinalSummary(m.session);
+                    }
+                }
+                if (
+                    m.type === 'error' &&
+                    m.session &&
+                    (m.code === 'ollama_unavailable' || m.code === 'summary_skipped' || m.code === 'write_failed')
+                ) {
+                    // 要約を作れなかった（作らなかった）。作成中の表示を消す（失敗の表示は #17）。
+                    // Ollama の失敗なら、途中の要約の下書きも捨てる（届きかけの分が、次の回の要約に混ざらないように。
+                    // 音声の write_failed では捨てない）
+                    set((s) => ({
+                        generating: s.generating?.sessionId === m.session ? null : s.generating,
+                        liveDraft:
+                            m.code === 'ollama_unavailable' && s.liveDraft?.sessionId === m.session
+                                ? null
+                                : s.liveDraft,
+                    }));
+                }
+                if (m.type === 'error' && !starting && !resuming) {
                     // 録音を始める・続けるときのエラーは、それぞれの処理でまとめて出す
                     toast.error(m.message);
                 }
@@ -650,14 +673,20 @@ export const useAppStore = create<AppState>()((set, get) => {
         },
 
         // 簡易設定・設定モーダルのどちらからでも呼ぶ。全体設定を保存する（PATCH /api/settings）。保存できたら true
-        // 最終の要約のモデルを変えたときの作り直しは #16
         changeSettings: async (next) => {
             if (isDemo) {
                 set({ settings: next });
                 return true;
             }
+            const before = get().settings.ollama.finalSummaryModel;
             try {
                 set({ settings: await api.patch<Settings>('/api/settings', next) });
+                // 最終の要約のモデルを変えたら、開いているセッションにそのモデルの要約がなければ作り直す（spec 6.5）
+                const model = get().settings.ollama.finalSummaryModel;
+                const session = currentSession(get());
+                if (model !== before && session && needsSummaryFor(session, model) && !get().generating) {
+                    void get().regenerateSummary(session.id);
+                }
                 return true;
             } catch (e) {
                 if (e instanceof ApiError && e.status === 409) {
@@ -666,6 +695,32 @@ export const useAppStore = create<AppState>()((set, get) => {
                     toast.error(`設定を保存できません: ${(e as Error).message}`);
                 }
                 return false;
+            }
+        },
+
+        regenerateSummary: async (sessionId) => {
+            if (isDemo) {
+                toast.info('デモでは要約を作り直せません');
+                return;
+            }
+            const project = get().projects.find((p) => p.sessions.some((x) => x.id === sessionId));
+            if (!project) {
+                return;
+            }
+            try {
+                const { model } = await api.post<{ model: string }>(
+                    `/api/projects/${project.id}/sessions/${sessionId}/summaries`,
+                );
+                // 結果は WebSocket（summary.delta）で届く。届くまでは「作成中」と出す
+                set({ generating: { sessionId, model, text: '' } });
+            } catch (e) {
+                if (e instanceof ApiError && e.status === 409) {
+                    toast.error('録音中のセッションの要約は作り直せません');
+                } else if (e instanceof ApiError && e.status === 410) {
+                    toast.error('文字起こしが保存期間を過ぎて消えているため、要約を作り直せません');
+                } else {
+                    toast.error(`要約を作り直せません: ${(e as Error).message}`);
+                }
             }
         },
 

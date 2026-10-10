@@ -1,8 +1,12 @@
-import { AudioLinesIcon, FolderPlusIcon } from 'lucide-react';
+import { useState } from 'react';
+
+import { AudioLinesIcon, FolderPlusIcon, RefreshCwIcon } from 'lucide-react';
 
 import { Markdown } from '@/components/Markdown';
 import { StatusIndicator } from '@/components/StatusIndicator';
 import { Transcript } from '@/components/Transcript';
+import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { summaryStatus, transcriptStatus } from '@/status';
 import { currentProject, currentSession, useAppStore, visibleProjects } from '@/store';
@@ -103,7 +107,8 @@ export function SessionView() {
     );
 }
 
-// 最終の要約。今選んでいるモデルの要約があればそれを、なければいちばん新しいものを出す
+// 最終の要約。既定は、今選んでいるモデルの要約のうちいちばん新しいもの。なければモデルを問わずいちばん新しいもの。
+// 世代が複数あれば切り替えられる（spec 6.5）
 function SummaryPanel({
     session,
     finalModel,
@@ -115,6 +120,10 @@ function SummaryPanel({
     generating: Generating | null;
     liveDraft: { sessionId: string; text: string } | null;
 }) {
+    const regenerate = useAppStore((s) => s.regenerateSummary);
+    // 手で選んだ世代。セッションを替えたときと、要約が増えた（作り直した）ときは既定に戻す
+    const [picked, setPicked] = useState<{ sessionId: string; count: number; generationId: string } | null>(null);
+
     if (generating?.sessionId === session.id) {
         return (
             <>
@@ -124,8 +133,21 @@ function SummaryPanel({
         );
     }
 
-    const summary: Summary | undefined =
+    const fallback: Summary | undefined =
         session.summaries.findLast((s) => s.model === finalModel) ?? session.summaries.at(-1);
+    const summary =
+        picked?.sessionId === session.id && picked.count === session.summaries.length
+            ? (session.summaries.find((s) => s.generationId === picked.generationId) ?? fallback)
+            : fallback;
+    // 作り直せるのは、録音を終えていて文字起こしが残っているセッション
+    const canRegenerate = session.status !== 'recording' && session.loaded === true && session.transcript.length > 0;
+    const regenerateButton = canRegenerate && (
+        <Button variant='outline' size='sm' onClick={() => void regenerate(session.id)}>
+            <RefreshCwIcon />
+            {finalModel} で{summary ? '作り直す' : '要約を作る'}
+        </Button>
+    );
+
     if (!summary) {
         // 最終の要約がまだないときは、途中の要約を代わりに出す（届いている途中なら、それを少しずつ）
         const live = liveDraft?.sessionId === session.id ? liveDraft.text : session.liveSummary;
@@ -144,20 +166,47 @@ function SummaryPanel({
             return null;
         }
         return (
-            <p className='text-sm text-muted-foreground'>
-                {expired(session, 'summary')
-                    ? '要約は、保存期間を過ぎたため消えています（期限切れ）。'
-                    : 'まだ要約がありません。'}
-            </p>
+            <div className='flex flex-col items-start gap-2'>
+                <p className='text-sm text-muted-foreground'>
+                    {expired(session, 'summary')
+                        ? '要約は、保存期間を過ぎたため消えています（期限切れ）。'
+                        : 'まだ要約がありません。'}
+                </p>
+                {regenerateButton}
+            </div>
         );
     }
 
+    const label = (s: Summary) => `${s.model} で生成・${s.generatedAt}`;
     return (
         <>
-            <p className='text-xs text-muted-foreground'>
-                {summary.model} で生成・{summary.generatedAt}
-                {summary.model !== finalModel && `（${finalModel} の要約はまだありません）`}
-            </p>
+            <div className='flex flex-wrap items-center gap-2'>
+                {session.summaries.length > 1 ? (
+                    <Select
+                        value={summary.generationId}
+                        onValueChange={(generationId) =>
+                            setPicked({ sessionId: session.id, count: session.summaries.length, generationId })
+                        }
+                    >
+                        <SelectTrigger size='sm' className='text-xs' aria-label='表示する要約'>
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {session.summaries.map((s) => (
+                                <SelectItem key={s.generationId} value={s.generationId} className='text-xs'>
+                                    {label(s)}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                ) : (
+                    <p className='text-xs text-muted-foreground'>{label(summary)}</p>
+                )}
+                {regenerateButton}
+            </div>
+            {summary.model !== finalModel && (
+                <p className='text-xs text-muted-foreground'>{finalModel} の要約はまだありません。</p>
+            )}
             <Markdown>{summary.text ?? ''}</Markdown>
         </>
     );
