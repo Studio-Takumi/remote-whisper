@@ -13,6 +13,7 @@
 """
 
 import logging
+import re
 import wave
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -22,9 +23,12 @@ from remote_whisper.audio_convert import convert_wav
 from remote_whisper.documents import TranscriptMeta, read_doc
 from remote_whisper.projects import ProjectError, ProjectStore
 from remote_whisper.session_writer import SessionWriter
-from remote_whisper.sessions import SessionFiles, parse_transcript_lines
+from remote_whisper.sessions import ID_RE, SessionFiles, parse_transcript_lines
 
 log = logging.getLogger(__name__)
+
+# 書きかけの録音ファイル（audio_convert.convert_wav が書いている途中のもの）
+PARTIAL_RE = re.compile(r"recording-\d{8}-\d{6}\.(mp3|m4a)\.tmp")
 
 
 @dataclass
@@ -53,11 +57,15 @@ def find_leftovers(store: ProjectStore) -> Leftovers:
                     meta, _ = read_doc(path, TranscriptMeta)
                 except (OSError, ValueError):
                     continue
-                if meta.status == "recording":
+                # ID はファイル名と同じもの（手で書き換えたフロントマターでパスを作らない）
+                if meta.status == "recording" and path.name == f"transcript-{meta.id}.md":
                     found.recording.append((pid, meta.id))
             for wav in sorted(d.glob(".tmp/*/audio.wav")):
-                found.wavs.append((pid, wav.parent.name))
-            found.partials.extend(sorted(d.glob("recording-*.tmp")))
+                if ID_RE.fullmatch(wav.parent.name):
+                    found.wavs.append((pid, wav.parent.name))
+            found.partials.extend(
+                p for p in sorted(d.glob("recording-*.tmp")) if PARTIAL_RE.fullmatch(p.name)
+            )
         except OSError as e:
             log.warning("failed to look into %s: %s", d, e)
     return found
