@@ -4,7 +4,7 @@ import { create } from 'zustand';
 import { ApiError, type ProjectJson, api } from '@/api';
 import { Microphone, MicrophoneError, watchMicrophonePermission } from '@/audio/microphone';
 import { AudioSender, connection } from '@/connection';
-import { fetchProjects, fetchSessionDetail, isDemo, mergeProjects } from '@/data';
+import { fetchContextSets, fetchProjects, fetchSessionDetail, isDemo, mergeProjects, toSelection } from '@/data';
 import { demoProjects, fallbackOptions, initialContextSets } from '@/mock';
 import { fetchOptions } from '@/options';
 import type { ServerMessage, SettingsOptions } from '@/protocol';
@@ -68,8 +68,8 @@ type AppState = {
     changeSettings: (settings: Settings) => Promise<boolean>;
     // 今の全体設定（finalSummaryModel）で、最終の要約を作り直す（POST .../summaries）
     regenerateSummary: (sessionId: string) => Promise<void>;
-    changeContextSelection: (selection: ContextSelection) => void;
-    createContextSet: (materials: string[]) => void;
+    changeContextSelection: (selection: ContextSelection) => Promise<void>;
+    createContextSet: (materials: string[]) => Promise<void>;
     setServer: (server: ServerStatus) => void;
     setSettingsOpen: (open: boolean) => void;
     setNewProjectOpen: (open: boolean) => void;
@@ -101,8 +101,9 @@ export const currentContextSets = (s: AppState) => {
 // 新しいオブジェクトを返すことがあるので、使うときは useShallow で包む
 export const currentContextSelection = (s: AppState): ContextSelection => {
     const project = currentProject(s);
+    // 手元で変えたもの → サーバーに保存されているもの → 既定（ready のうち最初に作ったもの）
     return (
-        (project && s.contextSelections[project.id]) ?? {
+        (project && (s.contextSelections[project.id] ?? project.selection)) ?? {
             setId: currentContextSets(s).find((x) => x.status === 'ready')?.id ?? null,
             useHotwords: true,
             useContext: true,
@@ -402,7 +403,8 @@ export const useAppStore = create<AppState>()((set, get) => {
         settings: defaultSettings,
         options: fallbackOptions,
         server: initialServerStatus,
-        contextSets: initialContextSets,
+        // デモではダミーのセット。サーバーにつなぐときは、プロジェクトの一覧と一緒に取る
+        contextSets: isDemo ? initialContextSets : {},
         contextSelections: {},
         generating: null,
         settingsOpen: false,
@@ -439,6 +441,9 @@ export const useAppStore = create<AppState>()((set, get) => {
             }
             try {
                 const projects = await fetchProjects();
+                // 参考資料セットの一覧も取り直す（プロジェクトの数は多くないので、まとめて取る）
+                const sets = await Promise.all(projects.map((p) => fetchContextSets(p.id)));
+                set({ contextSets: Object.fromEntries(projects.map((p, i) => [p.id, sets[i]])) });
                 set((s) => {
                     // 手元で中身を積み上げているセッションは、取り直しで消さない
                     const keep = new Set(
@@ -664,6 +669,32 @@ export const useAppStore = create<AppState>()((set, get) => {
                                 : s.liveDraft,
                     }));
                 }
+                // project のない contextSet（モックの /api/mock/context-set のまね）は、どのプロジェクトか分からないので無視する
+                if (m.type === 'contextSet' && m.project) {
+                    // 参考資料セットの作成の進み具合（ほかの端末で始めたものも）
+                    const pid = m.project;
+                    const known = (get().contextSets[pid] ?? []).find((x) => x.id === m.id);
+                    if (!known) {
+                        // 知らないセット（ほかの端末で始めたもの）は、一覧ごと取り直す
+                        void fetchContextSets(pid).then((sets) =>
+                            set((s) => ({ contextSets: { ...s.contextSets, [pid]: sets } })),
+                        );
+                        return;
+                    }
+                    set((s) => ({
+                        contextSets: {
+                            ...s.contextSets,
+                            [pid]: (s.contextSets[pid] ?? []).map((x) =>
+                                x.id === m.id ? { ...x, status: m.status } : x,
+                            ),
+                        },
+                    }));
+                    if (known.status === 'generating' && m.status === 'ready') {
+                        toast.success('参考資料セットができました');
+                    } else if (known.status === 'generating' && m.status === 'failed') {
+                        toast.error('参考資料セットを作れませんでした（資料を読めないか、Ollama に接続できません）');
+                    }
+                }
                 if (m.type === 'error' && !starting && !resuming) {
                     // 録音を始める・続けるときのエラーは、それぞれの処理でまとめて出す
                     toast.error(m.message);
@@ -711,11 +742,18 @@ export const useAppStore = create<AppState>()((set, get) => {
                 const { model } = await api.post<{ model: string }>(
                     `/api/projects/${project.id}/sessions/${sessionId}/summaries`,
                 );
-                // 結果は WebSocket（summary.delta）で届く。届くまでは「作成中」と出す
-                set({ generating: { sessionId, model, text: '' } });
+                // 結果は WebSocket（summary.delta）で届く。届くまでは「作成中」と出す。
+                // 返事より先に届いた分があれば残す
+                set((s) => ({
+                    generating: {
+                        sessionId,
+                        model,
+                        text: s.generating?.sessionId === sessionId ? s.generating.text : '',
+                    },
+                }));
             } catch (e) {
                 if (e instanceof ApiError && e.status === 409) {
-                    toast.error('録音中のセッションの要約は作り直せません');
+                    toast.error('録音中か、録音を終えた直後のセッションです。少し待ってから作り直してください');
                 } else if (e instanceof ApiError && e.status === 410) {
                     toast.error('文字起こしが保存期間を過ぎて消えているため、要約を作り直せません');
                 } else {
@@ -724,15 +762,46 @@ export const useAppStore = create<AppState>()((set, get) => {
             }
         },
 
-        changeContextSelection: (next) => {
+        // 使うセットと、用語リスト・コンテキストを使うかを保存する（PATCH .../selection）。録音中は 409
+        changeContextSelection: async (next) => {
             const project = currentProject(get());
-            if (project) {
-                set((s) => ({ contextSelections: { ...s.contextSelections, [project.id]: next } }));
+            if (!project) {
+                return;
+            }
+            const before = get().contextSelections[project.id];
+            set((s) => ({ contextSelections: { ...s.contextSelections, [project.id]: next } }));
+            if (isDemo) {
+                return;
+            }
+            try {
+                const saved = await api.patch<ProjectJson['selection']>(`/api/projects/${project.id}/selection`, {
+                    contextSet: next.setId,
+                    useHotwords: next.useHotwords,
+                    useContext: next.useContext,
+                });
+                set((s) => ({ contextSelections: { ...s.contextSelections, [project.id]: toSelection(saved) } }));
+            } catch (e) {
+                // 保存できなければ元に戻す
+                set((s) => {
+                    const selections = { ...s.contextSelections };
+                    if (before) {
+                        selections[project.id] = before;
+                    } else {
+                        delete selections[project.id];
+                    }
+                    return { contextSelections: selections };
+                });
+                if (e instanceof ApiError && e.status === 409) {
+                    toast.error('録音中は参考資料を変えられません（ほかの端末で録音しているかもしれません）');
+                } else {
+                    toast.error(`参考資料の選択を保存できません: ${(e as Error).message}`);
+                }
             }
         },
 
-        // 同じ資料の組み合わせのセットがあれば、作り直さずに使い回す（spec 6.6 節）
-        createContextSet: (materials) => {
+        // 資料を送ってセットの作成を始める（POST .../context-sets）。できたかは contextSet で届く。
+        // 同じ資料の組み合わせのセットがあれば、サーバーが使い回す（spec 6.6 節）
+        createContextSet: async (materials) => {
             const s = get();
             const project = currentProject(s);
             if (!project) {
@@ -740,6 +809,26 @@ export const useAppStore = create<AppState>()((set, get) => {
             }
             const pid = project.id;
             const selection = currentContextSelection(s);
+            if (!isDemo) {
+                try {
+                    const created = await api.post<ContextSet & { reused: boolean }>(
+                        `/api/projects/${pid}/context-sets`,
+                        { materials },
+                    );
+                    const entry: ContextSet = { id: created.id, status: created.status, materials: created.materials };
+                    set((st) => {
+                        const list = (st.contextSets[pid] ?? []).filter((x) => x.id !== entry.id);
+                        return { contextSets: { ...st.contextSets, [pid]: [...list, entry] } };
+                    });
+                    if (created.reused) {
+                        toast.info('同じ資料で作ったセットがあるので、それを使います');
+                    }
+                    await get().changeContextSelection({ ...selection, setId: created.id });
+                } catch (e) {
+                    toast.error(`参考資料セットを作れません: ${(e as Error).message}`);
+                }
+                return;
+            }
             const same = currentContextSets(s).find((x) => x.materials.join('\n') === materials.join('\n'));
             if (same) {
                 get().changeContextSelection({ ...selection, setId: same.id });

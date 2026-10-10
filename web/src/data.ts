@@ -8,7 +8,7 @@ import {
     api,
 } from '@/api';
 import { formatDateTime } from '@/time';
-import type { Project, Session, Summary } from '@/types';
+import type { ContextSelection, ContextSet, Project, Session, Summary } from '@/types';
 
 // URL に ?demo を付けると、サーバーのデータではなく mock.ts のダミーデータを出す（説明用のスクリーンショットを撮るため）
 export const isDemo = new URLSearchParams(location.search).has('demo');
@@ -37,9 +37,24 @@ export async function fetchProjects(): Promise<Project[]> {
     return Promise.all(
         projects.map(async (p) => {
             const sessions = await api.get<SessionJson[]>(`/api/projects/${p.id}/sessions`);
-            return { id: p.id, name: p.name, path: p.path, sessions: sessions.map(toSession) };
+            return {
+                id: p.id,
+                name: p.name,
+                path: p.path,
+                sessions: sessions.map(toSession),
+                selection: toSelection(p.selection),
+            };
         }),
     );
+}
+
+export function toSelection(json: ProjectJson['selection']): ContextSelection {
+    return { setId: json.contextSet, useHotwords: json.useHotwords, useContext: json.useContext };
+}
+
+// プロジェクトの参考資料セットの一覧
+export async function fetchContextSets(projectId: string): Promise<ContextSet[]> {
+    return api.get<ContextSet[]>(`/api/projects/${projectId}/context-sets`);
 }
 
 // 前に取った文字起こしと要約は、同じセッションならそのまま使う（セッションを開くたびに取り直さないように）
