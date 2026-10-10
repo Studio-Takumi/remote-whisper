@@ -46,7 +46,7 @@ def create_app(
         def on_count(n: int) -> None:
             ctx.recordings = n
 
-        ctx.recorder = MockRecorder(ctx.hub, mock_timing, on_count)
+        ctx.recorder = MockRecorder(ctx.hub, mock_timing, on_count, ctx.projects, ctx.settings)
 
     @app.get("/api/health")
     def health() -> dict:

@@ -1,26 +1,20 @@
 import { toast } from 'sonner';
 import { create } from 'zustand';
 
+import { ApiError, type ProjectJson, api } from '@/api';
 import { Microphone, MicrophoneError, watchMicrophonePermission } from '@/audio/microphone';
 import { AudioSender, connection } from '@/connection';
-import {
-    type ContextSelection,
-    type ContextSet,
-    type Generating,
-    type Project,
-    type Session,
-    fallbackOptions,
-    initialContextSets,
-    initialProjects,
-} from '@/mock';
+import { fetchProjects, fetchSessionDetail, isDemo, mergeProjects } from '@/data';
+import { demoProjects, fallbackOptions, initialContextSets } from '@/mock';
 import { fetchOptions } from '@/options';
 import type { ServerMessage, SettingsOptions } from '@/protocol';
 import type { RecordingState } from '@/recording';
 import { type Settings, defaultSettings } from '@/settings';
 import { type ServerStatus, initialServerStatus } from '@/status';
 import { formatClock, formatDateTime, newId } from '@/time';
+import type { ContextSelection, ContextSet, Generating, Project, Session } from '@/types';
 
-// 画面の状態をまとめて持つストア。サーバーのデータ（projects など）は、後で TanStack Query に移す想定
+// 画面の状態をまとめて持つストア。プロジェクト・セッション・設定はサーバーの API から取る（spec 7.1）
 
 type Selection = { projectId: string | null; sessionId: string | null };
 
@@ -56,6 +50,11 @@ type AppState = {
     noProjects: boolean;
 
     loadOptions: () => Promise<void>;
+    loadSettings: () => Promise<void>;
+    // プロジェクトとセッションの一覧を取り直す
+    loadProjects: () => Promise<void>;
+    // ディレクトリをプロジェクトとして登録する（POST /api/projects）
+    createProject: (path: string) => Promise<void>;
     selectSession: (projectId: string, sessionId: string) => void;
     newSession: (projectId: string) => void;
     startRecording: () => Promise<void>;
@@ -66,8 +65,7 @@ type AppState = {
     watchMicrophone: () => void;
     // サーバーにつなぎ、状態の通知を受け取り始める
     connectServer: () => void;
-    changeSettings: (settings: Settings) => void;
-    generateSummary: (session: Session, model: string) => void;
+    changeSettings: (settings: Settings) => Promise<boolean>;
     changeContextSelection: (selection: ContextSelection) => void;
     createContextSet: (materials: string[]) => void;
     setServer: (server: ServerStatus) => void;
@@ -103,9 +101,25 @@ function updateSession(projects: Project[], sessionId: string, fn: (s: Session) 
     return projects.map((p) => ({ ...p, sessions: p.sessions.map((s) => (s.id === sessionId ? fn(s) : s)) }));
 }
 
+// デモ（?demo）ではサーバーに保存されないので、届いた最終の要約をそのままセッションに足す
+function finishDemoSummary(s: AppState, sessionId: string): Partial<AppState> {
+    if (s.generating?.sessionId !== sessionId) {
+        return {};
+    }
+    const { model, text } = s.generating;
+    const summary = { generationId: newId(), model, generatedAt: formatDateTime(), text };
+    return {
+        generating: null,
+        projects: updateSession(s.projects, sessionId, (x) => ({ ...x, summaries: [...x.summaries, summary] })),
+    };
+}
+
 // タイマーは React の外で回す
 let elapsedTimer: ReturnType<typeof setInterval> | undefined;
-let generationTimer: ReturnType<typeof setInterval> | undefined;
+// サーバー全体で録音中のセッションの数（status の recordings）。変わったら一覧を取り直す（ほかの端末の録音を出すため）
+let lastRecordings = -1;
+// 最終の要約ができて、サーバーに保存されたもので置き換えるセッション（取り直しで手元のものを残さない）
+let releasing: string | null = null;
 
 // 録音に使うもの。React の状態にする必要がないので外に置く
 let mic: Microphone | null = null;
@@ -196,6 +210,15 @@ export const useAppStore = create<AppState>()((set, get) => {
                         : s.projects,
                     liveDraft: null,
                 }));
+            } else if (m.type === 'summary.delta' && m.kind === 'final') {
+                // 録音を終えた後の最終の要約。少しずつ届く
+                set((s) => ({
+                    generating: {
+                        sessionId: m.session,
+                        model: s.generating?.model ?? s.settings.ollama.finalSummaryModel,
+                        text: (s.generating?.sessionId === m.session ? s.generating.text : '') + m.text,
+                    },
+                }));
             } else if (m.type === 'title') {
                 set((s) => ({
                     projects: updateSession(s.projects, m.session, (x) => ({
@@ -204,6 +227,13 @@ export const useAppStore = create<AppState>()((set, get) => {
                         provisionalTitle: m.provisional,
                     })),
                 }));
+                // 最終のタイトルは、最終の要約を保存した後に届く。保存されたものを取り直して表示を置き換える
+                if (!m.provisional) {
+                    void reloadAfterFinalSummary(m.session);
+                }
+            } else if (m.type === 'error' && m.code === 'ollama_unavailable') {
+                // 最終の要約を作れなかった。作成中の表示を消す（失敗の表示と作り直しは #17）
+                set((s) => ({ generating: s.generating?.sessionId === m.session ? null : s.generating }));
             }
         });
         await connection.open();
@@ -221,11 +251,17 @@ export const useAppStore = create<AppState>()((set, get) => {
             title: '新しいセッション',
             startedAt: formatDateTime(),
             status: 'recording',
+            loaded: true,
             transcript: [],
             summaries: [],
         };
         set((s) => ({
-            projects: s.projects.map((p) => (p.id === projectId ? { ...p, sessions: [created, ...p.sessions] } : p)),
+            // 先に一覧の取り直しでサーバーのものが入っていることがあるので、同じ ID のものは置き換える
+            projects: s.projects.map((p) =>
+                p.id === projectId
+                    ? { ...p, sessions: [created, ...p.sessions.filter((x) => x.id !== created.id)] }
+                    : p,
+            ),
             selection: { projectId, sessionId: created.id },
             recordingState: 'recording',
             recordingSessionId: created.id,
@@ -312,6 +348,41 @@ export const useAppStore = create<AppState>()((set, get) => {
         );
     }
 
+    // 最終の要約ができたら、一覧とセッションの中身をサーバーから取り直す
+    async function reloadAfterFinalSummary(sessionId: string) {
+        if (isDemo) {
+            set((s) => finishDemoSummary(s, sessionId));
+            return;
+        }
+        // このセッションは手元で積み上げたものを捨てて、サーバーに保存されたもので置き換える
+        releasing = sessionId;
+        try {
+            await get().loadProjects();
+        } finally {
+            releasing = null;
+        }
+        const project = get().projects.find((p) => p.sessions.some((x) => x.id === sessionId));
+        const session = project?.sessions.find((x) => x.id === sessionId);
+        if (project && session && !session.loaded) {
+            await loadSession(project.id, session);
+        }
+        set((s) => ({ generating: s.generating?.sessionId === sessionId ? null : s.generating }));
+    }
+
+    // セッションの文字起こしと要約を取ってくる（開いたとき）
+    async function loadSession(projectId: string, session: Session) {
+        try {
+            const detail = await fetchSessionDetail(projectId, session);
+            set((s) => ({
+                projects: updateSession(s.projects, session.id, (x) => ({ ...x, ...detail, loaded: true })),
+            }));
+        } catch (e) {
+            toast.error(`セッションを読み込めません: ${(e as Error).message}`);
+            // 「読み込んでいます…」のままにしない
+            set((s) => ({ projects: updateSession(s.projects, session.id, (x) => ({ ...x, loaded: true })) }));
+        }
+    }
+
     // マイクを閉じ、録音のためのメッセージの受け取りをやめる
     function closeRecording() {
         mic?.close();
@@ -322,7 +393,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     }
 
     return {
-        projects: initialProjects,
+        projects: isDemo ? demoProjects : [],
         selection: { projectId: null, sessionId: null },
         recordingState: 'idle',
         recordingSessionId: null,
@@ -354,7 +425,65 @@ export const useAppStore = create<AppState>()((set, get) => {
             }
         },
 
-        selectSession: (projectId, sessionId) => set({ selection: { projectId, sessionId } }),
+        loadSettings: async () => {
+            if (isDemo) {
+                return;
+            }
+            try {
+                set({ settings: await api.get<Settings>('/api/settings') });
+            } catch (e) {
+                toast.error(`設定を読み込めません: ${(e as Error).message}`);
+            }
+        },
+
+        loadProjects: async () => {
+            if (isDemo) {
+                return;
+            }
+            try {
+                const projects = await fetchProjects();
+                set((s) => {
+                    // 手元で中身を積み上げているセッションは、取り直しで消さない
+                    const keep = new Set(
+                        [s.recordingSessionId, s.generating?.sessionId, stoppedWhileOffline].filter(
+                            (id): id is string => !!id && id !== releasing,
+                        ),
+                    );
+                    return { projects: mergeProjects(s.projects, projects, keep) };
+                });
+            } catch (e) {
+                toast.error(`プロジェクトを読み込めません: ${(e as Error).message}`);
+                return;
+            }
+            // 開いているセッションの中身が取り直しで無くなっていたら、読み直す
+            const s = get();
+            const project = currentProject(s);
+            const session = currentSession(s);
+            if (project && session && !session.loaded) {
+                await loadSession(project.id, session);
+            }
+        },
+
+        createProject: async (path) => {
+            try {
+                const project = await api.post<ProjectJson>('/api/projects', { path });
+                await get().loadProjects();
+                set({ selection: { projectId: project.id, sessionId: null } });
+                toast.success(`${project.path} をプロジェクトにしました`);
+            } catch (e) {
+                toast.error(`プロジェクトにできません: ${(e as Error).message}`);
+            }
+        },
+
+        selectSession: (projectId, sessionId) => {
+            set({ selection: { projectId, sessionId } });
+            const session = get()
+                .projects.find((p) => p.id === projectId)
+                ?.sessions.find((x) => x.id === sessionId);
+            if (!isDemo && session && !session.loaded) {
+                void loadSession(projectId, session);
+            }
+        },
         newSession: (projectId) => set({ selection: { projectId, sessionId: null } }),
 
         startRecording: async () => {
@@ -442,12 +571,11 @@ export const useAppStore = create<AppState>()((set, get) => {
                 projects: sessionId
                     ? updateSession(s.projects, sessionId, (x) => ({ ...x, status: 'done', endedAt }))
                     : s.projects,
+                // 最終の要約はサーバーが作り、summary.delta（final）で届く。届くまでは「作成中」と出す
+                generating: sessionId
+                    ? { sessionId, model: s.settings.ollama.finalSummaryModel, text: '' }
+                    : s.generating,
             }));
-            const s = get();
-            const done = s.projects.flatMap((p) => p.sessions).find((x) => x.id === sessionId);
-            if (done) {
-                get().generateSummary(done, s.settings.ollama.finalSummaryModel);
-            }
         },
 
         watchMicrophone: () => {
@@ -484,6 +612,11 @@ export const useAppStore = create<AppState>()((set, get) => {
                 if (m.type === 'status') {
                     // recordings と queue は今のところ画面に出さない
                     set((s) => ({ server: { ...s.server, whisper: m.whisper, ollama: m.ollama } }));
+                    // 録音中のセッションの数が変わったら（ほかの端末で始めた・終えたなど）、一覧を取り直す
+                    if (m.recordings !== lastRecordings) {
+                        lastRecordings = m.recordings;
+                        void get().loadProjects();
+                    }
                 } else if (m.type === 'error' && !starting && !resuming) {
                     // 録音を始める・続けるときのエラーは、それぞれの処理でまとめて出す
                     toast.error(m.message);
@@ -492,48 +625,24 @@ export const useAppStore = create<AppState>()((set, get) => {
             connection.start();
         },
 
-        // 簡易設定・設定モーダルのどちらからでも呼ぶ。最終の要約のモデルを変えたとき、そのモデルの要約がなければ作る
-        changeSettings: (next) => {
-            const s = get();
-            const session = currentSession(s);
-            const model = next.ollama.finalSummaryModel;
-            set({ settings: next });
-            if (
-                model !== s.settings.ollama.finalSummaryModel &&
-                session &&
-                !session.summaries.some((x) => x.model === model)
-            ) {
-                get().generateSummary(session, model);
+        // 簡易設定・設定モーダルのどちらからでも呼ぶ。全体設定を保存する（PATCH /api/settings）。保存できたら true
+        // 最終の要約のモデルを変えたときの作り直しは #16
+        changeSettings: async (next) => {
+            if (isDemo) {
+                set({ settings: next });
+                return true;
             }
-        },
-
-        // 最終の要約を作る（ダミー）。少しずつ文字を足して、ストリーミングで届く様子をまねる
-        generateSummary: (target, model) => {
-            if (get().server.ollama === 'error') {
-                toast.error('Ollama に接続できないため、要約を作れません');
-                return;
-            }
-            clearInterval(generationTimer);
-            const base = target.summaries.at(-1)?.text ?? '## 要約\n- 文字起こしが短いため、要約する内容がありません';
-            const full = `${base}\n\n> ${model} で作ったダミーの要約です`;
-            let length = 0;
-            set({ generating: { sessionId: target.id, model, text: '' } });
-            generationTimer = setInterval(() => {
-                length += 6;
-                if (length < full.length) {
-                    set({ generating: { sessionId: target.id, model, text: full.slice(0, length) } });
-                    return;
+            try {
+                set({ settings: await api.patch<Settings>('/api/settings', next) });
+                return true;
+            } catch (e) {
+                if (e instanceof ApiError && e.status === 409) {
+                    toast.error('録音中は設定を変えられません（ほかの端末で録音しているかもしれません）');
+                } else {
+                    toast.error(`設定を保存できません: ${(e as Error).message}`);
                 }
-                clearInterval(generationTimer);
-                const summary = { generationId: newId(), model, generatedAt: formatDateTime(), text: full };
-                set((s) => ({
-                    generating: null,
-                    projects: updateSession(s.projects, target.id, (x) => ({
-                        ...x,
-                        summaries: [...x.summaries, summary],
-                    })),
-                }));
-            }, 50);
+                return false;
+            }
         },
 
         changeContextSelection: (next) => {

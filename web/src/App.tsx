@@ -25,12 +25,17 @@ function App() {
 
     const watchMicrophone = useAppStore((s) => s.watchMicrophone);
     const connectServer = useAppStore((s) => s.connectServer);
+    const loadSettings = useAppStore((s) => s.loadSettings);
+    const loadProjects = useAppStore((s) => s.loadProjects);
+    const createProject = useAppStore((s) => s.createProject);
 
     useEffect(() => {
         loadOptions();
+        loadSettings();
+        loadProjects();
         watchMicrophone();
         connectServer();
-    }, [loadOptions, watchMicrophone, connectServer]);
+    }, [loadOptions, loadSettings, loadProjects, watchMicrophone, connectServer]);
 
     return (
         <SidebarProvider>
@@ -40,20 +45,16 @@ function App() {
                 <SessionView />
                 <MicButton />
             </SidebarInset>
-            <NewProjectDialog
-                open={newProjectOpen}
-                onOpenChange={setNewProjectOpen}
-                roots={settings.materials.roots}
-                onCreate={(path) => toast.success(`${path} をプロジェクトにしました`)}
-            />
+            <NewProjectDialog open={newProjectOpen} onOpenChange={setNewProjectOpen} onCreate={createProject} />
             <SettingsDialog
                 open={settingsOpen}
                 onOpenChange={setSettingsOpen}
                 settings={settings}
                 options={options}
-                onSave={(s) => {
-                    changeSettings(s);
-                    toast.success('設定を保存しました');
+                onSave={async (s) => {
+                    if (await changeSettings(s)) {
+                        toast.success('設定を保存しました');
+                    }
                 }}
             />
             <DevPanel />

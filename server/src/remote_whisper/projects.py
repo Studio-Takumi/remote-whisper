@@ -5,6 +5,7 @@ import json
 import logging
 import re
 import threading
+from collections.abc import Callable
 from pathlib import Path
 from typing import Literal
 
@@ -246,6 +247,14 @@ class ProjectStore:
 
     def save(self, pid: str, project: ProjectFile) -> None:
         atomic_write_json(self._file(pid), project.to_json())
+
+    def update(self, pid: str, change: Callable[[ProjectFile], None]) -> ProjectFile:
+        """project.json を読み、change で書き換えて保存する（ほかの書き込みと混ざらないように）"""
+        with self._lock:
+            project = self.load(pid)
+            change(project)
+            self.save(pid, project)
+            return project
 
     def all(self) -> list[tuple[str, ProjectFile]]:
         """読み込めるプロジェクトの一覧。読めないものは飛ばす"""
