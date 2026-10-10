@@ -414,12 +414,12 @@ export const useAppStore = create<AppState>()((set, get) => {
 
         loadOptions: async () => {
             try {
-                const options = await fetchOptions();
-                // Ollama のモデルがまだ取れないサーバー（#25 より前）では、ダミーの一覧を残す
-                set({
-                    options:
-                        options.ollama.models.length > 0 ? options : { ...options, ollama: fallbackOptions.ollama },
-                });
+                // デモでは、ダミーの一覧のまま
+                if (isDemo) {
+                    return;
+                }
+                // Ollama につながらないときは、Ollama のモデルは空の一覧になる（今の設定値は選択肢に足して出す）
+                set({ options: await fetchOptions() });
             } catch {
                 // サーバーがないときはダミーの一覧のまま
             }
@@ -611,7 +611,12 @@ export const useAppStore = create<AppState>()((set, get) => {
             connection.subscribe((m) => {
                 if (m.type === 'status') {
                     // recordings と queue は今のところ画面に出さない
+                    const ollamaBack = m.ollama === 'ready' && get().server.ollama !== 'ready';
                     set((s) => ({ server: { ...s.server, whisper: m.whisper, ollama: m.ollama } }));
+                    // Ollama につながるようになったら、モデルの一覧を取り直す（つながらない間は空になっている）
+                    if (ollamaBack) {
+                        void get().loadOptions();
+                    }
                     // 録音中のセッションの数が変わったら（ほかの端末で始めた・終えたなど）、一覧を取り直す
                     if (m.recordings !== lastRecordings) {
                         lastRecordings = m.recordings;
