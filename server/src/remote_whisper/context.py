@@ -24,6 +24,8 @@ class AppContext:
     recorder: Any = None
     # 録音中のセッションの数
     recordings: int = 0
+    # Whisper の子プロセス（WhisperWorker）。モックではない
+    whisper: Any = None
     # GPU を使う処理（Whisper・Ollama）を順番に実行するキュー。待っている数は status の queue で送る
     gpu: GpuQueue = field(init=False)
 

@@ -19,6 +19,7 @@ from remote_whisper.routes import sessions as sessions_routes
 from remote_whisper.routes import settings as settings_routes
 from remote_whisper.routes import ws as ws_routes
 from remote_whisper.settings import SettingsStore, default_home
+from remote_whisper.whisper_worker import WhisperWorker
 
 # server/src/remote_whisper/app.py から見たリポジトリの web/dist。
 # リポジトリから動かす（uv run）前提。wheel で入れた場合は REMOTE_WHISPER_WEB_DIST で指定する
@@ -41,17 +42,26 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        if ctx.whisper is not None:
+            # Whisper の子プロセスが落ちていないか、使わなくなっていないかを見張る
+            ctx.whisper.start_watchdog()
         yield
-        # 止めるときは、GPU のジョブキューを止め（待っているジョブは cancel）、録音中の WAV を閉じる
+        # 止めるときは、GPU のジョブキューを止め（待っているジョブは cancel）、録音中の WAV を閉じ、
+        # Whisper を下ろす
         await ctx.gpu.stop()
         if isinstance(ctx.recorder, RecordingManager):
             await ctx.recorder.close()
+        if ctx.whisper is not None:
+            await ctx.whisper.close()
 
     app = FastAPI(title="remote-whisper", lifespan=lifespan)
     ctx = AppContext(
         home=home, settings=SettingsStore(home), projects=ProjectStore(home), mock=mock
     )
     app.state.ctx = ctx
+    if not mock:
+        # モデルは録音を始めたときに読み込む（#23）。ここでは子プロセスはまだ作らない
+        ctx.whisper = WhisperWorker(ctx.hub, ctx.settings)
 
     def on_count(n: int) -> None:
         ctx.recordings = n
