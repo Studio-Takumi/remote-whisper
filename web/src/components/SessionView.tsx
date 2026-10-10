@@ -78,6 +78,7 @@ export function SessionView() {
                     )}
                     {session && (
                         <Transcript
+                            sessionId={session.id}
                             lines={session.transcript}
                             partial={partial?.sessionId === session.id ? partial : null}
                             follow={followTranscript}
