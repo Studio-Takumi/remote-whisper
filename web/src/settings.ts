@@ -9,6 +9,9 @@ export type Settings = {
         silenceMs: number;
         maxSegmentSec: number;
         unloadAfterMin: number;
+        // 話しているとみなす音量。auto は周りの音量に合わせて変える。manual は speechDbfs を使う
+        speechThreshold: 'auto' | 'manual';
+        speechDbfs: number;
     };
     ollama: {
         host: string;
@@ -20,6 +23,9 @@ export type Settings = {
     };
     recording: {
         maxConcurrent: number;
+        // ブラウザのマイクの処理（getUserMedia の制約）。録音を始めるときに使う
+        noiseSuppression: boolean;
+        autoGainControl: boolean;
     };
     retentionDays: {
         recording: number;
@@ -43,6 +49,8 @@ export const defaultSettings: Settings = {
         silenceMs: 600,
         maxSegmentSec: 25,
         unloadAfterMin: 10,
+        speechThreshold: 'auto',
+        speechDbfs: -40,
     },
     ollama: {
         host: 'http://localhost:11434',
@@ -54,6 +62,8 @@ export const defaultSettings: Settings = {
     },
     recording: {
         maxConcurrent: 1,
+        noiseSuppression: true,
+        autoGainControl: true,
     },
     retentionDays: {
         recording: 10,

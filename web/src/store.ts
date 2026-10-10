@@ -164,13 +164,17 @@ export const useAppStore = create<AppState>()((set, get) => {
         closeRecording();
         stoppedWhileOffline = null;
         sender = new AudioSender((pendingAudio) => set({ pendingAudio }));
-        mic = await Microphone.open((pcm, level) => {
-            // 一時停止中の音声は送らない
-            if (get().recordingState === 'recording') {
-                sender?.push(pcm);
-                set({ micLevel: level });
-            }
-        });
+        const { noiseSuppression, autoGainControl } = get().settings.recording;
+        mic = await Microphone.open(
+            (pcm, level) => {
+                // 一時停止中の音声は送らない
+                if (get().recordingState === 'recording') {
+                    sender?.push(pcm);
+                    set({ micLevel: level });
+                }
+            },
+            { noiseSuppression, autoGainControl },
+        );
         // 接続した直後に届く status も受け取れるように、つなぐ前に購読する
         unsubscribe = connection.subscribe((m) => {
             if (m.type === 'ack') {
