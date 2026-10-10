@@ -190,6 +190,15 @@ def test_regenerate_errors(client, project):
         ws.send_json({"type": "stop"})
         receive_until(ws, of_type("status", recordings=0))
     finished(client, sid)
+    # 止めた直後（残りの文字起こし・変換の途中）も作り直せない
+    session = client.app.state.ctx.recorder.sessions[sid]
+
+    async def pending():
+        return asyncio.get_running_loop().create_future()
+
+    session._finishing = client.portal.call(pending)
+    assert client.post(url.format(sid)).status_code == 409
+    session._finishing = None
     # 文字起こしが消えていたら 410
     (d / f"transcript-{sid}.md").unlink()
     assert client.post(url.format(sid)).status_code == 410

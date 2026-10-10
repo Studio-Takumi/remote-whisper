@@ -114,7 +114,8 @@ async def regenerate_summary(pid: str, sid: str, ctx: Ctx) -> dict[str, Any]:
     entry, files = _session(ctx, pid, sid)
     if ctx.summarizer is None:
         raise HTTPException(status_code=503, detail="このサーバーでは要約を作れません")
-    if entry.status == "recording":
+    if entry.status == "recording" or _still_finishing(ctx, sid):
+        # 止めた直後（残りの文字起こし・変換・最終の要約の途中）も、最後の区間が抜けないように断る
         raise HTTPException(status_code=409, detail="録音中のセッションの要約は作り直せません")
     if not files.transcript.is_file():
         raise _gone("文字起こし")
@@ -127,9 +128,22 @@ async def regenerate_summary(pid: str, sid: str, ctx: Ctx) -> dict[str, Any]:
         await ctx.hub.broadcast({**message, "session": sid})
 
     summarizer = ctx.summarizer
-    job = ctx.gpu.submit(Priority.BACKGROUND, lambda: summarizer.run(writer, send))
+    # 頼んだ時点のモデルで作る（キューで待っている間に設定が変わっても、返したモデルと合うように）
+    model = ctx.settings.get().ollama.final_summary_model
+    job = ctx.gpu.submit(Priority.BACKGROUND, lambda: summarizer.run(writer, send, model))
     job.add_done_callback(_log_failure)
-    return {"model": ctx.settings.get().ollama.final_summary_model}
+    return {"model": model}
+
+
+def _still_finishing(ctx: AppContext, sid: str) -> bool:
+    """録音を終えたあとの処理（残りの文字起こし・変換）がまだ終わっていないか"""
+    session = getattr(ctx.recorder, "sessions", {}).get(sid)
+    if session is None:
+        return False
+    if not session.ended:
+        return True
+    finishing = getattr(session, "_finishing", None)
+    return finishing is not None and not finishing.done()
 
 
 def _log_failure(future: asyncio.Future) -> None:
