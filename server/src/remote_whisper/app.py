@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from remote_whisper.context import AppContext
 from remote_whisper.final_summary import FinalSummarizer
-from remote_whisper.mock import MockRecorder, MockTiming
+from remote_whisper.mock import MockFinalSummarizer, MockRecorder, MockTiming
 from remote_whisper.ollama import OllamaClient
 from remote_whisper.projects import ProjectStore
 from remote_whisper.recorder import RecordingManager
@@ -89,6 +89,7 @@ def create_app(
 
     if mock:
         ctx.recorder = MockRecorder(ctx.hub, mock_timing, on_count, ctx.projects, ctx.settings)
+        ctx.summarizer = MockFinalSummarizer(ctx.hub, ctx.settings, mock_timing)
     else:
         ctx.recorder = RecordingManager(
             ctx.hub,
@@ -102,9 +103,10 @@ def create_app(
         if ctx.ollama is not None:
             # 録音を終えたら最終の要約とタイトルを作る
             # （ほかに録音中でなければ Whisper を下ろしてから）
-            ctx.recorder.final_summary = FinalSummarizer(
+            ctx.summarizer = FinalSummarizer(
                 ctx.ollama, ctx.settings, ctx.whisper, recording=lambda: ctx.is_recording
             )
+            ctx.recorder.final_summary = ctx.summarizer
 
     @app.get("/api/health")
     def health() -> dict:

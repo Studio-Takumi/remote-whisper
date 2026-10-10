@@ -311,6 +311,18 @@ def test_recording_into_a_registered_project_is_saved(mock_client, tmp_path):
     assert latest["title"] == FINAL_TITLE
     assert latest["text"].startswith("## 決まったこと")
 
+    # 作り直すと、別の生成 ID の要約が増える（#28）
+    mock_client.patch("/api/settings", json={"ollama": {"finalSummaryModel": "gemma3:4b"}})
+    with mock_client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        assert mock_client.post(f"{base}/{sid}/summaries").status_code == 202
+        receive_until(ws, of_type("title", provisional=False, session=sid))
+    summaries = mock_client.get(f"{base}/{sid}/summaries").json()
+    assert [(s["model"], s["think"]) for s in summaries] == [
+        ("qwen3.5:4b", True),
+        ("gemma3:4b", False),
+    ]
+
 
 def test_options(mock_client, client):
     models = mock_client.get("/api/settings/options").json()["ollama"]["models"]

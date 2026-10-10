@@ -14,6 +14,7 @@ from remote_whisper.documents import (
     TranscriptMeta,
     WhisperUsed,
     parse,
+    read_doc,
     transcript_name,
     write_doc,
 )
@@ -57,6 +58,25 @@ class SessionWriter:
             use_hotwords=selection.context_set is not None and selection.use_hotwords,
         )
         self.use_context = selection.context_set is not None and selection.use_context
+
+    @classmethod
+    def existing(cls, store: ProjectStore, pid: str, sid: str) -> "SessionWriter":
+        """録音を終えたセッション（要約の作り直し用）。文字起こしのフロントマターを読む
+
+        コンテキストを使うかは、今のプロジェクトの選択に従う（セットはそのセッションで使ったもの）。
+        文字起こしがなければ OSError、読めなければ ValueError
+        """
+        writer = cls.__new__(cls)
+        writer.store = store
+        writer.pid = pid
+        writer.id = sid
+        writer.files = SessionFiles(store.dir(pid), sid)
+        writer._lock = threading.Lock()
+        writer.meta = read_doc(writer.files.transcript, TranscriptMeta)[0]
+        writer.started = datetime.fromisoformat(writer.meta.started_at)
+        selection = store.load(pid).effective_selection()
+        writer.use_context = writer.meta.context_set is not None and selection.use_context
+        return writer
 
     def start(self) -> None:
         """文字起こしのファイル（status: recording）を作り、project.json にセッションを足す"""

@@ -289,6 +289,29 @@ def mock_thinking(model: str) -> bool:
     return any(m["name"] == model and m["thinking"] for m in MOCK_OLLAMA_MODELS)
 
 
+class MockFinalSummarizer:
+    """要約の作り直し（#28）のダミー。FinalSummarizer.run と同じ形で、台本の要約を流して保存する"""
+
+    def __init__(self, hub: Hub, settings: SettingsStore, timing: MockTiming | None = None):
+        self.hub = hub
+        self.settings = settings
+        self.timing = timing or MockTiming()
+
+    async def run(self, writer: SessionWriter, send) -> str | None:
+        if self.hub.status.ollama != "ready":
+            await send(ollama_error("最終の要約"))
+            return None
+        model = self.settings.get().ollama.final_summary_model
+        for i in range(0, len(FINAL_SUMMARY), 6):
+            await send({"type": "summary.delta", "kind": "final", "text": FINAL_SUMMARY[i : i + 6]})
+            await asyncio.sleep(self.timing.stream)
+        await send({"type": "summary.done", "kind": "final"})
+        writer.set_title(FINAL_TITLE)
+        gid = writer.save_final_summary(model, mock_thinking(model), FINAL_SUMMARY)
+        await send({"type": "title", "title": FINAL_TITLE, "provisional": False})
+        return gid
+
+
 class MockRecorder:
     def __init__(
         self,
