@@ -75,7 +75,8 @@ function mergeSession(old: Session | undefined, s: Session, keep: Set<string>): 
 // セッションの文字起こしと要約。ファイルが消えているもの（期限切れ）は取らない
 export async function fetchSessionDetail(projectId: string, session: Session) {
     const base = `/api/projects/${projectId}/sessions/${session.id}`;
-    const files = session.files;
+    // どのファイルがあるか分からない（手元で作ったセッション）ときは、先にサーバーに聞く
+    const files = session.files ?? (await api.get<SessionJson>(base)).files;
     const transcript = files?.transcript ? (await api.get<TranscriptJson>(`${base}/transcript`)).lines : [];
     const infos = files?.summaries ? await api.get<SummaryInfoJson[]>(`${base}/summaries`) : [];
     const summaries: Summary[] = await Promise.all(
@@ -95,5 +96,5 @@ export async function fetchSessionDetail(projectId: string, session: Session) {
         const json = await api.get<SummaryJson>(`${base}/summaries/latest`);
         liveSummary = json.kind === 'live' ? json.text : undefined;
     }
-    return { transcript, summaries, liveSummary };
+    return { files, transcript, summaries, liveSummary };
 }

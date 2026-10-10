@@ -118,6 +118,8 @@ function finishDemoSummary(s: AppState, sessionId: string): Partial<AppState> {
 let elapsedTimer: ReturnType<typeof setInterval> | undefined;
 // サーバー全体で録音中のセッションの数（status の recordings）。変わったら一覧を取り直す（ほかの端末の録音を出すため）
 let lastRecordings = -1;
+// 最終の要約ができて、サーバーに保存されたもので置き換えるセッション（取り直しで手元のものを残さない）
+let releasing: string | null = null;
 
 // 録音に使うもの。React の状態にする必要がないので外に置く
 let mic: Microphone | null = null;
@@ -352,10 +354,16 @@ export const useAppStore = create<AppState>()((set, get) => {
             set((s) => finishDemoSummary(s, sessionId));
             return;
         }
-        await get().loadProjects();
+        // このセッションは手元で積み上げたものを捨てて、サーバーに保存されたもので置き換える
+        releasing = sessionId;
+        try {
+            await get().loadProjects();
+        } finally {
+            releasing = null;
+        }
         const project = get().projects.find((p) => p.sessions.some((x) => x.id === sessionId));
         const session = project?.sessions.find((x) => x.id === sessionId);
-        if (project && session) {
+        if (project && session && !session.loaded) {
             await loadSession(project.id, session);
         }
         set((s) => ({ generating: s.generating?.sessionId === sessionId ? null : s.generating }));
@@ -438,7 +446,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                     // 手元で中身を積み上げているセッションは、取り直しで消さない
                     const keep = new Set(
                         [s.recordingSessionId, s.generating?.sessionId, stoppedWhileOffline].filter(
-                            (id): id is string => !!id,
+                            (id): id is string => !!id && id !== releasing,
                         ),
                     );
                     return { projects: mergeProjects(s.projects, projects, keep) };
