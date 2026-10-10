@@ -65,7 +65,10 @@ def create_app(
         # 前に動いていたサーバーが落ちていたら、録音中のままの文字起こしを interrupted に直し、
         # 残っている WAV を変換する（変換は時間がかかるので後ろで。spec 6.7）
         found = find_leftovers(ctx.projects)
-        fix_leftovers(ctx.projects, Leftovers(recording=found.recording, partials=found.partials))
+        quick = Leftovers(
+            recording=found.recording, unsummarized=found.unsummarized, partials=found.partials
+        )
+        fix_leftovers(ctx.projects, quick)
         if found.wavs:
             leftover_wavs = Leftovers(wavs=found.wavs)
             recovering = asyncio.create_task(

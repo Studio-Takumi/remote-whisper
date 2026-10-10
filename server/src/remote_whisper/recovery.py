@@ -6,7 +6,11 @@
   （区間がなければ開始日時に WAV の長さを足したもの）、長さは残っている WAV の長さ
   （なければ最後の区間の時刻）
 - `.tmp/<ID>/audio.wav` が残っていれば mp3 に変換してフロントマターに記録し、WAV を消す。
-  録音ファイルがもうあれば（変換の途中で止まったが mp3 はできていた）、WAV を消すだけにする
+  録音ファイルがもうあっても、WAV から変換し直して置き換える
+  （途中まで変換したものかもしれないため）。
+  変換か記録に失敗したら WAV は残す（次の起動でもう一度）
+- 最終の要約を作っている途中で止まった（終わっているのに要約がなく、失敗の記録もない）セッションは、
+  要約の失敗として記録する（作り直しを出すため）
 - 書きかけの録音ファイル（`recording-<ID>.mp3.tmp`）を消す
 
 直す対象は、起動した時点で決める（`find_leftovers`）。直している間に新しく録音を始めたセッションを
@@ -37,6 +41,7 @@ class Leftovers:
     """起動した時点で残っていたもの（プロジェクト ID, セッション ID）"""
 
     recording: list[tuple[str, str]] = field(default_factory=list)
+    unsummarized: list[tuple[str, str]] = field(default_factory=list)
     wavs: list[tuple[str, str]] = field(default_factory=list)
     partials: list[Path] = field(default_factory=list)
 
@@ -44,8 +49,17 @@ class Leftovers:
 @dataclass
 class Report:
     interrupted: list[str] = field(default_factory=list)
+    unsummarized: list[str] = field(default_factory=list)
     converted: list[str] = field(default_factory=list)
     removed: list[Path] = field(default_factory=list)
+
+
+def _has_lines(transcript: Path) -> bool:
+    try:
+        _, body = read_doc(transcript, TranscriptMeta)
+    except (OSError, ValueError):
+        return False
+    return bool(body.strip())
 
 
 def find_leftovers(store: ProjectStore) -> Leftovers:
@@ -59,8 +73,18 @@ def find_leftovers(store: ProjectStore) -> Leftovers:
                 except (OSError, ValueError):
                     continue
                 # ID はファイル名と同じもの（手で書き換えたフロントマターでパスを作らない）
-                if meta.status == "recording" and path.name == f"transcript-{meta.id}.md":
+                if path.name != f"transcript-{meta.id}.md":
+                    continue
+                if meta.status == "recording":
                     found.recording.append((pid, meta.id))
+                elif (
+                    meta.status == "done"
+                    and not meta.summary_failed
+                    and _has_lines(path)
+                    and not any(d.glob(f"summary-{meta.id}-*.md"))
+                ):
+                    # 録音は終えたのに、最終の要約がなく失敗の記録もない（要約の途中で止まった）
+                    found.unsummarized.append((pid, meta.id))
             for wav in sorted(d.glob(".tmp/*/audio.wav")):
                 if ID_RE.fullmatch(wav.parent.name):
                     found.wavs.append((pid, wav.parent.name))
@@ -117,11 +141,16 @@ def _convert_leftover(store: ProjectStore, pid: str, sid: str, report: Report) -
     wav = d / ".tmp" / sid / "audio.wav"
     if not wav.is_file():
         return
-    if files.recording() is None:
-        recording = convert_wav(wav, d, sid)
-        report.converted.append(sid)
-        if files.transcript.is_file():
-            SessionWriter.existing(store, pid, sid).set_recording(recording.name)
+    # WAV が録音の正本。mp3 がもうあっても（変換の途中で止まった・途中まで変換したものかもしれない）
+    # WAV から変換し直して置き換える。変換と記録ができてから WAV を消す（失敗したら WAV を残す）
+    existing = files.recording()
+    recording = convert_wav(wav, d, sid)
+    report.converted.append(sid)
+    if existing is not None and existing != recording:
+        # 前の拡張子のもの（m4a と mp3）が残らないように
+        existing.unlink(missing_ok=True)
+    if files.transcript.is_file():
+        SessionWriter.existing(store, pid, sid).set_recording(recording.name)
     wav.unlink()
     report.removed.append(wav)
     try:
@@ -145,6 +174,12 @@ def fix_leftovers(store: ProjectStore, found: Leftovers) -> Report:
             _mark_interrupted(store, pid, sid, report)
         except (OSError, ValueError, ProjectError) as e:
             log.warning("failed to mark %s as interrupted: %s", sid, e)
+    for pid, sid in found.unsummarized:
+        try:
+            SessionWriter.existing(store, pid, sid).set_summary_failed(True)
+            report.unsummarized.append(sid)
+        except (OSError, ValueError, ProjectError) as e:
+            log.warning("failed to mark the summary of %s as failed: %s", sid, e)
     for pid, sid in found.wavs:
         try:
             _convert_leftover(store, pid, sid, report)
