@@ -346,6 +346,23 @@ export const useAppStore = create<AppState>()((set, get) => {
         );
     }
 
+    // プロジェクトごとの参考資料セットの一覧を取る。取れなかったプロジェクトは入れない（前の一覧のまま）
+    async function loadContextSets(projectIds: string[]) {
+        const results = await Promise.allSettled(projectIds.map((id) => fetchContextSets(id)));
+        const sets: Record<string, ContextSet[]> = {};
+        results.forEach((r, i) => {
+            if (r.status === 'fulfilled') {
+                sets[projectIds[i]] = r.value;
+            }
+        });
+        return sets;
+    }
+
+    async function refreshContextSets(projectIds: string[]) {
+        const sets = await loadContextSets(projectIds);
+        set((s) => ({ contextSets: { ...s.contextSets, ...sets } }));
+    }
+
     // 最終の要約ができたら、一覧とセッションの中身をサーバーから取り直す
     async function reloadAfterFinalSummary(sessionId: string) {
         if (isDemo) {
@@ -442,8 +459,7 @@ export const useAppStore = create<AppState>()((set, get) => {
             try {
                 const projects = await fetchProjects();
                 // 参考資料セットの一覧も取り直す（プロジェクトの数は多くないので、まとめて取る）
-                const sets = await Promise.all(projects.map((p) => fetchContextSets(p.id)));
-                set({ contextSets: Object.fromEntries(projects.map((p, i) => [p.id, sets[i]])) });
+                const sets = await loadContextSets(projects.map((p) => p.id));
                 set((s) => {
                     // 手元で中身を積み上げているセッションは、取り直しで消さない
                     const keep = new Set(
@@ -451,7 +467,10 @@ export const useAppStore = create<AppState>()((set, get) => {
                             (id): id is string => !!id && id !== releasing,
                         ),
                     );
-                    return { projects: mergeProjects(s.projects, projects, keep) };
+                    return {
+                        projects: mergeProjects(s.projects, projects, keep),
+                        contextSets: { ...s.contextSets, ...sets },
+                    };
                 });
             } catch (e) {
                 toast.error(`プロジェクトを読み込めません: ${(e as Error).message}`);
@@ -599,6 +618,10 @@ export const useAppStore = create<AppState>()((set, get) => {
                     // 切れたら、届きかけの途中の要約は捨てる（つながり直した後の断片が続けて足されないように）
                     liveDraft: connected ? s.liveDraft : null,
                 }));
+                if (connected && !isDemo) {
+                    // 切れている間に届かなかった contextSet（作成の終わり）を取りこぼさないように、一覧を取り直す
+                    void refreshContextSets(get().projects.map((p) => p.id));
+                }
                 if (!get().recordingSessionId && !stoppedWhileOffline) {
                     return;
                 }
@@ -676,9 +699,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                     const known = (get().contextSets[pid] ?? []).find((x) => x.id === m.id);
                     if (!known) {
                         // 知らないセット（ほかの端末で始めたもの）は、一覧ごと取り直す
-                        void fetchContextSets(pid).then((sets) =>
-                            set((s) => ({ contextSets: { ...s.contextSets, [pid]: sets } })),
-                        );
+                        void refreshContextSets([pid]);
                         return;
                     }
                     set((s) => ({
@@ -768,29 +789,32 @@ export const useAppStore = create<AppState>()((set, get) => {
             if (!project) {
                 return;
             }
-            const before = get().contextSelections[project.id];
-            set((s) => ({ contextSelections: { ...s.contextSelections, [project.id]: next } }));
+            // 保存するまでの間だけ、手元の選択（contextSelections）で上書きして出す
+            const pid = project.id;
+            const clearOverride = (s: AppState) => {
+                const selections = { ...s.contextSelections };
+                delete selections[pid];
+                return selections;
+            };
+            set((s) => ({ contextSelections: { ...s.contextSelections, [pid]: next } }));
             if (isDemo) {
                 return;
             }
             try {
-                const saved = await api.patch<ProjectJson['selection']>(`/api/projects/${project.id}/selection`, {
+                const saved = await api.patch<ProjectJson['selection']>(`/api/projects/${pid}/selection`, {
                     contextSet: next.setId,
                     useHotwords: next.useHotwords,
                     useContext: next.useContext,
                 });
-                set((s) => ({ contextSelections: { ...s.contextSelections, [project.id]: toSelection(saved) } }));
+                // 保存できたら、サーバーの選択（project.selection）を正にして、手元の上書きは消す
+                // （ほかの端末で変えた選択も、取り直しで出るように）
+                set((s) => ({
+                    projects: s.projects.map((p) => (p.id === pid ? { ...p, selection: toSelection(saved) } : p)),
+                    contextSelections: clearOverride(s),
+                }));
             } catch (e) {
-                // 保存できなければ元に戻す
-                set((s) => {
-                    const selections = { ...s.contextSelections };
-                    if (before) {
-                        selections[project.id] = before;
-                    } else {
-                        delete selections[project.id];
-                    }
-                    return { contextSelections: selections };
-                });
+                // 保存できなければ、上書きを消して元（サーバーの選択）に戻す
+                set((s) => ({ contextSelections: clearOverride(s) }));
                 if (e instanceof ApiError && e.status === 409) {
                     toast.error('録音中は参考資料を変えられません（ほかの端末で録音しているかもしれません）');
                 } else {
@@ -818,7 +842,9 @@ export const useAppStore = create<AppState>()((set, get) => {
                     const entry: ContextSet = { id: created.id, status: created.status, materials: created.materials };
                     set((st) => {
                         const list = (st.contextSets[pid] ?? []).filter((x) => x.id !== entry.id);
-                        return { contextSets: { ...st.contextSets, [pid]: [...list, entry] } };
+                        // 一覧は ID の昇順（サーバーと同じ）
+                        const sorted = [...list, entry].sort((a, b) => a.id.localeCompare(b.id));
+                        return { contextSets: { ...st.contextSets, [pid]: sorted } };
                     });
                     if (created.reused) {
                         toast.info('同じ資料で作ったセットがあるので、それを使います');
