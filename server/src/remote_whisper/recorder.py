@@ -317,6 +317,20 @@ class RecordingManager:
         self.on_count(n)
         await self.hub.set_status(recordings=n)
 
+    async def context_set_ready(self, pid: str, set_id: str) -> None:
+        """参考資料セットができた。そのセットを選んで録音中のセッションは、次の区間から使う
+
+        （spec 6.6。作成中に録音を始めたときは、用語リストとコンテキストなしで始まっている）"""
+        for session in self.active():
+            writer = session.writer
+            if writer.pid != pid or writer.meta.context_set != set_id:
+                continue
+            if session.transcriber is not None and writer.meta.use_hotwords:
+                session.transcriber.hotwords = load_hotwords(writer.files.dir, set_id)
+            if session.summarizer is not None and writer.use_context:
+                session.summarizer.context = load_context(writer.files.dir, set_id)
+            log.info("session %s now uses the context set %s", session.id, set_id)
+
     def submit_final_summary(self, session: RecordingSession) -> None:
         if self.final_summary is None or self.gpu is None:
             return

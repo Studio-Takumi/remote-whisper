@@ -9,8 +9,14 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from remote_whisper.context import AppContext
+from remote_whisper.context_sets import ContextSetService, OllamaGenerator
 from remote_whisper.final_summary import FinalSummarizer
-from remote_whisper.mock import MockFinalSummarizer, MockRecorder, MockTiming
+from remote_whisper.mock import (
+    MockContextGenerator,
+    MockFinalSummarizer,
+    MockRecorder,
+    MockTiming,
+)
 from remote_whisper.ollama import OllamaClient
 from remote_whisper.projects import ProjectStore
 from remote_whisper.recorder import RecordingManager
@@ -51,6 +57,9 @@ def create_app(
         if ctx.ollama is not None:
             # Ollama につながるかを見張る（status の ollama）
             ctx.ollama.start_monitor()
+        if ctx.context_sets is not None:
+            # 前に動いていたときに作っている途中だった参考資料セットを failed に直す
+            ctx.context_sets.recover()
         yield
         # 止めるときは、録音中の WAV を閉じて録音を終えたあとの処理を止め、GPU のジョブキューを止め
         # （待っているジョブは cancel）、Whisper を下ろす。録音の側を先に止めるのは、止めたキューに
@@ -90,6 +99,10 @@ def create_app(
     if mock:
         ctx.recorder = MockRecorder(ctx.hub, mock_timing, on_count, ctx.projects, ctx.settings)
         ctx.summarizer = MockFinalSummarizer(ctx.hub, ctx.settings, mock_timing)
+        generator = MockContextGenerator(ctx.hub, ctx.settings, mock_timing)
+        ctx.context_sets = ContextSetService(
+            ctx.projects, ctx.settings, ctx.hub, ctx.gpu, generator
+        )
     else:
         ctx.recorder = RecordingManager(
             ctx.hub,
@@ -107,6 +120,15 @@ def create_app(
                 ctx.ollama, ctx.settings, ctx.whisper, recording=lambda: ctx.is_recording
             )
             ctx.recorder.final_summary = ctx.summarizer
+            # 参考資料セットを作る。できたら、そのセットを選んで録音中のセッションに使わせる
+            ctx.context_sets = ContextSetService(
+                ctx.projects,
+                ctx.settings,
+                ctx.hub,
+                ctx.gpu,
+                OllamaGenerator(ctx.ollama, ctx.settings),
+                on_ready=ctx.recorder.context_set_ready,
+            )
 
     @app.get("/api/health")
     def health() -> dict:

@@ -17,6 +17,9 @@ class FakeOllama:
         self.reply = ["要約", "です"]
         # format（JSON Schema）付きの /api/chat には、このタイトルを JSON で返す
         self.title = "リリース計画の確認"
+        # True なら、思考オンの /api/chat は本文を返さない
+        # （思考が長すぎて本文まで届かなかったときのまね）
+        self.empty_when_thinking = False
         self.requests: list[tuple[str, dict]] = []
 
     def transport(self) -> httpx.MockTransport:
@@ -49,6 +52,8 @@ class FakeOllama:
                 if body.get("format")
                 else self.reply
             )
+            if self.empty_when_thinking and body.get("think"):
+                reply = []
             lines = [
                 json.dumps({"message": {"role": "assistant", "content": part}, "done": False})
                 for part in reply
