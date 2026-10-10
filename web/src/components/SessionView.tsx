@@ -166,9 +166,13 @@ function SummaryPanel({
                 {summary ? '直近の要約の作り直しに失敗しました' : '最終の要約を作れませんでした'}
             </p>
             <p className='text-xs text-muted-foreground'>
-                {ollama === 'ready'
-                    ? 'Ollama には今つながっています。作り直してください。'
-                    : 'Ollama に接続できません。Ollama が動いているか確かめてから、作り直してください。'}
+                {!canRegenerate
+                    ? session.files?.transcript === false || session.transcript.length === 0
+                        ? '文字起こしが残っていないため、作り直せません。'
+                        : 'ほかの要約を作り終えてから、作り直してください。'
+                    : ollama === 'ready'
+                      ? 'Ollama には今つながっています。作り直してください（保存に失敗した場合は、ディスクの空きも確かめてください）。'
+                      : 'Ollama に接続できません。Ollama が動いているか確かめてから、作り直してください。'}
             </p>
             {regenerateButton}
         </div>
