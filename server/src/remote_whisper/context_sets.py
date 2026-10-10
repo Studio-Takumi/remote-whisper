@@ -103,14 +103,18 @@ class OllamaGenerator:
         model = self._model()
         think = await self.ollama.supports_thinking(model)
         self._used = (model, think)
+        words = parse_hotwords(await self._ask(model, hotwords_messages(materials)))
+        context = (await self._ask(model, context_messages(materials))).strip()
+        return words, context
+
+    async def _ask(self, model: str, messages: list[dict[str, str]]) -> str:
+        """思考オンで頼む。思考が長すぎて本文が空になったら、思考オフでもう一度頼む"""
         options = {"num_ctx": NUM_CTX}
-        hotwords = await self.ollama.chat(
-            model, hotwords_messages(materials), think=True, options=options
-        )
-        context = await self.ollama.chat(
-            model, context_messages(materials), think=True, options=options
-        )
-        return parse_hotwords(hotwords), context.strip()
+        reply = await self.ollama.chat(model, messages, think=True, options=options)
+        if not reply.strip():
+            log.warning("empty reply from %s with thinking; retrying without it", model)
+            reply = await self.ollama.chat(model, messages, think=False, options=options)
+        return reply
 
 
 def sha1_of(path: Path) -> str:

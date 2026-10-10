@@ -85,6 +85,17 @@ def test_create_a_context_set(client, project, root, fake_ollama):
     assert sets == [{"id": sid, "status": "ready", "materials": materials(root)}]
 
 
+def test_empty_reply_with_thinking_is_retried_without_it(client, project, root, fake_ollama):
+    pid, d = project
+    fake_ollama.reply = [WORDS]
+    fake_ollama.empty_when_thinking = True
+    body, events = create_and_wait(client, pid, materials(root))
+    assert events[-1]["status"] == "ready"
+    _, words = read_doc(d / hotwords_name(body["id"]), ContextSetMeta)
+    assert words.splitlines() == ["リリース計画", "ステージング環境", "負荷試験"]
+    assert [c["think"] for c in fake_ollama.bodies("/api/chat")] == [True, False, True, False]
+
+
 def test_same_materials_are_reused(client, project, root, fake_ollama):
     pid, _ = project
     first, _ = create_and_wait(client, pid, materials(root))
