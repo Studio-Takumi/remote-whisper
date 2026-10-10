@@ -68,6 +68,44 @@ def test_quiet_audio_is_not_speech():
     assert seg.flush() is None
 
 
+# 音量（dBFS）から、一定の値の音を作る
+def level(sec: float, dbfs: float) -> bytes:
+    return tone(sec, value=round(32768 * 10 ** (dbfs / 20)))
+
+
+def test_manual_threshold():
+    assert Segmenter(600, 25, speech_dbfs=-50).feed(level(1.0, -45) + silence(1.0)) != []
+    assert Segmenter(600, 25, speech_dbfs=-40).feed(level(1.0, -45) + silence(1.0)) == []
+
+
+def test_auto_picks_up_a_quiet_voice_in_a_quiet_room():
+    # 静かな部屋（-65 dBFS）なら、固定の -40 dBFS では拾えない -45 dBFS の声も拾う（#82）
+    seg = Segmenter(600, 25, speech_dbfs=None)
+    assert seg.feed(level(3.0, -65)) == []
+    assert seg.threshold_dbfs == -55  # 雑音 + 10dB は -55 なので下限ちょうど
+    closed = seg.feed(level(1.0, -45) + level(1.0, -65))
+    assert [(s.start, s.end) for s in closed] == [(3.0, 4.0)]
+
+
+def test_auto_follows_the_noise_level_within_bounds():
+    seg = Segmenter(600, 25, speech_dbfs=None)
+    # 雑音 -52 dBFS → しきい値は -42 dBFS
+    seg.feed(level(5.0, -52))
+    assert seg.threshold_dbfs == pytest.approx(-42, abs=0.1)
+    # 完全な無音 → 下限
+    seg.feed(silence(10.0))
+    assert seg.threshold_dbfs == -55
+    # うるさい部屋 → 上限（それ以上は上げない）
+    seg.feed(level(10.0, -30))
+    assert seg.threshold_dbfs == -35
+
+
+def test_auto_uses_the_default_until_it_has_heard_enough():
+    seg = Segmenter(600, 25, speech_dbfs=None)
+    seg.feed(level(0.5, -65))
+    assert seg.threshold_dbfs == -40
+
+
 @pytest.mark.parametrize(
     ("hypotheses", "expected"),
     [
