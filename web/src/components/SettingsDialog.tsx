@@ -15,6 +15,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ollamaModelNames, thinkingNote, withCurrent } from '@/options';
@@ -193,6 +194,44 @@ function SettingsForm({
                             />
                         </Row>
                         <Row
+                            id='speech-threshold'
+                            label='話し声とみなす音量'
+                            description='自動は、周りの雑音の大きさに合わせて変える。うまく拾えないときは手動にする'
+                        >
+                            <Select
+                                value={draft.whisper.speechThreshold}
+                                onValueChange={(v) =>
+                                    update('whisper', { speechThreshold: v as Settings['whisper']['speechThreshold'] })
+                                }
+                            >
+                                <SelectTrigger id='speech-threshold' className='w-44'>
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectGroup>
+                                        <SelectItem value='auto'>自動</SelectItem>
+                                        <SelectItem value='manual'>手動</SelectItem>
+                                    </SelectGroup>
+                                </SelectContent>
+                            </Select>
+                        </Row>
+                        {draft.whisper.speechThreshold === 'manual' && (
+                            <Row
+                                id='speech-dbfs'
+                                label='手動のときの音量'
+                                description='この音量より大きい音を話し声とみなす。小さくするほど小さい声を拾うが、雑音も拾う（-70〜-10）'
+                            >
+                                <NumberInput
+                                    id='speech-dbfs'
+                                    value={draft.whisper.speechDbfs}
+                                    min={-70}
+                                    max={-10}
+                                    unit='dBFS'
+                                    onChange={(speechDbfs) => update('whisper', { speechDbfs })}
+                                />
+                            </Row>
+                        )}
+                        <Row
                             id='unload-after'
                             label='使い終わってからモデルを止めるまで'
                             description='最後に文字起こししてからこの時間がたったら、モデルを止めて VRAM を空ける'
@@ -287,6 +326,28 @@ function SettingsForm({
                                 value={draft.recording.maxConcurrent}
                                 min={1}
                                 onChange={(maxConcurrent) => update('recording', { maxConcurrent })}
+                            />
+                        </Row>
+                        <Row
+                            id='noise-suppression'
+                            label='ブラウザの雑音抑制'
+                            description='ブラウザがマイクの雑音を抑える。次に録音を始めたときから効く'
+                        >
+                            <Switch
+                                id='noise-suppression'
+                                checked={draft.recording.noiseSuppression}
+                                onCheckedChange={(noiseSuppression) => update('recording', { noiseSuppression })}
+                            />
+                        </Row>
+                        <Row
+                            id='auto-gain-control'
+                            label='ブラウザの自動音量調整'
+                            description='ブラウザがマイクの音量を自動で上げ下げする。次に録音を始めたときから効く'
+                        >
+                            <Switch
+                                id='auto-gain-control'
+                                checked={draft.recording.autoGainControl}
+                                onCheckedChange={(autoGainControl) => update('recording', { autoGainControl })}
                             />
                         </Row>
                     </Section>
@@ -473,6 +534,7 @@ function NumberInput({
     id,
     value,
     min,
+    max,
     step = 1,
     unit,
     onChange,
@@ -480,6 +542,7 @@ function NumberInput({
     id: string;
     value: number;
     min?: number;
+    max?: number;
     step?: number;
     unit?: string;
     onChange: (value: number) => void;
@@ -492,6 +555,7 @@ function NumberInput({
                 className='w-24 text-right'
                 value={value}
                 min={min}
+                max={max}
                 step={step}
                 onChange={(e) => onChange(e.target.valueAsNumber || 0)}
             />

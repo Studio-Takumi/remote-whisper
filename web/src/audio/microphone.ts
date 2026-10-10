@@ -56,7 +56,11 @@ export class Microphone {
         this.node.port.postMessage('discard');
     }
 
-    static async open(onPcm: PcmHandler): Promise<Microphone> {
+    // processing はブラウザのマイクの処理（全体設定の recording.noiseSuppression・autoGainControl）
+    static async open(
+        onPcm: PcmHandler,
+        processing: { noiseSuppression: boolean; autoGainControl: boolean },
+    ): Promise<Microphone> {
         if (!navigator.mediaDevices?.getUserMedia) {
             // getUserMedia は安全なコンテキスト（HTTPS か localhost）でしか使えない
             throw new MicrophoneError('unavailable', 'このページではマイクを使えません（HTTPS で開いてください）');
@@ -64,7 +68,7 @@ export class Microphone {
         let stream: MediaStream;
         try {
             stream = await navigator.mediaDevices.getUserMedia({
-                audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+                audio: { channelCount: 1, echoCancellation: true, ...processing },
             });
         } catch (e) {
             if (e instanceof DOMException && (e.name === 'NotAllowedError' || e.name === 'SecurityError')) {

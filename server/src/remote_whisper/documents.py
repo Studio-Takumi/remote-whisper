@@ -112,6 +112,9 @@ class WhisperUsed(_Meta):
     model: str
     beam_size: int
     silence_ms: int
+    # 話しているとみなす音量（#82）。以前のファイルにはない。speech_dbfs は manual のときだけ
+    speech_threshold: Literal["auto", "manual"] | None = None
+    speech_dbfs: float | None = None
 
 
 class TranscriptMeta(_Meta):

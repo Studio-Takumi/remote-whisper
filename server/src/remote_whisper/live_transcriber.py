@@ -56,7 +56,11 @@ class LiveTranscriber:
         self.send = send
         self.append_final = append_final
         self.hotwords = hotwords
-        self.segmenter = Segmenter(settings.silence_ms, settings.max_segment_sec)
+        self.segmenter = Segmenter(
+            settings.silence_ms,
+            settings.max_segment_sec,
+            None if settings.speech_threshold == "auto" else settings.speech_dbfs,
+        )
         self.agreement = LocalAgreement()
         self._finals: list[asyncio.Future] = []
         self._partial: asyncio.Future | None = None

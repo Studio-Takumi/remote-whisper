@@ -23,6 +23,15 @@ def project(tmp_path, home):
     return store, pid, settings
 
 
+def test_records_the_manual_speech_level(project):
+    store, pid, settings = project
+    settings.update({"whisper": {"speechThreshold": "manual", "speechDbfs": -48}})
+    w = SessionWriter(store, pid, SID, STARTED, settings.get())
+    w.start()
+    meta, _ = read_doc(w.files.transcript, TranscriptMeta)
+    assert (meta.whisper.speech_threshold, meta.whisper.speech_dbfs) == ("manual", -48)
+
+
 def test_fmt_clock():
     assert fmt_clock(3.9) == "00:00:03"
     assert fmt_clock(3725) == "01:02:05"
@@ -37,6 +46,7 @@ def test_full_session(project):
     assert meta.status == "recording"
     assert meta.started_at == "2026-10-09T14:30:12+09:00"
     assert meta.whisper.model == "large-v3-turbo"
+    assert (meta.whisper.speech_threshold, meta.whisper.speech_dbfs) == ("auto", None)
     assert body == ""
     entry = store.load(pid).sessions[0]
     assert (entry.id, entry.status) == (SID, "recording")

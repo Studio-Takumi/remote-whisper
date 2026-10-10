@@ -80,7 +80,20 @@ def test_update_rejects_invalid_values(home):
         store.update({"whisper": {"unknownKey": 1}})
     with pytest.raises(ValidationError):
         store.update({"ollama": {"host": ""}})
+    with pytest.raises(ValidationError):
+        store.update({"whisper": {"speechThreshold": "loud"}})
+    with pytest.raises(ValidationError):
+        store.update({"whisper": {"speechDbfs": 0}})
     assert (home / "setting.json").read_text(encoding="utf-8") == before
+
+
+def test_speech_threshold_and_microphone_defaults(home):
+    # 自動が既定。ブラウザのマイクの処理は、指定しなかった今までと同じ（どちらもオン）（#82）
+    s = SettingsStore(home).get()
+    assert (s.whisper.speech_threshold, s.whisper.speech_dbfs) == ("auto", -40)
+    assert (s.recording.noise_suppression, s.recording.auto_gain_control) == (True, True)
+    s = SettingsStore(home).update({"whisper": {"speechThreshold": "manual", "speechDbfs": -50}})
+    assert (s.whisper.speech_threshold, s.whisper.speech_dbfs) == ("manual", -50)
 
 
 def test_atomic_write_leaves_no_temp_files(home):
@@ -110,6 +123,8 @@ def test_settings_accepts_spec_example():
                 "silenceMs": 600,
                 "maxSegmentSec": 25,
                 "unloadAfterMin": 10,
+                "speechThreshold": "auto",
+                "speechDbfs": -40,
             },
             "ollama": {
                 "host": "http://localhost:11434",
@@ -119,7 +134,7 @@ def test_settings_accepts_spec_example():
                 "liveSummaryIntervalMin": 3,
                 "keepAliveMin": 10,
             },
-            "recording": {"maxConcurrent": 1},
+            "recording": {"maxConcurrent": 1, "noiseSuppression": True, "autoGainControl": True},
             "retentionDays": {"recording": 10, "transcript": 30, "summary": 30, "contextSet": 0},
             "materials": {"roots": ["D:\\work"], "extensions": [".md", ".txt", ".pdf", ".html"]},
         }
