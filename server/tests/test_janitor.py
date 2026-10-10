@@ -88,6 +88,47 @@ def test_only_expired_files_are_removed(home, tmp_path):
     assert [s.id for s in store.load(pid).sessions] == [old, middle, new]
 
 
+def test_unconverted_wav_follows_the_recording_days(home, tmp_path):
+    store, pid, d, _ = make_project(home, tmp_path)
+    settings = SettingsStore(home)
+    # 録音は無期限、要約は 30 日。mp3 に変換できずに WAV が残っているセッション
+    settings.update({"retentionDays": {"recording": 0}})
+    sid = add_session(store, pid, d, ended_days_ago=40)
+    (d / f"recording-{sid}.mp3").unlink()
+    wav = d / ".tmp" / sid / "audio.wav"
+    wav.write_bytes(b"RIFF")
+    clean(store, settings, at=AT)
+    # 要約の期限で途中の要約は消えるが、録音（WAV）は残る
+    assert wav.exists()
+    assert not (d / ".tmp" / sid / "live-summary.md").exists()
+    # 録音の期限が来たら WAV も消え、空になった .tmp/<ID>/ も消える
+    settings.update({"retentionDays": {"recording": 10}})
+    clean(store, settings, at=AT)
+    assert not (d / ".tmp" / sid).exists()
+
+
+def test_strange_ids_are_ignored(home, tmp_path):
+    store, pid, d, _ = make_project(home, tmp_path)
+    settings = SettingsStore(home)
+    keep = add_session(store, pid, d, ended_days_ago=1)
+    ended = iso(ago(400))
+
+    def tamper(project):
+        # 手で書き換えた project.json（外を指す ID・空の ID・ワイルドカード）
+        for sid in ("..", "", "*", "../../x"):
+            project.sessions.append(
+                SessionEntry(id=sid, status="done", started_at=ended, ended_at=ended)
+            )
+        project.context_sets.append(ContextSetEntry(id="..\\..", status="ready"))
+
+    store.update(pid, tamper)
+    report = clean(store, settings, at=AT)
+    assert report.removed == [] and report.context_sets == []
+    assert (d / "project.json").exists()
+    assert sum(keep in n for n in names(d)) == 3
+    assert (d / ".tmp" / keep).exists()
+
+
 def test_recording_sessions_are_kept(home, tmp_path):
     store, pid, d, _ = make_project(home, tmp_path)
     settings = SettingsStore(home)
