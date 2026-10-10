@@ -90,9 +90,16 @@ class FinalSummarizer:
         await self.run(session.writer, send)
 
     async def run(
-        self, writer: SessionWriter, send: Callable[[dict[str, Any]], Awaitable[None]]
+        self,
+        writer: SessionWriter,
+        send: Callable[[dict[str, Any]], Awaitable[None]],
+        model: str | None = None,
     ) -> str | None:
-        """最終の要約を作って保存する。生成 ID を返す（作れなければ None）"""
+        """最終の要約を作って保存する。生成 ID を返す（作れなければ None）
+
+        model を省くと、動き始めた時点の finalSummaryModel を使う
+        （作り直しは、頼んだ時点のものを渡す）
+        """
         # 生成 ID は、生成を始めた時刻（spec 5.2）
         started = now()
         if self.whisper is not None and not self.recording():
@@ -123,7 +130,7 @@ class FinalSummarizer:
                 }
             )
             return None
-        model = self.settings.get().ollama.final_summary_model
+        model = model or self.settings.get().ollama.final_summary_model
         context = (
             load_context(writer.files.dir, writer.meta.context_set) if writer.use_context else None
         )

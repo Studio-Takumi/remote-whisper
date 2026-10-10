@@ -297,11 +297,11 @@ class MockFinalSummarizer:
         self.settings = settings
         self.timing = timing or MockTiming()
 
-    async def run(self, writer: SessionWriter, send) -> str | None:
+    async def run(self, writer: SessionWriter, send, model: str | None = None) -> str | None:
         if self.hub.status.ollama != "ready":
             await send(ollama_error("最終の要約"))
             return None
-        model = self.settings.get().ollama.final_summary_model
+        model = model or self.settings.get().ollama.final_summary_model
         for i in range(0, len(FINAL_SUMMARY), 6):
             await send({"type": "summary.delta", "kind": "final", "text": FINAL_SUMMARY[i : i + 6]})
             await asyncio.sleep(self.timing.stream)
