@@ -34,14 +34,15 @@ export function SessionView() {
 
     return (
         <Tabs defaultValue='transcript'>
-            <div className='flex justify-center'>
+            {/* 上のバーのすぐ下に貼り付ける（#78）。左右の余白まで背景を塗って、本文が透けないようにする */}
+            <div className='sticky top-(--top-bar-height,0px) z-10 -mx-4 flex justify-center bg-background px-4 pb-2'>
                 <TabsList>
                     <TabsTrigger value='transcript'>文字起こし</TabsTrigger>
                     <TabsTrigger value='summary'>要約</TabsTrigger>
                 </TabsList>
             </div>
             {/* 下の pb は、マイクのボタンの上に出す経過時間（絶対配置）が本文に重ならないようにするため */}
-            <div className='mx-auto flex w-full max-w-3xl flex-col gap-4 pt-4 pb-16'>
+            <div className='mx-auto flex w-full max-w-3xl flex-col gap-4 pt-2 pb-16'>
                 {session ? (
                     <div>
                         <h1 className='text-lg font-semibold'>
