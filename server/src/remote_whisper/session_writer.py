@@ -53,6 +53,12 @@ class SessionWriter:
                 model=settings.whisper.model,
                 beam_size=settings.whisper.beam_size,
                 silence_ms=settings.whisper.silence_ms,
+                speech_threshold=settings.whisper.speech_threshold,
+                speech_dbfs=(
+                    settings.whisper.speech_dbfs
+                    if settings.whisper.speech_threshold == "manual"
+                    else None
+                ),
             ),
             context_set=selection.context_set,
             use_hotwords=selection.context_set is not None and selection.use_hotwords,

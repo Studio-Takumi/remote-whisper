@@ -37,6 +37,7 @@ def test_full_session(project):
     assert meta.status == "recording"
     assert meta.started_at == "2026-10-09T14:30:12+09:00"
     assert meta.whisper.model == "large-v3-turbo"
+    assert (meta.whisper.speech_threshold, meta.whisper.speech_dbfs) == ("auto", None)
     assert body == ""
     entry = store.load(pid).sessions[0]
     assert (entry.id, entry.status) == (SID, "recording")

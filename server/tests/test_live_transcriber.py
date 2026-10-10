@@ -167,6 +167,19 @@ def test_drops_hallucinations_from_final_and_partial_and_logs_them(caplog):
     assert any("partial of segment 0" in r.getMessage() for r in dropped if r.levelname == "DEBUG")
 
 
+def test_speech_threshold_follows_the_settings():
+    async def main():
+        auto = Harness()
+        manual = Harness(speech_threshold="manual", speech_dbfs=-30)
+        result = (auto.live.segmenter.auto, manual.live.segmenter.auto)
+        result += (manual.live.segmenter.threshold_dbfs,)
+        await auto.close()
+        await manual.close()
+        return result
+
+    assert run(main()) == (True, False, -30)
+
+
 def test_append_failure_is_reported_but_final_is_sent():
     async def main():
         h = Harness(partial_interval_sec=10)

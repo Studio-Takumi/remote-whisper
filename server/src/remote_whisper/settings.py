@@ -4,7 +4,7 @@ import json
 import os
 import threading
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from pydantic.alias_generators import to_camel
@@ -40,6 +40,9 @@ class WhisperSettings(_Model):
     silence_ms: int = Field(600, gt=0)
     max_segment_sec: float = Field(25, gt=0)
     unload_after_min: float = Field(10, ge=0)
+    # 話しているとみなす音量。auto は周りの音量に合わせて変える。manual は speech_dbfs を使う（#82）
+    speech_threshold: Literal["auto", "manual"] = "auto"
+    speech_dbfs: float = Field(-40, ge=-70, le=-10)
 
 
 class OllamaSettings(_Model):
@@ -53,6 +56,10 @@ class OllamaSettings(_Model):
 
 class RecordingSettings(_Model):
     max_concurrent: int = Field(1, ge=1)
+    # ブラウザのマイクの処理（getUserMedia の制約）。
+    # サーバーは使わず、録音を始めるときにブラウザが読む
+    noise_suppression: bool = True
+    auto_gain_control: bool = True
 
 
 class RetentionDays(_Model):
