@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from remote_whisper.context import AppContext
 from remote_whisper.context_sets import ContextSetService, OllamaGenerator
 from remote_whisper.final_summary import FinalSummarizer
+from remote_whisper.janitor import Janitor
 from remote_whisper.mock import (
     MockContextGenerator,
     MockFinalSummarizer,
@@ -60,7 +61,10 @@ def create_app(
         if ctx.context_sets is not None:
             # 前に動いていたときに作っている途中だった参考資料セットを failed に直す
             ctx.context_sets.recover()
+        # 保存期間を過ぎたファイルを、起動時とその後1日1回消す
+        janitor.start()
         yield
+        await janitor.close()
         # 止めるときは、録音中の WAV を閉じて録音を終えたあとの処理を止め、GPU のジョブキューを止め
         # （待っているジョブは cancel）、Whisper を下ろす。録音の側を先に止めるのは、止めたキューに
         # 最終の要約などのジョブが積まれて、ワーカーが作り直されないようにするため
@@ -79,6 +83,7 @@ def create_app(
         home=home, settings=SettingsStore(home), projects=ProjectStore(home), mock=mock
     )
     app.state.ctx = ctx
+    janitor = Janitor(ctx.projects, ctx.settings)
     # 結果を待たないタスク（途中で回収されないように持っておく）
     background: set[asyncio.Task] = set()
     if not mock:
