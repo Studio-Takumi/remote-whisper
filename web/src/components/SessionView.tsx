@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 
 import { AudioLinesIcon, FolderPlusIcon, RefreshCwIcon, TriangleAlertIcon } from 'lucide-react';
 
@@ -25,6 +25,7 @@ export function SessionView() {
     const partial = useAppStore((s) => s.partial);
     const liveDraft = useAppStore((s) => s.liveDraft);
     const recordingSessionId = useAppStore((s) => s.recordingSessionId);
+    const { tab, changeTab } = useTabScroll(session?.id);
 
     if (!project) {
         return <EmptyState hasProjects={hasProjects} />;
@@ -33,7 +34,7 @@ export function SessionView() {
     const live = summaryStatus(recordingState, server, liveIntervalMin);
 
     return (
-        <Tabs defaultValue='transcript'>
+        <Tabs value={tab} onValueChange={changeTab}>
             {/* 上のバーのすぐ下に貼り付ける（#78）。左右の余白まで背景を塗って、本文が透けないようにする */}
             <div className='sticky top-(--top-bar-height,0px) z-10 -mx-4 flex justify-center bg-background px-4 pb-2'>
                 <TabsList>
@@ -106,6 +107,39 @@ export function SessionView() {
             </div>
         </Tabs>
     );
+}
+
+type Tab = 'transcript' | 'summary';
+
+// タブごとのスクロール位置を覚えておき、切り替えたら戻す（#78）。ページ全体がスクロールするので window の位置を使う
+// セッションを替えたら覚えた位置は捨てる（タブはそのまま）
+function useTabScroll(sessionId: string | undefined) {
+    const [tab, setTab] = useState<Tab>('transcript');
+    const positions = useRef<{ sessionId: string | undefined; scroll: Partial<Record<Tab, number>> }>({
+        sessionId,
+        scroll: {},
+    });
+    const restore = useRef<number | null>(null);
+
+    const changeTab = (value: string) => {
+        const next = value as Tab;
+        if (positions.current.sessionId !== sessionId) {
+            positions.current = { sessionId, scroll: {} };
+        }
+        positions.current.scroll[tab] = window.scrollY;
+        restore.current = positions.current.scroll[next] ?? 0;
+        setTab(next);
+    };
+
+    // 描き替えた後、画面に出る前に戻す
+    useLayoutEffect(() => {
+        if (restore.current !== null) {
+            window.scrollTo({ top: restore.current });
+            restore.current = null;
+        }
+    }, [tab]);
+
+    return { tab, changeTab };
 }
 
 // 最終の要約。既定は、今選んでいるモデルの要約のうちいちばん新しいもの。なければモデルを問わずいちばん新しいもの。
