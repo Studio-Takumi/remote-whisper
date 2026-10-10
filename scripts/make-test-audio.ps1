@@ -2,9 +2,11 @@
 # Windows PowerShell 5.1 で日本語を読めるよう、このファイルは BOM 付きの UTF-8 で保存する
 # 使い方: powershell -ExecutionPolicy Bypass -File scripts\make-test-audio.ps1 -Out D:\work\test-meeting.wav
 # 16kHz・モノラル・16bit の WAV を作る。WAV はコミットしない（.gitignore 済み）
+# -LinesFile に UTF-8 のテキスト（1行に1文）を渡すと、下の台本の代わりにそれを読む
 param(
     [Parameter(Mandatory = $true)][string]$Out,
-    [string]$Voice = 'Microsoft Haruka Desktop'
+    [string]$Voice = 'Microsoft Haruka Desktop',
+    [string]$LinesFile
 )
 
 Add-Type -AssemblyName System.Speech
@@ -18,6 +20,9 @@ $script = @(
     'リリースノートの下書きは、開発チームで分担して書きましょう。',
     'リリース日は再来週の月曜日を目標にして、金曜日に最終判断をしましょう。'
 )
+if ($LinesFile) {
+    $script = @(Get-Content -LiteralPath $LinesFile -Encoding UTF8 | Where-Object { $_.Trim() -ne '' })
+}
 
 $synth = New-Object System.Speech.Synthesis.SpeechSynthesizer
 try {
