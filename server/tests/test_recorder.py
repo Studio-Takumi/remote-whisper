@@ -223,3 +223,28 @@ def test_resume_and_interrupted(client, project):
         ws.receive_json()
         ws.send_json({"type": "resume", "session": sid, "nextSeq": 2})
         assert receive_until(ws, of_type("error"))[-1]["code"] == "session_not_found"
+
+
+def test_transcribes_while_recording(client, project):
+    """偽の Whisper（子プロセスは本物）で、録音の開始で読み込み、区間ごとに final を出す"""
+    pid, d = project
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        sid = start(ws, pid)
+        # 1 秒話して、1 秒黙る（無音 600ms で区切る）
+        for seq in range(4):
+            ws.send_bytes(chunk(seq, value=3000 if seq < 2 else 0))
+            receive_until(ws, of_type("ack", seq=seq))
+        final = receive_until(ws, of_type("final"))[-1]
+        assert (final["segment"], final["start"], final["end"]) == (0, 0.0, 1.0)
+        assert final["text"] == "fake 1.0s"
+        # 話している途中で止めたら、そこまでを final にする
+        ws.send_bytes(chunk(4, value=3000))
+        receive_until(ws, of_type("ack", seq=4))
+        ws.send_json({"type": "stop"})
+        final = receive_until(ws, of_type("final"))[-1]
+        assert (final["segment"], final["start"], final["end"]) == (1, 2.0, 2.5)
+
+    assert client.app.state.ctx.hub.status.whisper == "ready"
+    _, body = read_doc(d / f"transcript-{sid}.md", TranscriptMeta)
+    assert body.splitlines()[-2:] == ["[00:00:00] fake 1.0s", "[00:00:02] fake 0.5s"]
