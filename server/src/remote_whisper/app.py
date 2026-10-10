@@ -46,11 +46,12 @@ def create_app(
             # Whisper の子プロセスが落ちていないか、使わなくなっていないかを見張る
             ctx.whisper.start_watchdog()
         yield
-        # 止めるときは、GPU のジョブキューを止め（待っているジョブは cancel）、録音中の WAV を閉じ、
-        # Whisper を下ろす
-        await ctx.gpu.stop()
+        # 止めるときは、録音中の WAV を閉じて録音を終えたあとの処理を止め、GPU のジョブキューを止め
+        # （待っているジョブは cancel）、Whisper を下ろす。録音の側を先に止めるのは、止めたキューに
+        # 最終の要約などのジョブが積まれて、ワーカーが作り直されないようにするため
         if isinstance(ctx.recorder, RecordingManager):
             await ctx.recorder.close()
+        await ctx.gpu.stop()
         if ctx.whisper is not None:
             await ctx.whisper.close()
 

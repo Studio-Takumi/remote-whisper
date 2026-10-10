@@ -24,6 +24,10 @@ log = logging.getLogger(__name__)
 
 SAMPLE_RATE = 16000
 
+# 読み込みに失敗したら、この秒数は読み込み直さない
+# （区間ごとに loading と error を行き来しないように）
+LOAD_RETRY_SEC = 30.0
+
 
 class WhisperUnavailable(Exception):
     """Whisper を使えない（読み込めない・子プロセスが落ちた・文字起こしに失敗した）"""
@@ -131,6 +135,9 @@ class WhisperWorker:
         self._lock = asyncio.Lock()
         self._last_used = time.monotonic()
         self._watchdog: asyncio.Task | None = None
+        self.load_retry_sec = LOAD_RETRY_SEC
+        # 最後に読み込みに失敗したモデルと時刻
+        self._load_failed: tuple[ModelSpec, float] | None = None
 
     @property
     def ready(self) -> bool:
@@ -187,6 +194,10 @@ class WhisperWorker:
         spec = self._spec()
         if self.ready and self._loaded == spec:
             return
+        if self._load_failed is not None:
+            failed_spec, failed_at = self._load_failed
+            if failed_spec == spec and time.monotonic() - failed_at < self.load_retry_sec:
+                raise WhisperUnavailable("Whisper の読み込みに失敗したばかりです")
         # 違うモデルが読み込まれていたら、子プロセスごと作り直す（VRAM を確実に空けるため）
         await self._close_process()
         self._loaded = None
@@ -201,8 +212,10 @@ class WhisperWorker:
         try:
             await self._call(("load", spec))
         except WhisperUnavailable:
+            self._load_failed = (spec, time.monotonic())
             await self._crashed()
             raise
+        self._load_failed = None
         self._loaded = spec
         self._last_used = time.monotonic()
         await self._set_status("ready")

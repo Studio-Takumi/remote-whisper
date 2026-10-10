@@ -1,19 +1,22 @@
 """録音マネージャ。WebSocket で届いた音声を受け取って保存する。spec 6.1・6.2・9.1
 
 GPU に依存させない（Whisper や Ollama が止まっていても、音声の受信と保存は続ける）。
-文字起こし（#23）、mp3 への変換と最終の要約（#24・#27）は、このあとの Issue で足す。
+
+録音を終えたら（stop か interrupted）、すぐに文字起こしの状態・終了日時・長さを確定し、
+残りは後ろで行う: 残りの区間の final → WAV を mp3 に変換して WAV を消す → 最終の要約のジョブを積む。
 """
 
 import asyncio
 import contextlib
 import logging
 import wave
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
 from fastapi import WebSocket
 
+from remote_whisper.audio_convert import convert_wav
 from remote_whisper.gpu_queue import GpuQueue, Priority
 from remote_whisper.hub import Hub, send
 from remote_whisper.live_transcriber import LiveTranscriber, load_hotwords
@@ -158,20 +161,56 @@ class RecordingSession:
             # 失敗しても、録音中の数は必ず減らす（設定のロックが外れなくなるため）
             await self.manager.ended(self)
         if self.transcriber is not None:
-            # 話している途中の区間を final にして、残りの文字起こしは後ろで終わらせる
+            # 話している途中の区間を final にする
             self.transcriber.flush()
-            self._finishing = asyncio.create_task(self._finish_transcribing())
+        # 残りの文字起こし・変換・最終の要約は時間がかかるので、受信の処理を止めないように後ろで行う
+        self._finishing = asyncio.create_task(self._finish(status))
 
-    async def _finish_transcribing(self) -> None:
-        assert self.transcriber is not None
-        await self.transcriber.wait()
-        await self.transcriber.close()
+    async def _finish(self, status: str) -> None:
+        if self.transcriber is not None:
+            try:
+                await self.transcriber.wait()
+            finally:
+                await self.transcriber.close()
+        await self._convert()
+        if status == "done":
+            self.manager.submit_final_summary(self)
+
+    async def _convert(self) -> None:
+        """WAV を mp3 に変換して WAV を消す。失敗したら WAV を残す（次の起動時に変換し直す: #33）"""
+        wav = self.wav.path
+        try:
+            recording = await asyncio.to_thread(convert_wav, wav, self.writer.files.dir, self.id)
+        except Exception:  # noqa: BLE001 変換できなくても録音（WAV）は残っている
+            log.exception("failed to convert the recording of %s", self.id)
+            return
+        try:
+            self.writer.set_recording(recording.name)
+        except OSError:
+            # 記録できなければ WAV を残す（次の起動時に直す: #33）
+            log.exception("failed to record the recording file of %s", self.id)
+            return
+        with contextlib.suppress(OSError):
+            wav.unlink()
+            # .tmp/<ID>/ に途中の要約が残っていなければ、ディレクトリごと消す
+            wav.parent.rmdir()
+
+    async def wait_finished(self) -> None:
+        """録音を終えたあとの処理（文字起こし・変換）が終わるまで待つ"""
+        if self._finishing is not None:
+            await asyncio.shield(self._finishing)
 
 
 def _ignore_failure(future: asyncio.Future) -> None:
     # 読み込めなかったことは status の whisper（error）で伝わるので、ここでは何もしない
     if not future.cancelled() and future.exception() is not None:
         log.warning("failed to load whisper: %s", future.exception())
+
+
+def _ignore_summary_failure(future: asyncio.Future) -> None:
+    # 失敗の記録とブラウザへの通知は、要約の側（#27）で行う
+    if not future.cancelled() and future.exception() is not None:
+        log.warning("final summary failed: %s", future.exception())
 
 
 class RecordingManager:
@@ -191,6 +230,8 @@ class RecordingManager:
         # Whisper と GPU キューがあれば、録音中に文字起こしする（なければ音声の保存だけ）
         self.whisper = whisper
         self.gpu = gpu
+        # 録音を終えたあとに GPU キューに積む、最終の要約（#27 で入れる）
+        self.final_summary: Callable[[RecordingSession], Awaitable[None]] | None = None
         # 録音中のセッションの数が変わったときに呼ぶ（設定のロックに使う）
         self.on_count = on_count or (lambda n: None)
         self.resume_timeout = resume_timeout
@@ -244,8 +285,27 @@ class RecordingManager:
         self.on_count(n)
         await self.hub.set_status(recordings=n)
 
+    def submit_final_summary(self, session: RecordingSession) -> None:
+        if self.final_summary is None or self.gpu is None:
+            return
+        job = self.final_summary
+        future = self.gpu.submit(Priority.BACKGROUND, lambda: job(session))
+        future.add_done_callback(_ignore_summary_failure)
+
     async def close(self) -> None:
-        """サーバーを止めるとき。録音中の WAV を閉じる（変換と状態の直しは次の起動時: #33）"""
+        """サーバーを止めるとき。録音中の WAV を閉じ、録音を終えたあとの処理を止める
+        （変換できなかった WAV と状態の直しは次の起動時: #33）"""
         for session in self.active():
             with contextlib.suppress(Exception):
                 session.wav.close()
+            if session.transcriber is not None:
+                await session.transcriber.close()
+        finishing = [
+            s._finishing
+            for s in self.sessions.values()
+            if s._finishing is not None and not s._finishing.done()
+        ]
+        for task in finishing:
+            task.cancel()
+        if finishing:
+            await asyncio.gather(*finishing, return_exceptions=True)

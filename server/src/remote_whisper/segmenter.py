@@ -72,10 +72,15 @@ class Segmenter:
 
     def flush(self) -> Segment | None:
         """録音を終えた。話している途中の区間があれば、そこまでで区切る"""
-        if self._rest and self._current is not None:
-            self._current.extend(self._rest)
-        self._rest = b""
-        return self._close() if self._current is not None else None
+        rest, self._rest = self._rest, b""
+        if self._current is None:
+            return None
+        if self._silence:
+            # 区間の終わりの無音は落とす（無音で区切ったときと同じ）
+            del self._current[len(self._current) - self._silence * FRAME_SAMPLES * 2 :]
+        else:
+            self._current.extend(rest)
+        return self._close()
 
     def _frame(self, frame: bytes) -> Segment | None:
         speech = _rms(frame) >= self.threshold

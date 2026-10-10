@@ -100,6 +100,12 @@ class SessionWriter:
             self._rewrite_meta()
         self._update_entry(title=title)
 
+    def set_recording(self, name: str) -> None:
+        """録音ファイル（mp3）ができた。フロントマターに記録する"""
+        with self._lock:
+            self.meta.recording = name
+            self._rewrite_meta()
+
     def finish(self, duration_sec: float, status: str = "done", ended: datetime | None = None):
         """録音を終えた。終了日時・長さ・状態を確定する"""
         ended = ended or now()

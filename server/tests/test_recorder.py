@@ -1,9 +1,11 @@
 import time
 import wave
 
+import av
 import pytest
 from fastapi.testclient import TestClient
 
+from remote_whisper import audio_convert
 from remote_whisper.app import create_app
 from remote_whisper.documents import TranscriptMeta, read_doc
 
@@ -56,7 +58,23 @@ def start(ws, pid):
     return receive_until(ws, of_type("started"))[-1]["session"]
 
 
-def test_records_audio_to_wav_without_whisper(client, project):
+def finished(client, sid):
+    """録音を終えたあとの処理（残りの文字起こし・変換）が終わるまで待つ"""
+    session = client.app.state.ctx.recorder.sessions[sid]
+    client.portal.call(session.wait_finished)
+
+
+@pytest.fixture
+def keep_wav(monkeypatch):
+    """mp3 への変換を失敗させて、WAV を残す（届いた音声をそのまま確かめるため）"""
+
+    def fail(*args):
+        raise RuntimeError("変換しない（テスト用）")
+
+    monkeypatch.setattr("remote_whisper.recorder.convert_wav", fail)
+
+
+def test_records_audio_to_wav(client, project, keep_wav):
     pid, d = project
     with client.websocket_connect("/ws") as ws:
         ws.receive_json()
@@ -74,6 +92,7 @@ def test_records_audio_to_wav_without_whisper(client, project):
 
         ws.send_json({"type": "stop"})
         receive_until(ws, of_type("status", recordings=0))
+    finished(client, sid)
 
     with wave.open(str(wav_path)) as w:
         assert (w.getnchannels(), w.getsampwidth(), w.getframerate()) == (1, 2, 16000)
@@ -86,12 +105,14 @@ def test_records_audio_to_wav_without_whisper(client, project):
     assert meta.status == "done"
     assert meta.duration_sec == 2
     assert meta.whisper.model == "large-v3-turbo"
+    # 変換に失敗したら、WAV を残して録音ファイルは記録しない
+    assert meta.recording is None
     session = client.get(f"/api/projects/{pid}/sessions/{sid}").json()
     assert session["status"] == "done"
     assert client.patch("/api/settings", json={"whisper": {"beamSize": 3}}).status_code == 200
 
 
-def test_duplicates_and_gaps_are_not_written(client, project):
+def test_duplicates_and_gaps_are_not_written(client, project, keep_wav):
     pid, d = project
     with client.websocket_connect("/ws") as ws:
         ws.receive_json()
@@ -101,11 +122,12 @@ def test_duplicates_and_gaps_are_not_written(client, project):
             assert receive_until(ws, of_type("ack"))[-1]["seq"] == expected
         ws.send_json({"type": "stop"})
         receive_until(ws, of_type("status", recordings=0))
+    finished(client, sid)
     with wave.open(str(d / ".tmp" / sid / "audio.wav")) as w:
         assert w.getnframes() == 300
 
 
-def test_paused_audio_is_not_written(client, project):
+def test_paused_audio_is_not_written(client, project, keep_wav):
     pid, d = project
     with client.websocket_connect("/ws") as ws:
         ws.receive_json()
@@ -121,6 +143,7 @@ def test_paused_audio_is_not_written(client, project):
         receive_until(ws, of_type("ack", seq=2))
         ws.send_json({"type": "stop"})
         receive_until(ws, of_type("status", recordings=0))
+    finished(client, sid)
     with wave.open(str(d / ".tmp" / sid / "audio.wav")) as w:
         assert w.getnframes() == 200
 
@@ -194,7 +217,7 @@ def test_pause_is_not_counted_in_the_duration(client, project):
     assert meta.duration_sec == 2
 
 
-def test_resume_and_interrupted(client, project):
+def test_resume_and_interrupted(client, project, keep_wav):
     pid, d = project
     with client.websocket_connect("/ws") as ws:
         ws.receive_json()
@@ -217,6 +240,7 @@ def test_resume_and_interrupted(client, project):
     # 録音中の数が 0 に戻り、設定を変えられる
     assert client.app.state.ctx.recordings == 0
     assert client.patch("/api/settings", json={"whisper": {"beamSize": 3}}).status_code == 200
+    finished(client, sid)
     with wave.open(str(d / ".tmp" / sid / "audio.wav")) as w:
         assert w.getnframes() == 200
     with client.websocket_connect("/ws") as ws:
@@ -248,3 +272,105 @@ def test_transcribes_while_recording(client, project):
     assert client.app.state.ctx.hub.status.whisper == "ready"
     _, body = read_doc(d / f"transcript-{sid}.md", TranscriptMeta)
     assert body.splitlines()[-2:] == ["[00:00:00] fake 1.0s", "[00:00:02] fake 0.5s"]
+
+
+def audio_seconds(path):
+    with av.open(str(path)) as f:
+        return f.duration / 1e6
+
+
+def wait_for(pred, timeout=5.0):
+    deadline = time.monotonic() + timeout
+    while not pred():
+        assert time.monotonic() < deadline, "時間内に終わらなかった"
+        time.sleep(0.05)
+
+
+def test_stop_converts_to_mp3_and_queues_the_final_summary(client, project):
+    pid, d = project
+    summarized = []
+
+    async def final_summary(session):
+        # 最終の要約を積むのは、残りの final を書き終えてから
+        _, body = read_doc(session.writer.files.transcript, TranscriptMeta)
+        summarized.append((session.id, body.strip().splitlines()))
+
+    client.app.state.ctx.recorder.final_summary = final_summary
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        sid = start(ws, pid)
+        for seq in range(4):
+            ws.send_bytes(chunk(seq, value=3000 if seq < 3 else 0))
+            receive_until(ws, of_type("ack", seq=seq))
+        ws.send_json({"type": "stop"})
+        receive_until(ws, of_type("final"))
+    finished(client, sid)
+
+    mp3 = d / f"recording-{sid}.mp3"
+    assert abs(audio_seconds(mp3) - 2.0) < 0.2
+    # WAV と .tmp/<ID>/ は消す
+    assert not (d / ".tmp" / sid).exists()
+    meta, _ = read_doc(d / f"transcript-{sid}.md", TranscriptMeta)
+    assert (meta.status, meta.duration_sec, meta.recording) == ("done", 2, mp3.name)
+    assert client.get(f"/api/projects/{pid}/sessions/{sid}").json()["files"]["recording"] is True
+    wait_for(lambda: summarized)
+    assert summarized == [(sid, ["[00:00:00] fake 1.5s"])]
+
+
+def test_interrupted_recording_is_converted_without_a_final_summary(client, project):
+    pid, d = project
+    summarized = []
+
+    async def final_summary(session):
+        summarized.append(session.id)
+
+    client.app.state.ctx.recorder.final_summary = final_summary
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        sid = start(ws, pid)
+        ws.send_bytes(chunk(0, value=3000))
+        receive_until(ws, of_type("ack", seq=0))
+    wait_for(lambda: client.app.state.ctx.recorder.sessions[sid].ended)
+    finished(client, sid)
+    meta, body = read_doc(d / f"transcript-{sid}.md", TranscriptMeta)
+    assert (meta.status, meta.recording) == ("interrupted", f"recording-{sid}.mp3")
+    # 話している途中で切れた区間も、文字起こしに残る
+    assert body.strip().splitlines() == ["[00:00:00] fake 0.5s"]
+    time.sleep(0.1)
+    assert summarized == []
+
+
+def test_keeps_the_live_summary_when_removing_the_wav(client, project):
+    pid, d = project
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        sid = start(ws, pid)
+        ws.send_bytes(chunk(0))
+        receive_until(ws, of_type("ack", seq=0))
+        # 途中の要約は、最終の要約を保存できるまで残す（spec 6.4）
+        (d / ".tmp" / sid / "live-summary.md").write_text("途中の要約", encoding="utf-8")
+        ws.send_json({"type": "stop"})
+        receive_until(ws, of_type("status", recordings=0))
+    finished(client, sid)
+    assert sorted(p.name for p in (d / ".tmp" / sid).iterdir()) == ["live-summary.md"]
+    assert (d / f"recording-{sid}.mp3").exists()
+
+
+def test_falls_back_to_m4a_without_an_mp3_encoder(client, project, monkeypatch):
+    real = audio_convert._encoder_available
+    monkeypatch.setattr(
+        audio_convert, "_encoder_available", lambda name: name != "libmp3lame" and real(name)
+    )
+    pid, d = project
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        sid = start(ws, pid)
+        ws.send_bytes(chunk(0, samples=16000))
+        receive_until(ws, of_type("ack", seq=0))
+        ws.send_json({"type": "stop"})
+        receive_until(ws, of_type("status", recordings=0))
+    finished(client, sid)
+    m4a = d / f"recording-{sid}.m4a"
+    assert abs(audio_seconds(m4a) - 1.0) < 0.2
+    meta, _ = read_doc(d / f"transcript-{sid}.md", TranscriptMeta)
+    assert meta.recording == m4a.name

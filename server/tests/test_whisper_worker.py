@@ -122,11 +122,21 @@ def test_load_failure_reports_error(worker):
         with pytest.raises(WhisperUnavailable):
             await worker.ensure_loaded()
         alive = worker._process is not None
+        # 失敗したばかりなら、読み込み直さない（status が loading と error を行き来しない）
+        with pytest.raises(WhisperUnavailable):
+            await worker.transcribe(b"\0\0")
+        states = list(worker.hub.whisper_states)
+        # 時間がたつか、モデルを変えたら読み込み直す
+        worker.load_retry_sec = 0
+        worker.settings.update({"whisper": {"model": "small"}})
+        await worker.ensure_loaded()
         await worker.close()
-        return alive
+        return alive, states
 
-    assert run(main()) is False
-    assert worker.hub.whisper_states == ["loading", "error"]
+    alive, states = run(main())
+    assert alive is False
+    assert states == ["loading", "error"]
+    assert worker.hub.whisper_states == ["loading", "error", "loading", "ready"]
 
 
 def test_transcribe_after_unload_reloads(worker):

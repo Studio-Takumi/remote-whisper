@@ -44,6 +44,13 @@ def test_splits_at_max_segment_length():
     assert seg.flush() is None
 
 
+def test_flush_drops_trailing_silence():
+    seg = Segmenter(silence_ms=600, max_segment_sec=25)
+    seg.feed(tone(1.0) + silence(0.3))
+    last = seg.flush()
+    assert (last.start, last.end) == (0.0, 1.0)
+
+
 def test_chunk_sizes_do_not_matter():
     audio = silence(0.3) + tone(0.8) + silence(0.7) + tone(0.4) + silence(0.7)
     whole = Segmenter(silence_ms=600, max_segment_sec=25).feed(audio)
