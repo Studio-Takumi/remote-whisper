@@ -105,11 +105,15 @@ class VadSegmenter:
         self._pad_after = round(PAD_AFTER_SEC / WINDOW_SEC)
         self._levels: deque[float] = deque(maxlen=int(GAIN_WINDOW_SEC / WINDOW_SEC))
         self.gain_db = 0.0  # 最後に受け取った窓の時点の持ち上げ量（dB）
-        self._gain = 1.0  # 今判定している窓の時点の持ち上げ量（倍率）
+        # 区間に掛ける持ち上げ量（倍率）。区間の中の窓の持ち上げ量のうち、いちばん小さいもの。
+        # 区間の中では一定にし、大きい声の窓が音割れしないようにする（閉じる時点の値を使うと、
+        # 短い発言の後に黙っている間に持ち上げ量が上がり、声が割れる）
+        self._gain = 1.0
         self._context = np.zeros(CONTEXT, dtype=np.float32)  # 前の窓の終わり（持ち上げた後）
         self._rest = b""  # 1 窓に満たない端数
         self._samples = 0  # これまでに判定したサンプルの数（録音の時刻）
-        self._recent: deque[bytes] = deque(maxlen=self._pad_before)  # 直前の窓（前の余白に使う）
+        # 直前の窓とその時点の持ち上げ量（前の余白に使う）
+        self._recent: deque[tuple[bytes, float]] = deque(maxlen=self._pad_before)
         self._index = 0
         self._current: bytearray | None = None  # 話している区間（元の音）
         self._start = 0
@@ -151,10 +155,7 @@ class VadSegmenter:
         probs = self._probabilities(np.concatenate([contexts, boosted], axis=1))
         closed = []
         for window, gain, prob in zip(raw, gains, probs, strict=True):
-            # 区間の PCM は、その窓の時点の持ち上げ量で持ち上げる
-            # （届く音の区切り方で結果が変わらないように）
-            self._gain = float(gain)
-            segment = self._window(window.tobytes(), float(prob))
+            segment = self._window(window.tobytes(), float(gain), float(prob))
             if segment is not None:
                 closed.append(segment)
         return closed
@@ -176,24 +177,26 @@ class VadSegmenter:
         loud = float(np.quantile(np.fromiter(self._levels, dtype=np.float32), GAIN_QUANTILE))
         self.gain_db = min(MAX_GAIN_DB, max(0.0, TARGET_DBFS - loud))
 
-    def _window(self, window: bytes, prob: float) -> Segment | None:
+    def _window(self, window: bytes, gain: float, prob: float) -> Segment | None:
         start = self._samples
         self._samples += WINDOW
         if self._current is None:
             if prob < self.threshold:
-                self._recent.append(window)
+                self._recent.append((window, gain))
                 return None
             # 話し始め。直前の窓を前の余白として足す
             # （区間を閉じたときに空にするので、前の区間とは重ならない）
             before = list(self._recent)
             self._recent.clear()
-            self._current = bytearray(b"".join(before))
+            self._current = bytearray(b"".join(w for w, _ in before))
             self._current.extend(window)
+            self._gain = min([gain] + [g for _, g in before])
             self._start = start - len(before) * WINDOW
             self._silence = 0
             self._voiced = 1
             return self._check_length()
         self._current.extend(window)
+        self._gain = min(self._gain, gain)
         if prob >= self.threshold:
             self._silence = 0
             self._voiced += 1

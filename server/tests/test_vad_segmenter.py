@@ -134,6 +134,18 @@ def test_quiet_voice_right_after_a_loud_one_is_boosted_soon():
     assert seg.gain_db == pytest.approx(30, abs=0.1)
 
 
+def test_a_short_close_voice_is_not_clipped_after_the_silence():
+    # 静かな部屋で、近くの声（-20 dBFS）で 1 秒だけ話して黙る。短い区間は 2 秒黙ってから閉じ、
+    # その頃には持ち上げ量が上限に戻っているが、区間には話している間の持ち上げ量を使う
+    seg = segmenter()
+    closed = seg.feed(level(100, -65) + level(31, -20) + level(70, -65))
+    assert len(closed) == 1
+    samples = np.frombuffer(closed[0].pcm, dtype=np.int16)
+    assert np.abs(samples).max() < 32767
+    speech = closed[0].pcm[9 * WINDOW * 2 : (9 + 31) * WINDOW * 2]
+    assert dbfs(speech) == pytest.approx(-20, abs=0.5)
+
+
 def test_gain_is_capped_and_never_lowers():
     seg = segmenter()
     seg.feed(level(50, -80))
