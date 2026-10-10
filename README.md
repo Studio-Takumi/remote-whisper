@@ -28,7 +28,7 @@ flowchart LR
     WS -- "partial / final（JSON）" --> View
 ```
 
-> 🚧 開発中です。現時点では、サーバーの雛形と `server/transcribe.py`（音声ファイルの文字起こし）、`web/` の画面のモック（ダミーデータ）しかありません。
+> 🚧 開発中です。録音・文字起こし・途中の要約・最終の要約・参考資料セット・保存期間の管理・障害からの復旧まで動きます。別の端末から使う手順は「別の端末から使う（HTTPS）」を見てください。
 
 ## 画面
 
@@ -143,13 +143,49 @@ cd web && npx playwright install chromium && npm run screenshots       # ター�
 
 画面の URL は `SCREENSHOT_URL`（既定: `http://localhost:5173`）、手元の Chromium を使うときは `CHROMIUM_PATH` で指定できます。
 
-## ネットワークと HTTPS について
+## 別の端末から使う（HTTPS）
 
-ブラウザの `getUserMedia` は、安全なコンテキスト（HTTPS か `localhost`）でしか動きません。
+ブラウザの `getUserMedia`（マイク）は、安全なコンテキスト（HTTPS か `localhost`）でしか動きません。GPU マシン以外の端末（ノートPC・スマホ）から録音するには、画面を HTTPS で開く必要があります。画面を HTTPS で開けば、WebSocket も自動で `wss://` になります。
 
-- **開発中**: フロントをクライアントの `localhost` で起動し、GPU マシンの `ws://` に直接つなぎます。
-- **実運用**: フロントを HTTPS で配信し、WebSocket は `wss://` にします。HTTPS にする方法は何でも構いません。
-  - [Tailscale](https://tailscale.com/) の `tailscale serve`（証明書の取得と HTTPS 化を自動でやってくれるので一番手軽）
-  - Cloudflare Tunnel
-  - Caddy や nginx と Let's Encrypt の組み合わせ
-  - [mkcert](https://github.com/FiloSottile/mkcert) で作った証明書（LAN 内だけで使う場合）
+ここでは [Tailscale](https://tailscale.com/) の `tailscale serve` を使う手順を書きます。証明書の取得と HTTPS 化を Tailscale がやってくれ、自分の Tailscale のネットワーク（tailnet）の端末からしか見えないので、一番手軽です。
+
+### 1. 画面をビルドして、サーバーから配信する
+
+```bash
+cd web
+npm ci
+npm run build          # web/dist ができる
+
+cd ../server
+uv run remote-whisper  # http://127.0.0.1:8000 で画面と API を配信する
+```
+
+`web/dist` があれば、サーバーが画面も配信します。GPU マシンのブラウザで `http://localhost:8000` を開いて、画面が出ることを確かめてください。サーバーは `127.0.0.1` のまま（`--host 0.0.0.0` にしない）で構いません。外からは次の `tailscale serve` を通して入ります。
+
+### 2. `tailscale serve` で HTTPS にする
+
+1. GPU マシンと、録音に使う端末の両方に Tailscale を入れて、同じ tailnet にログインします。
+2. Tailscale の管理画面（DNS の設定）で、**MagicDNS** と **HTTPS Certificates** を有効にします。
+3. GPU マシンで次を実行します。
+
+   ```bash
+   tailscale serve --bg 8000
+   ```
+
+   `https://<マシン名>.<tailnet 名>.ts.net/` へのアクセスを、`http://127.0.0.1:8000` に転送するようになります（WebSocket も通ります）。表示される URL を控えてください。例: `https://gpu-box.example-tailnet.ts.net/`
+4. 録音に使う端末のブラウザでその URL を開き、マイクの使用を許可します。
+
+- 今の転送の設定は `tailscale serve status` で見られます。止めるときは `tailscale serve --https=443 off`（または `tailscale serve reset`）。
+- `tailscale funnel` は使わないでください。インターネット全体に公開されます。このサーバーには認証がなく、tailnet の中だけで使う前提です（spec 7.4）。
+
+### ほかの方法
+
+HTTPS にする方法は何でも構いません。どの方法でも、`/api` と `/ws` を同じオリジンでサーバー（`http://127.0.0.1:8000`）に転送してください。
+
+- Cloudflare Tunnel（Cloudflare Access などで自分だけが入れるようにしてください）
+- Caddy や nginx と Let's Encrypt の組み合わせ
+- [mkcert](https://github.com/FiloSottile/mkcert) で作った証明書（LAN 内だけで使う場合。証明書を各端末に信頼させる必要があります）
+
+### 開発中
+
+フロントを手元の `localhost` で起動（`npm run dev`）すれば HTTPS は要りません。Vite が `/api` と `/ws` をサーバーに転送します（「フロントエンドの開発」を参照）。
