@@ -30,6 +30,8 @@ class AppContext:
     ollama: Any = None
     # 最終の要約を作るもの（FinalSummarizer。モックでは MockFinalSummarizer）。作り直しに使う
     summarizer: Any = None
+    # 参考資料セットの作成（ContextSetService）
+    context_sets: Any = None
     # GPU を使う処理（Whisper・Ollama）を順番に実行するキュー。待っている数は status の queue で送る
     gpu: GpuQueue = field(init=False)
 

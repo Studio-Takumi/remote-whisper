@@ -386,7 +386,9 @@ GPU を使う処理は、1つのキューを通して順番に実行する。
 
 - 同じ資料の組み合わせ（ハッシュが一致するもの）で作ったセットがすでにあれば、作り直さずに使い回す。
 - Whisper のプロンプトには上限がある（`hotwords` と `initial_prompt` を合わせて約224トークン）。上限を超える用語は、重要度の低いものから外す。
-- 作成中（数分かかる）に録音が始まった場合は、用語リストなしで文字起こしを始める。セットができた時点から、次の区間に適用する。
+- 作成中（数分かかる）に録音が始まった場合は、用語リストなしで文字起こしを始める。セットができた時点から、次の区間に適用する。途中の要約のコンテキストも同じ。
+- 失敗したセット（`failed`）は使い回さない。同じ資料を選び直すと、新しく作る。
+- `POST .../context-sets` は 202 を返す。同じ資料のセットがあれば、それを `reused: true` で返す。資料が `materials.roots` の外なら 403、ないなら 404、拡張子が `materials.extensions` にないなら 400。
 
 ### 6.7 障害が起きたとき
 
@@ -452,7 +454,7 @@ GPU を使う処理は、1つのキューを通して順番に実行する。
 | `summary.delta` | `kind`（`live` / `final`）、`text`（追加分） |
 | `summary.done` | `kind` |
 | `title` | `title`、`provisional`（仮のタイトルかどうか） |
-| `contextSet` | `id`、`status`（`generating` / `ready` / `failed`） |
+| `contextSet` | `project`（プロジェクト ID）、`id`、`status`（`generating` / `ready` / `failed`） |
 | `status` | `whisper`（`unloaded` / `loading` / `ready` / `error`）、`ollama`（`ready` / `error`）、`recordings`（録音中のセッションの数）、`queue` |
 | `error` | `code`、`message` |
 
