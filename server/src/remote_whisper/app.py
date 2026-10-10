@@ -42,7 +42,8 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         yield
-        # 止めるときは、録音中の WAV を閉じる
+        # 止めるときは、GPU のジョブキューを止め（待っているジョブは cancel）、録音中の WAV を閉じる
+        await ctx.gpu.stop()
         if isinstance(ctx.recorder, RecordingManager):
             await ctx.recorder.close()
 
