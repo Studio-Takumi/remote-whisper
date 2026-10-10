@@ -1,9 +1,13 @@
 import asyncio
 
+import numpy as np
+
 from remote_whisper.documents import dump, hotwords_name
 from remote_whisper.gpu_queue import GpuQueue
 from remote_whisper.live_transcriber import LiveTranscriber, load_hotwords
+from remote_whisper.segmenter import Segmenter
 from remote_whisper.settings import WhisperSettings
+from remote_whisper.vad_segmenter import CONTEXT, VadSegmenter
 from remote_whisper.whisper_worker import WhisperUnavailable
 
 
@@ -30,13 +34,25 @@ class StubWhisper:
         return [{"start": 0.0, "end": 0.0, "text": f" {len(pcm) // 32000}秒 "}]
 
 
+def loud_is_speech(windows: np.ndarray) -> np.ndarray:
+    """偽の VAD: 持ち上げた後の音が -30 dBFS より大きければ話している"""
+    rms = np.sqrt(np.mean(windows[:, CONTEXT:] ** 2, axis=1))
+    return (rms > 10 ** (-30 / 20)).astype(np.float32)
+
+
 class Harness:
+    # 区間の時刻を正確に確かめたいので、既定は音量で切り出す（manual）。auto は偽の VAD を使う
     def __init__(self, **settings):
         self.whisper = StubWhisper()
         self.gpu = GpuQueue()
         self.sent: list[dict] = []
         self.appended: list[tuple[float, str]] = []
-        defaults = {"partial_interval_sec": 0.05, "silence_ms": 200, "max_segment_sec": 25}
+        defaults = {
+            "partial_interval_sec": 0.05,
+            "silence_ms": 200,
+            "max_segment_sec": 25,
+            "speech_threshold": "manual",
+        }
         self.live = LiveTranscriber(
             self.whisper,
             self.gpu,
@@ -44,6 +60,7 @@ class Harness:
             self._send,
             lambda start, text: self.appended.append((start, text)),
             hotwords="用語A、用語B",
+            vad=loud_is_speech,
         )
 
     async def _send(self, message):
@@ -169,15 +186,51 @@ def test_drops_hallucinations_from_final_and_partial_and_logs_them(caplog):
 
 def test_speech_threshold_follows_the_settings():
     async def main():
-        auto = Harness()
+        auto = Harness(speech_threshold="auto")
         manual = Harness(speech_threshold="manual", speech_dbfs=-30)
-        result = (auto.live.segmenter.auto, manual.live.segmenter.auto)
-        result += (manual.live.segmenter.threshold_dbfs,)
+        result = (auto.live.segmenter, manual.live.segmenter)
         await auto.close()
         await manual.close()
         return result
 
-    assert run(main()) == (True, False, -30)
+    auto, manual = run(main())
+    assert isinstance(auto, VadSegmenter)
+    assert isinstance(manual, Segmenter) and manual.threshold_dbfs == -30
+
+
+def test_auto_skips_whisper_vad_and_manual_keeps_it():
+    # VAD で切り出した区間は、Whisper の VAD にもう一度かけない（#88）
+    async def main():
+        result = []
+        for mode in ("auto", "manual"):
+            h = Harness(speech_threshold=mode, partial_interval_sec=10)
+            h.live.feed(tone(1.0) + silence(1.0))
+            h.live.flush()
+            await h.close()
+            result.append({c["vad_filter"] for c in h.whisper.calls})
+        return result
+
+    assert run(main()) == [{False}, {True}]
+
+
+def test_auto_drops_a_phrase_from_a_short_burst():
+    # 声の切れ端（VAD が話しているとみなしたのは 0.2 秒ほど）から出た定番の文は、
+    # 自信が高くても捨てる
+    async def main():
+        h = Harness(speech_threshold="auto", partial_interval_sec=10)
+
+        async def transcribe(pcm, **options):
+            text = "ご視聴ありがとうございました" if len(pcm) < 32000 else "本当の発言"
+            return [{"start": 0.0, "end": 1.0, "text": text, "avg_logprob": -0.2}]
+
+        h.whisper.transcribe = transcribe
+        h.live.feed(tone(0.2) + silence(2.5) + tone(2.0) + silence(2.5))
+        h.live.flush()
+        await h.close()
+        return h
+
+    h = run(main())
+    assert [m["text"] for m in h.of_type("final")] == ["本当の発言"]
 
 
 def test_append_failure_is_reported_but_final_is_sent():

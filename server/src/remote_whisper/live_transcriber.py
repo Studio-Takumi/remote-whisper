@@ -20,6 +20,7 @@ from remote_whisper.gpu_queue import GpuQueue, Priority
 from remote_whisper.hallucination import drop_reason
 from remote_whisper.segmenter import LocalAgreement, Segment, Segmenter
 from remote_whisper.settings import WhisperSettings
+from remote_whisper.vad_segmenter import Probabilities, VadSegmenter
 from remote_whisper.whisper_worker import WhisperUnavailable, WhisperWorker
 
 log = logging.getLogger(__name__)
@@ -49,6 +50,7 @@ class LiveTranscriber:
         send: Callable[[dict[str, Any]], Awaitable[None]],
         append_final: Callable[[float, str], None],
         hotwords: str | None = None,
+        vad: Probabilities | None = None,
     ):
         self.whisper = whisper
         self.gpu = gpu
@@ -56,11 +58,17 @@ class LiveTranscriber:
         self.send = send
         self.append_final = append_final
         self.hotwords = hotwords
-        self.segmenter = Segmenter(
-            settings.silence_ms,
-            settings.max_segment_sec,
-            None if settings.speech_threshold == "auto" else settings.speech_dbfs,
-        )
+        # auto は Silero VAD で切り出す（#88）。manual は音量のしきい値で切り出す（#82）
+        # vad はテスト用（Silero の代わりに使う判定）
+        self.segmenter: Segmenter | VadSegmenter
+        if settings.speech_threshold == "auto":
+            self.segmenter = VadSegmenter(
+                settings.silence_ms, settings.max_segment_sec, probabilities=vad
+            )
+        else:
+            self.segmenter = Segmenter(
+                settings.silence_ms, settings.max_segment_sec, settings.speech_dbfs
+            )
         self.agreement = LocalAgreement()
         self._finals: list[asyncio.Future] = []
         self._partial: asyncio.Future | None = None
@@ -68,7 +76,13 @@ class LiveTranscriber:
         self._loop_task = asyncio.create_task(self._partial_loop())
 
     def _options(self) -> dict[str, Any]:
-        return {"language": "ja", "beam_size": self.settings.beam_size, "hotwords": self.hotwords}
+        return {
+            "language": "ja",
+            "beam_size": self.settings.beam_size,
+            "hotwords": self.hotwords,
+            # VAD で切り出した区間は、Whisper の VAD にもう一度かけない（#88）
+            "vad_filter": not isinstance(self.segmenter, VadSegmenter),
+        }
 
     def feed(self, pcm: bytes) -> None:
         for segment in self.segmenter.feed(pcm):
@@ -182,7 +196,7 @@ def _drop_hallucinations(result: list[dict], segment: Segment, kind: str) -> lis
     """話していないのに出てきた文を捨てる。捨てたものはログに残す（#81）"""
     kept = []
     for r in result:
-        reason = drop_reason(r)
+        reason = drop_reason(r, segment.voiced_sec)
         if reason is None:
             kept.append(r)
             continue

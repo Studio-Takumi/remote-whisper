@@ -1,12 +1,14 @@
 import os
 import sys
 
+import numpy as np
 import pytest
 from fake_ollama import FakeOllama
 from fastapi.testclient import TestClient
 
 from remote_whisper.app import create_app
 from remote_whisper.ollama import OllamaClient
+from remote_whisper.vad_segmenter import CONTEXT
 
 
 def _make_dir_link(link, target):
@@ -32,6 +34,29 @@ def _isolated_home(tmp_path, monkeypatch):
     # テストでは本物の Whisper のモデル（GPU）を使わない
     monkeypatch.setenv("REMOTE_WHISPER_WHISPER_BACKEND", "fake")
     return home
+
+
+@pytest.fixture(autouse=True)
+def _simple_vad(request, monkeypatch):
+    """区間の切り出しを、Silero VAD の代わりに音の大きさで判定する（テストの音は一定の音のため）
+
+    録音のテストは「1 秒の音と 1 秒の無音」のような短い音なので、短い区間をつなげず、
+    前後の余白も足さない（区間の時刻を音量で切り出したときと同じに保つ）。
+    VadSegmenter そのもののテストでは差し替えない。
+    """
+    monkeypatch.setattr("remote_whisper.vad_segmenter.SileroVad", LoudIsSpeech)
+    if request.module.__name__ == "test_vad_segmenter":
+        return
+    for name in ("MIN_SEGMENT_SEC", "PAD_BEFORE_SEC", "PAD_AFTER_SEC"):
+        monkeypatch.setattr(f"remote_whisper.vad_segmenter.{name}", 0.0)
+
+
+class LoudIsSpeech:
+    """偽の VAD: 持ち上げた後の音が -30 dBFS より大きければ話している"""
+
+    def __call__(self, windows: np.ndarray) -> np.ndarray:
+        rms = np.sqrt(np.mean(windows[:, CONTEXT:] ** 2, axis=1))
+        return (rms > 10 ** (-30 / 20)).astype(np.float32)
 
 
 @pytest.fixture(autouse=True)

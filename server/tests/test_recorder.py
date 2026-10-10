@@ -260,18 +260,25 @@ def test_transcribes_while_recording(client, project):
             ws.send_bytes(chunk(seq, value=3000 if seq < 2 else 0))
             receive_until(ws, of_type("ack", seq=seq))
         final = receive_until(ws, of_type("final"))[-1]
-        assert (final["segment"], final["start"], final["end"]) == (0, 0.0, 1.0)
+        # 区間は 32ms（VAD の 1 窓）単位で切れる
+        assert (final["segment"], final["start"]) == (0, 0.0)
+        assert final["end"] == pytest.approx(1.0, abs=0.04)
         assert final["text"] == "fake 1.0s"
         # 話している途中で止めたら、そこまでを final にする
         ws.send_bytes(chunk(4, value=3000))
         receive_until(ws, of_type("ack", seq=4))
         ws.send_json({"type": "stop"})
         final = receive_until(ws, of_type("final"))[-1]
-        assert (final["segment"], final["start"], final["end"]) == (1, 2.0, 2.5)
+        assert final["segment"] == 1
+        assert (final["start"], final["end"]) == (
+            pytest.approx(2.0, abs=0.04),
+            pytest.approx(2.5, abs=0.04),
+        )
 
     assert client.app.state.ctx.hub.status.whisper == "ready"
     _, body = read_doc(d / f"transcript-{sid}.md", TranscriptMeta)
-    assert body.splitlines()[-2:] == ["[00:00:00] fake 1.0s", "[00:00:02] fake 0.5s"]
+    # 2 つ目の区間は 2.0 秒をまたぐ窓（1.984 秒〜）から始まる
+    assert body.splitlines()[-2:] == ["[00:00:00] fake 1.0s", "[00:00:01] fake 0.5s"]
 
 
 def audio_seconds(path):

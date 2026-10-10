@@ -40,7 +40,8 @@ class WhisperSettings(_Model):
     silence_ms: int = Field(600, gt=0)
     max_segment_sec: float = Field(25, gt=0)
     unload_after_min: float = Field(10, ge=0)
-    # 話しているとみなす音量。auto は周りの音量に合わせて変える。manual は speech_dbfs を使う（#82）
+    # 話しているかの判定。auto は音の大きさをそろえてから Silero VAD で判定する（#88）。
+    # manual は speech_dbfs より大きい音を話し声とみなす（#82）
     speech_threshold: Literal["auto", "manual"] = "auto"
     speech_dbfs: float = Field(-40, ge=-70, le=-10)
 

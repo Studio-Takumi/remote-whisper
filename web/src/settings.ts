@@ -9,7 +9,7 @@ export type Settings = {
         silenceMs: number;
         maxSegmentSec: number;
         unloadAfterMin: number;
-        // 話しているとみなす音量。auto は周りの音量に合わせて変える。manual は speechDbfs を使う
+        // 話しているかの判定。auto は音の大きさをそろえてから VAD で判定する。manual は speechDbfs より大きい音を話し声とみなす
         speechThreshold: 'auto' | 'manual';
         speechDbfs: number;
     };
