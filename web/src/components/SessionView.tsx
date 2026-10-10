@@ -172,21 +172,44 @@ function SummaryPanel({
     // 手で選んだ世代。セッションを替えたときと、要約が増えた（作り直した）ときは既定に戻す
     const [picked, setPicked] = useState<{ sessionId: string; count: number; generationId: string } | null>(null);
 
-    if (generating?.sessionId === session.id) {
-        return (
-            <>
-                <StatusIndicator status={{ tone: 'active', text: `${generating.model} で要約を作成中…` }} />
-                <Markdown streaming>{generating.text}</Markdown>
-            </>
-        );
-    }
-
     const fallback: Summary | undefined =
         session.summaries.findLast((s) => s.model === finalModel) ?? session.summaries.at(-1);
     const summary =
         picked?.sessionId === session.id && picked.count === session.summaries.length
             ? (session.summaries.find((s) => s.generationId === picked.generationId) ?? fallback)
             : fallback;
+
+    if (generating?.sessionId === session.id) {
+        const status = <StatusIndicator status={{ tone: 'active', text: `${generating.model} で要約を作成中…` }} />;
+        if (generating.text.trim()) {
+            return (
+                <>
+                    {status}
+                    <Markdown streaming>{generating.text}</Markdown>
+                </>
+            );
+        }
+        // 本文が届き始めるまで（モデルの読み込み・思考・長い録音の部分ごとの要約の間）は、空にせず
+        // 作り直しなら今表示している要約を、録音を終えた直後なら途中の要約を出しておく（#80）
+        // 途中の要約は最終の要約ができた後も手元に残ることがあるので、最終の要約を先に見る
+        const live = liveDraft?.sessionId === session.id ? liveDraft.text : session.liveSummary;
+        const placeholder = summary?.text
+            ? { label: '今の要約（作り直した要約が届いたら差し替えます）', text: summary.text }
+            : live
+              ? { label: '途中の要約（最終の要約が届いたら差し替えます）', text: live }
+              : null;
+        return (
+            <>
+                {status}
+                {placeholder && (
+                    <>
+                        <p className='text-xs text-muted-foreground'>{placeholder.label}</p>
+                        <Markdown>{placeholder.text}</Markdown>
+                    </>
+                )}
+            </>
+        );
+    }
     // 作り直せるのは、録音を終えていて文字起こしが残っているセッション
     // ほかのセッションの要約を作っている間は押せない（作成中の表示は1つだけ持つので、二重に頼まないように）
     const canRegenerate =
