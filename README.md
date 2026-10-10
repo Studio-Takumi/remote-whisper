@@ -73,8 +73,10 @@ uv sync
 
 ```bash
 uv run remote-whisper              # http://127.0.0.1:8000
-uv run remote-whisper --host 0.0.0.0 --port 8000
+uv run remote-whisper --host 0.0.0.0 --port 8000   # LAN からも見える（認証がないので注意）
 ```
+
+ほかの端末から使うときは、`--host 0.0.0.0` にするより、後の「別の端末から使う（HTTPS）」の手順をおすすめします（マイクは HTTPS でないと使えないため）。
 
 - `GET /api/health` が `{"status":"ok"}` を返せば起動しています。
 - データ（設定・録音・文字起こし・要約）は `~/.remote-whisper/` に置きます。環境変数 `REMOTE_WHISPER_HOME` で場所を変えられます（システムドライブの空きが少ないときは、別のドライブを指定してください）。全体設定は `setting.json` で、初回の起動時に既定値で作られます。
@@ -147,7 +149,7 @@ cd web && npx playwright install chromium && npm run screenshots       # ター�
 
 ブラウザの `getUserMedia`（マイク）は、安全なコンテキスト（HTTPS か `localhost`）でしか動きません。GPU マシン以外の端末（ノートPC・スマホ）から録音するには、画面を HTTPS で開く必要があります。画面を HTTPS で開けば、WebSocket も自動で `wss://` になります。
 
-ここでは [Tailscale](https://tailscale.com/) の `tailscale serve` を使う手順を書きます。証明書の取得と HTTPS 化を Tailscale がやってくれ、自分の Tailscale のネットワーク（tailnet）の端末からしか見えないので、一番手軽です。
+ここでは [Tailscale](https://tailscale.com/) の `tailscale serve` を使う手順を書きます。証明書の取得と HTTPS 化を Tailscale がやってくれ、自分の Tailscale のネットワーク（tailnet）の端末からしか見えないので、一番手軽です（ほかのユーザーを tailnet に招待したり、マシンを共有したりしていなければ、自分の端末だけです）。
 
 ### 1. 画面をビルドして、サーバーから配信する
 
@@ -160,19 +162,19 @@ cd ../server
 uv run remote-whisper  # http://127.0.0.1:8000 で画面と API を配信する
 ```
 
-`web/dist` があれば、サーバーが画面も配信します。GPU マシンのブラウザで `http://localhost:8000` を開いて、画面が出ることを確かめてください。サーバーは `127.0.0.1` のまま（`--host 0.0.0.0` にしない）で構いません。外からは次の `tailscale serve` を通して入ります。
+`web/dist` があれば、サーバーが画面も配信します（起動したときに読み込むので、起動した後にビルドしたらサーバーを起動し直してください）。GPU マシンのブラウザで `http://localhost:8000` を開いて、画面が出ることを確かめてください。サーバーは `127.0.0.1` のまま（`--host 0.0.0.0` にしない）で構いません。外からは次の `tailscale serve` を通して入ります。
 
 ### 2. `tailscale serve` で HTTPS にする
 
 1. GPU マシンと、録音に使う端末の両方に Tailscale を入れて、同じ tailnet にログインします。
-2. Tailscale の管理画面（DNS の設定）で、**MagicDNS** と **HTTPS Certificates** を有効にします。
+2. Tailscale の管理画面（DNS の設定）で、**MagicDNS** と **HTTPS Certificates** を有効にします。HTTPS の証明書を取ると、マシン名と tailnet 名が証明書の公開ログ（Certificate Transparency）に載ります。見られて困る名前なら、先にマシン名を変えておいてください。
 3. GPU マシンで次を実行します。
 
    ```bash
    tailscale serve --bg 8000
    ```
 
-   `https://<マシン名>.<tailnet 名>.ts.net/` へのアクセスを、`http://127.0.0.1:8000` に転送するようになります（WebSocket も通ります）。表示される URL を控えてください。例: `https://gpu-box.example-tailnet.ts.net/`
+   `https://<マシン名>.<tailnet 名>.ts.net/` へのアクセスを、`http://127.0.0.1:8000` に転送するようになります（WebSocket も通ります）。表示される URL を控えてください。例: `https://gpu-box.example-tailnet.ts.net/`。Serve や HTTPS をまだ有効にしていなければ、有効にするための URL が表示されるので、開いて許可してから実行し直します。`--bg` で始めた転送は、止めるまで（マシンを再起動しても）続きます。
 4. 録音に使う端末のブラウザでその URL を開き、マイクの使用を許可します。
 
 - 今の転送の設定は `tailscale serve status` で見られます。止めるときは `tailscale serve --https=443 off`（または `tailscale serve reset`）。
