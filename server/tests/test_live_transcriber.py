@@ -125,6 +125,43 @@ def test_skips_segments_while_whisper_is_unavailable():
     assert [(m["segment"], m["text"]) for m in h.of_type("final")] == [(1, "1秒")]
 
 
+def test_drops_hallucinations_from_final_and_partial_and_logs_them(caplog):
+    hallucination = {
+        "start": 0.0,
+        "end": 1.0,
+        "text": "ご視聴ありがとうございました",
+        "no_speech_prob": 0.0,
+        "avg_logprob": -0.8,
+        "compression_ratio": 0.9,
+    }
+
+    async def main():
+        h = Harness()
+
+        async def transcribe(pcm, **options):
+            await asyncio.sleep(0.01)
+            return [hallucination, {"start": 1.0, "end": 2.0, "text": "本当の発言"}]
+
+        h.whisper.transcribe = transcribe
+        for _ in range(3):
+            h.live.feed(tone(0.5))
+            await asyncio.sleep(0.15)
+        h.live.feed(silence(0.5))
+        await h.close()
+        return h
+
+    with caplog.at_level("INFO", logger="remote_whisper.live_transcriber"):
+        h = run(main())
+    assert [m["text"] for m in h.of_type("final")] == ["本当の発言"]
+    assert h.appended == [(0.0, "本当の発言")]
+    partials = h.of_type("partial")
+    assert partials
+    assert all("ご視聴" not in p["committed"] + p["tentative"] for p in partials)
+    dropped = [r.getMessage() for r in caplog.records if "hallucination" in r.getMessage()]
+    assert any("final of segment 0" in m and "phrase" in m for m in dropped)
+    assert any("partial of segment 0" in m for m in dropped)
+
+
 def test_append_failure_is_reported_but_final_is_sent():
     async def main():
         h = Harness(partial_interval_sec=10)

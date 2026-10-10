@@ -17,6 +17,7 @@ from typing import Any
 
 from remote_whisper.documents import hotwords_name, parse
 from remote_whisper.gpu_queue import GpuQueue, Priority
+from remote_whisper.hallucination import drop_reason
 from remote_whisper.segmenter import LocalAgreement, Segment, Segmenter
 from remote_whisper.settings import WhisperSettings
 from remote_whisper.whisper_worker import WhisperUnavailable, WhisperWorker
@@ -105,7 +106,7 @@ class LiveTranscriber:
         except WhisperUnavailable as e:
             log.warning("final of segment %d skipped: %s", segment.index, e)
             return
-        text = _join(result)
+        text = _join(_drop_hallucinations(result, segment, "final"))
         if not text:
             return
         try:
@@ -160,7 +161,9 @@ class LiveTranscriber:
             return
         if self.segmenter.index != segment.index:
             return
-        committed, tentative = self.agreement.update(_join(result))
+        committed, tentative = self.agreement.update(
+            _join(_drop_hallucinations(result, segment, "partial"))
+        )
         await self.send(
             {
                 "type": "partial",
@@ -169,6 +172,29 @@ class LiveTranscriber:
                 "tentative": tentative,
             }
         )
+
+
+def _drop_hallucinations(result: list[dict], segment: Segment, kind: str) -> list[dict]:
+    """話していないのに出てきた文を捨てる。捨てたものはログに残す（#81）"""
+    kept = []
+    for r in result:
+        reason = drop_reason(r)
+        if reason is None:
+            kept.append(r)
+            continue
+        log.info(
+            "dropped a likely hallucination in the %s of segment %d (%.1fs, %s, "
+            "no_speech_prob=%.2f avg_logprob=%.2f compression_ratio=%.2f): %r",
+            kind,
+            segment.index,
+            segment.start + r.get("start", 0.0),
+            reason,
+            r.get("no_speech_prob", 0.0),
+            r.get("avg_logprob", 0.0),
+            r.get("compression_ratio", 0.0),
+            r["text"],
+        )
+    return kept
 
 
 def _join(result: list[dict]) -> str:
