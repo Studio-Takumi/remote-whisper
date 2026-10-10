@@ -195,8 +195,8 @@ function SettingsForm({
                         </Row>
                         <Row
                             id='speech-threshold'
-                            label='話し声とみなす音量'
-                            description='自動は、周りの雑音の大きさに合わせて変える。うまく拾えないときは手動にする'
+                            label='話し声の判定'
+                            description='自動は、音の大きさをそろえてから声らしさで判定する（離れた小さい声も拾う）。うまくいかないときは手動にして、音量で判定する'
                         >
                             <Select
                                 value={draft.whisper.speechThreshold}
@@ -210,7 +210,7 @@ function SettingsForm({
                                 <SelectContent>
                                     <SelectGroup>
                                         <SelectItem value='auto'>自動</SelectItem>
-                                        <SelectItem value='manual'>手動</SelectItem>
+                                        <SelectItem value='manual'>手動（音量）</SelectItem>
                                     </SelectGroup>
                                 </SelectContent>
                             </Select>
