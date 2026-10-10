@@ -343,7 +343,7 @@ sequenceDiagram
 - partial は LocalAgreement で「確定部分」と「未確定部分」に分けて送る。UI は確定部分だけを文字送りの演出で表示し、未確定部分は薄い色で表示する想定。
 - 録音中は全体設定を変更できない。そのセッションで使った設定値は、フロントマターに記録する。
 - 録音は一時停止・再開できる。一時停止中もセッションは続いているので、設定のロックなどは録音中と同じ扱いにする。一時停止中は経過時間と途中の要約のタイマーを止め、再開したら続きから数える。
-  - 一時停止していた時間を録音ファイルと文字起こしの時刻に含めるか（**未決**）。
+  - 一時停止していた時間は、録音ファイルと文字起こしの時刻に含めない（録音ファイルは詰める）。一時停止中に届いた音声は保存しない（**仮**。実際に使ってから見直す）。
   - 一時停止中にブラウザとの接続が切れた場合も、60秒で `interrupted` にするか（6.7 節、**未決**）。
 
 ### 6.3 GPU ジョブの優先順位
@@ -456,7 +456,7 @@ GPU を使う処理は、1つのキューを通して順番に実行する。
 
 - `resume` を受け付けたら、`started`（`resumed: true`）と、受け取り済みの最後の連番の `ack` を返す。ブラウザはその次から送り直す。再開できるセッションがなければ `error`（`session_not_found`）。
 - 音声の連番は 0 から始める。抜けがあったチャンクは受け取らず、受け取り済みの最後の連番の `ack` を返す。受け取り済みの連番がもう一度届いたら、捨てて `ack` だけ返す。
-- `error` の `code`: `bad_message`（読めないメッセージ）、`not_recording`、`already_recording`（1つの接続で録音できるのは1つだけ）、`too_many_recordings`（`recording.maxConcurrent` を超えた）、`session_not_found`、`ollama_unavailable`、`not_available`（録音を受け付けられないサーバー）。
+- `error` の `code`: `bad_message`（読めないメッセージ）、`not_recording`、`already_recording`（1つの接続で録音できるのは1つだけ）、`too_many_recordings`（`recording.maxConcurrent` を超えた）、`session_not_found`、`project_not_found`（`start` のプロジェクトが登録されていない）、`write_failed`（ディスクが一杯などで音声を保存できない。そのチャンクは受け取らずに、受け取り済みの最後の連番の `ack` を返す）、`ollama_unavailable`、`not_available`（録音を受け付けられないサーバー）。
 - サーバーとの接続（再接続中かどうか）とマイクの許可は、`status` には含めず、ブラウザ側で判定して表示する。
 - `recordings` と `queue` は、今のところ UI には出さない。
 

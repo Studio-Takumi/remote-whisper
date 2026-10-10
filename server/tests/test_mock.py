@@ -320,9 +320,5 @@ def test_options(mock_client, client):
     assert body["ollama"]["models"] == []
 
 
-def test_without_mock_recording_is_not_available(client):
+def test_without_mock_there_is_no_mock_api(client):
     assert client.post("/api/mock/status", json={}).status_code in (404, 405)
-    with client.websocket_connect("/ws") as ws:
-        ws.receive_json()
-        ws.send_json({"type": "start", "project": "x"})
-        assert receive_until(ws, of_type("error"))[-1]["code"] == "not_available"

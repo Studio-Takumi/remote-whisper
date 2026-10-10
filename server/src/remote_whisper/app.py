@@ -1,6 +1,7 @@
 """FastAPI のアプリ"""
 
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -9,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from remote_whisper.context import AppContext
 from remote_whisper.mock import MockRecorder, MockTiming
 from remote_whisper.projects import ProjectStore
+from remote_whisper.recorder import RecordingManager
 from remote_whisper.routes import fs as fs_routes
 from remote_whisper.routes import mock as mock_routes
 from remote_whisper.routes import options as options_routes
@@ -36,17 +38,27 @@ def create_app(
     mock が True なら、Whisper と Ollama の代わりにダミーを使う（GPU なしでフロントを開発するため）
     """
     home = home or default_home()
-    app = FastAPI(title="remote-whisper")
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        yield
+        # 止めるときは、録音中の WAV を閉じる
+        if isinstance(ctx.recorder, RecordingManager):
+            await ctx.recorder.close()
+
+    app = FastAPI(title="remote-whisper", lifespan=lifespan)
     ctx = AppContext(
         home=home, settings=SettingsStore(home), projects=ProjectStore(home), mock=mock
     )
     app.state.ctx = ctx
+
+    def on_count(n: int) -> None:
+        ctx.recordings = n
+
     if mock:
-
-        def on_count(n: int) -> None:
-            ctx.recordings = n
-
         ctx.recorder = MockRecorder(ctx.hub, mock_timing, on_count, ctx.projects, ctx.settings)
+    else:
+        ctx.recorder = RecordingManager(ctx.hub, ctx.projects, ctx.settings, on_count)
 
     @app.get("/api/health")
     def health() -> dict:
