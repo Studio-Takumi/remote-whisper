@@ -199,6 +199,108 @@ def test_set_made_while_recording_is_used_from_the_next_segment(client, project,
         receive_until(ws, of_type("status", recordings=0))
 
 
+class HeldGenerator:
+    """release() されるまで返さない（作っている途中の状態を作るため）"""
+
+    def __init__(self, fail=False):
+        self.event = None
+        self.fail = fail
+
+    def describe(self):
+        return "m", True
+
+    async def generate(self, materials):
+        import asyncio
+
+        self.event = self.event or asyncio.Event()
+        await self.event.wait()
+        if self.fail:
+            raise RuntimeError("想定外の失敗")
+        return ["リリース計画", "負荷試験"], "背景"
+
+
+def release(client, generator):
+    async def go():
+        import asyncio
+
+        while generator.event is None:
+            await asyncio.sleep(0.01)
+        generator.event.set()
+
+    client.portal.call(go)
+
+
+def test_generating_set_is_reused_and_applied_to_the_recording(client, project, root):
+    pid, _ = project
+    ctx = client.app.state.ctx
+    generator = HeldGenerator()
+    ctx.context_sets.generator = generator
+    url = f"/api/projects/{pid}/context-sets"
+    first = client.post(url, json={"materials": materials(root)}).json()
+    # 作っている途中に同じ資料で頼むと、同じセットを返す
+    again = client.post(url, json={"materials": materials(root)}).json()
+    assert (again["id"], again["reused"], again["status"]) == (first["id"], True, "generating")
+    # 作っている途中のセットも選べる。そのセットを使って録音を始める
+    sel = client.patch(f"/api/projects/{pid}/selection", json={"contextSet": first["id"]})
+    assert sel.status_code == 200
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        sid = start(ws, pid)
+        session = ctx.recorder.sessions[sid]
+        assert session.transcriber.hotwords is None
+        release(client, generator)
+        receive_until(ws, lambda m: m["type"] == "contextSet" and m["status"] == "ready")
+        # できた時点から使う（app の配線を通して）
+        assert session.transcriber.hotwords == "リリース計画、負荷試験"
+        assert session.summarizer.context == "背景"
+        ws.send_json({"type": "stop"})
+        receive_until(ws, of_type("status", recordings=0))
+
+
+def test_unexpected_failure_marks_the_set_failed(client, project, root):
+    pid, _ = project
+    ctx = client.app.state.ctx
+    generator = HeldGenerator(fail=True)
+    ctx.context_sets.generator = generator
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        body = client.post(
+            f"/api/projects/{pid}/context-sets", json={"materials": materials(root)}
+        ).json()
+        release(client, generator)
+        event = receive_until(
+            ws, lambda m: m["type"] == "contextSet" and m["status"] != "generating"
+        )
+    assert (event[-1]["id"], event[-1]["status"]) == (body["id"], "failed")
+    # 失敗したセットは選べない
+    res = client.patch(f"/api/projects/{pid}/selection", json={"contextSet": body["id"]})
+    assert res.status_code == 400
+
+
+def test_unfinished_sets_are_failed_on_startup(home, root):
+    app = create_app(home)
+    with TestClient(app) as client:
+        client.patch("/api/settings", json={"materials": {"roots": [str(root)]}})
+        pid = client.post("/api/projects", json={"path": str(root / "meetings")}).json()["id"]
+
+        def leftover(project):
+            project.context_sets = [
+                ContextSetEntry(
+                    id="20261010-090000", status="generating", materials=materials(root)
+                )
+            ]
+
+        app.state.ctx.projects.update(pid, leftover)
+    # 作っている途中でサーバーが止まった → 次の起動で failed にして、同じ資料で作り直せる
+    with TestClient(create_app(home)) as client:
+        sets = client.get(f"/api/projects/{pid}/context-sets").json()
+        assert sets[0]["status"] == "failed"
+        body = client.post(
+            f"/api/projects/{pid}/context-sets", json={"materials": materials(root)}
+        ).json()
+        assert body["reused"] is False
+
+
 def test_mock_server_makes_context_sets(home, root):
     app = create_app(home, mock=True, mock_timing=MockTiming(context_set=0.05))
     with TestClient(app) as client:

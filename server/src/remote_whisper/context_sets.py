@@ -15,7 +15,7 @@ import hashlib
 import logging
 import re
 from collections.abc import Awaitable, Callable
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -130,7 +130,10 @@ def join_materials(texts: list[tuple[str, str]], limit: int = MATERIALS_CHARS) -
     total = sum(len(t) for _, t in texts) or 1
     parts = []
     for name, text in texts:
-        share = max(200, limit * len(text) // total) if total > limit else len(text)
+        # 短い資料が按分で消えないように最低限は残す
+        # （資料が多いときは、合計が limit を超えないように減らす）
+        floor = min(200, limit // len(texts))
+        share = max(floor, limit * len(text) // total) if total > limit else len(text)
         body = text[:share] + ("\n（以下省略）" if len(text) > share else "")
         parts.append(f"### {name}\n{body}")
     return "\n\n".join(parts)
@@ -153,6 +156,26 @@ class ContextSetService:
         self.generator = generator
         # セットができたとき（録音中のセッションに使わせる）
         self.on_ready = on_ready
+        # このサーバーで作っている途中のセット → 資料のハッシュ（使い回すか比べるため）
+        self._pending: dict[str, list[str]] = {}
+
+    def recover(self) -> None:
+        """起動したとき。前に動いていたサーバーで作っている途中だったセットは、もう作られないので
+        failed に直す（同じ資料で作り直せるように）"""
+        for pid, project in self.projects.all():
+            if not any(s.status == "generating" for s in project.context_sets):
+                continue
+
+            def fail(project: ProjectFile) -> None:
+                for entry in project.context_sets:
+                    if entry.status == "generating":
+                        entry.status = "failed"
+
+            try:
+                self.projects.update(pid, fail)
+                log.info("marked unfinished context sets of %s as failed", pid)
+            except (OSError, ProjectError):
+                log.exception("failed to recover the context sets of %s", pid)
 
     def entries(self, pid: str) -> list[dict[str, Any]]:
         project = self._load(pid)
@@ -193,19 +216,26 @@ class ContextSetService:
             raise ContextSetError(404, f"資料を読み込めません: {e}") from e
         refs = [MaterialRef(path=str(p), sha1=h) for p, h in zip(paths, hashes, strict=True)]
         project_dir = self.projects.dir(pid)
+        want = sorted(r.sha1 for r in refs)
         reused: ContextSetEntry | None = None
         created: ContextSetEntry | None = None
+        started = now()
 
         def add(project: ProjectFile) -> None:
-            nonlocal reused, created
+            nonlocal reused, created, started
             for entry in project.context_sets:
-                if entry.status == "failed":
-                    continue
-                if _same_materials(project_dir, entry, refs):
+                if entry.status == "generating":
+                    # 作っている途中のものは、このサーバーで作っているものだけを
+                    # 内容のハッシュで比べる
+                    same = self._pending.get(entry.id) == want
+                elif entry.status == "ready":
+                    same = _ready_hashes(project_dir, entry.id) == want
+                else:
+                    same = False
+                if same:
                     reused = entry
                     return
             ids = {s.id for s in project.context_sets}
-            started = now()
             sid = make_id(started)
             # 同じ秒に2つ作ったときは、1秒ずつずらす
             while sid in ids:
@@ -213,6 +243,7 @@ class ContextSetService:
                 sid = make_id(started)
             created = ContextSetEntry(id=sid, status="generating", materials=[r.path for r in refs])
             project.context_sets = sorted([*project.context_sets, created], key=lambda s: s.id)
+            self._pending[sid] = want
 
         self.projects.update(pid, add)
         if reused is not None:
@@ -220,7 +251,9 @@ class ContextSetService:
         assert created is not None
         entry = created
         await self._send(pid, entry.id, "generating")
-        job = self.gpu.submit(Priority.BACKGROUND, lambda: self._build(pid, entry.id, refs))
+        job = self.gpu.submit(
+            Priority.BACKGROUND, lambda: self._build(pid, entry.id, refs, started)
+        )
         job.add_done_callback(_log_failure)
         return {**entry.model_dump(by_alias=True), "reused": False}
 
@@ -241,49 +274,60 @@ class ContextSetService:
             log.exception("failed to update the context set %s", set_id)
         await self._send(pid, set_id, status)
 
-    async def _build(self, pid: str, set_id: str, refs: list[MaterialRef]) -> None:
+    async def _build(
+        self, pid: str, set_id: str, refs: list[MaterialRef], started: datetime
+    ) -> None:
         try:
-            texts = await asyncio.to_thread(
-                lambda: [(Path(r.path).name, extract_text(Path(r.path))) for r in refs]
-            )
-            if not any(t.strip() for _, t in texts):
-                raise ExtractError("資料から文字を取り出せませんでした")
-            words, context = await self.generator.generate(join_materials(texts))
-            words = limit_hotwords(words)
-            if not words and not context:
-                raise OllamaUnavailable("用語リストもコンテキストも空でした")
-            model, think = self.generator.describe()
-            project = self._load(pid)
-            meta = ContextSetMeta(
-                id=set_id,
-                project=project.path,
-                created_at=iso(now()),
-                model=model,
-                think=think,
-                materials=refs,
-            )
-            project_dir = self.projects.dir(pid)
-            write_doc(project_dir / hotwords_name(set_id), meta, "\n".join(words) + "\n")
-            write_doc(project_dir / context_name(set_id), meta, context + "\n")
-        except (ExtractError, OllamaUnavailable, OSError, ContextSetError) as e:
+            await self._make(pid, set_id, refs, started)
+        except asyncio.CancelledError:
+            # サーバーを止めた。generating のまま残り、次の起動で failed に直す（recover）
+            raise
+        except Exception as e:  # noqa: BLE001 何が起きても generating のまま残さない
             log.warning("context set %s failed: %s", set_id, e)
             await self._set_status(pid, set_id, "failed")
             return
+        finally:
+            self._pending.pop(set_id, None)
         await self._set_status(pid, set_id, "ready")
         if self.on_ready is not None:
             await self.on_ready(pid, set_id)
 
+    async def _make(
+        self, pid: str, set_id: str, refs: list[MaterialRef], started: datetime
+    ) -> None:
+        """資料からテキストを取り出し、用語リストとコンテキストを作って保存する"""
+        texts = await asyncio.to_thread(
+            lambda: [(Path(r.path).name, extract_text(Path(r.path))) for r in refs]
+        )
+        if not any(t.strip() for _, t in texts):
+            raise ExtractError("資料から文字を取り出せませんでした")
+        words, context = await self.generator.generate(join_materials(texts))
+        words = limit_hotwords(words)
+        if not words and not context:
+            raise OllamaUnavailable("用語リストもコンテキストも空でした")
+        model, think = self.generator.describe()
+        project = self._load(pid)
+        meta = ContextSetMeta(
+            id=set_id,
+            project=project.path,
+            # 作成日時は作り始めた時刻（ID と同じ。保存期間はここから数える: spec 6.8）
+            created_at=iso(started),
+            model=model,
+            think=think,
+            materials=refs,
+        )
+        project_dir = self.projects.dir(pid)
+        write_doc(project_dir / hotwords_name(set_id), meta, "\n".join(words) + "\n")
+        write_doc(project_dir / context_name(set_id), meta, context + "\n")
 
-def _same_materials(project_dir: Path, entry: ContextSetEntry, refs: list[MaterialRef]) -> bool:
-    """同じ資料の組み合わせか。できているセットはファイルのハッシュで、作っている途中はパスで比べる"""
-    want = sorted(r.sha1 for r in refs)
-    if entry.status == "generating":
-        return sorted(entry.materials) == sorted(r.path for r in refs)
+
+def _ready_hashes(project_dir: Path, set_id: str) -> list[str] | None:
+    """できているセットの資料のハッシュ（用語リストのフロントマターから）"""
     try:
-        meta, _ = read_doc(project_dir / hotwords_name(entry.id), ContextSetMeta)
+        meta, _ = read_doc(project_dir / hotwords_name(set_id), ContextSetMeta)
     except (OSError, ValueError):
-        return False
-    return sorted(m.sha1 for m in meta.materials) == want
+        return None
+    return sorted(m.sha1 for m in meta.materials)
 
 
 def _log_failure(future: asyncio.Future) -> None:

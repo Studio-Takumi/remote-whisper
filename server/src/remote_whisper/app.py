@@ -57,6 +57,9 @@ def create_app(
         if ctx.ollama is not None:
             # Ollama につながるかを見張る（status の ollama）
             ctx.ollama.start_monitor()
+        if ctx.context_sets is not None:
+            # 前に動いていたときに作っている途中だった参考資料セットを failed に直す
+            ctx.context_sets.recover()
         yield
         # 止めるときは、録音中の WAV を閉じて録音を終えたあとの処理を止め、GPU のジョブキューを止め
         # （待っているジョブは cancel）、Whisper を下ろす。録音の側を先に止めるのは、止めたキューに
