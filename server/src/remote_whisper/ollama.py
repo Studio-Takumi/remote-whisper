@@ -28,6 +28,15 @@ class OllamaUnavailable(Exception):
     """Ollama につながらない・エラーを返した"""
 
 
+def ollama_error(what: str) -> dict[str, Any]:
+    """要約などを作れなかったことをブラウザに伝えるメッセージ"""
+    return {
+        "type": "error",
+        "code": "ollama_unavailable",
+        "message": f"Ollama に接続できないため、{what}を作れませんでした",
+    }
+
+
 class OllamaClient:
     def __init__(
         self,

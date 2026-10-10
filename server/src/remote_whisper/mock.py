@@ -12,6 +12,7 @@ from typing import Any
 from fastapi import WebSocket
 
 from remote_whisper.hub import Hub, send
+from remote_whisper.ollama import ollama_error
 from remote_whisper.projects import ProjectError, ProjectStore
 from remote_whisper.recording import RecordingError
 from remote_whisper.session_writer import SessionWriter
@@ -185,7 +186,7 @@ class MockSession:
                 continue
             done = len(self.finals)
             if self.recorder.hub.status.ollama != "ready":
-                await self.send(_ollama_error("途中の要約"))
+                await self.send(ollama_error("途中の要約"))
                 continue
             text = "## 途中の要約\n" + "".join(f"- {t}\n" for t in self.finals)
             await self._stream("live", text)
@@ -234,7 +235,7 @@ class MockSession:
 
     async def _final_summary(self) -> None:
         if self.recorder.hub.status.ollama != "ready":
-            await self.send(_ollama_error("最終の要約"))
+            await self.send(ollama_error("最終の要約"))
             return
         await self._stream("final", FINAL_SUMMARY)
         if self.writer:
@@ -286,14 +287,6 @@ MOCK_OLLAMA_MODELS = [
 
 def mock_thinking(model: str) -> bool:
     return any(m["name"] == model and m["thinking"] for m in MOCK_OLLAMA_MODELS)
-
-
-def _ollama_error(what: str) -> dict[str, Any]:
-    return {
-        "type": "error",
-        "code": "ollama_unavailable",
-        "message": f"Ollama に接続できないため、{what}を作れませんでした",
-    }
 
 
 class MockRecorder:

@@ -19,7 +19,9 @@ from fastapi import WebSocket
 from remote_whisper.audio_convert import convert_wav
 from remote_whisper.gpu_queue import GpuQueue, Priority
 from remote_whisper.hub import Hub, send
+from remote_whisper.live_summary import LiveSummarizer, load_context
 from remote_whisper.live_transcriber import LiveTranscriber, load_hotwords
+from remote_whisper.ollama import OllamaClient
 from remote_whisper.projects import ProjectError, ProjectStore
 from remote_whisper.recording import RecordingError
 from remote_whisper.session_writer import SessionWriter
@@ -75,6 +77,8 @@ class RecordingSession:
         self._expire: asyncio.Task | None = None
         # 録音中の文字起こし（Whisper がないサーバーではない）
         self.transcriber: LiveTranscriber | None = None
+        # 途中の要約（Ollama がないサーバーではない）
+        self.summarizer: LiveSummarizer | None = None
         self._finishing: asyncio.Task | None = None
 
     def start_transcribing(self, whisper: WhisperWorker, gpu: GpuQueue, settings: Settings) -> None:
@@ -83,8 +87,27 @@ class RecordingSession:
             load_hotwords(self.writer.files.dir, meta.context_set) if meta.use_hotwords else None
         )
         self.transcriber = LiveTranscriber(
-            whisper, gpu, settings.whisper, self.send, self.writer.append_final, hotwords
+            whisper, gpu, settings.whisper, self.send, self._append_final, hotwords
         )
+
+    def start_summarizing(
+        self, ollama: OllamaClient, gpu: GpuQueue, settings: SettingsStore
+    ) -> None:
+        meta = self.writer.meta
+        context = (
+            load_context(self.writer.files.dir, meta.context_set)
+            if self.writer.use_context
+            else None
+        )
+        self.summarizer = LiveSummarizer(
+            ollama, gpu, settings, self.writer, self.send, lambda: self.elapsed, context
+        )
+
+    def _append_final(self, start: float, text: str) -> None:
+        """確定した区間を文字起こしのファイルに足し、途中の要約の材料にする"""
+        self.writer.append_final(start, text)
+        if self.summarizer is not None:
+            self.summarizer.add_final(start, text)
 
     async def send(self, message: dict[str, Any]) -> None:
         if self.ws is not None:
@@ -167,6 +190,10 @@ class RecordingSession:
         self._finishing = asyncio.create_task(self._finish(status))
 
     async def _finish(self, status: str) -> None:
+        if self.summarizer is not None:
+            # 途中の要約のタイマーを止める。作っている途中のものは、キューの中でそのまま終わる
+            # （最終の要約は優先度が低いので、その後に動く）
+            await self.summarizer.close()
         if self.transcriber is not None:
             try:
                 await self.transcriber.wait()
@@ -223,6 +250,7 @@ class RecordingManager:
         resume_timeout: float = RESUME_TIMEOUT,
         whisper: WhisperWorker | None = None,
         gpu: GpuQueue | None = None,
+        ollama: OllamaClient | None = None,
     ):
         self.hub = hub
         self.projects = projects
@@ -230,6 +258,8 @@ class RecordingManager:
         # Whisper と GPU キューがあれば、録音中に文字起こしする（なければ音声の保存だけ）
         self.whisper = whisper
         self.gpu = gpu
+        # Ollama があれば、録音中に途中の要約を作る
+        self.ollama = ollama
         # 録音を終えたあとに GPU キューに積む、最終の要約（#27 で入れる）
         self.final_summary: Callable[[RecordingSession], Awaitable[None]] | None = None
         # 録音中のセッションの数が変わったときに呼ぶ（設定のロックに使う）
@@ -260,6 +290,8 @@ class RecordingManager:
         self.sessions[sid] = session
         await self._count_changed()
         await session.send({"type": "started"})
+        if self.ollama is not None and self.gpu is not None:
+            session.start_summarizing(self.ollama, self.gpu, self.settings)
         if self.whisper is not None and self.gpu is not None:
             session.start_transcribing(self.whisper, self.gpu, self.settings.get())
             # Whisper は録音を始めたときに読み込む（読み込み済みなら何もしない）。spec 6.2
@@ -300,6 +332,8 @@ class RecordingManager:
                 session.wav.close()
             if session.transcriber is not None:
                 await session.transcriber.close()
+            if session.summarizer is not None:
+                await session.summarizer.close()
         finishing = [
             s._finishing
             for s in self.sessions.values()

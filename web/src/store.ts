@@ -232,8 +232,12 @@ export const useAppStore = create<AppState>()((set, get) => {
                     void reloadAfterFinalSummary(m.session);
                 }
             } else if (m.type === 'error' && m.code === 'ollama_unavailable') {
-                // 最終の要約を作れなかった。作成中の表示を消す（失敗の表示と作り直しは #17）
-                set((s) => ({ generating: s.generating?.sessionId === m.session ? null : s.generating }));
+                // 要約を作れなかった。作成中の表示を消す（失敗の表示と作り直しは #17）。
+                // 途中の要約の下書きも捨てる（届きかけの分が、次の回の要約に混ざらないように）
+                set((s) => ({
+                    generating: s.generating?.sessionId === m.session ? null : s.generating,
+                    liveDraft: s.liveDraft?.sessionId === m.session ? null : s.liveDraft,
+                }));
             }
         });
         await connection.open();
