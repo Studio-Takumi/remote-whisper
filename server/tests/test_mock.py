@@ -284,6 +284,34 @@ def test_context_set_messages(mock_client):
         assert ws.receive_json() == {"type": "contextSet", "id": set_id, "status": "ready"}
 
 
+def test_recording_into_a_registered_project_is_saved(mock_client, tmp_path):
+    root = tmp_path / "work"
+    (root / "meetings").mkdir(parents=True)
+    mock_client.patch("/api/settings", json={"materials": {"roots": [str(root)]}})
+    pid = mock_client.post("/api/projects", json={"path": str(root / "meetings")}).json()["id"]
+    base = f"/api/projects/{pid}/sessions"
+
+    with mock_client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        sid = start(ws, project=pid)
+        # 録音中も一覧に出る（ほかの端末から見ても分かるように）
+        assert mock_client.get(base).json()[0]["status"] == "recording"
+        receive_until(ws, of_type("title", provisional=True))
+        assert mock_client.get(f"{base}/{sid}/summaries/latest").json()["kind"] == "live"
+        ws.send_json({"type": "stop"})
+        receive_until(ws, of_type("title", provisional=False))
+
+    session = mock_client.get(f"{base}/{sid}").json()
+    assert (session["status"], session["title"]) == ("done", FINAL_TITLE)
+    assert session["files"]["transcript"] and session["files"]["summaries"] == 1
+    lines = mock_client.get(f"{base}/{sid}/transcript").json()["lines"]
+    assert lines[0]["text"] == SCRIPT[0]
+    latest = mock_client.get(f"{base}/{sid}/summaries/latest").json()
+    assert latest["kind"] == "final"
+    assert latest["title"] == FINAL_TITLE
+    assert latest["text"].startswith("## 決まったこと")
+
+
 def test_options(mock_client, client):
     models = mock_client.get("/api/settings/options").json()["ollama"]["models"]
     assert {m["thinking"] for m in models} == {True, False}
@@ -292,9 +320,5 @@ def test_options(mock_client, client):
     assert body["ollama"]["models"] == []
 
 
-def test_without_mock_recording_is_not_available(client):
+def test_without_mock_there_is_no_mock_api(client):
     assert client.post("/api/mock/status", json={}).status_code in (404, 405)
-    with client.websocket_connect("/ws") as ws:
-        ws.receive_json()
-        ws.send_json({"type": "start", "project": "x"})
-        assert receive_until(ws, of_type("error"))[-1]["code"] == "not_available"

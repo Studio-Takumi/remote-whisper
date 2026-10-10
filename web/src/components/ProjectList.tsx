@@ -2,7 +2,7 @@ import { PlusIcon } from 'lucide-react';
 
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
-import type { Project } from '@/mock';
+import type { Project } from '@/types';
 
 // サイドバーのプロジェクト一覧。基本は全部開いておく。閉じることもできる
 export function ProjectList({
@@ -48,7 +48,14 @@ export function ProjectList({
                                         isActive={session.id === activeSession}
                                         onClick={() => onSelectSession(project.id, session.id)}
                                     >
-                                        <span>{session.title}</span>
+                                        <span className='truncate'>{session.title}</span>
+                                        {/* 録音中（ほかの端末のものも含む）のセッションには赤い点を付ける */}
+                                        {session.status === 'recording' && (
+                                            <span
+                                                className='ml-auto size-2 shrink-0 rounded-full bg-red-500'
+                                                aria-label='録音中'
+                                            />
+                                        )}
                                     </SidebarMenuButton>
                                 </SidebarMenuItem>
                             ))}

@@ -4,9 +4,9 @@ import { Markdown } from '@/components/Markdown';
 import { StatusIndicator } from '@/components/StatusIndicator';
 import { Transcript } from '@/components/Transcript';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import type { Generating, Session, Summary } from '@/mock';
 import { summaryStatus, transcriptStatus } from '@/status';
 import { currentProject, currentSession, useAppStore, visibleProjects } from '@/store';
+import type { Generating, Session, Summary } from '@/types';
 
 // メイン画面の中身。何も選んでいない・新しいセッション・既存のセッションの3つを出し分ける
 export function SessionView() {
@@ -20,6 +20,7 @@ export function SessionView() {
     const generating = useAppStore((s) => s.generating);
     const partial = useAppStore((s) => s.partial);
     const liveDraft = useAppStore((s) => s.liveDraft);
+    const recordingSessionId = useAppStore((s) => s.recordingSessionId);
 
     if (!project) {
         return <EmptyState hasProjects={hasProjects} />;
@@ -47,7 +48,8 @@ export function SessionView() {
                         </h1>
                         <p className='text-xs text-muted-foreground'>
                             {session.startedAt}
-                            {session.status === 'recording' && '・録音中'}
+                            {session.status === 'recording' &&
+                                (session.id === recordingSessionId ? '・録音中' : '・ほかの端末で録音中')}
                             {session.status === 'interrupted' && '・途中で中断'}
                         </p>
                     </div>
@@ -61,6 +63,12 @@ export function SessionView() {
                 )}
 
                 <TabsContent value='transcript' className='flex flex-col gap-2'>
+                    {session && !session.loaded && <p className='text-sm text-muted-foreground'>読み込んでいます…</p>}
+                    {session && expired(session, 'transcript') && (
+                        <p className='text-sm text-muted-foreground'>
+                            文字起こしは、保存期間を過ぎたため消えています（期限切れ）。
+                        </p>
+                    )}
                     {session && (
                         <Transcript
                             lines={session.transcript}
@@ -132,8 +140,15 @@ function SummaryPanel({
             );
         }
         // 録音中は下に途中の要約の状態が出るので、何も出さない
-        return session.status === 'recording' ? null : (
-            <p className='text-sm text-muted-foreground'>まだ要約がありません。</p>
+        if (session.status === 'recording' || !session.loaded) {
+            return null;
+        }
+        return (
+            <p className='text-sm text-muted-foreground'>
+                {expired(session, 'summary')
+                    ? '要約は、保存期間を過ぎたため消えています（期限切れ）。'
+                    : 'まだ要約がありません。'}
+            </p>
         );
     }
 
@@ -143,9 +158,22 @@ function SummaryPanel({
                 {summary.model} で生成・{summary.generatedAt}
                 {summary.model !== finalModel && `（${finalModel} の要約はまだありません）`}
             </p>
-            <Markdown>{summary.text}</Markdown>
+            <Markdown>{summary.text ?? ''}</Markdown>
         </>
     );
+}
+
+// 保存期間を過ぎて、ファイルが消えているか（spec 6.8）。サーバーから取ったセッションだけ判定できる
+// 要約は「まだ作っていない」と区別できないので、文字起こしも消えているときだけ期限切れとみなす
+function expired(session: Session, what: 'transcript' | 'summary') {
+    const files = session.files;
+    if (!files || !session.loaded || session.status === 'recording') {
+        return false;
+    }
+    if (what === 'transcript') {
+        return !files.transcript;
+    }
+    return !files.transcript && files.summaries === 0 && !files.liveSummary;
 }
 
 // 何も選んでいないとき

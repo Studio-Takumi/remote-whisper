@@ -37,6 +37,8 @@ export type ErrorCode =
     | 'already_recording'
     | 'too_many_recordings'
     | 'session_not_found'
+    | 'project_not_found'
+    | 'write_failed'
     | 'ollama_unavailable';
 
 // GET /api/settings/options
