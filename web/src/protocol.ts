@@ -39,7 +39,8 @@ export type ErrorCode =
     | 'session_not_found'
     | 'project_not_found'
     | 'write_failed'
-    | 'ollama_unavailable';
+    | 'ollama_unavailable'
+    | 'summary_skipped';
 
 // GET /api/settings/options
 export type SettingsOptions = {
