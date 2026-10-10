@@ -97,3 +97,81 @@ def test_changing_the_model_restarts_the_process(worker):
 
     pid, new_pid = run(main())
     assert pid != new_pid
+
+
+def test_crash_during_transcribe_reports_error(worker):
+    async def main():
+        await worker.ensure_loaded()
+        with pytest.raises(WhisperUnavailable):
+            await worker.transcribe(b"\0\0", crash=True)
+        state = worker.hub.status.whisper
+        # 次はまた使える
+        result = await worker.transcribe(b"\0\0" * 16000)
+        await worker.close()
+        return state, result
+
+    state, result = run(main())
+    assert state == "error"
+    assert result[0]["text"] == "fake 1.0s"
+
+
+def test_load_failure_reports_error(worker):
+    worker.settings.update({"whisper": {"model": "fail"}})
+
+    async def main():
+        with pytest.raises(WhisperUnavailable):
+            await worker.ensure_loaded()
+        alive = worker._process is not None
+        await worker.close()
+        return alive
+
+    assert run(main()) is False
+    assert worker.hub.whisper_states == ["loading", "error"]
+
+
+def test_transcribe_after_unload_reloads(worker):
+    async def main():
+        await worker.ensure_loaded()
+        await worker.unload()
+        result = await worker.transcribe(b"\0\0" * 8000)
+        await worker.close()
+        return result
+
+    assert run(main())[0]["text"] == "fake 0.5s"
+    assert worker.hub.whisper_states == ["loading", "ready", "unloaded", "loading", "ready"]
+
+
+def test_unload_does_not_interrupt_a_transcription(worker):
+    async def main():
+        await worker.ensure_loaded()
+        await worker.unload()
+        # 読み込み直してから文字起こしするまでの間に、解放が割り込まない
+        transcription = asyncio.create_task(worker.transcribe(b"\0\0" * 16000, sleep=0.2))
+        await asyncio.sleep(0)
+        unload = asyncio.create_task(worker.unload())
+        result = await transcription
+        await unload
+        await worker.close()
+        return result
+
+    assert run(main())[0]["text"] == "fake 1.0s"
+    assert "error" not in worker.hub.whisper_states
+
+
+def test_cancel_while_waiting_stops_the_child(worker):
+    async def main():
+        await worker.ensure_loaded()
+        task = asyncio.create_task(worker.transcribe(b"\0\0", sleep=1.0))
+        await asyncio.sleep(0.3)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        stopped = worker._process is None
+        # 取り違えずに、次の依頼に正しく答える
+        result = await worker.transcribe(b"\0\0" * 8000)
+        await worker.close()
+        return stopped, result
+
+    stopped, result = run(main())
+    assert stopped
+    assert result[0]["text"] == "fake 0.5s"

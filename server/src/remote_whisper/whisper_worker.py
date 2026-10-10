@@ -26,7 +26,11 @@ SAMPLE_RATE = 16000
 
 
 class WhisperUnavailable(Exception):
-    """Whisper を使えない（読み込めない・子プロセスが落ちた）"""
+    """Whisper を使えない（読み込めない・子プロセスが落ちた・文字起こしに失敗した）"""
+
+
+class _ChildDied(WhisperUnavailable):
+    """子プロセスとやりとりできない（落ちた・パイプが切れた）"""
 
 
 @dataclass(frozen=True)
@@ -52,6 +56,9 @@ def _add_cuda_dll_dirs() -> None:
 
 def _load(backend: str, spec: ModelSpec) -> Any:
     if backend == "fake":
+        # テスト用: モデル名が fail なら読み込みに失敗する
+        if spec.model == "fail":
+            raise RuntimeError("読み込みに失敗（テスト用）")
         time.sleep(0.05)
         return spec
     _add_cuda_dll_dirs()
@@ -62,7 +69,11 @@ def _load(backend: str, spec: ModelSpec) -> Any:
 
 def _transcribe(backend: str, model: Any, pcm: bytes, options: dict) -> list[dict]:
     if backend == "fake":
-        # テスト用: 音声の長さが分かるだけの文字を返す
+        # テスト用: 音声の長さが分かるだけの文字を返す。crash を渡すと、文字起こしの途中で落ちる
+        if options.get("crash"):
+            os._exit(3)
+        if options.get("sleep"):
+            time.sleep(options["sleep"])
         seconds = len(pcm) / 2 / SAMPLE_RATE
         return [{"start": 0.0, "end": round(seconds, 2), "text": f"fake {seconds:.1f}s"}]
     import numpy as np
@@ -116,6 +127,7 @@ class WhisperWorker:
         self._process: Any = None
         self._conn: Connection | None = None
         self._loaded: ModelSpec | None = None
+        # 子プロセスとのやりとり・読み込み・解放は、このロックの中で1つずつ行う
         self._lock = asyncio.Lock()
         self._last_used = time.monotonic()
         self._watchdog: asyncio.Task | None = None
@@ -142,59 +154,69 @@ class WhisperWorker:
         """子プロセスが落ちていないか、使わなくなってから unloadAfterMin 分たっていないかを見張る"""
         while True:
             await asyncio.sleep(interval)
-            if self._lock.locked():
-                continue
+            try:
+                await self._check()
+            except Exception:  # noqa: BLE001 見張りは止めない
+                log.exception("whisper watchdog failed")
+
+    async def _check(self) -> None:
+        if self._lock.locked():
+            return
+        async with self._lock:
             if self._loaded is not None and not self._alive():
                 log.error("whisper worker died")
                 await self._crashed()
-                continue
+                return
             idle_min = (time.monotonic() - self._last_used) / 60
             limit = self.settings.get().whisper.unload_after_min
             if self.ready and limit > 0 and idle_min >= limit:
                 log.info("unloading whisper after %.1f min idle", idle_min)
-                await self.unload()
+                await self._unload_locked()
 
     async def _crashed(self) -> None:
         self._loaded = None
-        self._close_process(kill=True)
+        await self._close_process(kill=True)
         await self._set_status("error")
 
     async def ensure_loaded(self) -> None:
         """モデルを読み込む。同じモデルを読み込み済みなら何もしない。だめなら WhisperUnavailable"""
         async with self._lock:
-            spec = self._spec()
-            if self.ready and self._loaded == spec:
-                return
-            # 違うモデルが読み込まれていたら、子プロセスごと作り直す（VRAM を確実に空けるため）
-            self._close_process()
-            await self._set_status("loading")
-            parent, child = self._mp.Pipe()
-            self._process = self._mp.Process(
-                target=_child_main, args=(child, self.backend), daemon=True
-            )
-            self._process.start()
-            child.close()
-            self._conn = parent
-            try:
-                await self._call(("load", spec))
-            except WhisperUnavailable:
-                self._loaded = None
-                self._close_process(kill=True)
-                await self._set_status("error")
-                raise
-            self._loaded = spec
-            self._last_used = time.monotonic()
-            await self._set_status("ready")
+            await self._ensure_loaded_locked()
+
+    async def _ensure_loaded_locked(self) -> None:
+        spec = self._spec()
+        if self.ready and self._loaded == spec:
+            return
+        # 違うモデルが読み込まれていたら、子プロセスごと作り直す（VRAM を確実に空けるため）
+        await self._close_process()
+        self._loaded = None
+        await self._set_status("loading")
+        parent, child = self._mp.Pipe()
+        self._process = self._mp.Process(
+            target=_child_main, args=(child, self.backend), daemon=True
+        )
+        self._process.start()
+        child.close()
+        self._conn = parent
+        try:
+            await self._call(("load", spec))
+        except WhisperUnavailable:
+            await self._crashed()
+            raise
+        self._loaded = spec
+        self._last_used = time.monotonic()
+        await self._set_status("ready")
 
     async def transcribe(self, pcm: bytes, **options: Any) -> list[dict]:
         """16kHz・モノラル・Int16 の PCM を文字起こしする。区間（start・end・text）の一覧を返す"""
-        await self.ensure_loaded()
+        # 読み込みと文字起こしを同じロックの中で行う（間に解放が割り込まないように）
         async with self._lock:
+            await self._ensure_loaded_locked()
             try:
                 result = await self._call(("transcribe", pcm, options))
-            except WhisperUnavailable:
-                if not self._alive():
-                    await self._crashed()
+            except _ChildDied:
+                # パイプが切れた直後は、まだ is_alive() が True のことがある。止めて作り直させる
+                await self._crashed()
                 raise
             self._last_used = time.monotonic()
             return result
@@ -202,11 +224,14 @@ class WhisperWorker:
     async def unload(self) -> None:
         """モデルを下ろして VRAM を空ける（子プロセスを終わらせる）"""
         async with self._lock:
-            if self._process is None:
-                return
-            self._close_process()
-            self._loaded = None
-            await self._set_status("unloaded")
+            await self._unload_locked()
+
+    async def _unload_locked(self) -> None:
+        if self._process is None:
+            return
+        await self._close_process()
+        self._loaded = None
+        await self._set_status("unloaded")
 
     async def close(self) -> None:
         if self._watchdog is not None:
@@ -214,7 +239,8 @@ class WhisperWorker:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._watchdog
             self._watchdog = None
-        self._close_process()
+        await self._close_process()
+        self._loaded = None
 
     def kill_for_test(self) -> None:
         """テスト用: 子プロセスを異常終了させる"""
@@ -222,38 +248,56 @@ class WhisperWorker:
             self._conn.send(("crash",))
 
     async def _call(self, message: tuple) -> Any:
-        """子プロセスに頼んで、返事を待つ。子プロセスが落ちたら WhisperUnavailable"""
+        """子プロセスに頼んで、返事を待つ。子プロセスが落ちたら WhisperUnavailable
+
+        待っている途中で cancel されたら、子プロセスを止めてから cancel を伝える。
+        裏のスレッドが同じパイプを使い続けて、次の依頼と返事を取り違えないようにするため。
+        """
         conn, process = self._conn, self._process
         if conn is None or process is None or not process.is_alive():
-            raise WhisperUnavailable("Whisper の子プロセスがありません")
+            raise _ChildDied("Whisper の子プロセスがありません")
 
         def call() -> Any:
             try:
                 conn.send(message)
                 while not conn.poll(0.2):
                     if not process.is_alive():
-                        raise WhisperUnavailable("Whisper の子プロセスが落ちました")
+                        raise _ChildDied("Whisper の子プロセスが落ちました")
                 return conn.recv()
             except (EOFError, OSError) as e:
-                raise WhisperUnavailable("Whisper の子プロセスとやりとりできません") from e
+                raise _ChildDied("Whisper の子プロセスとやりとりできません") from e
 
-        status, value = await asyncio.to_thread(call)
+        task = asyncio.ensure_future(asyncio.to_thread(call))
+        try:
+            status, value = await asyncio.shield(task)
+        except asyncio.CancelledError:
+            self._loaded = None
+            await self._close_process(kill=True)
+            with contextlib.suppress(BaseException):
+                await task
+            await self._set_status("unloaded")
+            raise
         if status == "error":
             raise WhisperUnavailable(value)
         return value
 
-    def _close_process(self, kill: bool = False) -> None:
+    async def _close_process(self, kill: bool = False) -> None:
+        """子プロセスを終わらせる。待つ（join）のはスレッドで行い、イベントループを止めない"""
         process, conn = self._process, self._conn
         self._process = None
         self._conn = None
         if process is None:
             return
-        if not kill and process.is_alive() and conn is not None:
-            with contextlib.suppress(Exception):
-                conn.send(("quit",))
-            process.join(5)
-        if process.is_alive():
-            process.kill()
-            process.join(5)
-        if conn is not None:
-            conn.close()
+
+        def close() -> None:
+            if not kill and process.is_alive() and conn is not None:
+                with contextlib.suppress(Exception):
+                    conn.send(("quit",))
+                process.join(5)
+            if process.is_alive():
+                process.kill()
+                process.join(5)
+            if conn is not None:
+                conn.close()
+
+        await asyncio.to_thread(close)
