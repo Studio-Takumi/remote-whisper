@@ -172,17 +172,39 @@ function SummaryPanel({
     // 手で選んだ世代。セッションを替えたときと、要約が増えた（作り直した）ときは既定に戻す
     const [picked, setPicked] = useState<{ sessionId: string; count: number; generationId: string } | null>(null);
 
+    const fallback: Summary | undefined =
+        session.summaries.findLast((s) => s.model === finalModel) ?? session.summaries.at(-1);
+
     if (generating?.sessionId === session.id) {
+        const status = <StatusIndicator status={{ tone: 'active', text: `${generating.model} で要約を作成中…` }} />;
+        if (generating.text.trim()) {
+            return (
+                <>
+                    {status}
+                    <Markdown streaming>{generating.text}</Markdown>
+                </>
+            );
+        }
+        // 本文が届き始めるまで（モデルの読み込み・思考・長い録音の部分ごとの要約の間）は、空にせず
+        // 途中の要約を出しておく。作り直しなら今の要約を出しておく（#80）
+        const live = liveDraft?.sessionId === session.id ? liveDraft.text : session.liveSummary;
+        const placeholder = live
+            ? { label: '途中の要約（最終の要約が届いたら差し替えます）', text: live }
+            : fallback?.text
+              ? { label: '今の要約（作り直した要約が届いたら差し替えます）', text: fallback.text }
+              : null;
         return (
             <>
-                <StatusIndicator status={{ tone: 'active', text: `${generating.model} で要約を作成中…` }} />
-                <Markdown streaming>{generating.text}</Markdown>
+                {status}
+                {placeholder && (
+                    <>
+                        <p className='text-xs text-muted-foreground'>{placeholder.label}</p>
+                        <Markdown>{placeholder.text}</Markdown>
+                    </>
+                )}
             </>
         );
     }
-
-    const fallback: Summary | undefined =
-        session.summaries.findLast((s) => s.model === finalModel) ?? session.summaries.at(-1);
     const summary =
         picked?.sessionId === session.id && picked.count === session.summaries.length
             ? (session.summaries.find((s) => s.generationId === picked.generationId) ?? fallback)
