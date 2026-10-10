@@ -681,7 +681,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                     m.session &&
                     (m.code === 'ollama_unavailable' || m.code === 'summary_skipped' || m.code === 'write_failed')
                 ) {
-                    // 要約を作れなかった（作らなかった）。作成中の表示を消す（失敗の表示は #17）。
+                    // 要約を作れなかった（作らなかった）。作成中の表示を消す。
                     // Ollama の失敗なら、途中の要約の下書きも捨てる（届きかけの分が、次の回の要約に混ざらないように。
                     // 音声の write_failed では捨てない）
                     set((s) => ({
@@ -691,6 +691,11 @@ export const useAppStore = create<AppState>()((set, get) => {
                                 ? null
                                 : s.liveDraft,
                     }));
+                    // 最終の要約の失敗はサーバーが記録している（spec 6.7）。手元で決めつけず、取り直して記録に合わせる
+                    // （録音を終えた直後の途中の要約や音声の失敗を、要約の失敗と取り違えないように）
+                    if (get().recordingSessionId !== m.session) {
+                        void get().loadProjects();
+                    }
                 }
                 // project のない contextSet（モックの /api/mock/context-set のまね）は、どのプロジェクトか分からないので無視する
                 if (m.type === 'contextSet' && m.project) {

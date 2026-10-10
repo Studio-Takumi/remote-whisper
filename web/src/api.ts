@@ -61,6 +61,8 @@ export type SessionJson = {
     startedAt: string;
     endedAt: string | null;
     contextSet: string | null;
+    // 最終の要約を作れなかった（spec 6.7）。作り直して作れたら false に戻る
+    summaryFailed?: boolean;
     files: SessionFiles;
 };
 
