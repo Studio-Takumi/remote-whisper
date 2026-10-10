@@ -13,14 +13,22 @@ log = logging.getLogger(__name__)
 
 TITLE_MAX = 15
 
+# 見出しは決め打ちしない。「決まったこと」「次にやること」は実際にあったときだけ（#79）
 SUMMARY_SYSTEM = (
-    "あなたは会議の記録係です。会議の文字起こしから、日本語の Markdown で簡潔な要約を作ります。"
-    "見出し（##）と箇条書きを使い、話題・決まったこと・宿題（あれば）を整理してください。"
-    "文字起こしにないことは書かないでください。要約だけを出力してください。"
+    "あなたは、録音した話の文字起こしを要約する係です。"
+    "話は会議・講義・打ち合わせ・雑談など、どんな種類でもかまいません。"
+    "日本語の Markdown で、見出し（##）と箇条書きを使って簡潔にまとめてください。\n"
+    "- 見出しは決まった項目に当てはめず、話の内容に合わせて付けてください。\n"
+    "- 「決まったこと」や「次にやること（担当・期限）」は、文字起こしの中で実際に決まったり、"
+    "頼まれたり約束されたりしたときだけ書いてください。"
+    "当てはまる内容がなければ、その見出しは作らないでください（「なし」「特になし」とも書かない）。\n"
+    "- 短い話や雑談でも、話した内容を必ずまとめてください。"
+    "「要約できません」とは書かないでください。\n"
+    "- 文字起こしにないことは書かないでください。要約だけを出力してください。"
 )
 
 TITLE_SYSTEM = (
-    "会議の要約を読んで、内容を表す短いタイトルを日本語で付けてください。"
+    "要約を読んで、内容を表す短いタイトルを日本語で付けてください。"
     f"{TITLE_MAX}文字以内にしてください。"
 )
 
@@ -34,7 +42,7 @@ TITLE_FORMAT: dict[str, Any] = {
 def _context_block(context: str | None) -> str:
     if not context:
         return ""
-    return f"## 参考情報（会議の背景。要約には書き写さない）\n{context.strip()}\n\n"
+    return f"## 参考情報（話の背景。要約には書き写さない）\n{context.strip()}\n\n"
 
 
 def live_summary_messages(
@@ -58,7 +66,7 @@ def final_summary_messages(lines: list[str], context: str | None) -> list[dict[s
         _context_block(context)
         + "## 文字起こし\n"
         + "\n".join(lines)
-        + "\n\nこの会議の要約を出力してください。"
+        + "\n\nこの文字起こしの要約を出力してください。"
     )
     return [{"role": "system", "content": SUMMARY_SYSTEM}, {"role": "user", "content": user}]
 
@@ -81,9 +89,10 @@ def reduce_summary_messages(parts: list[str], context: str | None) -> list[dict[
     blocks = "\n\n".join(f"### 部分{i + 1}\n{p.strip()}" for i, p in enumerate(parts))
     user = (
         _context_block(context)
-        + "## 会議を前から順に区切って作った要約\n"
+        + "## 文字起こしを前から順に区切って作った要約\n"
         + blocks
-        + "\n\nこれらをまとめて、会議全体の要約を1つ出力してください。重複はまとめてください。"
+        + "\n\nこれらをまとめて、全体の要約を1つ出力してください。重複はまとめてください。"
+        + "見出しは部分ごとに分けず、全体の内容に合わせて付け直してください。"
     )
     return [{"role": "system", "content": SUMMARY_SYSTEM}, {"role": "user", "content": user}]
 
