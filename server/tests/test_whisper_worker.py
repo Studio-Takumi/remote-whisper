@@ -4,7 +4,7 @@ import pytest
 
 from remote_whisper.hub import Hub
 from remote_whisper.settings import SettingsStore
-from remote_whisper.whisper_worker import WhisperUnavailable, WhisperWorker
+from remote_whisper.whisper_worker import WhisperUnavailable, WhisperWorker, _transcribe
 
 # 子プロセスは本物（spawn）。モデルだけ GPU を使わない偽物（backend="fake"）にする
 
@@ -185,3 +185,38 @@ def test_cancel_while_waiting_stops_the_child(worker):
     stopped, result = run(main())
     assert stopped
     assert result[0]["text"] == "fake 0.5s"
+
+
+class _Segment:
+    start, end, text = 0.0, 1.0, " こんにちは"
+    no_speech_prob, avg_logprob, compression_ratio = 0.1, -0.2, 1.1
+
+
+class _Model:
+    """faster-whisper の WhisperModel の代わり。渡されたオプションを覚える"""
+
+    def __init__(self):
+        self.kwargs: dict = {}
+
+    def transcribe(self, audio, **kwargs):
+        self.kwargs = kwargs
+        return iter([_Segment()]), None
+
+
+def test_transcribe_uses_vad_and_returns_scores():
+    # 無音や雑音でのハルシネーションを抑えるため、既定で VAD を使い、信頼度も返す（#81）
+    model = _Model()
+    result = _transcribe("faster-whisper", model, b"\0\0" * 1600, {})
+    assert model.kwargs["vad_filter"] is True
+    assert result == [
+        {
+            "start": 0.0,
+            "end": 1.0,
+            "text": " こんにちは",
+            "no_speech_prob": 0.1,
+            "avg_logprob": -0.2,
+            "compression_ratio": 1.1,
+        }
+    ]
+    _transcribe("faster-whisper", model, b"\0\0" * 1600, {"vad_filter": False})
+    assert model.kwargs["vad_filter"] is False

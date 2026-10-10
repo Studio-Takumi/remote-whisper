@@ -90,9 +90,22 @@ def _transcribe(backend: str, model: Any, pcm: bytes, options: dict) -> list[dic
         hotwords=options.get("hotwords") or None,
         initial_prompt=options.get("initial_prompt") or None,
         condition_on_previous_text=False,
-        vad_filter=False,
+        # 話していない部分（無音・雑音）を Silero VAD で除いてから文字起こしする。
+        # 無音や雑音を渡すと「ご視聴ありがとうございました」などを作ってしまうため（#81）
+        vad_filter=options.get("vad_filter", True),
     )
-    return [{"start": s.start, "end": s.end, "text": s.text} for s in segments]
+    # 信頼度は、話していないのに出てきた文を捨てるのに使う（hallucination.py）
+    return [
+        {
+            "start": s.start,
+            "end": s.end,
+            "text": s.text,
+            "no_speech_prob": s.no_speech_prob,
+            "avg_logprob": s.avg_logprob,
+            "compression_ratio": s.compression_ratio,
+        }
+        for s in segments
+    ]
 
 
 def _child_main(conn: Connection, backend: str) -> None:
