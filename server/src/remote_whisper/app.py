@@ -59,6 +59,8 @@ def create_app(
         await ctx.gpu.stop()
         if ctx.whisper is not None:
             await ctx.whisper.close()
+        if background:
+            await asyncio.gather(*background, return_exceptions=True)
         if ctx.ollama is not None:
             await ctx.ollama.close()
 

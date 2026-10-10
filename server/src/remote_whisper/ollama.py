@@ -58,8 +58,16 @@ class OllamaClient:
         await self.hub.set_status(ollama="ready")
 
     async def _failed(self, e: Exception) -> OllamaUnavailable:
-        log.warning("ollama unavailable: %s", e)
-        await self.hub.set_status(ollama="error")
+        """失敗を OllamaUnavailable にする
+
+        status の ollama を error にするのは、つながらない・タイムアウト・5xx のときだけ。
+        4xx（モデルがないなど）は Ollama 自体は動いているので変えない"""
+        if isinstance(e, httpx.HTTPStatusError) and e.response.status_code < 500:
+            log.warning("ollama rejected the request: %s", e)
+            await self._ok()
+        else:
+            log.warning("ollama unavailable: %s", e)
+            await self.hub.set_status(ollama="error")
         return OllamaUnavailable(str(e) or type(e).__name__)
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> Any:
@@ -68,7 +76,7 @@ class OllamaClient:
                 res = await client.request(method, path, **kwargs)
                 res.raise_for_status()
                 data = res.json()
-        except (httpx.HTTPError, ValueError) as e:
+        except (httpx.HTTPError, httpx.InvalidURL, ValueError) as e:
             raise await self._failed(e) from e
         await self._ok()
         return data
@@ -168,7 +176,7 @@ class OllamaClient:
                         yield content
                     if chunk.get("done"):
                         return
-        except (httpx.HTTPError, ValueError) as e:
+        except (httpx.HTTPError, httpx.InvalidURL, ValueError) as e:
             raise await self._failed(e) from e
 
     async def chat(self, model: str, messages: list[dict[str, str]], **kwargs: Any) -> str:

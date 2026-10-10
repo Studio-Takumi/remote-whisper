@@ -1,5 +1,6 @@
 import asyncio
 
+import httpx
 import pytest
 from fake_ollama import FakeOllama
 
@@ -90,6 +91,25 @@ def test_format_and_options_are_passed(ollama, fake):
 def test_chat_with_unknown_model_fails(ollama):
     with pytest.raises(OllamaUnavailable):
         run(ollama.chat("nope", []))
+    # Ollama 自体は動いているので、status は error にしない
+    assert ollama.hub.status.ollama == "ready"
+
+
+def test_server_error_sets_status_error(ollama, fake, monkeypatch):
+    monkeypatch.setattr(fake, "handle", lambda request: httpx.Response(500))
+    ollama._transport = fake.transport()
+    with pytest.raises(OllamaUnavailable):
+        run(ollama.models())
+    assert ollama.hub.status.ollama == "error"
+
+
+def test_invalid_host_is_unavailable(home):
+    # URL として読めない接続先。つなぎに行く前に失敗するので、本物の通信は起きない
+    ollama = OllamaClient(Hub(), SettingsStore(home))
+    ollama.settings.update({"ollama": {"host": "http://[bad"}})
+    with pytest.raises(OllamaUnavailable):
+        run(ollama.models())
+    assert ollama.hub.status.ollama == "error"
 
 
 def test_keep_alive_while_recording(ollama, fake, state):
