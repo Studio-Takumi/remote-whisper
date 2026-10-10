@@ -47,6 +47,13 @@ def test_drops_when_whisper_thinks_nobody_spoke():
 
 def test_drops_repetition():
     assert drop_reason(seg("はい" * 30, cr=3.1)) == "repetition"
+    # ちょうど 2.4 は残す
+    assert drop_reason(seg("はい" * 30, cr=2.4)) is None
+
+
+def test_a_phrase_may_have_up_to_three_other_characters():
+    assert drop_reason(seg("皆さんありがとうございました", lp=-0.7)) == "phrase"
+    assert drop_reason(seg("皆さま本当にありがとうございました", lp=-0.7)) is None
 
 
 def test_keeps_empty_text_and_missing_scores():

@@ -150,16 +150,21 @@ def test_drops_hallucinations_from_final_and_partial_and_logs_them(caplog):
         await h.close()
         return h
 
-    with caplog.at_level("INFO", logger="remote_whisper.live_transcriber"):
+    with caplog.at_level("DEBUG", logger="remote_whisper.live_transcriber"):
         h = run(main())
     assert [m["text"] for m in h.of_type("final")] == ["本当の発言"]
     assert h.appended == [(0.0, "本当の発言")]
     partials = h.of_type("partial")
     assert partials
     assert all("ご視聴" not in p["committed"] + p["tentative"] for p in partials)
-    dropped = [r.getMessage() for r in caplog.records if "hallucination" in r.getMessage()]
-    assert any("final of segment 0" in m and "phrase" in m for m in dropped)
-    assert any("partial of segment 0" in m for m in dropped)
+    dropped = [r for r in caplog.records if "hallucination" in r.getMessage()]
+    # final は INFO、partial は何度も出るので DEBUG
+    assert any(
+        "final of segment 0" in r.getMessage() and "phrase" in r.getMessage()
+        for r in dropped
+        if r.levelname == "INFO"
+    )
+    assert any("partial of segment 0" in r.getMessage() for r in dropped if r.levelname == "DEBUG")
 
 
 def test_append_failure_is_reported_but_final_is_sent():

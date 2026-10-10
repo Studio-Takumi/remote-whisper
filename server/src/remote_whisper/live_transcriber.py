@@ -182,7 +182,9 @@ def _drop_hallucinations(result: list[dict], segment: Segment, kind: str) -> lis
         if reason is None:
             kept.append(r)
             continue
-        log.info(
+        # partial は同じ区間を何度も文字起こしし直すので、同じものが何度も出る。DEBUG にしておく
+        log.log(
+            logging.INFO if kind == "final" else logging.DEBUG,
             "dropped a likely hallucination in the %s of segment %d (%.1fs, %s, "
             "no_speech_prob=%.2f avg_logprob=%.2f compression_ratio=%.2f): %r",
             kind,
