@@ -100,6 +100,21 @@ def test_auto_follows_the_noise_level_within_bounds():
     assert seg.threshold_dbfs == -35
 
 
+def test_auto_with_speech_and_pauses_keeps_the_floor_at_the_pauses():
+    # 声（-20 dBFS）と間（-60 dBFS）が交互に来ても、雑音の見積もりは間の方に合う
+    seg = Segmenter(600, 25, speech_dbfs=None)
+    for _ in range(10):
+        seg.feed(level(0.6, -20) + level(0.4, -60))
+    assert seg.threshold_dbfs == pytest.approx(-50, abs=0.1)
+
+
+def test_auto_while_talking_without_pauses_stops_at_the_upper_bound():
+    # 間なく話し続けると見積もりは上がるが、上限で止まる
+    seg = Segmenter(600, 25, speech_dbfs=None)
+    seg.feed(level(12.0, -20))
+    assert seg.threshold_dbfs == -35
+
+
 def test_auto_uses_the_default_until_it_has_heard_enough():
     seg = Segmenter(600, 25, speech_dbfs=None)
     seg.feed(level(0.5, -65))
