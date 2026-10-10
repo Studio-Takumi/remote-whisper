@@ -142,6 +142,29 @@ def test_session_stopped_during_the_final_summary_is_marked_failed(home, tmp_pat
     assert session["summaryFailed"] is True
 
 
+def test_summary_removed_by_retention_is_not_a_failure(home, tmp_path):
+    with TestClient(create_app(home)) as client:
+        pid, d = register(client, tmp_path)
+        # 要約は 30 日、文字起こしは無期限
+        client.patch("/api/settings", json={"retentionDays": {"summary": 30, "transcript": 0}})
+    sid = "20260801-100000"
+    started = "2026-08-01T10:00:00+09:00"
+
+    def add(project):
+        project.sessions.append(
+            SessionEntry(id=sid, status="done", started_at=started, ended_at=started)
+        )
+
+    ProjectStore(home).update(pid, add)
+    meta = TranscriptMeta(id=sid, status="done", started_at=started, ended_at=started)
+    write_doc(d / f"transcript-{sid}.md", meta, "[00:00:00] 話した\n")
+
+    # 保存期間を過ぎて要約が消えただけなので、失敗とは見なさない（期限切れ）
+    with TestClient(create_app(home)) as client:
+        session = client.get(f"/api/projects/{pid}/sessions/{sid}").json()
+    assert session["summaryFailed"] is False
+
+
 def test_crash_before_any_segment_uses_the_wav_length(home, tmp_path):
     with TestClient(create_app(home)) as client:
         pid, d = register(client, tmp_path)

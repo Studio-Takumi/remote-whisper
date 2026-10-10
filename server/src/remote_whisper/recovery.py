@@ -26,9 +26,11 @@ from pathlib import Path
 
 from remote_whisper.audio_convert import convert_wav
 from remote_whisper.documents import TranscriptMeta, read_doc
+from remote_whisper.janitor import expired
 from remote_whisper.projects import ProjectError, ProjectStore
 from remote_whisper.session_writer import SessionWriter
 from remote_whisper.sessions import ID_RE, SessionFiles, parse_transcript_lines
+from remote_whisper.timeutil import now
 
 log = logging.getLogger(__name__)
 
@@ -62,8 +64,11 @@ def _has_lines(transcript: Path) -> bool:
     return bool(body.strip())
 
 
-def find_leftovers(store: ProjectStore) -> Leftovers:
+def find_leftovers(store: ProjectStore, summary_days: int = 0) -> Leftovers:
+    """summary_days は要約の保存期間（retentionDays.summary）。過ぎて要約が消えたセッションは、
+    要約がなくても失敗とは見なさない"""
     found = Leftovers()
+    at = now()
     for pid in store.ids():
         d = store.dir(pid)
         try:
@@ -80,6 +85,7 @@ def find_leftovers(store: ProjectStore) -> Leftovers:
                 elif (
                     meta.status == "done"
                     and not meta.summary_failed
+                    and not expired(meta.ended_at or meta.started_at, summary_days, at)
                     and _has_lines(path)
                     and not any(d.glob(f"summary-{meta.id}-*.md"))
                 ):
