@@ -33,6 +33,8 @@ export type Session = {
     liveSummary?: string;
     // タイトルが仮のもの（途中の要約から作ったもの）かどうか
     provisionalTitle?: boolean;
+    // 最終の要約を作れなかった（Ollama につながらなかったなど）。作り直して作れたら false
+    summaryFailed?: boolean;
 };
 
 export type Project = {

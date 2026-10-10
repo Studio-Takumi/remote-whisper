@@ -26,6 +26,7 @@ function toSession(json: SessionJson): Session {
         endedAt: displayTime(json.endedAt),
         status: json.status,
         files: json.files,
+        summaryFailed: json.summaryFailed ?? false,
         transcript: [],
         summaries: [],
     };

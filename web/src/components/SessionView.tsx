@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-import { AudioLinesIcon, FolderPlusIcon, RefreshCwIcon } from 'lucide-react';
+import { AudioLinesIcon, FolderPlusIcon, RefreshCwIcon, TriangleAlertIcon } from 'lucide-react';
 
 import { Markdown } from '@/components/Markdown';
 import { StatusIndicator } from '@/components/StatusIndicator';
@@ -121,6 +121,7 @@ function SummaryPanel({
     liveDraft: { sessionId: string; text: string } | null;
 }) {
     const regenerate = useAppStore((s) => s.regenerateSummary);
+    const ollama = useAppStore((s) => s.server.ollama);
     // 手で選んだ世代。セッションを替えたときと、要約が増えた（作り直した）ときは既定に戻す
     const [picked, setPicked] = useState<{ sessionId: string; count: number; generationId: string } | null>(null);
 
@@ -154,12 +155,32 @@ function SummaryPanel({
         </Button>
     );
 
+    // 最終の要約を作れなかったこと（spec 6.7）。Ollama が戻っていれば、作り直しを勧める
+    const failure = session.summaryFailed && session.status !== 'recording' && (
+        <div
+            role='alert'
+            className='flex flex-col items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm'
+        >
+            <p className='flex items-center gap-1.5 font-medium text-destructive'>
+                <TriangleAlertIcon className='size-4' />
+                {summary ? '直近の要約の作り直しに失敗しました' : '最終の要約を作れませんでした'}
+            </p>
+            <p className='text-xs text-muted-foreground'>
+                {ollama === 'ready'
+                    ? 'Ollama には今つながっています。作り直してください。'
+                    : 'Ollama に接続できません。Ollama が動いているか確かめてから、作り直してください。'}
+            </p>
+            {regenerateButton}
+        </div>
+    );
+
     if (!summary) {
         // 最終の要約がまだないときは、途中の要約を代わりに出す（届いている途中なら、それを少しずつ）
         const live = liveDraft?.sessionId === session.id ? liveDraft.text : session.liveSummary;
         if (live) {
             return (
                 <>
+                    {failure}
                     <p className='text-xs text-muted-foreground'>
                         途中の要約{session.status === 'recording' ? '（録音中に数分おきに更新します）' : ''}
                     </p>
@@ -170,6 +191,9 @@ function SummaryPanel({
         // 録音中は下に途中の要約の状態が出るので、何も出さない
         if (session.status === 'recording' || !session.loaded) {
             return null;
+        }
+        if (failure) {
+            return failure;
         }
         return (
             <div className='flex flex-col items-start gap-2'>
@@ -186,6 +210,7 @@ function SummaryPanel({
     const label = (s: Summary) => `${s.model} で生成・${s.generatedAt}`;
     return (
         <>
+            {failure}
             <div className='flex flex-wrap items-center gap-2'>
                 {session.summaries.length > 1 ? (
                     <Select
