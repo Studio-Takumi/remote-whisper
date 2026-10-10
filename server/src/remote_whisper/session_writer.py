@@ -3,8 +3,11 @@
 録音マネージャ（本物とモックの両方）から使う。音声ファイル（WAV・mp3）は扱わない。
 """
 
+import contextlib
+import re
 import threading
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from remote_whisper.documents import (
     SummaryMeta,
@@ -119,9 +122,14 @@ class SessionWriter:
     def save_live_summary(self, text: str) -> None:
         atomic_write_text(self.files.live_summary, text)
 
-    def save_final_summary(self, model: str, think: bool, text: str) -> str:
-        """最終の要約を新しい生成 ID のファイルに保存して、途中の要約を消す。生成 ID を返す"""
-        generated = now()
+    def save_final_summary(
+        self, model: str, think: bool, text: str, generated: datetime | None = None
+    ) -> str:
+        """最終の要約を新しい生成 ID のファイルに保存して、途中の要約を消す。生成 ID を返す
+
+        generated は生成を始めた時刻（生成 ID になる。spec 5.2）。省略すると今
+        """
+        generated = generated or now()
         gid = make_id(generated)
         # 同じ秒に作り直したときは、1秒ずつずらす
         while self.files.summary(gid).exists():
@@ -143,4 +151,36 @@ class SessionWriter:
         )
         write_doc(self.files.summary(gid), meta, text)
         self.files.live_summary.unlink(missing_ok=True)
+        # .tmp/<ID>/ が空になったら消す
+        with contextlib.suppress(OSError):
+            self.files.live_summary.parent.rmdir()
         return gid
+
+    def copy_summary(self, gid: str) -> Path:
+        """最終の要約を、選んだディレクトリにコピーする（spec 5.1）
+
+        名前は `summary-YYYYMMDD-<タイトル>.md`。同じ名前のファイルがあれば `-2` のような
+        番号を付ける。コピーしたパスを返す
+        """
+        stem = f"summary-{self.id[:8]}-{safe_filename(self.meta.title or 'タイトルなし')}"
+        target_dir = Path(self.meta.project)
+        if not target_dir.is_dir():
+            # 選んだディレクトリが消えていたら、作り直さない
+            raise FileNotFoundError(f"選んだディレクトリがありません: {target_dir}")
+        dst = target_dir / f"{stem}.md"
+        n = 2
+        while dst.exists():
+            dst = target_dir / f"{stem}-{n}.md"
+            n += 1
+        atomic_write_text(dst, self.files.summary(gid).read_text(encoding="utf-8"))
+        return dst
+
+
+# Windows のファイル名に使えない文字
+_UNSAFE = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
+
+
+def safe_filename(name: str) -> str:
+    """タイトルをファイル名に使える形にする"""
+    name = _UNSAFE.sub("_", name).strip(" .")
+    return name or "タイトルなし"

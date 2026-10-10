@@ -194,6 +194,12 @@ export const useAppStore = create<AppState>()((set, get) => {
                     })),
                     partial: s.partial?.sessionId === m.session && s.partial.segment === m.segment ? null : s.partial,
                 }));
+            } else if (
+                (m.type === 'summary.delta' || m.type === 'summary.done') &&
+                m.kind === 'live' &&
+                get().recordingSessionId !== m.session
+            ) {
+                // 録音を終えた後に届いた途中の要約は出さない（もう最終の要約を作成中と出している）
             } else if (m.type === 'summary.delta' && m.kind === 'live') {
                 // 途中の要約は毎回まるごと作り直される。summary.done で下書きを消すので、
                 // その後に届いた最初の delta から、新しい下書きとして積んでいく
@@ -231,12 +237,17 @@ export const useAppStore = create<AppState>()((set, get) => {
                 if (!m.provisional) {
                     void reloadAfterFinalSummary(m.session);
                 }
-            } else if (m.type === 'error' && m.code === 'ollama_unavailable') {
-                // 要約を作れなかった。作成中の表示を消す（失敗の表示と作り直しは #17）。
-                // 途中の要約の下書きも捨てる（届きかけの分が、次の回の要約に混ざらないように）
+            } else if (
+                m.type === 'error' &&
+                (m.code === 'ollama_unavailable' || m.code === 'summary_skipped' || m.code === 'write_failed')
+            ) {
+                // 要約を作れなかった（作らなかった）。作成中の表示を消す（失敗の表示と作り直しは #17）。
+                // Ollama の失敗なら、途中の要約の下書きも捨てる（届きかけの分が、次の回の要約に混ざらないように。
+                // 音声の write_failed では捨てない）
                 set((s) => ({
                     generating: s.generating?.sessionId === m.session ? null : s.generating,
-                    liveDraft: s.liveDraft?.sessionId === m.session ? null : s.liveDraft,
+                    liveDraft:
+                        m.code === 'ollama_unavailable' && s.liveDraft?.sessionId === m.session ? null : s.liveDraft,
                 }));
             }
         });
@@ -596,7 +607,11 @@ export const useAppStore = create<AppState>()((set, get) => {
             }
             serverSubscribed = true;
             connection.onStateChange((connected) => {
-                set((s) => ({ server: { ...s.server, connection: connected ? 'connected' : 'reconnecting' } }));
+                set((s) => ({
+                    server: { ...s.server, connection: connected ? 'connected' : 'reconnecting' },
+                    // 切れたら、届きかけの途中の要約は捨てる（つながり直した後の断片が続けて足されないように）
+                    liveDraft: connected ? s.liveDraft : null,
+                }));
                 if (!get().recordingSessionId && !stoppedWhileOffline) {
                     return;
                 }
