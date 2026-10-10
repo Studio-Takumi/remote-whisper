@@ -187,7 +187,9 @@ class RecordingSession:
         try:
             self.writer.set_recording(recording.name)
         except OSError:
+            # 記録できなければ WAV を残す（次の起動時に直す: #33）
             log.exception("failed to record the recording file of %s", self.id)
+            return
         with contextlib.suppress(OSError):
             wav.unlink()
             # .tmp/<ID>/ に途中の要約が残っていなければ、ディレクトリごと消す
