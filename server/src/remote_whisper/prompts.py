@@ -52,6 +52,42 @@ def live_summary_messages(
     return [{"role": "system", "content": SUMMARY_SYSTEM}, {"role": "user", "content": user}]
 
 
+def final_summary_messages(lines: list[str], context: str | None) -> list[dict[str, str]]:
+    """最終の要約（文字起こし全体が一度に収まるとき）"""
+    user = (
+        _context_block(context)
+        + "## 文字起こし\n"
+        + "\n".join(lines)
+        + "\n\nこの会議の要約を出力してください。"
+    )
+    return [{"role": "system", "content": SUMMARY_SYSTEM}, {"role": "user", "content": user}]
+
+
+def part_summary_messages(
+    lines: list[str], index: int, total: int, context: str | None
+) -> list[dict[str, str]]:
+    """最終の要約（map）。文字起こしの一部分を要約する"""
+    user = (
+        _context_block(context)
+        + f"## 文字起こし（全{total}部分のうち{index + 1}番目）\n"
+        + "\n".join(lines)
+        + "\n\nこの部分の要約を出力してください。あとでほかの部分の要約とまとめます。"
+    )
+    return [{"role": "system", "content": SUMMARY_SYSTEM}, {"role": "user", "content": user}]
+
+
+def reduce_summary_messages(parts: list[str], context: str | None) -> list[dict[str, str]]:
+    """最終の要約（reduce）。部分ごとの要約を1つにまとめる"""
+    blocks = "\n\n".join(f"### 部分{i + 1}\n{p.strip()}" for i, p in enumerate(parts))
+    user = (
+        _context_block(context)
+        + "## 会議を前から順に区切って作った要約\n"
+        + blocks
+        + "\n\nこれらをまとめて、会議全体の要約を1つ出力してください。重複はまとめてください。"
+    )
+    return [{"role": "system", "content": SUMMARY_SYSTEM}, {"role": "user", "content": user}]
+
+
 def title_messages(summary: str) -> list[dict[str, str]]:
     return [
         {"role": "system", "content": TITLE_SYSTEM},
