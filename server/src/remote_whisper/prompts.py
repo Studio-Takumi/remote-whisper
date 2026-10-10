@@ -54,8 +54,9 @@ def live_summary_messages(
         + f"## これまでの要約\n{previous.strip() if previous else '（まだありません）'}\n\n"
         + "## 新しく増えた文字起こし\n"
         + "\n".join(new_lines)
-        + "\n\nこれまでの要約に、新しく増えた文字起こしの内容を反映して、"
-        + "更新した要約を出力してください。"
+        + "\n\n「これまでの要約」は、この前までの文字起こしから作ったもので、文字起こしの一部です。"
+        + "その内容も消さずに残し、新しく増えた文字起こしの内容を反映して、"
+        + "ここまでの話全体の要約を出力してください。"
     )
     return [{"role": "system", "content": SUMMARY_SYSTEM}, {"role": "user", "content": user}]
 
