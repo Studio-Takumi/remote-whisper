@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 
 import { AudioLinesIcon, FolderPlusIcon, RefreshCwIcon, TriangleAlertIcon } from 'lucide-react';
 
@@ -8,6 +8,7 @@ import { Transcript } from '@/components/Transcript';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { isScrolledToBottom, scrollToBottom } from '@/scroll';
 import { summaryStatus, transcriptStatus } from '@/status';
 import { currentProject, currentSession, useAppStore, visibleProjects } from '@/store';
 import type { Generating, Session, Summary } from '@/types';
@@ -25,6 +26,7 @@ export function SessionView() {
     const partial = useAppStore((s) => s.partial);
     const liveDraft = useAppStore((s) => s.liveDraft);
     const recordingSessionId = useAppStore((s) => s.recordingSessionId);
+    const { tab, changeTab, followTranscript } = useTabScroll(session?.id);
 
     if (!project) {
         return <EmptyState hasProjects={hasProjects} />;
@@ -33,15 +35,16 @@ export function SessionView() {
     const live = summaryStatus(recordingState, server, liveIntervalMin);
 
     return (
-        <Tabs defaultValue='transcript'>
-            <div className='flex justify-center'>
+        <Tabs value={tab} onValueChange={changeTab}>
+            {/* 上のバーのすぐ下に貼り付ける（#78）。左右の余白まで背景を塗って、本文が透けないようにする */}
+            <div className='sticky top-(--top-bar-height,0px) z-10 -mx-4 flex justify-center bg-background px-4 pb-2'>
                 <TabsList>
                     <TabsTrigger value='transcript'>文字起こし</TabsTrigger>
                     <TabsTrigger value='summary'>要約</TabsTrigger>
                 </TabsList>
             </div>
             {/* 下の pb は、マイクのボタンの上に出す経過時間（絶対配置）が本文に重ならないようにするため */}
-            <div className='mx-auto flex w-full max-w-3xl flex-col gap-4 pt-4 pb-16'>
+            <div className='mx-auto flex w-full max-w-3xl flex-col gap-4 pt-2 pb-16'>
                 {session ? (
                     <div>
                         <h1 className='text-lg font-semibold'>
@@ -77,6 +80,7 @@ export function SessionView() {
                         <Transcript
                             lines={session.transcript}
                             partial={partial?.sessionId === session.id ? partial : null}
+                            follow={followTranscript}
                         />
                     )}
                     {!session && recordingState === 'idle' && (
@@ -105,6 +109,49 @@ export function SessionView() {
             </div>
         </Tabs>
     );
+}
+
+type Tab = 'transcript' | 'summary';
+
+type TabScroll = { top: number; atBottom: boolean };
+
+// タブごとのスクロール位置を覚えておき、切り替えたら戻す（#78）。ページ全体がスクロールするので window の位置を使う
+// 一番下にいたタブは、離れている間に伸びていても一番下に戻す（録音中の文字起こしを追い続けるため）
+// セッションを替えたら覚えた位置は捨てる（タブはそのまま）
+function useTabScroll(sessionId: string | undefined) {
+    const [state, setState] = useState<{
+        tab: Tab;
+        sessionId: string | undefined;
+        saved: Partial<Record<Tab, TabScroll>>;
+    }>({ tab: 'transcript', sessionId, saved: {} });
+    const restore = useRef<TabScroll | null>(null);
+
+    const changeTab = (value: string) => {
+        const next = value as Tab;
+        const saved = {
+            ...(state.sessionId === sessionId ? state.saved : {}),
+            [state.tab]: { top: window.scrollY, atBottom: isScrolledToBottom() },
+        };
+        restore.current = saved[next] ?? { top: 0, atBottom: false };
+        setState({ tab: next, sessionId, saved });
+    };
+
+    // 描き替えた後、画面に出る前に戻す
+    useLayoutEffect(() => {
+        if (restore.current !== null) {
+            if (restore.current.atBottom) {
+                scrollToBottom();
+            } else {
+                window.scrollTo({ top: restore.current.top });
+            }
+            restore.current = null;
+        }
+    }, [state.tab]);
+
+    const transcript = state.sessionId === sessionId ? state.saved.transcript : undefined;
+    // 文字起こしを出し直したとき、下を追うかどうか。初めて出すときは追う
+    const followTranscript = transcript?.atBottom ?? true;
+    return { tab: state.tab, changeTab, followTranscript };
 }
 
 // 最終の要約。既定は、今選んでいるモデルの要約のうちいちばん新しいもの。なければモデルを問わずいちばん新しいもの。

@@ -1,3 +1,5 @@
+import { useLayoutEffect, useRef } from 'react';
+
 import { MicIcon, SlidersHorizontalIcon, SparklesIcon } from 'lucide-react';
 
 import { ContextSetSheet } from '@/components/ContextSetSheet';
@@ -21,6 +23,21 @@ export function TopBar() {
         settings.ollama.liveSummaryModel,
         settings.ollama.finalSummaryModel,
     );
+
+    const ref = useRef<HTMLDivElement>(null);
+    useLayoutEffect(() => {
+        const el = ref.current;
+        if (!el) {
+            return;
+        }
+        const root = document.documentElement;
+        const observer = new ResizeObserver(() => root.style.setProperty('--top-bar-height', `${el.offsetHeight}px`));
+        observer.observe(el);
+        return () => {
+            observer.disconnect();
+            root.style.removeProperty('--top-bar-height');
+        };
+    }, []);
 
     const selects = (
         <>
@@ -52,8 +69,14 @@ export function TopBar() {
         </>
     );
 
+    // 長い文字起こしの下の方からでも押せるよう、上に貼り付ける（#78）。本文が透けないよう背景を塗り、
+    // 外側の余白（SidebarInset の p-4）まで広げて、上の隙間から本文が見えないようにする
+    // 高さは CSS 変数に書き出し、その下にタブを貼り付ける（SessionView）
     return (
-        <div className='flex flex-row items-center gap-2'>
+        <div
+            ref={ref}
+            className='sticky top-0 z-20 -mx-4 -mt-4 flex flex-row items-center gap-2 bg-background px-4 pt-4 pb-2'
+        >
             {/* スマホの幅ではサイドバーが隠れるので、開くボタンをここに出す */}
             <SidebarTrigger className='size-9 md:hidden' aria-label='メニューを開く' />
             <RecordingLock locked={recording} className='ml-auto'>
