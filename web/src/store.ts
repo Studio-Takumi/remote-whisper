@@ -242,10 +242,12 @@ export const useAppStore = create<AppState>()((set, get) => {
                 (m.code === 'ollama_unavailable' || m.code === 'summary_skipped' || m.code === 'write_failed')
             ) {
                 // 要約を作れなかった（作らなかった）。作成中の表示を消す（失敗の表示と作り直しは #17）。
-                // 途中の要約の下書きも捨てる（届きかけの分が、次の回の要約に混ざらないように）
+                // Ollama の失敗なら、途中の要約の下書きも捨てる（届きかけの分が、次の回の要約に混ざらないように。
+                // 音声の write_failed では捨てない）
                 set((s) => ({
                     generating: s.generating?.sessionId === m.session ? null : s.generating,
-                    liveDraft: s.liveDraft?.sessionId === m.session ? null : s.liveDraft,
+                    liveDraft:
+                        m.code === 'ollama_unavailable' && s.liveDraft?.sessionId === m.session ? null : s.liveDraft,
                 }));
             }
         });

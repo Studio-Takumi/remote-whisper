@@ -29,6 +29,7 @@ from remote_whisper.prompts import (
 )
 from remote_whisper.session_writer import SessionWriter
 from remote_whisper.settings import SettingsStore
+from remote_whisper.timeutil import now
 
 log = logging.getLogger(__name__)
 
@@ -80,16 +81,38 @@ class FinalSummarizer:
         self.recording = recording
 
     async def __call__(self, session: Any) -> None:
-        await self.run(session.writer, session.send)
+        """録音を終えたセッションの最終の要約。結果は、録音していた接続だけでなく全員に送る
+        （作っている途中で接続が切れても、つながり直したブラウザに届くように。作り直しと同じ）"""
+
+        async def send(message: dict[str, Any]) -> None:
+            await session.manager.hub.broadcast({**message, "session": session.id})
+
+        await self.run(session.writer, send)
 
     async def run(
         self, writer: SessionWriter, send: Callable[[dict[str, Any]], Awaitable[None]]
     ) -> str | None:
         """最終の要約を作って保存する。生成 ID を返す（作れなければ None）"""
+        # 生成 ID は、生成を始めた時刻（spec 5.2）
+        started = now()
         if self.whisper is not None and not self.recording():
-            # 要約の前に Whisper を下ろして、VRAM を Ollama に空ける
-            await self.whisper.unload()
-        _, body = parse(writer.files.transcript.read_text(encoding="utf-8"))
+            # 要約の前に Whisper を下ろして、VRAM を Ollama に空ける。失敗しても要約は作る
+            try:
+                await self.whisper.unload()
+            except Exception:  # noqa: BLE001
+                log.exception("failed to unload whisper before the summary")
+        try:
+            _, body = parse(writer.files.transcript.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as e:
+            log.warning("could not read the transcript of %s: %s", writer.id, e)
+            await send(
+                {
+                    "type": "error",
+                    "code": "summary_skipped",
+                    "message": "文字起こしを読み込めないので、最終の要約は作りませんでした",
+                }
+            )
+            return None
         lines = [line for line in body.splitlines() if line.strip()]
         if not lines:
             await send(
@@ -125,7 +148,7 @@ class FinalSummarizer:
         try:
             if title:
                 writer.set_title(title)
-            gid = writer.save_final_summary(model, think, text)
+            gid = writer.save_final_summary(model, think, text, generated=started)
         except OSError:
             log.exception("failed to save the final summary of %s", writer.id)
             await send(

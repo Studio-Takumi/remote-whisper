@@ -168,3 +168,96 @@ def test_fallback_title_and_safe_filename():
     assert fallback_title("") is None
     assert safe_filename('a/b:c*?"<>|. ') == "a_b_c______"
     assert safe_filename("...") == "タイトルなし"
+
+
+class StubWhisper:
+    def __init__(self, fail=False):
+        self.unloaded = 0
+        self.fail = fail
+
+    async def unload(self):
+        self.unloaded += 1
+        if self.fail:
+            raise RuntimeError("下ろせない")
+
+
+class StubWriter:
+    """FinalSummarizer.run が使うところだけの、セッションのファイル"""
+
+    id = "20261010-100000"
+    use_context = False
+
+    def __init__(self, tmp_path):
+        self.files = type("Files", (), {})()
+        self.files.dir = tmp_path
+        self.files.transcript = tmp_path / "transcript.md"
+        self.files.transcript.write_text("---\nid: x\n---\n[00:00:00] 話した\n", encoding="utf-8")
+        self.meta = type("Meta", (), {"context_set": None, "title": None})()
+        self.saved = None
+
+    def set_title(self, title):
+        self.meta.title = title
+
+    def save_final_summary(self, model, think, text, generated=None):
+        self.saved = (model, think, text, generated)
+        return "20261010-100100"
+
+    def copy_summary(self, gid):
+        raise FileNotFoundError("選んだディレクトリがありません")
+
+
+def run_summary(home, fake, tmp_path, whisper, recording):
+    settings = SettingsStore(home)
+    summarizer = FinalSummarizer(
+        OllamaClient(Hub(), settings, transport=fake.transport()),
+        settings,
+        whisper,
+        recording=lambda: recording,
+    )
+    writer = StubWriter(tmp_path)
+    sent = []
+
+    async def send(m):
+        sent.append(m)
+
+    gid = asyncio.run(summarizer.run(writer, send))
+    return gid, writer, sent
+
+
+def test_whisper_is_kept_while_another_session_is_recording(home, fake, tmp_path):
+    whisper = StubWhisper()
+    gid, _, _ = run_summary(home, fake, tmp_path, whisper, recording=True)
+    # ほかに録音中のセッションがあるので、Whisper は下ろさない（spec 6.3）
+    assert whisper.unloaded == 0
+    assert gid == "20261010-100100"
+    whisper = StubWhisper()
+    run_summary(home, fake, tmp_path, whisper, recording=False)
+    assert whisper.unloaded == 1
+
+
+def test_summary_is_made_even_if_unloading_or_copying_fails(home, fake, tmp_path):
+    before = final_summary.now()
+    gid, writer, sent = run_summary(home, fake, tmp_path, StubWhisper(fail=True), recording=False)
+    assert gid == "20261010-100100"
+    model, think, text, generated = writer.saved
+    assert (model, think, text) == ("qwen3.5:4b", True, "要約です")
+    # 生成 ID は、生成を始めた時刻（spec 5.2）
+    assert before <= generated <= final_summary.now()
+    # 選んだディレクトリにコピーできなくても、タイトルは送る
+    assert sent[-1] == {"type": "title", "title": "リリース計画の確認", "provisional": False}
+
+
+def test_unreadable_transcript_is_reported(home, fake, tmp_path):
+    settings = SettingsStore(home)
+    summarizer = FinalSummarizer(
+        OllamaClient(Hub(), settings, transport=fake.transport()), settings
+    )
+    writer = StubWriter(tmp_path)
+    writer.files.transcript.unlink()
+    sent = []
+
+    async def send(m):
+        sent.append(m)
+
+    assert asyncio.run(summarizer.run(writer, send)) is None
+    assert [m["code"] for m in sent] == ["summary_skipped"]

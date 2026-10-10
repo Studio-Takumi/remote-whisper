@@ -122,9 +122,14 @@ class SessionWriter:
     def save_live_summary(self, text: str) -> None:
         atomic_write_text(self.files.live_summary, text)
 
-    def save_final_summary(self, model: str, think: bool, text: str) -> str:
-        """最終の要約を新しい生成 ID のファイルに保存して、途中の要約を消す。生成 ID を返す"""
-        generated = now()
+    def save_final_summary(
+        self, model: str, think: bool, text: str, generated: datetime | None = None
+    ) -> str:
+        """最終の要約を新しい生成 ID のファイルに保存して、途中の要約を消す。生成 ID を返す
+
+        generated は生成を始めた時刻（生成 ID になる。spec 5.2）。省略すると今
+        """
+        generated = generated or now()
         gid = make_id(generated)
         # 同じ秒に作り直したときは、1秒ずつずらす
         while self.files.summary(gid).exists():
