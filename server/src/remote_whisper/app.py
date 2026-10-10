@@ -90,7 +90,13 @@ def create_app(
         ctx.recorder = MockRecorder(ctx.hub, mock_timing, on_count, ctx.projects, ctx.settings)
     else:
         ctx.recorder = RecordingManager(
-            ctx.hub, ctx.projects, ctx.settings, on_count, whisper=ctx.whisper, gpu=ctx.gpu
+            ctx.hub,
+            ctx.projects,
+            ctx.settings,
+            on_count,
+            whisper=ctx.whisper,
+            gpu=ctx.gpu,
+            ollama=ctx.ollama,
         )
 
     @app.get("/api/health")

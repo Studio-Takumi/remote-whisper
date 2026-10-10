@@ -394,3 +394,35 @@ def test_recording_continues_without_ollama(client, project, fake_ollama):
         receive_until(ws, of_type("status", recordings=0))
     finished(client, sid)
     assert (d / f"recording-{sid}.mp3").exists()
+
+
+def test_live_summary_while_recording(client, project, fake_ollama):
+    pid, d = project
+    # 0.005 分 = 録音した長さで 0.3 秒ごと
+    client.patch("/api/settings", json={"ollama": {"liveSummaryIntervalMin": 0.005}})
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        sid = start(ws, pid)
+        for seq in range(4):
+            ws.send_bytes(chunk(seq, value=3000 if seq < 2 else 0))
+            receive_until(ws, of_type("ack", seq=seq))
+        seen = receive_until(ws, of_type("title"))
+        ws.send_json({"type": "stop"})
+        receive_until(ws, of_type("status", recordings=0))
+    finished(client, sid)
+
+    deltas = [m["text"] for m in seen if m["type"] == "summary.delta" and m["kind"] == "live"]
+    assert "".join(deltas) == "要約です"
+    assert {"type": "summary.done", "kind": "live", "session": sid} in seen
+    assert seen[-1] == {
+        "type": "title",
+        "title": "リリース計画の確認",
+        "provisional": True,
+        "session": sid,
+    }
+    # 途中の要約は .tmp/<ID>/ に残す（最終の要約を保存できたら消す: #27）
+    assert (d / ".tmp" / sid / "live-summary.md").read_text(encoding="utf-8") == "要約です"
+    meta, _ = read_doc(d / f"transcript-{sid}.md", TranscriptMeta)
+    assert meta.title == "リリース計画の確認"
+    prompt = fake_ollama.bodies("/api/chat")[0]["messages"][-1]["content"]
+    assert "[00:00:00] fake 1.0s" in prompt
