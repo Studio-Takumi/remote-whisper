@@ -149,6 +149,52 @@ def test_long_transcript_is_summarized_in_parts(home, fake, monkeypatch):
     assert [m["text"] for m in sent] == ["要約", "です"]
 
 
+def test_regenerate_with_another_model(client, project, fake_ollama, tmp_path):
+    pid, d = project
+    sid, _ = record(client, pid)
+    client.patch("/api/settings", json={"ollama": {"finalSummaryModel": "llama3.2:latest"}})
+    fake_ollama.reply = ["別の", "要約"]
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        res = client.post(f"/api/projects/{pid}/sessions/{sid}/summaries")
+        assert res.status_code == 202
+        assert res.json() == {"model": "llama3.2:latest"}
+        # 結果は WebSocket で全員に送る
+        seen = receive_until(ws, lambda m: m["type"] == "title" and not m["provisional"])
+    deltas = [m["text"] for m in seen if m["type"] == "summary.delta"]
+    assert "".join(deltas) == "別の要約"
+    assert all(m["session"] == sid for m in seen if m["type"] != "status")
+
+    # 上書きせず、別のファイルとして増える。思考モードに対応していないモデルはオフ
+    summaries = client.get(f"/api/projects/{pid}/sessions/{sid}/summaries").json()
+    assert [(s["model"], s["think"]) for s in summaries] == [
+        ("qwen3.5:4b", True),
+        ("llama3.2:latest", False),
+    ]
+    latest = client.get(f"/api/projects/{pid}/sessions/{sid}/summaries/latest").json()
+    assert (latest["model"], latest["text"].strip()) == ("llama3.2:latest", "別の要約")
+    # 選んだディレクトリにも新しいコピーを置く
+    copies = sorted(p.name for p in (tmp_path / "work" / "meetings").glob("summary-*.md"))
+    assert len(copies) == 2
+
+
+def test_regenerate_errors(client, project):
+    pid, d = project
+    url = f"/api/projects/{pid}/sessions/{{}}/summaries"
+    assert client.post(url.format("20261010-000000")).status_code == 404
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        sid = start(ws, pid)
+        # 録音中は作り直せない
+        assert client.post(url.format(sid)).status_code == 409
+        ws.send_json({"type": "stop"})
+        receive_until(ws, of_type("status", recordings=0))
+    finished(client, sid)
+    # 文字起こしが消えていたら 410
+    (d / f"transcript-{sid}.md").unlink()
+    assert client.post(url.format(sid)).status_code == 410
+
+
 @pytest.fixture
 def fake():
     return FakeOllama()

@@ -4,13 +4,17 @@
 セッション自体がなければ 404。
 """
 
+import asyncio
+import logging
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from remote_whisper.context import AppContext, get_ctx
 from remote_whisper.documents import SummaryMeta, read_doc
+from remote_whisper.gpu_queue import Priority
 from remote_whisper.projects import ProjectError, ProjectFile, SessionEntry
+from remote_whisper.session_writer import SessionWriter
 from remote_whisper.sessions import (
     ID_RE,
     SessionFiles,
@@ -18,6 +22,8 @@ from remote_whisper.sessions import (
     pick_latest,
     read_transcript,
 )
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/projects/{pid}/sessions")
 
@@ -96,6 +102,39 @@ def list_summaries(pid: str, sid: str, ctx: Ctx) -> list[dict[str, Any]]:
     """最終の要約の一覧（古いものから）"""
     _, files = _session(ctx, pid, sid)
     return [_summary_json(s) for s in files.summaries()]
+
+
+@router.post("/{sid}/summaries", status_code=202)
+async def regenerate_summary(pid: str, sid: str, ctx: Ctx) -> dict[str, Any]:
+    """今の全体設定で最終の要約を作り直す（spec 6.5）。GPU キュー（優先度 3）に積んで、すぐ返す
+
+    結果は WebSocket で全員に送る（`summary.delta`（final）・`summary.done`・`title`、失敗なら
+    `error`）。既存の要約は上書きせず、新しい生成 ID のファイルにする
+    """
+    entry, files = _session(ctx, pid, sid)
+    if ctx.summarizer is None:
+        raise HTTPException(status_code=503, detail="このサーバーでは要約を作れません")
+    if entry.status == "recording":
+        raise HTTPException(status_code=409, detail="録音中のセッションの要約は作り直せません")
+    if not files.transcript.is_file():
+        raise _gone("文字起こし")
+    try:
+        writer = SessionWriter.existing(ctx.projects, pid, sid)
+    except (OSError, ValueError) as e:
+        raise HTTPException(status_code=500, detail=f"文字起こしを読み込めません: {e}") from e
+
+    async def send(message: dict[str, Any]) -> None:
+        await ctx.hub.broadcast({**message, "session": sid})
+
+    summarizer = ctx.summarizer
+    job = ctx.gpu.submit(Priority.BACKGROUND, lambda: summarizer.run(writer, send))
+    job.add_done_callback(_log_failure)
+    return {"model": ctx.settings.get().ollama.final_summary_model}
+
+
+def _log_failure(future: asyncio.Future) -> None:
+    if not future.cancelled() and future.exception() is not None:
+        log.warning("regenerating a summary failed: %s", future.exception())
 
 
 @router.get("/{sid}/summaries/{gid}")
