@@ -71,6 +71,8 @@ class SessionEntry(_Model):
     started_at: str
     ended_at: str | None = None
     context_set: str | None = None
+    # 最終の要約を作れなかった（文字起こしのフロントマターと同じ。UI で失敗と作り直しを出す: #17）
+    summary_failed: bool = False
 
 
 class ProjectFile(_Model):
@@ -119,6 +121,7 @@ def rebuild_project_file(project_dir: Path) -> ProjectFile | None:
                     started_at=t.started_at,
                     ended_at=t.ended_at,
                     context_set=t.context_set,
+                    summary_failed=t.summary_failed,
                 )
             elif SUMMARY_RE.fullmatch(f.name):
                 s, _ = read_doc(f, SummaryMeta)
