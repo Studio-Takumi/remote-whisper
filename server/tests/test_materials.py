@@ -86,15 +86,39 @@ def test_password_protected_pdf_is_an_error(tmp_path):
         extract_text(locked)
 
 
-def test_pdf_with_only_an_owner_password_can_be_read(tmp_path):
-    plain = make_pdf(tmp_path / "plain.pdf", ["Readable"])
+def encrypted(tmp_path, name, algorithm, user_password):
+    plain = make_pdf(tmp_path / f"plain-{name}", ["Readable"])
     writer = PdfWriter(clone_from=PdfReader(str(plain)))
-    # 開くのにパスワードは要らない（印刷などの権限だけを制限する）
-    writer.encrypt(user_password="", owner_password="owner", algorithm="RC4-128")
-    restricted = tmp_path / "restricted.pdf"
-    with open(restricted, "wb") as f:
+    writer.encrypt(user_password=user_password, owner_password="owner", algorithm=algorithm)
+    path = tmp_path / name
+    with open(path, "wb") as f:
         writer.write(f)
-    assert "Readable" in extract_text(restricted)
+    return path
+
+
+@pytest.mark.parametrize("algorithm", ["RC4-128", "AES-128", "AES-256"])
+def test_pdf_with_only_an_owner_password_can_be_read(tmp_path, algorithm):
+    # 開くのにパスワードは要らない（印刷などの権限だけを制限する）。Acrobat などはふつう AES
+    path = encrypted(tmp_path, "restricted.pdf", algorithm, user_password="")
+    assert "Readable" in extract_text(path)
+
+
+@pytest.mark.parametrize("algorithm", ["AES-128", "AES-256"])
+def test_aes_pdf_with_a_password_is_an_error(tmp_path, algorithm):
+    path = encrypted(tmp_path, "locked.pdf", algorithm, user_password="pw")
+    with pytest.raises(ExtractError, match="パスワード付き"):
+        extract_text(path)
+
+
+def test_html_without_closing_head(tmp_path):
+    # </head> や </body> を省いても HTML としては正しい
+    page = tmp_path / "short.html"
+    page.write_text(
+        "<!doctype html><html><head><meta charset=utf-8><title>題</title>"
+        "<body><p>本文の段落　全角スペースはそのまま",
+        encoding="utf-8",
+    )
+    assert extract_text(page) == "本文の段落　全角スペースはそのまま"
 
 
 def test_broken_and_unsupported_files(tmp_path):

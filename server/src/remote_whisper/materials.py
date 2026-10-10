@@ -52,8 +52,9 @@ _BLOCKS = {
     "figure", "footer", "h1", "h2", "h3", "h4", "h5", "h6", "header", "hr", "li", "main",
     "nav", "ol", "p", "pre", "section", "table", "td", "th", "tr", "ul",
 }  # fmt: skip
-# 中身を捨てる要素
-_SKIP = {"script", "style", "noscript", "template", "head"}
+# 中身を捨てる要素。head は `</head>` を省いた HTML で本文まで捨ててしまうので入れず、
+# head の中で文字を持つ title だけを捨てる
+_SKIP = {"script", "style", "noscript", "template", "title"}
 
 
 class _TextParser(HTMLParser):
@@ -82,37 +83,47 @@ class _TextParser(HTMLParser):
     def handle_data(self, data: str) -> None:
         if self._skipping:
             return
-        # HTML の中の改行と連続する空白は、表示上は1つの空白（pre の中はそのまま）
-        self.parts.append(data if self._pre else re.sub(r"\s+", " ", data))
+        # HTML の中の改行と連続する空白は、表示上は1つの空白（pre の中はそのまま）。
+        # 全角スペースは HTML の空白ではないので残す
+        self.parts.append(data if self._pre else re.sub(r"[ \t\n\r\f]+", " ", data))
 
 
 def html_to_text(html: str) -> str:
     parser = _TextParser()
     parser.feed(html)
     parser.close()
-    return "\n".join(line.strip() for line in "".join(parser.parts).split("\n"))
+    return "\n".join(line.strip(" ") for line in "".join(parser.parts).split("\n"))
 
 
 def _pdf_text(path: Path) -> str:
     from pypdf import PdfReader
-    from pypdf.errors import PdfReadError
+    from pypdf.errors import DependencyError, PyPdfError
 
+    # pypdf の失敗は種類がまちまち（壊れたファイル・知らない暗号の方式など）
+    broken = (PyPdfError, DependencyError, ValueError, KeyError, TypeError, AttributeError)
     try:
         reader = PdfReader(str(path))
         if reader.is_encrypted:
             # 開くのにパスワードが要らない（権限だけの）暗号化なら、空のパスワードで開ける
+            # （Acrobat や Office で権限を制限した PDF はふつう AES。復号に cryptography を使う）
             try:
                 opened = reader.decrypt("")
-            except Exception as e:  # noqa: BLE001 暗号の方式によって例外がまちまち
-                raise ExtractError(f"パスワード付きの PDF は読めません: {path.name}") from e
+            except broken as e:
+                raise ExtractError(f"この PDF の暗号は読めません: {path.name}") from e
             if not opened:
                 raise ExtractError(f"パスワード付きの PDF は読めません: {path.name}")
-        pages = [page.extract_text() or "" for page in reader.pages]
+        pages: list[str] = []
+        for i, page in enumerate(reader.pages):
+            # 1ページだけ読めないときは、そのページを飛ばす
+            try:
+                pages.append(page.extract_text() or "")
+            except broken as e:
+                log.warning("failed to read page %d of %s: %s", i + 1, path, e)
     except ExtractError:
         raise
     except OSError as e:
         raise ExtractError(f"資料を読み込めません: {path.name}（{e.strerror or e}）") from e
-    except (PdfReadError, ValueError, KeyError, TypeError) as e:
+    except broken as e:
         log.warning("failed to read %s: %s", path, e)
         raise ExtractError(f"PDF を読めません: {path.name}") from e
     return "\n\n".join(pages)
