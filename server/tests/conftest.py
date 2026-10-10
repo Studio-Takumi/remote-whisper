@@ -27,6 +27,8 @@ def _isolated_home(tmp_path, monkeypatch):
     """テストが本物のデータのルートに書き込まないようにする"""
     home = tmp_path / "home"
     monkeypatch.setenv("REMOTE_WHISPER_HOME", str(home))
+    # テストでは本物の Whisper のモデル（GPU）を使わない
+    monkeypatch.setenv("REMOTE_WHISPER_WHISPER_BACKEND", "fake")
     return home
 
 

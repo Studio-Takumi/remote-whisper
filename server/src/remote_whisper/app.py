@@ -61,7 +61,9 @@ def create_app(
     app.state.ctx = ctx
     if not mock:
         # モデルは録音を始めたときに読み込む（#23）。ここでは子プロセスはまだ作らない
-        ctx.whisper = WhisperWorker(ctx.hub, ctx.settings)
+        # REMOTE_WHISPER_WHISPER_BACKEND=fake で、GPU を使わない偽物にできる（テスト用）
+        backend = os.environ.get("REMOTE_WHISPER_WHISPER_BACKEND", "faster-whisper")
+        ctx.whisper = WhisperWorker(ctx.hub, ctx.settings, backend=backend)
 
     def on_count(n: int) -> None:
         ctx.recordings = n
@@ -69,7 +71,9 @@ def create_app(
     if mock:
         ctx.recorder = MockRecorder(ctx.hub, mock_timing, on_count, ctx.projects, ctx.settings)
     else:
-        ctx.recorder = RecordingManager(ctx.hub, ctx.projects, ctx.settings, on_count)
+        ctx.recorder = RecordingManager(
+            ctx.hub, ctx.projects, ctx.settings, on_count, whisper=ctx.whisper, gpu=ctx.gpu
+        )
 
     @app.get("/api/health")
     def health() -> dict:

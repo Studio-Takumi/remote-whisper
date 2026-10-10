@@ -14,12 +14,15 @@ from typing import Any
 
 from fastapi import WebSocket
 
+from remote_whisper.gpu_queue import GpuQueue, Priority
 from remote_whisper.hub import Hub, send
+from remote_whisper.live_transcriber import LiveTranscriber, load_hotwords
 from remote_whisper.projects import ProjectError, ProjectStore
 from remote_whisper.recording import RecordingError
 from remote_whisper.session_writer import SessionWriter
-from remote_whisper.settings import SettingsStore
+from remote_whisper.settings import Settings, SettingsStore
 from remote_whisper.timeutil import make_id, now
+from remote_whisper.whisper_worker import WhisperWorker
 
 log = logging.getLogger(__name__)
 
@@ -67,6 +70,18 @@ class RecordingSession:
         self.paused = False
         self.wav = WavAppender(writer.files.dir / ".tmp" / self.id / "audio.wav")
         self._expire: asyncio.Task | None = None
+        # 録音中の文字起こし（Whisper がないサーバーではない）
+        self.transcriber: LiveTranscriber | None = None
+        self._finishing: asyncio.Task | None = None
+
+    def start_transcribing(self, whisper: WhisperWorker, gpu: GpuQueue, settings: Settings) -> None:
+        meta = self.writer.meta
+        hotwords = (
+            load_hotwords(self.writer.files.dir, meta.context_set) if meta.use_hotwords else None
+        )
+        self.transcriber = LiveTranscriber(
+            whisper, gpu, settings.whisper, self.send, self.writer.append_final, hotwords
+        )
 
     async def send(self, message: dict[str, Any]) -> None:
         if self.ws is not None:
@@ -97,6 +112,8 @@ class RecordingSession:
                 await self.send({"type": "ack", "seq": self.last_seq})
                 return
             self.last_seq = seq
+            if self.transcriber is not None:
+                self.transcriber.feed(data)
         elif seq == self.last_seq + 1:
             # 一時停止中に届いた分は保存しないが、受け取ったことにする（送り直させない）
             self.last_seq = seq
@@ -140,6 +157,21 @@ class RecordingSession:
         finally:
             # 失敗しても、録音中の数は必ず減らす（設定のロックが外れなくなるため）
             await self.manager.ended(self)
+        if self.transcriber is not None:
+            # 話している途中の区間を final にして、残りの文字起こしは後ろで終わらせる
+            self.transcriber.flush()
+            self._finishing = asyncio.create_task(self._finish_transcribing())
+
+    async def _finish_transcribing(self) -> None:
+        assert self.transcriber is not None
+        await self.transcriber.wait()
+        await self.transcriber.close()
+
+
+def _ignore_failure(future: asyncio.Future) -> None:
+    # 読み込めなかったことは status の whisper（error）で伝わるので、ここでは何もしない
+    if not future.cancelled() and future.exception() is not None:
+        log.warning("failed to load whisper: %s", future.exception())
 
 
 class RecordingManager:
@@ -150,10 +182,15 @@ class RecordingManager:
         settings: SettingsStore,
         on_count: Callable[[int], None] | None = None,
         resume_timeout: float = RESUME_TIMEOUT,
+        whisper: WhisperWorker | None = None,
+        gpu: GpuQueue | None = None,
     ):
         self.hub = hub
         self.projects = projects
         self.settings = settings
+        # Whisper と GPU キューがあれば、録音中に文字起こしする（なければ音声の保存だけ）
+        self.whisper = whisper
+        self.gpu = gpu
         # 録音中のセッションの数が変わったときに呼ぶ（設定のロックに使う）
         self.on_count = on_count or (lambda n: None)
         self.resume_timeout = resume_timeout
@@ -182,6 +219,12 @@ class RecordingManager:
         self.sessions[sid] = session
         await self._count_changed()
         await session.send({"type": "started"})
+        if self.whisper is not None and self.gpu is not None:
+            session.start_transcribing(self.whisper, self.gpu, self.settings.get())
+            # Whisper は録音を始めたときに読み込む（読み込み済みなら何もしない）。spec 6.2
+            # 読み込み中に届いた音声の区間は、キューの後ろで待って、読み込み後に文字起こしする
+            loading = self.gpu.submit(Priority.TRANSCRIBE, self.whisper.ensure_loaded)
+            loading.add_done_callback(_ignore_failure)
         return session
 
     async def resume(self, ws: WebSocket, sid: str) -> RecordingSession:
