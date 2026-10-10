@@ -21,6 +21,7 @@ from remote_whisper.mock import (
 from remote_whisper.ollama import OllamaClient
 from remote_whisper.projects import ProjectStore
 from remote_whisper.recorder import RecordingManager
+from remote_whisper.recovery import Leftovers, find_leftovers, fix_leftovers
 from remote_whisper.routes import fs as fs_routes
 from remote_whisper.routes import mock as mock_routes
 from remote_whisper.routes import options as options_routes
@@ -61,6 +62,17 @@ def create_app(
         if ctx.context_sets is not None:
             # 前に動いていたときに作っている途中だった参考資料セットを failed に直す
             ctx.context_sets.recover()
+        # 前に動いていたサーバーが落ちていたら、録音中のままの文字起こしを interrupted に直し、
+        # 残っている WAV を変換する（変換は時間がかかるので後ろで。spec 6.7）
+        found = find_leftovers(ctx.projects)
+        fix_leftovers(ctx.projects, Leftovers(recording=found.recording, partials=found.partials))
+        if found.wavs:
+            leftover_wavs = Leftovers(wavs=found.wavs)
+            recovering = asyncio.create_task(
+                asyncio.to_thread(fix_leftovers, ctx.projects, leftover_wavs)
+            )
+            background.add(recovering)
+            recovering.add_done_callback(background.discard)
         # 保存期間を過ぎたファイルを、起動時とその後1日1回消す
         janitor.start()
         yield
