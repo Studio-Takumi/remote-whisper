@@ -10,6 +10,9 @@
   # 会話の後ろに、ずっと小さい音量の別の会話を重ねる
   uv run --project server python scripts/make_noise_test_audio.py background \
       --talk D:\\work\\talk.wav --background D:\\work\\other.wav --db -25 --out D:\\work\\bg.wav
+  # 離れた場所の小さい声: ずっと鳴っている雑音の中に、小さい声の会話を置く（#88）
+  uv run --project server python scripts/make_noise_test_audio.py faint \
+      --talk D:\\work\\other.wav --voice-db -50 --floor-db -63 --out D:\\work\\faint.wav
 """
 
 import argparse
@@ -97,6 +100,15 @@ def make_background(args: argparse.Namespace) -> None:
     write(args.out, out)
 
 
+def make_faint(args: argparse.Namespace) -> None:
+    talk = at_dbfs(read(args.talk), args.voice_db)
+    # 雑音だけの区間（ハルシネーションが出ないか）→ 小さい声 → 雑音だけ → 小さい声
+    gap = silence(15)
+    out = np.concatenate([gap, talk, gap, talk, silence(3)])
+    out += pink_noise(len(out) / RATE, args.floor_db, np.random.default_rng(0))[: len(out)]
+    write(args.out, out)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawTextHelpFormatter
@@ -115,8 +127,13 @@ def main() -> None:
     b.add_argument("--db", type=float, default=-25, help="前の声と比べた小さい声の大きさ（dB）")
     b.add_argument("--floor-db", type=float, help="ずっと鳴っている雑音の大きさ（dBFS）")
     b.add_argument("--out", type=Path, required=True)
+    f = sub.add_parser("faint", help="雑音の中に小さい声の会話を置く")
+    f.add_argument("--talk", type=Path, required=True)
+    f.add_argument("--voice-db", type=float, default=-50, help="声の大きさ（dBFS、RMS）")
+    f.add_argument("--floor-db", type=float, default=-63, help="雑音の大きさ（dBFS）")
+    f.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
-    {"silence": make_silence, "background": make_background}[args.kind](args)
+    {"silence": make_silence, "background": make_background, "faint": make_faint}[args.kind](args)
 
 
 if __name__ == "__main__":
