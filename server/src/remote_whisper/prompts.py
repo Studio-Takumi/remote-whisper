@@ -88,6 +88,32 @@ def reduce_summary_messages(parts: list[str], context: str | None) -> list[dict[
     return [{"role": "system", "content": SUMMARY_SYSTEM}, {"role": "user", "content": user}]
 
 
+MATERIALS_SYSTEM = (
+    "あなたは会議の準備を手伝う係です。会議の参考資料を読んで、文字起こしと要約に役立つ情報を"
+    "取り出します。資料にないことは書かないでください。"
+)
+
+
+def hotwords_messages(materials: str) -> list[dict[str, str]]:
+    """参考資料から、音声認識（Whisper）に渡す用語リストを作る"""
+    user = (
+        f"## 参考資料\n{materials}\n\n"
+        "この会議で話されそうな固有名詞・専門用語・略語を、重要なものから順に、"
+        "1行に1語だけ書いてください。説明や番号、記号は付けないでください。最大40語。"
+    )
+    return [{"role": "system", "content": MATERIALS_SYSTEM}, {"role": "user", "content": user}]
+
+
+def context_messages(materials: str) -> list[dict[str, str]]:
+    """参考資料から、要約（Ollama）に渡すコンテキストを作る"""
+    user = (
+        f"## 参考資料\n{materials}\n\n"
+        "この会議の背景（目的・関係する人や組織・用語の意味・これまでの経緯）を、"
+        "要約を書く人が読む前提で、日本語の Markdown で簡潔にまとめてください。"
+    )
+    return [{"role": "system", "content": MATERIALS_SYSTEM}, {"role": "user", "content": user}]
+
+
 def title_messages(summary: str) -> list[dict[str, str]]:
     return [
         {"role": "system", "content": TITLE_SYSTEM},

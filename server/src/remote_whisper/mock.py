@@ -12,7 +12,7 @@ from typing import Any
 from fastapi import WebSocket
 
 from remote_whisper.hub import Hub, send
-from remote_whisper.ollama import ollama_error
+from remote_whisper.ollama import OllamaUnavailable, ollama_error
 from remote_whisper.projects import ProjectError, ProjectStore
 from remote_whisper.recording import RecordingError
 from remote_whisper.session_writer import SessionWriter
@@ -61,6 +61,7 @@ class MockTiming:
     live_summary: float = 20.0
     stream: float = 0.04
     resume_timeout: float = 60.0
+    context_set: float = 4.0
 
 
 def fmt_time(sec: float) -> str:
@@ -287,6 +288,32 @@ MOCK_OLLAMA_MODELS = [
 
 def mock_thinking(model: str) -> bool:
     return any(m["name"] == model and m["thinking"] for m in MOCK_OLLAMA_MODELS)
+
+
+MOCK_HOTWORDS = ["リリース計画", "ステージング環境", "負荷試験", "リリースノート"]
+MOCK_CONTEXT = """## 背景（モック）
+- 新機能のリリース計画を決める打ち合わせ
+- ステージング環境での確認と負荷試験が残っている
+"""
+
+
+class MockContextGenerator:
+    """参考資料セットの作成（#30）のダミー。しばらく待って、決まった用語リストとコンテキストを返す"""
+
+    def __init__(self, hub: Hub, settings: SettingsStore, timing: MockTiming | None = None):
+        self.hub = hub
+        self.settings = settings
+        self.timing = timing or MockTiming()
+
+    def describe(self) -> tuple[str, bool]:
+        model = self.settings.get().ollama.context_model
+        return model, mock_thinking(model)
+
+    async def generate(self, materials: str) -> tuple[list[str], str]:
+        await asyncio.sleep(self.timing.context_set)
+        if self.hub.status.ollama != "ready":
+            raise OllamaUnavailable("Ollama に接続できません（モック）")
+        return list(MOCK_HOTWORDS), MOCK_CONTEXT
 
 
 class MockFinalSummarizer:
