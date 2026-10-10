@@ -2,9 +2,11 @@ import os
 import sys
 
 import pytest
+from fake_ollama import FakeOllama
 from fastapi.testclient import TestClient
 
 from remote_whisper.app import create_app
+from remote_whisper.ollama import OllamaClient
 
 
 def _make_dir_link(link, target):
@@ -30,6 +32,18 @@ def _isolated_home(tmp_path, monkeypatch):
     # テストでは本物の Whisper のモデル（GPU）を使わない
     monkeypatch.setenv("REMOTE_WHISPER_WHISPER_BACKEND", "fake")
     return home
+
+
+@pytest.fixture(autouse=True)
+def fake_ollama(monkeypatch):
+    """テストでは本物の Ollama につながない。アプリの OllamaClient は偽の Ollama とやりとりする"""
+    fake = FakeOllama()
+
+    def client(*args, **kwargs):
+        return OllamaClient(*args, transport=fake.transport(), **kwargs)
+
+    monkeypatch.setattr("remote_whisper.app.OllamaClient", client)
+    return fake
 
 
 @pytest.fixture

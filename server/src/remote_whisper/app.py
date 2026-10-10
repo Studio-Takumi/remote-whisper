@@ -1,5 +1,6 @@
 """FastAPI のアプリ"""
 
+import asyncio
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -9,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from remote_whisper.context import AppContext
 from remote_whisper.mock import MockRecorder, MockTiming
+from remote_whisper.ollama import OllamaClient
 from remote_whisper.projects import ProjectStore
 from remote_whisper.recorder import RecordingManager
 from remote_whisper.routes import fs as fs_routes
@@ -45,6 +47,9 @@ def create_app(
         if ctx.whisper is not None:
             # Whisper の子プロセスが落ちていないか、使わなくなっていないかを見張る
             ctx.whisper.start_watchdog()
+        if ctx.ollama is not None:
+            # Ollama につながるかを見張る（status の ollama）
+            ctx.ollama.start_monitor()
         yield
         # 止めるときは、録音中の WAV を閉じて録音を終えたあとの処理を止め、GPU のジョブキューを止め
         # （待っているジョブは cancel）、Whisper を下ろす。録音の側を先に止めるのは、止めたキューに
@@ -54,20 +59,30 @@ def create_app(
         await ctx.gpu.stop()
         if ctx.whisper is not None:
             await ctx.whisper.close()
+        if ctx.ollama is not None:
+            await ctx.ollama.close()
 
     app = FastAPI(title="remote-whisper", lifespan=lifespan)
     ctx = AppContext(
         home=home, settings=SettingsStore(home), projects=ProjectStore(home), mock=mock
     )
     app.state.ctx = ctx
+    # 結果を待たないタスク（途中で回収されないように持っておく）
+    background: set[asyncio.Task] = set()
     if not mock:
         # モデルは録音を始めたときに読み込む（#23）。ここでは子プロセスはまだ作らない
         # REMOTE_WHISPER_WHISPER_BACKEND=fake で、GPU を使わない偽物にできる（テスト用）
         backend = os.environ.get("REMOTE_WHISPER_WHISPER_BACKEND", "faster-whisper")
         ctx.whisper = WhisperWorker(ctx.hub, ctx.settings, backend=backend)
+        ctx.ollama = OllamaClient(ctx.hub, ctx.settings, recording=lambda: ctx.is_recording)
 
     def on_count(n: int) -> None:
         ctx.recordings = n
+        if n == 0 and ctx.ollama is not None:
+            # 録音中は下ろさないようにしていた Ollama のモデルを、keepAliveMin 分で下ろすように戻す
+            task = asyncio.create_task(ctx.ollama.recording_ended())
+            background.add(task)
+            task.add_done_callback(background.discard)
 
     if mock:
         ctx.recorder = MockRecorder(ctx.hub, mock_timing, on_count, ctx.projects, ctx.settings)
