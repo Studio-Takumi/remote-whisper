@@ -15,6 +15,8 @@ class FakeOllama:
         }
         # /api/chat が返す本文（少しずつ返す）
         self.reply = ["要約", "です"]
+        # format（JSON Schema）付きの /api/chat には、このタイトルを JSON で返す
+        self.title = "リリース計画の確認"
         self.requests: list[tuple[str, dict]] = []
 
     def transport(self) -> httpx.MockTransport:
@@ -42,9 +44,14 @@ class FakeOllama:
         if path == "/api/chat":
             if body["model"] not in self.models:
                 return httpx.Response(404, json={"error": f"model '{body['model']}' not found"})
+            reply = (
+                [json.dumps({"title": self.title}, ensure_ascii=False)]
+                if body.get("format")
+                else self.reply
+            )
             lines = [
                 json.dumps({"message": {"role": "assistant", "content": part}, "done": False})
-                for part in self.reply
+                for part in reply
             ]
             lines.append(
                 json.dumps({"message": {"role": "assistant", "content": ""}, "done": True})
