@@ -196,7 +196,7 @@ def _drop_hallucinations(result: list[dict], segment: Segment, kind: str) -> lis
     """話していないのに出てきた文を捨てる。捨てたものはログに残す（#81）"""
     kept = []
     for r in result:
-        reason = drop_reason(r)
+        reason = drop_reason(r, segment.voiced_sec)
         if reason is None:
             kept.append(r)
             continue

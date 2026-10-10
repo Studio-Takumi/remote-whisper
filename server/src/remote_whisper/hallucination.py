@@ -18,6 +18,10 @@ MAX_COMPRESSION_RATIO = 2.4
 # 定番の文は、これより自信がなければ捨てる
 PHRASE_NO_SPEECH_PROB = 0.3
 PHRASE_LOGPROB = -0.6
+# 区間の中で VAD が話しているとみなした長さがこれより短いのに定番の文が出たら、
+# 自信が高くても捨てる。音を持ち上げると、声の切れ端から自信の高い定番の文が
+# 出ることがあるため（#88）。本当に「ありがとうございました」と言えば 1 秒前後かかる
+PHRASE_MIN_VOICED_SEC = 0.6
 
 # 無音・雑音から作られやすい定番の文（動画の字幕で学習したことによるもの）
 PHRASES = (
@@ -52,8 +56,11 @@ def _is_phrase(text: str) -> bool:
     return len(rest) <= 3 and len(rest) < len(t)
 
 
-def drop_reason(segment: dict[str, Any]) -> str | None:
-    """捨てるなら理由を返す。残すなら None"""
+def drop_reason(segment: dict[str, Any], voiced_sec: float | None = None) -> str | None:
+    """捨てるなら理由を返す。残すなら None
+
+    voiced_sec は、その文が出た区間で VAD が話しているとみなした長さ（分からなければ None）
+    """
     ns = segment.get("no_speech_prob", 0.0)
     lp = segment.get("avg_logprob", 0.0)
     cr = segment.get("compression_ratio", 0.0)
@@ -63,6 +70,9 @@ def drop_reason(segment: dict[str, Any]) -> str | None:
         return "no_speech"
     if cr > MAX_COMPRESSION_RATIO:
         return "repetition"
-    if _is_phrase(segment["text"]) and (ns >= PHRASE_NO_SPEECH_PROB or lp <= PHRASE_LOGPROB):
-        return "phrase"
+    if _is_phrase(segment["text"]):
+        if ns >= PHRASE_NO_SPEECH_PROB or lp <= PHRASE_LOGPROB:
+            return "phrase"
+        if voiced_sec is not None and voiced_sec < PHRASE_MIN_VOICED_SEC:
+            return "short_phrase"
     return None

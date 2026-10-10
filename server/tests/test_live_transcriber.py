@@ -213,6 +213,26 @@ def test_auto_skips_whisper_vad_and_manual_keeps_it():
     assert run(main()) == [{False}, {True}]
 
 
+def test_auto_drops_a_phrase_from_a_short_burst():
+    # 声の切れ端（VAD が話しているとみなしたのは 0.2 秒ほど）から出た定番の文は、
+    # 自信が高くても捨てる
+    async def main():
+        h = Harness(speech_threshold="auto", partial_interval_sec=10)
+
+        async def transcribe(pcm, **options):
+            text = "ご視聴ありがとうございました" if len(pcm) < 32000 else "本当の発言"
+            return [{"start": 0.0, "end": 1.0, "text": text, "avg_logprob": -0.2}]
+
+        h.whisper.transcribe = transcribe
+        h.live.feed(tone(0.2) + silence(2.5) + tone(2.0) + silence(2.5))
+        h.live.flush()
+        await h.close()
+        return h
+
+    h = run(main())
+    assert [m["text"] for m in h.of_type("final")] == ["本当の発言"]
+
+
 def test_append_failure_is_reported_but_final_is_sent():
     async def main():
         h = Harness(partial_interval_sec=10)

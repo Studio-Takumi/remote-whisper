@@ -56,6 +56,18 @@ def test_a_phrase_may_have_up_to_three_other_characters():
     assert drop_reason(seg("皆さま本当にありがとうございました", lp=-0.7)) is None
 
 
+def test_drops_a_confident_phrase_from_a_short_burst():
+    # 持ち上げた声の切れ端から出た定番の文は、自信が高くても捨てる（#88）
+    confident = seg("ご視聴ありがとうございました", ns=0.0, lp=-0.2)
+    assert drop_reason(confident, voiced_sec=0.2) == "short_phrase"
+    # 本当に言ったなら 1 秒前後は話している
+    assert drop_reason(confident, voiced_sec=1.2) is None
+    # 長さが分からない（音量で切り出した）ときは今までどおり
+    assert drop_reason(confident) is None
+    # 定番の文でなければ、短くても残す
+    assert drop_reason(seg("はい", ns=0.0, lp=-0.2), voiced_sec=0.2) is None
+
+
 def test_keeps_empty_text_and_missing_scores():
     assert drop_reason(seg("、。")) is None
     # fake のバックエンドなど、信頼度がないときは残す
