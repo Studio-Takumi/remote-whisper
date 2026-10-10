@@ -90,6 +90,10 @@ def make_background(args: argparse.Namespace) -> None:
     start = len(talk) + len(background)
     out[start : start + len(talk)] += talk
     out[start : start + min(len(background), len(talk))] += background[: len(talk)]
+    if args.floor_db is not None:
+        # 部屋の雑音のように、ずっと小さく鳴っている雑音を足す
+        out += pink_noise(len(out) / RATE, args.floor_db, np.random.default_rng(0))[: len(out)]
+    print(f"前の声: {20 * np.log10(loud):.1f} dBFS（RMS）")
     write(args.out, out)
 
 
@@ -108,7 +112,8 @@ def main() -> None:
     b = sub.add_parser("background", help="会話の後ろに小さい声の会話を重ねる")
     b.add_argument("--talk", type=Path, required=True)
     b.add_argument("--background", type=Path, required=True)
-    b.add_argument("--db", type=float, default=-25)
+    b.add_argument("--db", type=float, default=-25, help="前の声と比べた小さい声の大きさ（dB）")
+    b.add_argument("--floor-db", type=float, help="ずっと鳴っている雑音の大きさ（dBFS）")
     b.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
     {"silence": make_silence, "background": make_background}[args.kind](args)
