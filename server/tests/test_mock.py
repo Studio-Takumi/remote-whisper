@@ -317,7 +317,11 @@ def test_options(mock_client, client):
     assert {m["thinking"] for m in models} == {True, False}
     body = client.get("/api/settings/options").json()
     assert "large-v3-turbo" in body["whisper"]["models"]
-    assert body["ollama"]["models"] == []
+    # モックでなければ、Ollama（テストでは偽物）のモデルの一覧
+    assert body["ollama"]["models"] == [
+        {"name": "llama3.2:latest", "thinking": False},
+        {"name": "qwen3.5:4b", "thinking": True},
+    ]
 
 
 def test_without_mock_there_is_no_mock_api(client):
