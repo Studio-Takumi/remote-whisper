@@ -8,6 +8,7 @@ import { Transcript } from '@/components/Transcript';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { isScrolledToBottom, scrollToBottom } from '@/scroll';
 import { summaryStatus, transcriptStatus } from '@/status';
 import { currentProject, currentSession, useAppStore, visibleProjects } from '@/store';
 import type { Generating, Session, Summary } from '@/types';
@@ -25,7 +26,7 @@ export function SessionView() {
     const partial = useAppStore((s) => s.partial);
     const liveDraft = useAppStore((s) => s.liveDraft);
     const recordingSessionId = useAppStore((s) => s.recordingSessionId);
-    const { tab, changeTab } = useTabScroll(session?.id);
+    const { tab, changeTab, followTranscript } = useTabScroll(session?.id);
 
     if (!project) {
         return <EmptyState hasProjects={hasProjects} />;
@@ -79,6 +80,7 @@ export function SessionView() {
                         <Transcript
                             lines={session.transcript}
                             partial={partial?.sessionId === session.id ? partial : null}
+                            follow={followTranscript}
                         />
                     )}
                     {!session && recordingState === 'idle' && (
@@ -111,35 +113,45 @@ export function SessionView() {
 
 type Tab = 'transcript' | 'summary';
 
+type TabScroll = { top: number; atBottom: boolean };
+
 // タブごとのスクロール位置を覚えておき、切り替えたら戻す（#78）。ページ全体がスクロールするので window の位置を使う
+// 一番下にいたタブは、離れている間に伸びていても一番下に戻す（録音中の文字起こしを追い続けるため）
 // セッションを替えたら覚えた位置は捨てる（タブはそのまま）
 function useTabScroll(sessionId: string | undefined) {
-    const [tab, setTab] = useState<Tab>('transcript');
-    const positions = useRef<{ sessionId: string | undefined; scroll: Partial<Record<Tab, number>> }>({
-        sessionId,
-        scroll: {},
-    });
-    const restore = useRef<number | null>(null);
+    const [state, setState] = useState<{
+        tab: Tab;
+        sessionId: string | undefined;
+        saved: Partial<Record<Tab, TabScroll>>;
+    }>({ tab: 'transcript', sessionId, saved: {} });
+    const restore = useRef<TabScroll | null>(null);
 
     const changeTab = (value: string) => {
         const next = value as Tab;
-        if (positions.current.sessionId !== sessionId) {
-            positions.current = { sessionId, scroll: {} };
-        }
-        positions.current.scroll[tab] = window.scrollY;
-        restore.current = positions.current.scroll[next] ?? 0;
-        setTab(next);
+        const saved = {
+            ...(state.sessionId === sessionId ? state.saved : {}),
+            [state.tab]: { top: window.scrollY, atBottom: isScrolledToBottom() },
+        };
+        restore.current = saved[next] ?? { top: 0, atBottom: false };
+        setState({ tab: next, sessionId, saved });
     };
 
     // 描き替えた後、画面に出る前に戻す
     useLayoutEffect(() => {
         if (restore.current !== null) {
-            window.scrollTo({ top: restore.current });
+            if (restore.current.atBottom) {
+                scrollToBottom();
+            } else {
+                window.scrollTo({ top: restore.current.top });
+            }
             restore.current = null;
         }
-    }, [tab]);
+    }, [state.tab]);
 
-    return { tab, changeTab };
+    const transcript = state.sessionId === sessionId ? state.saved.transcript : undefined;
+    // 文字起こしを出し直したとき、下を追うかどうか。初めて出すときは追う
+    const followTranscript = transcript?.atBottom ?? true;
+    return { tab: state.tab, changeTab, followTranscript };
 }
 
 // 最終の要約。既定は、今選んでいるモデルの要約のうちいちばん新しいもの。なければモデルを問わずいちばん新しいもの。
