@@ -3,10 +3,12 @@
 録音を終えたあと、GPU キュー（優先度 3）から呼ばれる。
 
 1. ほかに録音中のセッションがなければ、Whisper を VRAM から下ろす（spec 6.3）
-2. 文字起こし全体が num_ctx に収まれば一度に、収まらなければ部分ごとに要約してまとめる
-   （map-reduce）。思考モードはオン（モデルが対応していれば）。
-   まとめの段だけ `summary.delta`（final）で送る
-3. タイトルを別のリクエストで作る（JSON Schema で15文字以内）
+2. 文字起こし全体が num_ctx に収まれば一度に要約する。収まらなければ部分ごとに要約し、
+   「全体の概要」（部分ごとの要約を凝縮したもの）のあとに、部分ごとの要約を時間の順に
+   そのまま並べる（#92。長い録音ほど要約が凝縮されすぎないように）。
+   思考モードはオン（モデルが対応していれば）。部分ごとの要約を作っている間は送らず、
+   概要を `summary.delta`（final）で流してから、部分ごとの要約を続けて送る
+3. タイトルを別のリクエストで作る（JSON Schema で15文字以内）。長いときは概要から作る
 4. `summary-<ID>-<生成 ID>.md` に保存して途中の要約を消し、選んだディレクトリにコピーを置く
 5. `title`（provisional: false）を送る（ブラウザは保存されたものを取り直す）
 
@@ -14,7 +16,8 @@ Ollama につながらなければ ollama_unavailable を送り、途中の要�
 """
 
 import logging
-from collections.abc import Awaitable, Callable
+import re
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 from remote_whisper.documents import parse
@@ -24,6 +27,7 @@ from remote_whisper.prompts import (
     TITLE_MAX,
     final_summary_messages,
     make_title,
+    overview_messages,
     part_summary_messages,
     reduce_summary_messages,
 )
@@ -34,10 +38,19 @@ from remote_whisper.timeutil import now
 log = logging.getLogger(__name__)
 
 # Ollama に渡すコンテキストの長さ（トークン）。Ollama の既定は小さいので、明示する
-NUM_CTX = 8192
-# 一度に渡す文字起こしの長さ（文字）。日本語は1文字がおよそ1トークンなので、
-# 指示・コンテキスト・出力（思考を含む）の分を残して、num_ctx の半分ほどにする
+# 思考は5千トークンを超えることがあり、8192 では本文が途中で切れていた（#92 で測った。
+# qwen3.5:4b で 3600 文字の文字起こしが 2700 トークン、思考と本文で 5500 トークン）
+NUM_CTX = 16384
+# 一度に渡す文字起こしの長さ（文字）。部分ごとの要約の濃さはこの長さで決まる。
+# 指示・コンテキスト・前の部分の要約・出力（思考を含む）の分を十分に残す
 CHUNK_CHARS = 4000
+# 次の部分に参考として渡す、前の部分の要約の長さ（文字。後ろから）
+PREVIOUS_CHARS = 1000
+OVERVIEW_HEADING = "全体の概要"
+EMPTY_PART = "（この部分は要約できませんでした）"
+
+_TIME = re.compile(r"^\[(\d{2}:\d{2}:\d{2})\]")
+_HEADING = re.compile(r"^(#{1,6})(?=\s)")
 
 
 def split_lines(lines: list[str], limit: int | None = None) -> list[list[str]]:
@@ -55,6 +68,36 @@ def split_lines(lines: list[str], limit: int | None = None) -> list[list[str]]:
     if current:
         chunks.append(current)
     return chunks
+
+
+def demote(line: str) -> str:
+    """見出しを、部分の見出し（##）より下の段（### 以下）にする"""
+    return _HEADING.sub(lambda m: "#" * min(max(len(m.group(1)) + 1, 3), 6), line)
+
+
+def section_heading(chunks: list[list[str]], index: int) -> str:
+    """部分の見出し。文字起こしの時刻の範囲（取れなければ「部分 n」）"""
+    start = _TIME.match(chunks[index][0])
+    if index + 1 < len(chunks):
+        end = _TIME.match(chunks[index + 1][0])
+    else:
+        end = _TIME.match(chunks[index][-1])
+    if start and end:
+        return f"## {start.group(1)}〜{end.group(1)}"
+    return f"## 部分 {index + 1}"
+
+
+async def demote_lines(stream: AsyncIterator[str]) -> AsyncIterator[str]:
+    """流れてくる本文を行ごとにまとめ、見出しを1段下げて返す"""
+    buffer = ""
+    async for part in stream:
+        buffer += part
+        if "\n" not in buffer:
+            continue
+        done, buffer = buffer.rsplit("\n", 1)
+        yield "\n".join(demote(line) for line in done.split("\n")) + "\n"
+    if buffer:
+        yield demote(buffer)
 
 
 def _mark_failed(writer: SessionWriter, failed: bool) -> None:
@@ -144,8 +187,8 @@ class FinalSummarizer:
         )
         try:
             think = await self.ollama.supports_thinking(model)
-            text = await self._summarize(model, lines, context, send)
-            if not text:
+            text, gist = await self._summarize(model, lines, context, send)
+            if not gist:
                 raise OllamaUnavailable("要約が空でした")
         except OllamaUnavailable as e:
             log.warning("final summary of %s failed: %s", writer.id, e)
@@ -156,12 +199,12 @@ class FinalSummarizer:
         await send({"type": "summary.done", "kind": "final"})
 
         try:
-            title = await make_title(self.ollama, model, text)
+            title = await make_title(self.ollama, model, gist)
         except OllamaUnavailable as e:
             log.warning("title of %s failed: %s", writer.id, e)
             title = None
         # 作れなければ、仮のタイトルか要約の最初の行を使う
-        title = title or writer.meta.title or fallback_title(text)
+        title = title or writer.meta.title or fallback_title(gist)
         try:
             if title:
                 writer.set_title(title)
@@ -192,42 +235,85 @@ class FinalSummarizer:
         lines: list[str],
         context: str | None,
         send: Callable[[dict[str, Any]], Awaitable[None]],
-    ) -> str:
+    ) -> tuple[str, str]:
+        """要約の本文と、タイトルを作る元（長いときは全体の概要）を返す。どちらも空なら作れなかった"""
         options = {"num_ctx": NUM_CTX}
         chunks = split_lines(lines)
         if len(chunks) == 1:
-            messages = final_summary_messages(lines, context)
-        else:
-            # map: 部分ごとに要約する（送らない）。reduce: まとめたものを送る
-            parts = []
-            for i, chunk in enumerate(chunks):
-                part = await self.ollama.chat(
-                    model,
-                    part_summary_messages(chunk, i, len(chunks), context),
-                    think=True,
-                    options=options,
-                )
-                parts.append(part.strip())
-            # 部分の要約を合わせてもまだ長ければ、いくつかずつまとめるのを繰り返す
-            while len(parts) > 1 and sum(len(p) for p in parts) > CHUNK_CHARS:
-                groups = split_lines(parts)
-                if len(groups) == len(parts):
-                    # 1つずつにしかならない（どれも長い）なら、これ以上は縮まらないのでまとめに進む
-                    break
-                parts = [
-                    (
-                        await self.ollama.chat(
-                            model,
-                            reduce_summary_messages(group, context),
-                            think=True,
-                            options=options,
-                        )
-                    ).strip()
-                    for group in groups
-                ]
-            messages = reduce_summary_messages(parts, context)
+            stream = self.ollama.chat_stream(
+                model, final_summary_messages(lines, context), think=True, options=options
+            )
+            text = (await self._send_stream(stream, send)).strip()
+            return text, text
+
+        # 部分ごとに要約する（送らない）。これがそのまま「詳細」になる
+        parts: list[str] = []
+        for i, chunk in enumerate(chunks):
+            previous = parts[-1][-PREVIOUS_CHARS:] if parts else None
+            part = await self.ollama.chat(
+                model,
+                part_summary_messages(chunk, i, len(chunks), context, previous),
+                think=True,
+                options=options,
+            )
+            if not part.strip():
+                # その時間帯が見出しだけになって、黙って抜けないようにする
+                log.warning("part %d/%d of the final summary was empty", i + 1, len(chunks))
+                part = EMPTY_PART
+            parts.append(part.strip())
+        # 概要の材料。部分の要約を合わせてまだ長ければ、いくつかずつまとめるのを繰り返す
+        digest = parts
+        while len(digest) > 1 and sum(len(p) for p in digest) > CHUNK_CHARS:
+            groups = split_lines(digest)
+            if len(groups) == len(digest):
+                # 1つずつにしかならない（どれも長い）なら、これ以上は縮まらないので概要に進む
+                break
+            digest = [
+                (
+                    await self.ollama.chat(
+                        model,
+                        reduce_summary_messages(group, context),
+                        think=True,
+                        options=options,
+                    )
+                ).strip()
+                for group in groups
+            ]
+        # 全体の概要を流してから、部分ごとの要約を時間の順に続ける
+        head = f"## {OVERVIEW_HEADING}\n\n"
+        stream = self.ollama.chat_stream(
+            model, overview_messages(digest, context), think=True, options=options
+        )
+        gist = (await self._send_stream(demote_lines(stream), send, head)).strip()
+        if not gist:
+            return "", ""
+        text = head + gist
+        for i, part in enumerate(parts):
+            body = "\n".join(demote(line) for line in part.split("\n"))
+            section = f"\n\n{section_heading(chunks, i)}\n\n{body}"
+            text += section
+            await send({"type": "summary.delta", "kind": "final", "text": section})
+        return text, gist
+
+    async def _send_stream(
+        self,
+        stream: AsyncIterator[str],
+        send: Callable[[dict[str, Any]], Awaitable[None]],
+        prefix: str = "",
+    ) -> str:
+        """流れてくる本文を `summary.delta`（final）で送り、つなげて返す
+
+        prefix は空白でない本文が来たときに、それと一緒に送る（来なければ送らない）。
+        返す本文には含めない
+        """
         out: list[str] = []
-        async for part in self.ollama.chat_stream(model, messages, think=True, options=options):
+        pending = prefix
+        async for part in stream:
             out.append(part)
+            if pending:
+                if not part.strip():
+                    pending += part
+                    continue
+                part, pending = pending + part, ""
             await send({"type": "summary.delta", "kind": "final", "text": part})
-        return "".join(out).strip()
+        return "".join(out)

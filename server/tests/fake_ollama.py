@@ -20,6 +20,8 @@ class FakeOllama:
         # True なら、思考オンの /api/chat は本文を返さない
         # （思考が長すぎて本文まで届かなかったときのまね）
         self.empty_when_thinking = False
+        # 最後の1行の done_reason（"length" は num_ctx を使い切って切れたとき）
+        self.done_reason = "stop"
         self.requests: list[tuple[str, dict]] = []
 
     def transport(self) -> httpx.MockTransport:
@@ -59,7 +61,13 @@ class FakeOllama:
                 for part in reply
             ]
             lines.append(
-                json.dumps({"message": {"role": "assistant", "content": ""}, "done": True})
+                json.dumps(
+                    {
+                        "message": {"role": "assistant", "content": ""},
+                        "done": True,
+                        "done_reason": self.done_reason,
+                    }
+                )
             )
             return httpx.Response(200, content="\n".join(lines) + "\n")
         return httpx.Response(404)

@@ -76,6 +76,15 @@ def test_chat_streams_the_reply(ollama, fake):
     assert body["keep_alive"] == "600s"
 
 
+def test_reply_cut_off_at_num_ctx_is_logged(ollama, fake, caplog):
+    assert run(ollama.chat("qwen3.5:4b", [])) == "要約です"
+    assert "cut off" not in caplog.text
+    fake.done_reason = "length"
+    # 切れたところまでは返す
+    assert run(ollama.chat("qwen3.5:4b", [])) == "要約です"
+    assert "cut off at num_ctx" in caplog.text
+
+
 def test_thinking_is_off_for_models_without_it(ollama, fake):
     assert run(ollama.chat("llama3.2:latest", [], think=True)) == "要約です"
     assert fake.bodies("/api/chat")[0]["think"] is False
