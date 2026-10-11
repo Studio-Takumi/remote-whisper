@@ -3,6 +3,9 @@
 // AudioWorklet の本体は public/ に置き、ビルドでもそのままの名前で配信する（data URL に埋め込まれないように）
 const workletUrl = `${import.meta.env.BASE_URL}pcm-worklet.js`;
 
+// worklet が出す PCM のサンプリング周波数（pcm-worklet.js の TARGET_RATE と同じ）
+export const SAMPLE_RATE = 16000;
+
 export type PcmHandler = (pcm: Int16Array, level: number) => void;
 
 // マイクが使えないときのエラー。denied はユーザーかブラウザが許可しなかったもの
