@@ -16,7 +16,6 @@ Ollama につながらなければ ollama_unavailable を送り、途中の要�
 """
 
 import logging
-import re
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
@@ -33,58 +32,20 @@ from remote_whisper.prompts import (
 )
 from remote_whisper.session_writer import SessionWriter
 from remote_whisper.settings import SettingsStore
+from remote_whisper.summary_parts import (
+    CHUNK_CHARS,
+    NUM_CTX,
+    PREVIOUS_CHARS,
+    demote,
+    section_heading,
+    split_lines,
+)
 from remote_whisper.timeutil import now
 
 log = logging.getLogger(__name__)
 
-# Ollama に渡すコンテキストの長さ（トークン）。Ollama の既定は小さいので、明示する
-# 思考は5千トークンを超えることがあり、8192 では本文が途中で切れていた（#92 で測った。
-# qwen3.5:4b で 3600 文字の文字起こしが 2700 トークン、思考と本文で 5500 トークン）
-NUM_CTX = 16384
-# 一度に渡す文字起こしの長さ（文字）。部分ごとの要約の濃さはこの長さで決まる。
-# 指示・コンテキスト・前の部分の要約・出力（思考を含む）の分を十分に残す
-CHUNK_CHARS = 4000
-# 次の部分に参考として渡す、前の部分の要約の長さ（文字。後ろから）
-PREVIOUS_CHARS = 1000
 OVERVIEW_HEADING = "全体の概要"
 EMPTY_PART = "（この部分は要約できませんでした）"
-
-_TIME = re.compile(r"^\[(\d{2}:\d{2}:\d{2})\]")
-_HEADING = re.compile(r"^(#{1,6})(?=\s)")
-
-
-def split_lines(lines: list[str], limit: int | None = None) -> list[list[str]]:
-    """行の区切りで、1つあたり limit 文字ほどに分ける（1行が長すぎるときはその行だけで1つ）"""
-    limit = CHUNK_CHARS if limit is None else limit
-    chunks: list[list[str]] = []
-    current: list[str] = []
-    size = 0
-    for line in lines:
-        if current and size + len(line) > limit:
-            chunks.append(current)
-            current, size = [], 0
-        current.append(line)
-        size += len(line) + 1
-    if current:
-        chunks.append(current)
-    return chunks
-
-
-def demote(line: str) -> str:
-    """見出しを、部分の見出し（##）より下の段（### 以下）にする"""
-    return _HEADING.sub(lambda m: "#" * min(max(len(m.group(1)) + 1, 3), 6), line)
-
-
-def section_heading(chunks: list[list[str]], index: int) -> str:
-    """部分の見出し。文字起こしの時刻の範囲（取れなければ「部分 n」）"""
-    start = _TIME.match(chunks[index][0])
-    if index + 1 < len(chunks):
-        end = _TIME.match(chunks[index + 1][0])
-    else:
-        end = _TIME.match(chunks[index][-1])
-    if start and end:
-        return f"## {start.group(1)}〜{end.group(1)}"
-    return f"## 部分 {index + 1}"
 
 
 async def demote_lines(stream: AsyncIterator[str]) -> AsyncIterator[str]:
@@ -238,7 +199,7 @@ class FinalSummarizer:
     ) -> tuple[str, str]:
         """要約の本文と、タイトルを作る元（長いときは全体の概要）を返す。どちらも空なら作れなかった"""
         options = {"num_ctx": NUM_CTX}
-        chunks = split_lines(lines)
+        chunks = split_lines(lines, CHUNK_CHARS)
         if len(chunks) == 1:
             stream = self.ollama.chat_stream(
                 model, final_summary_messages(lines, context), think=True, options=options
@@ -264,7 +225,7 @@ class FinalSummarizer:
         # 概要の材料。部分の要約を合わせてまだ長ければ、いくつかずつまとめるのを繰り返す
         digest = parts
         while len(digest) > 1 and sum(len(p) for p in digest) > CHUNK_CHARS:
-            groups = split_lines(digest)
+            groups = split_lines(digest, CHUNK_CHARS)
             if len(groups) == len(digest):
                 # 1つずつにしかならない（どれも長い）なら、これ以上は縮まらないので概要に進む
                 break

@@ -45,23 +45,50 @@ def _context_block(context: str | None) -> str:
     return f"## 参考情報（話の背景。要約には書き写さない）\n{context.strip()}\n\n"
 
 
-def live_summary_messages(
-    previous: str | None, new_lines: list[str], context: str | None
+def live_section_messages(
+    lines: list[str],
+    context: str | None,
+    previous: str | None = None,
+    ongoing: bool = False,
 ) -> list[dict[str, str]]:
-    """途中の要約。前回の要約に、前回から増えた文字起こしを反映する（会話履歴には足していかない）
+    """途中の要約（区間ごと）。録音中の文字起こしを前から順に区切った1区間を要約する（#93）
 
-    「これまでの要約」を文字起こしの一部と言い切るのは、system の
-    「文字起こしにないことは書かない」に引っぱられて、前回の要約の中身（決まったことや日付）を
-    削ってしまうのを防ぐため（#79 で測った）
+    最終の要約の部分ごとの要約（part_summary_messages）と同じ言い方にして、濃さを揃える。
+    previous は1つ前の区間の要約。ongoing は、まだ録音が続いている最新の区間か
     """
+    before = (
+        "## 前の区間の要約（つながりの参考。ここに書いてあることは繰り返さない）\n"
+        + f"{previous.strip()}\n\n"
+        if previous
+        else ""
+    )
     user = (
         _context_block(context)
-        + f"## これまでの要約\n{previous.strip() if previous else '（まだありません）'}\n\n"
-        + "## 新しく増えた文字起こし\n"
-        + "\n".join(new_lines)
-        + "\n\n「これまでの要約」は、この前までの文字起こしから作ったもので、文字起こしの一部です。"
-        + "その内容も消さずに残し、新しく増えた文字起こしの内容を反映して、"
-        + "ここまでの話全体の要約を出力してください。"
+        + before
+        + "## 文字起こし（録音中の話を、前から順に区切ったうちの1区間）\n"
+        + "\n".join(lines)
+        + "\n\nこの区間で話された内容を、省かずに話の順にまとめてください。"
+        + "要約はほかの区間の要約と時間の順に並べて読まれます。"
+        + "前の区間から続いている話は、その続きとして書いてください。"
+        + (
+            "この区間はまだ録音が続いていて、話の途中で終わっていることがあります。"
+            if ongoing
+            else ""
+        )
+    )
+    return [{"role": "system", "content": SUMMARY_SYSTEM}, {"role": "user", "content": user}]
+
+
+def live_overview_messages(sections: list[str], context: str | None) -> list[dict[str, str]]:
+    """途中の要約（ここまでの概要）。区間ごとの要約から、ここまでの話を短くまとめる（#93）"""
+    blocks = "\n\n".join(f"### 区間{i + 1}\n{s.strip()}" for i, s in enumerate(sections))
+    user = (
+        _context_block(context)
+        + "## 録音中の話を前から順に区切って作った要約（最後の区間はまだ続いている）\n"
+        + blocks
+        + "\n\nこれらから、ここまでの話の概要を短くまとめてください。"
+        + "見出しは付けず、大事な点を3〜6個ほどの箇条書きにしてください。"
+        + "細かい内容は、このあとに区間ごとの要約をそのまま載せるので省いてかまいません。"
     )
     return [{"role": "system", "content": SUMMARY_SYSTEM}, {"role": "user", "content": user}]
 

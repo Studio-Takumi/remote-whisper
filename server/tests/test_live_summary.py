@@ -3,6 +3,7 @@ import asyncio
 import pytest
 from fake_ollama import FakeOllama
 
+from remote_whisper import live_summary
 from remote_whisper.documents import context_name, dump
 from remote_whisper.gpu_queue import GpuQueue
 from remote_whisper.hub import Hub
@@ -92,28 +93,64 @@ def test_summarizes_new_finals_after_the_interval(home, fake):
         return h, first
 
     h, first = run(main())
-    assert [m["type"] for m in first] == [
-        "summary.delta",
-        "summary.delta",
-        "summary.done",
-        "title",
+    # できあがった全体を一度に送る（読んでいる途中で伸び縮みしないように。#93）
+    assert first == [
+        {"type": "summary.delta", "kind": "live", "text": "要約です"},
+        {"type": "summary.done", "kind": "live"},
+        {"type": "title", "title": "リリース計画の確認", "provisional": True},
     ]
-    assert "".join(m["text"] for m in first if m["type"] == "summary.delta") == "要約です"
-    assert first[2] == {"type": "summary.done", "kind": "live"}
-    assert first[3] == {"type": "title", "title": "リリース計画の確認", "provisional": True}
     assert (h.writer.live_summary, h.writer.title) == ("要約です", "リリース計画の確認")
 
     summaries = [b for b in fake.bodies("/api/chat") if "format" not in b]
     assert len(summaries) == 2
-    # 思考モードはオフ、モデルは liveSummaryModel
+    # 思考モードはオフ、モデルは liveSummaryModel。num_ctx は最終の要約と同じ
     assert all(b["think"] is False and b["model"] == "qwen3.5:4b" for b in summaries)
-    # 2回目は、前回の要約と、前回から増えた文字起こしだけを渡す（会話履歴には足さない）
+    assert all(b["options"]["num_ctx"] == 16384 for b in summaries)
+    # 区間が1つのうちは、その区間の文字起こし全体から作り直す（会話履歴には足さない）
     assert "[00:00:00] 今日はリリース計画を決めます。" in user_prompt(summaries[0])
     second = user_prompt(summaries[1])
-    assert "要約です" in second
+    assert "[00:00:00] 今日はリリース計画を決めます。" in second
     assert "[00:00:05] 負荷試験はまだです。" in second
-    assert "今日はリリース計画を決めます。" not in second
     assert len(summaries[1]["messages"]) == 2
+
+
+def test_closed_sections_are_kept_and_not_rewritten(home, fake, monkeypatch):
+    # 区間が閉じたら、その区間の要約は確定させて書き直さない。前半が縮んでいかないように（#93）
+    monkeypatch.setattr(live_summary, "CHUNK_CHARS", 60)
+
+    async def main():
+        h = Harness(home, fake)
+        sections = iter(["## 前半\n- A", "## 中盤\n- B", "- 後半"])
+        fake.reply_for = lambda body: next(sections) if "format" not in body else None
+        # 2行で 60 文字に近いので、3行目から次の区間になる
+        h.live.add_final(0.0, "一つ目の話題について話します。")
+        h.live.add_final(10.0, "まだ一つ目の話題の続きです。")
+        h.live.add_final(20.0, "二つ目の話題に移ります。")
+        await h.live.run()
+        first = h.writer.live_summary
+        fake.reply_for = lambda body: "- 後半の続き" if "format" not in body else None
+        h.live.add_final(30.0, "二つ目の続きです。")
+        await h.live.run()
+        await h.close()
+        return h, first
+
+    h, first = run(main())
+    # 1回目: 閉じた区間（0〜20秒）を確定し、続いている区間と、ここまでの概要を作る
+    assert first.startswith("## ここまでの概要\n\n")
+    assert "## 00:00:00〜00:00:20\n\n### 前半\n- A" in first
+    assert "## 00:00:20〜\n\n### 中盤\n- B" in first
+    # 2回目: 確定した区間はそのまま。続いている区間と概要だけ作り直す
+    second = h.writer.live_summary
+    assert "## 00:00:00〜00:00:20\n\n### 前半\n- A" in second
+    assert "## 00:00:20〜\n\n- 後半の続き" in second
+    prompts = [user_prompt(b) for b in fake.bodies("/api/chat") if "format" not in b]
+    # 区間の要約・続いている区間・概要、の3回。2回目は続いている区間と概要の2回
+    assert len(prompts) == 5
+    assert "一つ目の話題" not in prompts[3]
+    assert "二つ目の話題に移ります。" in prompts[3] and "二つ目の続きです。" in prompts[3]
+    # 前の区間の要約を、つながりの参考に渡す
+    assert "## 前の区間の要約" in prompts[3] and "- A" in prompts[3]
+    assert "まだ録音が続いて" in prompts[3]
 
 
 def test_timer_does_not_advance_while_paused(home, fake):
