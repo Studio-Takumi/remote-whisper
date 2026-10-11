@@ -76,6 +76,8 @@ def test_full_session(project):
 
     entry = store.load(pid).sessions[0]
     assert (entry.title, entry.status, entry.ended_at) == ("リリース計画", "done", meta.ended_at)
+    # 左メニューに長さを出すため、project.json にも録音の長さを記録する（#96）
+    assert entry.duration_sec == 5368
     # project.json はフロントマターから作り直せる
     assert rebuild_project_file(store.dir(pid)).sessions == store.load(pid).sessions
 
