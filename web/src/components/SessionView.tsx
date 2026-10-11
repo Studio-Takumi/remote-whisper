@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 
 import { AudioLinesIcon, FolderPlusIcon, RefreshCwIcon, TriangleAlertIcon } from 'lucide-react';
 
+import { LiveSummary } from '@/components/LiveSummary';
 import { Markdown } from '@/components/Markdown';
 import { RecordingPlayer } from '@/components/RecordingPlayer';
 import { StatusIndicator } from '@/components/StatusIndicator';
@@ -225,9 +226,9 @@ function SummaryPanel({
         // 途中の要約は最終の要約ができた後も手元に残ることがあるので、最終の要約を先に見る
         const live = liveDraft?.sessionId === session.id ? liveDraft.text : session.liveSummary;
         const placeholder = summary?.text
-            ? { label: '今の要約（作り直した要約が届いたら差し替えます）', text: summary.text }
+            ? { label: '今の要約（作り直した要約が届いたら差し替えます）', text: summary.text, live: false }
             : live
-              ? { label: '途中の要約（最終の要約が届いたら差し替えます）', text: live }
+              ? { label: '途中の要約（最終の要約が届いたら差し替えます）', text: live, live: true }
               : null;
         return (
             <>
@@ -235,7 +236,11 @@ function SummaryPanel({
                 {placeholder && (
                     <>
                         <p className='text-xs text-muted-foreground'>{placeholder.label}</p>
-                        <Markdown>{placeholder.text}</Markdown>
+                        {placeholder.live ? (
+                            <LiveSummary text={placeholder.text} />
+                        ) : (
+                            <Markdown>{placeholder.text}</Markdown>
+                        )}
                     </>
                 )}
             </>
@@ -289,7 +294,7 @@ function SummaryPanel({
                     <p className='text-xs text-muted-foreground'>
                         途中の要約{session.status === 'recording' ? '（録音中に数分おきに更新します）' : ''}
                     </p>
-                    <Markdown streaming={liveDraft?.sessionId === session.id}>{live}</Markdown>
+                    <LiveSummary text={live} streaming={liveDraft?.sessionId === session.id} />
                 </>
             );
         }

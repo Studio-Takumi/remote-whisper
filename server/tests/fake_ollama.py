@@ -23,6 +23,8 @@ class FakeOllama:
         # 最後の1行の done_reason（"length" は num_ctx を使い切って切れたとき）
         self.done_reason = "stop"
         self.requests: list[tuple[str, dict]] = []
+        # 頼み方（/api/chat の body）から本文を決める関数。None を返せば reply を使う
+        self.reply_for = None
 
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self.handle)
@@ -54,6 +56,10 @@ class FakeOllama:
                 if body.get("format")
                 else self.reply
             )
+            # 頼み方によって返す本文を変えたいときに使う（None なら上のとおり）
+            custom = self.reply_for(body) if self.reply_for else None
+            if custom is not None:
+                reply = [custom]
             if self.empty_when_thinking and body.get("think"):
                 reply = []
             lines = [
