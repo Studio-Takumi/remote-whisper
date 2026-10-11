@@ -264,12 +264,15 @@ contextSet: 20261009-090501   # 使わなかった場合は null
 useHotwords: true
 recording: recording-20261009-143012.mp3
 summaryFailed: false          # 最終の要約を作れなかったら true（作れたら false に戻す）
+appVersion: 2b23d9b           # 録音したサーバーのバージョン
 ---
 [00:00:03] 今日はリリース計画について…
 [00:00:15] …
 ```
 
 `summaryFailed` は `project.json` の `sessions` の各行にも同じ値を書く（UI で失敗と作り直しを出すため）。
+
+`appVersion` は、そのファイルを書いたサーバーのバージョン。バージョン番号は運用しないので、git のコミットハッシュ（短いもの）をバージョンとして扱う。サーバーを起動したときに `git rev-parse --short HEAD` で取り、コミットしていない変更（追跡しているファイルの変更）があれば `+dirty` を付ける（例: `2b23d9b+dirty`）。git が使えなければ `unknown`。項目のない古いファイルも読める。
 
 **要約 `summary-<ID>-<生成 ID>.md`**
 
@@ -287,6 +290,7 @@ transcript: transcript-20261009-143012.md
 contextSet: 20261009-090501
 useContext: true
 generatedAt: 2026-10-09T16:03:11+09:00
+appVersion: 2b23d9b           # 要約を作ったサーバーのバージョン（文字起こしと同じ）
 ---
 （要約の本文）
 ```
@@ -462,6 +466,9 @@ GPU を使う処理は、1つのキューを通して順番に実行する。
 | GET | `/api/projects/{pid}/context-sets` | 参考資料セットの一覧 |
 | POST | `/api/projects/{pid}/context-sets` | 参考資料を指定して、セットの作成を始める |
 | PATCH | `/api/projects/{pid}/selection` | 使うセットと、用語リスト・コンテキストそれぞれを使うかどうかを設定する。録音中は `409` |
+| GET | `/api/version` | サーバーのバージョン（`{"version": "2b23d9b"}`。5.5 節の `appVersion` と同じ値） |
+
+- 画面（web）のバージョンも同じくコミットハッシュで、ビルドしたとき（開発サーバーでは起動したとき）に埋め込む。設定画面にサーバーと画面のバージョンを並べて出し、食い違っていたら（ブラウザに古い画面が残っているなど）目立たせて、読み込み直すように促す。画面はサーバーにつながるたびにバージョンを取り直す。
 
 - セッションの一覧とメタ情報には、`files`（`recording`・`transcript` があるか、最終の要約の数 `summaries`、途中の要約があるか `liveSummary`）を付ける。UI はこれを見て「期限切れ」を出す。
 - 文字起こしのファイルが消えたセッションの `GET .../transcript` は `410`（セッション自体がなければ `404`）。文字起こしは `lines`（`[{time, text}]`）とフロントマター `meta` で返す。

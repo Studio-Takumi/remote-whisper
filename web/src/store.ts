@@ -13,6 +13,7 @@ import { type Settings, defaultSettings } from '@/settings';
 import { type ServerStatus, initialServerStatus } from '@/status';
 import { formatClock, formatDateTime, newId } from '@/time';
 import type { ContextSelection, ContextSet, Generating, Project, Session } from '@/types';
+import type { VersionJson } from '@/version';
 
 // 画面の状態をまとめて持つストア。プロジェクト・セッション・設定はサーバーの API から取る（spec 7.1）
 
@@ -40,6 +41,8 @@ type AppState = {
     settings: Settings;
     // 設定で選べる値。サーバーから取れなければダミーのまま
     options: SettingsOptions;
+    // サーバーのバージョン（コミットハッシュ）。取れていなければ null
+    serverVersion: string | null;
     server: ServerStatus;
     contextSets: Record<string, ContextSet[]>;
     contextSelections: Record<string, ContextSelection>;
@@ -358,6 +361,18 @@ export const useAppStore = create<AppState>()((set, get) => {
         );
     }
 
+    // サーバーのバージョンを取る（起動したときと、つながり直したとき。サーバーが入れ替わっているかもしれないため）
+    async function loadServerVersion() {
+        if (isDemo) {
+            return;
+        }
+        try {
+            set({ serverVersion: (await api.get<VersionJson>('/api/version')).version });
+        } catch {
+            // 取れなければ前の値のまま
+        }
+    }
+
     // プロジェクトごとの参考資料セットの一覧を取る。取れなかったプロジェクトは入れない（前の一覧のまま）
     async function loadContextSets(projectIds: string[]) {
         const results = await Promise.allSettled(projectIds.map((id) => fetchContextSets(id)));
@@ -431,6 +446,7 @@ export const useAppStore = create<AppState>()((set, get) => {
         liveDraft: null,
         settings: defaultSettings,
         options: fallbackOptions,
+        serverVersion: null,
         server: initialServerStatus,
         // デモではダミーのセット。サーバーにつなぐときは、プロジェクトの一覧と一緒に取る
         contextSets: isDemo ? initialContextSets : {},
@@ -636,6 +652,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                 if (connected && !isDemo) {
                     // 切れている間に届かなかった contextSet（作成の終わり）を取りこぼさないように、一覧を取り直す
                     void refreshContextSets(get().projects.map((p) => p.id));
+                    void loadServerVersion();
                 }
                 if (!get().recordingSessionId && !stoppedWhileOffline) {
                     return;

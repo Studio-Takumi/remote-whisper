@@ -11,6 +11,7 @@ import {
     Trash2Icon,
 } from 'lucide-react';
 
+import { VersionInfo } from '@/components/VersionInfo';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -478,7 +479,11 @@ function SettingsForm({
                     </Section>
                 </TabsContent>
             </Tabs>
-            <DialogFooter>
+            <DialogFooter className='sm:items-center'>
+                {/* バージョンは左下に。スマホの幅（縦に逆順で並ぶ）ではボタンの下に回る */}
+                <div className='order-first sm:mr-auto'>
+                    <VersionInfo />
+                </div>
                 <DialogClose asChild>
                     <Button variant='outline'>キャンセル</Button>
                 </DialogClose>
