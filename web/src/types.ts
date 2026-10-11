@@ -21,7 +21,7 @@ export type Session = {
     startedAt: string;
     // 録音を終えた日時。録音中はない
     endedAt?: string;
-    // 録音の長さ（秒）。録音中はない
+    // 録音の長さ（秒）。録音中と、これを記録する前のセッションにはない
     durationSec?: number;
     // recording は録音中（ほかの端末で録音しているものも含む）
     status: 'recording' | 'done' | 'interrupted';

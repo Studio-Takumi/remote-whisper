@@ -137,6 +137,7 @@ def test_settings_accepts_spec_example():
             "recording": {"maxConcurrent": 1, "noiseSuppression": True, "autoGainControl": True},
             "retentionDays": {"recording": 10, "transcript": 30, "summary": 30, "contextSet": 0},
             "materials": {"roots": ["D:\\work"], "extensions": [".md", ".txt", ".pdf", ".html"]},
+            "display": {"sessionMeta": False},
         }
     )
 
@@ -157,6 +158,13 @@ def test_patch_settings(client, home):
     assert res.json()["whisper"]["silenceMs"] == 600
     data = json.loads((home / "setting.json").read_text(encoding="utf-8"))
     assert data["whisper"]["beamSize"] == 3
+
+
+def test_display_session_meta(client):
+    # 左メニューの録音日時と長さは、既定では出さない（#96）
+    assert client.get("/api/settings").json()["display"] == {"sessionMeta": False}
+    res = client.patch("/api/settings", json={"display": {"sessionMeta": True}})
+    assert res.json()["display"]["sessionMeta"] is True
 
 
 def test_patch_settings_invalid(client, home):
