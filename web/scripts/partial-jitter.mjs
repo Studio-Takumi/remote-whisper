@@ -42,6 +42,17 @@ for (const [name, options] of Object.entries(layouts)) {
     // 上のほうを読んでいるときは、勝手にスクロールしない（#78）
     const reading = await page.evaluate(run, { emptyFinal, reading: true });
     console.log(`${name}（上のほうを読んでいる）: 位置が動いた ${reading.moved} フレーム / ${reading.frames} フレーム`);
+    // 幅を狭めて（折り返しが増えて伸びる）、元に戻したとき、伸びたときの高さが空白として残らない
+    const { width, height } = options.viewport;
+    await page.setViewportSize({ width: Math.round(width / 2), height });
+    await page.waitForTimeout(300);
+    await page.setViewportSize({ width, height });
+    await page.waitForTimeout(300);
+    const blank = await page.evaluate(() => {
+        const outer = document.querySelector('[style*="min-height"]');
+        return outer ? outer.offsetHeight - outer.firstElementChild.offsetHeight : 0;
+    });
+    console.log(`${name}（幅を狭めて戻した）: 文字起こしの下の空白 ${blank}px`);
     await page.close();
 }
 await browser.close();
