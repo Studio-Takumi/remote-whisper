@@ -2,7 +2,7 @@ import { toast } from 'sonner';
 import { create } from 'zustand';
 
 import { ApiError, type ProjectJson, api } from '@/api';
-import { Microphone, MicrophoneError, watchMicrophonePermission } from '@/audio/microphone';
+import { Microphone, MicrophoneError, SAMPLE_RATE, watchMicrophonePermission } from '@/audio/microphone';
 import { AudioSender, connection } from '@/connection';
 import { fetchContextSets, fetchProjects, fetchSessionDetail, isDemo, mergeProjects, toSelection } from '@/data';
 import { demoProjects, fallbackOptions, initialContextSets } from '@/mock';
@@ -27,7 +27,7 @@ type AppState = {
     recordingState: RecordingState;
     // 録音中のセッション。録音を始めたときに作る（spec 5.2・6.2）
     recordingSessionId: string | null;
-    // 録音の経過時間（秒）。一時停止中は止まる
+    // 録音の経過時間（秒）。録音した音声の長さで、一時停止中は止まる
     elapsed: number;
     // マイクの音量（RMS、0〜1）。ボタンのアニメーションに使う
     micLevel: number;
@@ -128,8 +128,10 @@ function finishDemoSummary(s: AppState, sessionId: string): Partial<AppState> {
     };
 }
 
-// タイマーは React の外で回す
-let elapsedTimer: ReturnType<typeof setInterval> | undefined;
+// 録音した（サーバーに送る）サンプルの数。経過時間はこれから出す（spec 6.2）
+// サーバーは受け取ったサンプルの数から文字起こしの時刻を出すので、同じ時計になる。
+// setInterval で数えると、裏に回したタブでタイマーが間引かれてずれていく
+let recordedSamples = 0;
 // サーバー全体で録音中のセッションの数（status の recordings）。変わったら一覧を取り直す（ほかの端末の録音を出すため）
 let lastRecordings = -1;
 // 最終の要約ができて、サーバーに保存されたもので置き換えるセッション（取り直しで手元のものを残さない）
@@ -154,9 +156,13 @@ type StartedMessage = Extract<ServerMessage, { type: 'started' }>;
 type ErrorMessage = Extract<ServerMessage, { type: 'error' }>;
 
 export const useAppStore = create<AppState>()((set, get) => {
-    function startElapsedTimer() {
-        clearInterval(elapsedTimer);
-        elapsedTimer = setInterval(() => set((s) => ({ elapsed: s.elapsed + 1 })), 1000);
+    // 送る音声を数えて、経過時間を進める。接続が切れて手元に溜めている分も、録音した長さとして数える
+    function countRecorded(pcm: Int16Array) {
+        recordedSamples += pcm.length;
+        const elapsed = Math.floor(recordedSamples / SAMPLE_RATE);
+        if (elapsed !== get().elapsed) {
+            set({ elapsed });
+        }
     }
 
     // マイクを開き、サーバーに start を送り、started が来たらセッションを作る
@@ -168,8 +174,9 @@ export const useAppStore = create<AppState>()((set, get) => {
         mic = await Microphone.open(
             (pcm, level) => {
                 // 一時停止中の音声は送らない
-                if (get().recordingState === 'recording') {
-                    sender?.push(pcm);
+                if (get().recordingState === 'recording' && sender) {
+                    sender.push(pcm);
+                    countRecorded(pcm);
                     set({ micLevel: level });
                 }
             },
@@ -259,6 +266,7 @@ export const useAppStore = create<AppState>()((set, get) => {
             transcript: [],
             summaries: [],
         };
+        recordedSamples = 0;
         set((s) => ({
             // 先に一覧の取り直しでサーバーのものが入っていることがあるので、同じ ID のものは置き換える
             projects: s.projects.map((p) =>
@@ -273,7 +281,6 @@ export const useAppStore = create<AppState>()((set, get) => {
             partial: null,
             liveDraft: null,
         }));
-        startElapsedTimer();
     }
 
     // 録音中に切れた接続がつながり直したら、resume を送って続きから録音する（spec 6.7・7.2）
@@ -327,7 +334,6 @@ export const useAppStore = create<AppState>()((set, get) => {
 
     // 録音が途中で終わったことにする（resume できなかったとき）
     function interruptRecording(sessionId: string) {
-        clearInterval(elapsedTimer);
         resendAfterAck = false;
         stoppedWhileOffline = null;
         closeRecording();
@@ -555,7 +561,6 @@ export const useAppStore = create<AppState>()((set, get) => {
 
         // 一時停止の前までの音声を送り切ってから pause を送る
         pauseRecording: async () => {
-            clearInterval(elapsedTimer);
             await mic?.flush();
             sender?.flush();
             connection.send({ type: 'pause' });
@@ -567,12 +572,10 @@ export const useAppStore = create<AppState>()((set, get) => {
             mic?.discard();
             connection.send({ type: 'unpause' });
             set({ recordingState: 'recording' });
-            startElapsedTimer();
         },
 
         // 録音を終えたら、セッションの終了日時と状態を確定して、最終の要約を作り始める
         stopRecording: async () => {
-            clearInterval(elapsedTimer);
             // 終了の前までの音声（worklet と手元に溜まっている分）を送り切ってから stop を送る
             if (get().recordingState === 'recording') {
                 await mic?.flush();
