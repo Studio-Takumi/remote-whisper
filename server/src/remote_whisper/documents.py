@@ -155,6 +155,9 @@ class SummaryMeta(_Meta):
     generated_at: str
     # 要約を作ったサーバーのバージョン（コミットハッシュ）。以前のファイルにはない
     app_version: str | None = None
+    # 使った要約度（1〜5。#100）。概要と、部分ごとの要約（詳細）。以前のファイルにはない
+    overview_density: int | None = None
+    detail_density: int | None = None
 
 
 M = TypeVar("M", bound=_Meta)

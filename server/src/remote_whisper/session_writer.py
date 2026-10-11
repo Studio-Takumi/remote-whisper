@@ -162,11 +162,18 @@ class SessionWriter:
         atomic_write_text(self.files.live_summary, text)
 
     def save_final_summary(
-        self, model: str, think: bool, text: str, generated: datetime | None = None
+        self,
+        model: str,
+        think: bool,
+        text: str,
+        generated: datetime | None = None,
+        overview_density: int | None = None,
+        detail_density: int | None = None,
     ) -> str:
         """最終の要約を新しい生成 ID のファイルに保存して、途中の要約を消す。生成 ID を返す
 
-        generated は生成を始めた時刻（生成 ID になる。spec 5.2）。省略すると今
+        generated は生成を始めた時刻（生成 ID になる。spec 5.2）。省略すると今。
+        overview_density・detail_density は使った要約度（#100）
         """
         generated = generated or now()
         gid = make_id(generated)
@@ -188,6 +195,8 @@ class SessionWriter:
             use_context=self.use_context,
             generated_at=iso(generated),
             app_version=app_version(),
+            overview_density=overview_density,
+            detail_density=detail_density,
         )
         write_doc(self.files.summary(gid), meta, text)
         self.files.live_summary.unlink(missing_ok=True)

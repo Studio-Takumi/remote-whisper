@@ -143,10 +143,14 @@ class LiveSummarizer:
         lines = [f"[{fmt_clock(start)}] {text}" for start, text in self.finals[self._base : upto]]
         chunks = split_lines(lines, CHUNK_CHARS)
         model = self.settings.get().ollama.live_summary_model
+        # 要約度は区間ごとの要約に効かせる（概要は短いまま。#100）
+        density = self.settings.get().ollama.live_summary_density
         try:
             # 閉じた区間（最後の1つより前）の要約を確定させる。以後は書き直さない
             for i, chunk in enumerate(chunks[:-1]):
-                messages = live_section_messages(chunk, self.context, self._previous())
+                messages = live_section_messages(
+                    chunk, self.context, self._previous(), density=density
+                )
                 text = await self._chat(model, messages)
                 # 確定させた要約は後から直せないので、続いていた間の要約よりずっと短ければ
                 # （モデルが読み違えて一部しか書かなかった）、もう一度作って長い方を使う
@@ -167,7 +171,9 @@ class LiveSummarizer:
             current_lines = chunks[-1]
             current = await self._chat(
                 model,
-                live_section_messages(current_lines, self.context, self._previous(), ongoing=True),
+                live_section_messages(
+                    current_lines, self.context, self._previous(), ongoing=True, density=density
+                ),
             )
             if not current:
                 raise OllamaUnavailable("要約が空でした")

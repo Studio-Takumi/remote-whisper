@@ -53,6 +53,11 @@ class OllamaSettings(_Model):
     context_model: str = "qwen3.5:4b"
     live_summary_interval_min: float = Field(3, gt=0)
     keep_alive_min: float = Field(10, ge=0)
+    # 要約度（要約の細かさ）。1（ごく短く要点だけ）〜5（できるだけ省かず細かく）。3 が既定（#100）
+    # 途中の要約（区間ごと）・最終の要約の概要・最終の要約の詳細（部分ごと）のそれぞれ
+    live_summary_density: int = Field(3, ge=1, le=5)
+    overview_density: int = Field(3, ge=1, le=5)
+    detail_density: int = Field(3, ge=1, le=5)
 
 
 class RecordingSettings(_Model):

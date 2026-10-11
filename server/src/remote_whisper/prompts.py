@@ -40,6 +40,30 @@ TITLE_FORMAT: dict[str, Any] = {
 }
 
 
+# 要約度（要約の細かさ。1〜5、既定は 3。spec 3・5.3）。#100
+DEFAULT_DENSITY = 3
+
+# 詳細（区間・部分ごとの要約と、一度に収まるときの要約）の指示。「…で話された内容を、」に続ける。
+# 3 は要約度を入れる前と同じ文言（出力を変えないため）
+_DETAIL = {
+    1: "要点だけに絞って、ごく短くまとめてください（大事なことを数個の箇条書きにする程度）。",
+    2: "主な点に絞って、短めにまとめてください。細かい説明や例は省いてかまいません。",
+    3: "省かずに話の順にまとめてください。",
+    4: "省かずに話の順に、詳しくまとめてください。数字・固有名詞・理由や経緯も残してください。",
+    5: (
+        "できるだけ省かずに、話の順に細かくまとめてください。"
+        "数字・固有名詞・例・理由や経緯・発言の細かい点も残してください。"
+    ),
+}
+
+# 概要の箇条書きの数。3 は要約度を入れる前と同じ
+_OVERVIEW_ITEMS = {1: "2〜3個", 2: "3〜5個", 3: "5〜10個", 4: "8〜12個", 5: "10〜15個"}
+
+
+def _detail(density: int) -> str:
+    return _DETAIL.get(density, _DETAIL[DEFAULT_DENSITY])
+
+
 def _context_block(context: str | None) -> str:
     if not context:
         return ""
@@ -51,6 +75,7 @@ def live_section_messages(
     context: str | None,
     previous: str | None = None,
     ongoing: bool = False,
+    density: int = DEFAULT_DENSITY,
 ) -> list[dict[str, str]]:
     """途中の要約（区間ごと）。録音中の文字起こしを前から順に区切った1区間を要約する（#93）
 
@@ -68,7 +93,7 @@ def live_section_messages(
         + before
         + "## 文字起こし（録音中の話を、前から順に区切ったうちの1区間）\n"
         + "\n".join(lines)
-        + "\n\nこの区間で話された内容を、省かずに話の順にまとめてください。"
+        + f"\n\nこの区間で話された内容を、{_detail(density)}"
         + "要約はほかの区間の要約と時間の順に並べて読まれます。"
         + "前の区間から続いている話は、その続きとして書いてください。"
         + (
@@ -94,16 +119,18 @@ def live_overview_messages(sections: list[str], context: str | None) -> list[dic
     return [{"role": "system", "content": SUMMARY_SYSTEM}, {"role": "user", "content": user}]
 
 
-def final_summary_messages(lines: list[str], context: str | None) -> list[dict[str, str]]:
+def final_summary_messages(
+    lines: list[str], context: str | None, density: int = DEFAULT_DENSITY
+) -> list[dict[str, str]]:
     """最終の要約（文字起こし全体が一度に収まるとき）
 
-    長いときの部分ごとの要約と同じ言い方にして、濃さを揃える（#92）
+    長いときの部分ごとの要約と同じ言い方にして、濃さを揃える（#92）。要約度は詳細のもの
     """
     user = (
         _context_block(context)
         + "## 文字起こし\n"
         + "\n".join(lines)
-        + "\n\nこの文字起こしで話された内容を、省かずに話の順にまとめてください。"
+        + f"\n\nこの文字起こしで話された内容を、{_detail(density)}"
     )
     return [{"role": "system", "content": SUMMARY_SYSTEM}, {"role": "user", "content": user}]
 
@@ -114,6 +141,7 @@ def part_summary_messages(
     total: int,
     context: str | None,
     previous: str | None = None,
+    density: int = DEFAULT_DENSITY,
 ) -> list[dict[str, str]]:
     """最終の要約（部分ごと）。文字起こしの一部分を要約する。結果はそのまま「詳細」として並べる（#92）
 
@@ -130,22 +158,28 @@ def part_summary_messages(
         + before
         + f"## 文字起こし（全{total}部分のうち{index + 1}番目）\n"
         + "\n".join(lines)
-        + "\n\nこの部分で話された内容を、省かずに話の順にまとめてください。"
+        + f"\n\nこの部分で話された内容を、{_detail(density)}"
         + "要約はほかの部分の要約と時間の順に並べて読まれます。"
         + "前の部分から続いている話は、その続きとして書いてください。"
     )
     return [{"role": "system", "content": SUMMARY_SYSTEM}, {"role": "user", "content": user}]
 
 
-def overview_messages(parts: list[str], context: str | None) -> list[dict[str, str]]:
-    """最終の要約（全体の概要）。部分ごとの要約から、話全体を短く凝縮する（#92）"""
+def overview_messages(
+    parts: list[str], context: str | None, density: int = DEFAULT_DENSITY
+) -> list[dict[str, str]]:
+    """最終の要約（全体の概要）。部分ごとの要約から、話全体を短く凝縮する（#92）
+
+    要約度で箇条書きの数を変える（#100）
+    """
+    items = _OVERVIEW_ITEMS.get(density, _OVERVIEW_ITEMS[DEFAULT_DENSITY])
     blocks = "\n\n".join(f"### 部分{i + 1}\n{p.strip()}" for i, p in enumerate(parts))
     user = (
         _context_block(context)
         + "## 文字起こしを前から順に区切って作った要約\n"
         + blocks
         + "\n\nこれらから、話全体の概要を短くまとめてください。"
-        + "見出しは付けず、大事な点を5〜10個ほどの箇条書きにしてください。"
+        + f"見出しは付けず、大事な点を{items}ほどの箇条書きにしてください。"
         + "細かい内容は、このあとに部分ごとの要約をそのまま載せるので省いてかまいません。"
     )
     return [{"role": "system", "content": SUMMARY_SYSTEM}, {"role": "user", "content": user}]
