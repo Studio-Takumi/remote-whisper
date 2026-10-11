@@ -37,9 +37,15 @@ class GpuStats:
 
                 self._nvml = pynvml
             self._nvml.nvmlInit()
-            self._handle = self._nvml.nvmlDeviceGetHandleByIndex(0)
         except Exception as e:  # noqa: BLE001 ImportError・NVMLError（ドライバがないなど）
             log.info("GPU の使用率は取れないので出しません: %s", e)
+            return False
+        try:
+            self._handle = self._nvml.nvmlDeviceGetHandleByIndex(0)
+        except Exception as e:  # noqa: BLE001 GPU が見つからない
+            log.info("GPU の使用率は取れないので出しません: %s", e)
+            with contextlib.suppress(Exception):
+                self._nvml.nvmlShutdown()
             return False
         return True
 

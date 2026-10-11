@@ -47,7 +47,10 @@ export function transcriptWaitingFor(jobs: GpuJobs, sessionId: string | null): G
     if (!sessionId || !running || running.kind === 'transcribe' || running.kind === 'whisperLoad') {
         return null;
     }
-    const waiting = jobs.waiting.some((w) => w.kind === 'transcribe' && w.session === sessionId);
+    // 文字起こしのモデルの読み込みが待たされているときも同じ（前のセッションの最終の要約の後ろなど）
+    const waiting = jobs.waiting.some(
+        (w) => (w.kind === 'transcribe' || w.kind === 'whisperLoad') && w.session === sessionId,
+    );
     return waiting ? running.kind : null;
 }
 
@@ -71,16 +74,17 @@ export function transcriptStatus(state: RecordingState, server: ServerStatus, se
     if (server.whisper === 'error') {
         return { tone: 'error', text: '文字起こしが止まっています。音声は保存しているので、後から作り直せます' };
     }
-    if (server.whisper !== 'ready') {
-        return { tone: 'warning', text: '文字起こしのモデルを読み込んでいます…（音声は保存しています）' };
-    }
     // GPU は1つずつしか使えず、実行中の要約は途中で止めないので、終わるまで文字起こしが待たされる（spec 6.3）
+    // モデルの読み込みもその後ろで待つので、読み込み中の表示より先に見る
     const blocking = transcriptWaitingFor(server.jobs, sessionId);
     if (blocking) {
         return {
             tone: 'warning',
-            text: `${blockingReason[blocking] ?? 'ほかの処理'}のため、文字起こしを待っています…（終わったら続きを出します）`,
+            text: `${blockingReason[blocking] ?? 'ほかの処理'}のため、文字起こしを待っています…（終わったら続きを出します。音声は保存しています）`,
         };
+    }
+    if (server.whisper !== 'ready') {
+        return { tone: 'warning', text: '文字起こしのモデルを読み込んでいます…（音声は保存しています）' };
     }
     return { tone: 'active', text: '文字起こし中…' };
 }

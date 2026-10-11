@@ -60,5 +60,27 @@ def test_does_nothing_without_gpu():
     assert run(main()) == []
 
 
+def test_sends_none_when_reading_fails_later():
+    # 途中で取れなくなったら（ドライバの再起動など）、null を送って出さないようにする
+    class Flaky(FakeNvml):
+        def nvmlDeviceGetUtilizationRates(self, h):  # noqa: N802
+            raise RuntimeError("GPU is lost")
+
+    async def main():
+        sent = []
+
+        async def on_change(stats):
+            sent.append(stats)
+
+        stats = GpuStats(on_change, interval=0.01, nvml=Flaky())
+        stats.start()
+        await asyncio.sleep(0.03)
+        await stats.close()
+        return sent
+
+    sent = run(main())
+    assert sent and all(s is None for s in sent)
+
+
 def run(coro):
     return asyncio.run(coro)

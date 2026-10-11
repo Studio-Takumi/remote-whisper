@@ -248,6 +248,34 @@ def test_notifications_are_batched_with_min_interval():
     assert sizes[-1] == 0
 
 
+def test_jobs_are_sent_as_status_with_kind_and_session(app):
+    # アプリでは、ジョブの一覧を status の jobs で送る。つないできたブラウザには今の一覧を送る
+    release = None
+
+    async def hold():
+        await release.wait()
+
+    async def submit():
+        nonlocal release
+        release = asyncio.Event()
+        app.state.ctx.gpu.submit(Priority.LIVE_SUMMARY, hold, session="s1")
+        app.state.ctx.gpu.submit(Priority.TRANSCRIBE, hold, kind="whisperLoad", session="s2")
+        await asyncio.sleep(0.05)
+
+    async def finish():
+        release.set()
+        await asyncio.sleep(0.05)
+
+    with TestClient(app) as client:
+        client.portal.call(submit)
+        with client.websocket_connect("/ws") as ws:
+            jobs = ws.receive_json()["jobs"]
+            # 同時に積んだので、優先度の高い読み込みが先に動く
+            assert (jobs["running"]["kind"], jobs["running"]["session"]) == ("whisperLoad", "s2")
+            assert [(w["kind"], w["session"]) for w in jobs["waiting"]] == [("liveSummary", "s1")]
+        client.portal.call(finish)
+
+
 def test_queue_size_is_sent_as_status(app):
     # アプリでは、待っているジョブと実行中のジョブの数を status の queue で全員に送る
     async def job():
