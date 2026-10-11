@@ -67,12 +67,15 @@ def live_summary_messages(
 
 
 def final_summary_messages(lines: list[str], context: str | None) -> list[dict[str, str]]:
-    """最終の要約（文字起こし全体が一度に収まるとき）"""
+    """最終の要約（文字起こし全体が一度に収まるとき）
+
+    長いときの部分ごとの要約と同じ言い方にして、濃さを揃える（#92）
+    """
     user = (
         _context_block(context)
         + "## 文字起こし\n"
         + "\n".join(lines)
-        + "\n\nこの文字起こしの要約を出力してください。"
+        + "\n\nこの文字起こしで話された内容を、省かずに話の順にまとめてください。"
     )
     return [{"role": "system", "content": SUMMARY_SYSTEM}, {"role": "user", "content": user}]
 
