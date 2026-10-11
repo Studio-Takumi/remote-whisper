@@ -78,20 +78,50 @@ def final_summary_messages(lines: list[str], context: str | None) -> list[dict[s
 
 
 def part_summary_messages(
-    lines: list[str], index: int, total: int, context: str | None
+    lines: list[str],
+    index: int,
+    total: int,
+    context: str | None,
+    previous: str | None = None,
 ) -> list[dict[str, str]]:
-    """最終の要約（map）。文字起こしの一部分を要約する"""
+    """最終の要約（部分ごと）。文字起こしの一部分を要約する。結果はそのまま「詳細」として並べる（#92）
+
+    previous は1つ前の部分の要約。区切りの境目で話が途切れないように、参考として渡す
+    """
+    before = (
+        "## 前の部分の要約（つながりの参考。ここに書いてあることは繰り返さない）\n"
+        + f"{previous.strip()}\n\n"
+        if previous
+        else ""
+    )
     user = (
         _context_block(context)
+        + before
         + f"## 文字起こし（全{total}部分のうち{index + 1}番目）\n"
         + "\n".join(lines)
-        + "\n\nこの部分の要約を出力してください。あとでほかの部分の要約とまとめます。"
+        + "\n\nこの部分で話された内容を、省かずに話の順にまとめてください。"
+        + "要約はほかの部分の要約と時間の順に並べて読まれます。"
+        + "前の部分から続いている話は、その続きとして書いてください。"
+    )
+    return [{"role": "system", "content": SUMMARY_SYSTEM}, {"role": "user", "content": user}]
+
+
+def overview_messages(parts: list[str], context: str | None) -> list[dict[str, str]]:
+    """最終の要約（全体の概要）。部分ごとの要約から、話全体を短く凝縮する（#92）"""
+    blocks = "\n\n".join(f"### 部分{i + 1}\n{p.strip()}" for i, p in enumerate(parts))
+    user = (
+        _context_block(context)
+        + "## 文字起こしを前から順に区切って作った要約\n"
+        + blocks
+        + "\n\nこれらから、話全体の概要を短くまとめてください。"
+        + "見出しは付けず、大事な点を5〜10個ほどの箇条書きにしてください。"
+        + "細かい内容は、このあとに部分ごとの要約をそのまま載せるので省いてかまいません。"
     )
     return [{"role": "system", "content": SUMMARY_SYSTEM}, {"role": "user", "content": user}]
 
 
 def reduce_summary_messages(parts: list[str], context: str | None) -> list[dict[str, str]]:
-    """最終の要約（reduce）。部分ごとの要約を1つにまとめる"""
+    """部分ごとの要約がまだ長すぎるとき、いくつかずつ1つにまとめる（概要を作る前の下ごしらえ）"""
     blocks = "\n\n".join(f"### 部分{i + 1}\n{p.strip()}" for i, p in enumerate(parts))
     user = (
         _context_block(context)

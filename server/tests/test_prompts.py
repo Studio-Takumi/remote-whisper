@@ -2,6 +2,7 @@ from remote_whisper.prompts import (
     SUMMARY_SYSTEM,
     final_summary_messages,
     live_summary_messages,
+    overview_messages,
     part_summary_messages,
     reduce_summary_messages,
 )
@@ -15,7 +16,9 @@ def all_summary_messages():
         live_summary_messages("## 前回\n- x", LINES, "背景"),
         final_summary_messages(LINES, None),
         part_summary_messages(LINES, 0, 2, "背景"),
+        part_summary_messages(LINES, 1, 2, None, "## 前\n- x"),
         reduce_summary_messages(["## a\n- x", "## b\n- y"], None),
+        overview_messages(["## a\n- x", "## b\n- y"], "背景"),
     ]
 
 
