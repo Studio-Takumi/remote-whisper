@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from remote_whisper.context import AppContext
 from remote_whisper.context_sets import ContextSetService, OllamaGenerator
 from remote_whisper.final_summary import FinalSummarizer
+from remote_whisper.gpu_stats import GpuStats
 from remote_whisper.janitor import Janitor
 from remote_whisper.mock import (
     MockContextGenerator,
@@ -82,7 +83,12 @@ def create_app(
             recovering.add_done_callback(background.discard)
         # 保存期間を過ぎたファイルを、起動時とその後1日1回消す
         janitor.start()
+        # GPU の使用率と VRAM を数秒おきに送る（取れない環境と、GPU を使わないモック・
+        # 偽の Whisper（テスト）では何もしない）
+        if not mock and os.environ.get("REMOTE_WHISPER_WHISPER_BACKEND") != "fake":
+            gpu_stats.start()
         yield
+        await gpu_stats.close()
         await janitor.close()
         # 止めるときは、録音中の WAV を閉じて録音を終えたあとの処理を止め、GPU のジョブキューを止め
         # （待っているジョブは cancel）、Whisper を下ろす。録音の側を先に止めるのは、止めたキューに
@@ -103,6 +109,7 @@ def create_app(
     )
     app.state.ctx = ctx
     janitor = Janitor(ctx.projects, ctx.settings)
+    gpu_stats = GpuStats(lambda stats: ctx.hub.set_status(gpu=stats))
     # 結果を待たないタスク（途中で回収されないように持っておく）
     background: set[asyncio.Task] = set()
     if not mock:

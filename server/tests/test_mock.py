@@ -62,6 +62,9 @@ def test_status_on_connect(mock_client):
             "ollama": "ready",
             "recordings": 0,
             "queue": 0,
+            "jobs": {"running": None, "waiting": []},
+            # モックでは GPU の使用率を取らない
+            "gpu": None,
         }
 
 

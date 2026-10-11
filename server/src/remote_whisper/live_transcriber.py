@@ -51,7 +51,10 @@ class LiveTranscriber:
         append_final: Callable[[float, str], None],
         hotwords: str | None = None,
         vad: Probabilities | None = None,
+        session: str | None = None,
     ):
+        # session は GPU キューの一覧に出すためのもの
+        self.session = session
         self.whisper = whisper
         self.gpu = gpu
         self.settings = settings
@@ -114,7 +117,9 @@ class LiveTranscriber:
         self._partial_samples = 0
         if self._partial is not None and not self._partial.done():
             self._partial.cancel()
-        future = self.gpu.submit(Priority.TRANSCRIBE, lambda: self._final(segment))
+        future = self.gpu.submit(
+            Priority.TRANSCRIBE, lambda: self._final(segment), session=self.session
+        )
         future.add_done_callback(_consume)
         self._finals = [f for f in self._finals if not f.done()] + [future]
 
@@ -170,7 +175,7 @@ class LiveTranscriber:
                 continue
             self._partial_samples = samples
             self._partial = self.gpu.submit(
-                Priority.TRANSCRIBE, lambda c=current: self._run_partial(c)
+                Priority.TRANSCRIBE, lambda c=current: self._run_partial(c), session=self.session
             )
             self._partial.add_done_callback(_consume)
 

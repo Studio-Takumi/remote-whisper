@@ -252,7 +252,9 @@ class ContextSetService:
         entry = created
         await self._send(pid, entry.id, "generating")
         job = self.gpu.submit(
-            Priority.BACKGROUND, lambda: self._build(pid, entry.id, refs, started)
+            Priority.BACKGROUND,
+            lambda: self._build(pid, entry.id, refs, started),
+            kind="contextSet",
         )
         job.add_done_callback(_log_failure)
         return {**entry.model_dump(by_alias=True), "reused": False}
@@ -288,9 +290,10 @@ class ContextSetService:
             return
         finally:
             self._pending.pop(set_id, None)
-        await self._set_status(pid, set_id, "ready")
+        # 録音中のセッションに使わせてから ready を知らせる（知らせた時点で使われているように）
         if self.on_ready is not None:
             await self.on_ready(pid, set_id)
+        await self._set_status(pid, set_id, "ready")
 
     async def _make(
         self, pid: str, set_id: str, refs: list[MaterialRef], started: datetime

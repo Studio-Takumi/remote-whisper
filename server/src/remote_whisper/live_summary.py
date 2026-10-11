@@ -91,7 +91,9 @@ class LiveSummarizer:
             if self.elapsed() - self._last_at < minutes * 60 or len(self.finals) <= self._done:
                 continue
             self._last_at = self.elapsed()
-            self._job = self.gpu.submit(Priority.LIVE_SUMMARY, self.run)
+            self._job = self.gpu.submit(
+                Priority.LIVE_SUMMARY, self.run, kind="liveSummary", session=self.writer.id
+            )
             self._job.add_done_callback(_consume)
 
     async def run(self) -> None:

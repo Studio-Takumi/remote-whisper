@@ -10,6 +10,16 @@ export type ClientMessage =
     | { type: 'resume'; session: string; nextSeq: number };
 
 export type SummaryKind = 'live' | 'final';
+
+// GPU キューのジョブ（status の jobs。spec 6.3・7.2）。秒数はサーバーが送った時点のもの
+export type GpuJobKind = 'transcribe' | 'whisperLoad' | 'liveSummary' | 'finalSummary' | 'contextSet' | 'other';
+export type GpuJobs = {
+    running: { kind: GpuJobKind; session: string | null; runningSec: number } | null;
+    // 実行する順。続けて並ぶ同じ種類・同じセッションのものは count にまとめてある
+    waiting: { kind: GpuJobKind; session: string | null; count: number; waitingSec: number }[];
+};
+// GPU の使用率（%）と VRAM（MiB）。取れない環境では null
+export type GpuStats = { util: number; memUsedMb: number; memTotalMb: number };
 export type WhisperState = 'unloaded' | 'loading' | 'ready' | 'error';
 export type OllamaState = 'ready' | 'error';
 export type ContextSetStatus = 'generating' | 'ready' | 'failed';
@@ -27,7 +37,16 @@ export type ServerMessage =
     | { type: 'summary.done'; session: string; kind: SummaryKind }
     | { type: 'title'; session: string; title: string; provisional: boolean }
     | { type: 'contextSet'; project: string; id: string; status: ContextSetStatus }
-    | { type: 'status'; whisper: WhisperState; ollama: OllamaState; recordings: number; queue: number }
+    | {
+          type: 'status';
+          whisper: WhisperState;
+          ollama: OllamaState;
+          recordings: number;
+          queue: number;
+          // 古いサーバーにはない
+          jobs?: GpuJobs;
+          gpu?: GpuStats | null;
+      }
     | { type: 'error'; session?: string; code: ErrorCode; message: string };
 
 export type ErrorCode =
