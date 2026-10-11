@@ -28,8 +28,10 @@ from remote_whisper.routes import options as options_routes
 from remote_whisper.routes import projects as projects_routes
 from remote_whisper.routes import sessions as sessions_routes
 from remote_whisper.routes import settings as settings_routes
+from remote_whisper.routes import version as version_routes
 from remote_whisper.routes import ws as ws_routes
 from remote_whisper.settings import SettingsStore, default_home
+from remote_whisper.version import app_version
 from remote_whisper.whisper_worker import WhisperWorker
 
 # server/src/remote_whisper/app.py から見たリポジトリの web/dist。
@@ -50,6 +52,8 @@ def create_app(
     mock が True なら、Whisper と Ollama の代わりにダミーを使う（GPU なしでフロントを開発するため）
     """
     home = home or default_home()
+    # バージョンは起動したときのものにする（動いている間に git pull しても変わらないように）
+    app_version()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -160,6 +164,7 @@ def create_app(
     app.include_router(sessions_routes.router)
     app.include_router(fs_routes.router)
     app.include_router(ws_routes.router)
+    app.include_router(version_routes.router)
     if mock:
         app.include_router(mock_routes.router)
 

@@ -6,6 +6,7 @@ from remote_whisper.documents import SummaryMeta, TranscriptMeta, read_doc
 from remote_whisper.projects import ProjectStore, rebuild_project_file
 from remote_whisper.session_writer import SessionWriter, fmt_clock
 from remote_whisper.settings import SettingsStore
+from remote_whisper.version import app_version
 
 JST = timezone(timedelta(hours=9))
 STARTED = datetime(2026, 10, 9, 14, 30, 12, tzinfo=JST)
@@ -78,6 +79,8 @@ def test_full_session(project):
     assert (entry.title, entry.status, entry.ended_at) == ("リリース計画", "done", meta.ended_at)
     # 左メニューに長さを出すため、project.json にも録音の長さを記録する（#96）
     assert entry.duration_sec == 5368
+    # どのバージョンで作ったファイルかを残す（#97）
+    assert meta.app_version == summary.app_version == app_version()
     # project.json はフロントマターから作り直せる
     assert rebuild_project_file(store.dir(pid)).sessions == store.load(pid).sessions
 

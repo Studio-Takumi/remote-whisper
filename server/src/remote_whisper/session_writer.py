@@ -23,6 +23,7 @@ from remote_whisper.projects import ProjectFile, ProjectStore, SessionEntry
 from remote_whisper.sessions import SessionFiles
 from remote_whisper.settings import Settings
 from remote_whisper.timeutil import iso, make_id, now
+from remote_whisper.version import app_version
 
 
 def fmt_clock(sec: float) -> str:
@@ -62,6 +63,7 @@ class SessionWriter:
             ),
             context_set=selection.context_set,
             use_hotwords=selection.context_set is not None and selection.use_hotwords,
+            app_version=app_version(),
         )
         self.use_context = selection.context_set is not None and selection.use_context
 
@@ -185,6 +187,7 @@ class SessionWriter:
             context_set=self.meta.context_set,
             use_context=self.use_context,
             generated_at=iso(generated),
+            app_version=app_version(),
         )
         write_doc(self.files.summary(gid), meta, text)
         self.files.live_summary.unlink(missing_ok=True)
