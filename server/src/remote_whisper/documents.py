@@ -134,6 +134,8 @@ class TranscriptMeta(_Meta):
     recording: str | None = None
     # 最終の要約を作れなかった（Ollama につながらないなど）。作れたら false に戻す（spec 6.7）
     summary_failed: bool = False
+    # 録音したサーバーのバージョン（コミットハッシュ）。以前のファイルにはない
+    app_version: str | None = None
 
 
 class SummaryMeta(_Meta):
@@ -151,6 +153,8 @@ class SummaryMeta(_Meta):
     context_set: str | None = None
     use_context: bool = False
     generated_at: str
+    # 要約を作ったサーバーのバージョン（コミットハッシュ）。以前のファイルにはない
+    app_version: str | None = None
 
 
 M = TypeVar("M", bound=_Meta)
