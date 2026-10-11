@@ -79,6 +79,15 @@ def test_full_session(project):
     assert (entry.title, entry.status, entry.ended_at) == ("リリース計画", "done", meta.ended_at)
     # 左メニューに長さを出すため、project.json にも録音の長さを記録する（#96）
     assert entry.duration_sec == 5368
+    # 要約度を指定しなければ残さない（#100）。指定すればフロントマターに書いて読み戻せる
+    assert (summary.overview_density, summary.detail_density) == (None, None)
+    gid2 = w.save_final_summary(
+        "qwen3.5:4b", True, "## 要約\n", overview_density=2, detail_density=4
+    )
+    raw = w.files.summary(gid2).read_text(encoding="utf-8")
+    assert "overviewDensity: 2" in raw and "detailDensity: 4" in raw
+    again, _ = read_doc(w.files.summary(gid2), SummaryMeta)
+    assert (again.overview_density, again.detail_density) == (2, 4)
     # どのバージョンで作ったファイルかを残す（#97）
     assert meta.app_version == summary.app_version == app_version()
     # project.json はフロントマターから作り直せる

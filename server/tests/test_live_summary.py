@@ -265,6 +265,20 @@ def test_several_sections_close_in_one_run(home, fake, monkeypatch):
     assert "- 要約1" in prompts[1] and "- 要約2" in prompts[2]
 
 
+def test_live_summary_uses_the_live_density(home, fake):
+    # 途中の要約の区間ごとの要約には liveSummaryDensity を効かせる（#100）
+    async def main():
+        h = Harness(home, fake)
+        h.settings.update({"ollama": {"liveSummaryDensity": 5}})
+        h.live.add_final(0.0, "今日はリリース計画を決めます。")
+        await h.live.run()
+        await h.close()
+
+    run(main())
+    prompt = [b for b in fake.bodies("/api/chat") if "format" not in b][0]
+    assert "できるだけ省かずに" in user_prompt(prompt)
+
+
 def test_timer_does_not_advance_while_paused(home, fake):
     async def main():
         h = Harness(home, fake)

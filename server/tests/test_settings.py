@@ -176,6 +176,20 @@ def test_patch_settings_invalid(client, home):
     assert (home / "setting.json").read_text(encoding="utf-8") == before
 
 
+def test_summary_density(client):
+    # 要約度は 1〜5 の整数で、既定は 3（#100）
+    ollama = client.get("/api/settings").json()["ollama"]
+    assert (ollama["liveSummaryDensity"], ollama["overviewDensity"], ollama["detailDensity"]) == (
+        3,
+        3,
+        3,
+    )
+    assert client.patch("/api/settings", json={"ollama": {"detailDensity": 5}}).status_code == 200
+    for bad in (0, 6, 2.5):
+        res = client.patch("/api/settings", json={"ollama": {"overviewDensity": bad}})
+        assert res.status_code == 422
+
+
 def test_patch_settings_while_recording(client, app):
     app.state.ctx.recordings = 1
     res = client.patch("/api/settings", json={"whisper": {"beamSize": 3}})

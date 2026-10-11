@@ -20,6 +20,10 @@ export type Settings = {
         contextModel: string;
         liveSummaryIntervalMin: number;
         keepAliveMin: number;
+        // 要約度（要約の細かさ。1〜5、既定は 3）。途中の要約・最終の要約の概要・最終の要約の詳細
+        liveSummaryDensity: number;
+        overviewDensity: number;
+        detailDensity: number;
     };
     recording: {
         maxConcurrent: number;
@@ -63,6 +67,9 @@ export const defaultSettings: Settings = {
         contextModel: 'qwen3.5:4b',
         liveSummaryIntervalMin: 3,
         keepAliveMin: 10,
+        liveSummaryDensity: 3,
+        overviewDensity: 3,
+        detailDensity: 3,
     },
     recording: {
         maxConcurrent: 1,

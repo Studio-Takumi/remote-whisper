@@ -17,12 +17,14 @@ Ollama につながらなければ ollama_unavailable を送り、途中の要�
 
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
+from dataclasses import dataclass
 from typing import Any
 
 from remote_whisper.documents import parse
 from remote_whisper.live_summary import load_context
 from remote_whisper.ollama import OllamaClient, OllamaUnavailable, ollama_error
 from remote_whisper.prompts import (
+    DEFAULT_DENSITY,
     TITLE_MAX,
     final_summary_messages,
     make_title,
@@ -45,6 +47,19 @@ from remote_whisper.timeutil import now
 log = logging.getLogger(__name__)
 
 OVERVIEW_HEADING = "全体の概要"
+
+
+@dataclass(frozen=True)
+class Density:
+    """最終の要約の要約度（#100）
+
+    overview は概要、detail は部分ごとの要約（一度に収まるときは、その要約）
+    """
+
+    overview: int = DEFAULT_DENSITY
+    detail: int = DEFAULT_DENSITY
+
+
 EMPTY_PART = "（この部分は要約できませんでした）"
 
 
@@ -146,9 +161,12 @@ class FinalSummarizer:
         context = (
             load_context(writer.files.dir, writer.meta.context_set) if writer.use_context else None
         )
+        # 要約度（#100）。作り始めた時点の全体設定のものを使い、フロントマターに残す
+        ollama_settings = self.settings.get().ollama
+        density = Density(ollama_settings.overview_density, ollama_settings.detail_density)
         try:
             think = await self.ollama.supports_thinking(model)
-            text, gist = await self._summarize(model, lines, context, send)
+            text, gist = await self._summarize(model, lines, context, send, density)
             if not gist:
                 raise OllamaUnavailable("要約が空でした")
         except OllamaUnavailable as e:
@@ -169,7 +187,17 @@ class FinalSummarizer:
         try:
             if title:
                 writer.set_title(title)
-            gid = writer.save_final_summary(model, think, text, generated=started)
+            gid = writer.save_final_summary(
+                model,
+                think,
+                text,
+                generated=started,
+                # 一度に収まって概要を作らなかったときは、概要の要約度は残さない
+                overview_density=(
+                    density.overview if len(split_lines(lines, CHUNK_CHARS)) > 1 else None
+                ),
+                detail_density=density.detail,
+            )
         except OSError:
             log.exception("failed to save the final summary of %s", writer.id)
             _mark_failed(writer, True)
@@ -196,13 +224,21 @@ class FinalSummarizer:
         lines: list[str],
         context: str | None,
         send: Callable[[dict[str, Any]], Awaitable[None]],
+        density: Density | None = None,
     ) -> tuple[str, str]:
-        """要約の本文と、タイトルを作る元（長いときは全体の概要）を返す。どちらも空なら作れなかった"""
+        """要約の本文と、タイトルを作る元（長いときは全体の概要）を返す。どちらも空なら作れなかった
+
+        一度に収まるときは、詳細の要約度で作る（概要は作らない）
+        """
+        density = density or Density()
         options = {"num_ctx": NUM_CTX}
         chunks = split_lines(lines, CHUNK_CHARS)
         if len(chunks) == 1:
             stream = self.ollama.chat_stream(
-                model, final_summary_messages(lines, context), think=True, options=options
+                model,
+                final_summary_messages(lines, context, density.detail),
+                think=True,
+                options=options,
             )
             text = (await self._send_stream(stream, send)).strip()
             return text, text
@@ -213,7 +249,9 @@ class FinalSummarizer:
             previous = parts[-1][-PREVIOUS_CHARS:] if parts else None
             part = await self.ollama.chat(
                 model,
-                part_summary_messages(chunk, i, len(chunks), context, previous),
+                part_summary_messages(
+                    chunk, i, len(chunks), context, previous, density=density.detail
+                ),
                 think=True,
                 options=options,
             )
@@ -243,7 +281,10 @@ class FinalSummarizer:
         # 全体の概要を流してから、部分ごとの要約を時間の順に続ける
         head = f"## {OVERVIEW_HEADING}\n\n"
         stream = self.ollama.chat_stream(
-            model, overview_messages(digest, context), think=True, options=options
+            model,
+            overview_messages(digest, context, density.overview),
+            think=True,
+            options=options,
         )
         gist = (await self._send_stream(demote_lines(stream), send, head)).strip()
         if not gist:

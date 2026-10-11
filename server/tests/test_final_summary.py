@@ -288,6 +288,56 @@ def test_long_summary_is_saved_and_titled_from_the_overview(home, fake, tmp_path
     assert writer.meta.title == "リリース計画の確認"
 
 
+def test_density_from_settings_is_used_and_recorded(home, fake, tmp_path, monkeypatch):
+    # 概要と詳細の要約度を全体設定から読み、プロンプトに効かせてフロントマターに残す（#100）
+    monkeypatch.setattr(final_summary, "CHUNK_CHARS", 30)
+    settings = SettingsStore(home)
+    settings.update({"ollama": {"overviewDensity": 1, "detailDensity": 5}})
+    summarizer = FinalSummarizer(
+        OllamaClient(Hub(), settings, transport=fake.transport()), settings
+    )
+    writer = StubWriter(tmp_path)
+    writer.files.transcript.write_text(
+        "---\nid: x\n---\n"
+        "[00:00:00] 二十文字ほどの長さの発言です。前半\n"
+        "[00:10:00] 二十文字ほどの長さの発言です。後半\n",
+        encoding="utf-8",
+    )
+
+    async def send(m):
+        pass
+
+    asyncio.run(summarizer.run(writer, send))
+    prompts = [
+        b["messages"][-1]["content"] for b in fake.bodies("/api/chat") if not b.get("format")
+    ]
+    # 部分ごと（詳細）は 5、概要は 1
+    assert "できるだけ省かずに" in prompts[0] and "できるだけ省かずに" in prompts[1]
+    assert "2〜3個" in prompts[2]
+    assert writer.density == {"overview_density": 1, "detail_density": 5}
+
+
+def test_short_summary_uses_the_detail_density(home, fake, tmp_path):
+    # 一度に収まるときは詳細の要約度で作り、使わなかった概要の要約度は残さない
+    settings = SettingsStore(home)
+    settings.update({"ollama": {"overviewDensity": 5, "detailDensity": 1}})
+    summarizer = FinalSummarizer(
+        OllamaClient(Hub(), settings, transport=fake.transport()), settings
+    )
+    writer = StubWriter(tmp_path)
+    writer.files.transcript.write_text(
+        "---\nid: x\n---\n[00:00:00] 短い話です。\n", encoding="utf-8"
+    )
+
+    async def send(m):
+        pass
+
+    asyncio.run(summarizer.run(writer, send))
+    prompt = [b for b in fake.bodies("/api/chat") if not b.get("format")][0]
+    assert "要点だけに絞って" in prompt["messages"][-1]["content"]
+    assert writer.density == {"overview_density": None, "detail_density": 1}
+
+
 def test_demote_headings():
     assert demote("## 予算") == "### 予算"
     assert demote("# 全体") == "### 全体"
@@ -421,8 +471,9 @@ class StubWriter:
     def set_summary_failed(self, failed):
         self.summary_failed = failed
 
-    def save_final_summary(self, model, think, text, generated=None):
+    def save_final_summary(self, model, think, text, generated=None, **density):
         self.saved = (model, think, text, generated)
+        self.density = density
         return "20261010-100100"
 
     def copy_summary(self, gid):

@@ -39,6 +39,26 @@ def test_summary_prompt_does_not_fix_the_headings():
     assert "必ずまとめて" in SUMMARY_SYSTEM
 
 
+def test_density_three_keeps_the_previous_wording():
+    # 要約度 3 は、要約度を入れる前と同じ文言（出力を大きく変えないため。#100）
+    same = "で話された内容を、省かずに話の順にまとめてください。"
+    assert same in final_summary_messages(LINES, None)[1]["content"]
+    assert same in part_summary_messages(LINES, 0, 2, None)[1]["content"]
+    assert same in live_section_messages(LINES, None)[1]["content"]
+    assert "大事な点を5〜10個ほどの箇条書き" in overview_messages(["a", "b"], None)[1]["content"]
+
+
+def test_density_changes_the_instruction():
+    short = part_summary_messages(LINES, 0, 2, None, density=1)[1]["content"]
+    detailed = part_summary_messages(LINES, 0, 2, None, density=5)[1]["content"]
+    assert "要点だけに絞って" in short and "省かずに話の順" not in short
+    assert "できるだけ省かずに" in detailed
+    assert "2〜3個" in overview_messages(["a"], None, density=1)[1]["content"]
+    assert "10〜15個" in overview_messages(["a"], None, density=5)[1]["content"]
+    assert "要点だけに絞って" in live_section_messages(LINES, None, density=1)[1]["content"]
+    assert "要点だけに絞って" in final_summary_messages(LINES, None, 1)[1]["content"]
+
+
 def test_live_section_asks_for_the_same_detail_as_the_final_parts():
     # 途中の要約の区間も、最終の要約の部分ごとの要約と同じ濃さで（#93）
     part = part_summary_messages(LINES, 0, 2, None)[1]["content"]
