@@ -184,6 +184,9 @@ class OllamaClient:
                     if content:
                         yield content
                     if chunk.get("done"):
+                        if chunk.get("done_reason") == "length":
+                            # num_ctx を使い切って、本文が途中で切れた（思考が長いと起きる）
+                            log.warning("the reply of %s was cut off at num_ctx", model)
                         return
         except (httpx.HTTPError, httpx.InvalidURL, ValueError) as e:
             raise await self._failed(e) from e
