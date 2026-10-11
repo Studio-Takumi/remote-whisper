@@ -11,6 +11,7 @@ import {
     Trash2Icon,
 } from 'lucide-react';
 
+import { DensitySelect } from '@/components/DensitySelect';
 import { VersionInfo } from '@/components/VersionInfo';
 import { Button } from '@/components/ui/button';
 import {
@@ -305,6 +306,39 @@ function SettingsForm({
                                 value={draft.ollama.contextModel}
                                 options={ollamaModels}
                                 onChange={(contextModel) => update('ollama', { contextModel })}
+                            />
+                        </Row>
+                        <Row
+                            id='live-density'
+                            label='途中の要約の要約度'
+                            description='区間（約 9 分）ごとの要約の細かさ。1 はごく短く要点だけ、5 はできるだけ省かず細かく'
+                        >
+                            <DensitySelect
+                                id='live-density'
+                                value={draft.ollama.liveSummaryDensity}
+                                onChange={(liveSummaryDensity) => update('ollama', { liveSummaryDensity })}
+                            />
+                        </Row>
+                        <Row
+                            id='overview-density'
+                            label='最終の要約の概要の要約度'
+                            description='長い録音で、一番上に置く「全体の概要」の箇条書きの数'
+                        >
+                            <DensitySelect
+                                id='overview-density'
+                                value={draft.ollama.overviewDensity}
+                                onChange={(overviewDensity) => update('ollama', { overviewDensity })}
+                            />
+                        </Row>
+                        <Row
+                            id='detail-density'
+                            label='最終の要約の詳細の要約度'
+                            description='部分ごとの要約（短い録音では要約そのもの）の細かさ'
+                        >
+                            <DensitySelect
+                                id='detail-density'
+                                value={draft.ollama.detailDensity}
+                                onChange={(detailDensity) => update('ollama', { detailDensity })}
                             />
                         </Row>
                         <Row id='live-interval' label='途中の要約の間隔'>

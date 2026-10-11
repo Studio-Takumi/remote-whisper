@@ -3,6 +3,7 @@ import { useLayoutEffect, useRef } from 'react';
 import { MicIcon, SlidersHorizontalIcon, SparklesIcon } from 'lucide-react';
 
 import { ContextSetSheet } from '@/components/ContextSetSheet';
+import { DensityQuickSetting } from '@/components/DensityQuickSetting';
 import { GpuIndicator } from '@/components/GpuIndicator';
 import { ModelSelect } from '@/components/ModelSelect';
 import { RecordingLock } from '@/components/RecordingLock';
@@ -67,6 +68,7 @@ export function TopBar() {
                     onChangeSettings({ ...settings, ollama: { ...settings.ollama, finalSummaryModel } })
                 }
             />
+            <DensityQuickSetting settings={settings} onChange={onChangeSettings} />
         </>
     );
 
