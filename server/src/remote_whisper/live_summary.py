@@ -41,6 +41,8 @@ log = logging.getLogger(__name__)
 # 時間がたったかを確かめる間隔（秒）
 CHECK_INTERVAL = 1.0
 LIVE_OVERVIEW_HEADING = "ここまでの概要"
+# 区間を確定させるとき、続いていた間の要約のこの割合より短ければ作り直す
+SHORT_RATIO = 1 / 3
 
 
 @dataclass
@@ -89,6 +91,8 @@ class LiveSummarizer:
         # 要約を確定させた区間と、まだ続いている区間が始まる final の位置
         self.sections: list[Section] = []
         self._base = 0
+        # 続いている区間の、前回の要約（区間が始まる final の位置, 本文）
+        self._ongoing: tuple[int, str] = (0, "")
         self._done = 0  # 要約に入れた final の数
         self._last_at = 0.0  # 前回の要約を始めたときの、録音した長さ
         self._job: asyncio.Future | None = None
@@ -141,9 +145,19 @@ class LiveSummarizer:
         try:
             # 閉じた区間（最後の1つより前）の要約を確定させる。以後は書き直さない
             for i, chunk in enumerate(chunks[:-1]):
-                text = await self._chat(
-                    model, live_section_messages(chunk, self.context, self._previous())
-                )
+                messages = live_section_messages(chunk, self.context, self._previous())
+                text = await self._chat(model, messages)
+                # 確定させた要約は後から直せないので、続いていた間の要約よりずっと短ければ
+                # （モデルが読み違えて一部しか書かなかった）、もう一度作って長い方を使う
+                ongoing = self._ongoing[1] if self._ongoing[0] == self._base else ""
+                if len(text) < len(ongoing) * SHORT_RATIO:
+                    log.warning(
+                        "section summary of %s is much shorter than before (%d < %d); retrying",
+                        self.writer.id,
+                        len(text),
+                        len(ongoing),
+                    )
+                    text = max(text, await self._chat(model, messages), key=len)
                 if not text:
                     raise OllamaUnavailable("区間の要約が空でした")
                 end = line_time(chunks[i + 1][0])
@@ -156,6 +170,7 @@ class LiveSummarizer:
             )
             if not current:
                 raise OllamaUnavailable("要約が空でした")
+            self._ongoing = (self._base, current)
             overview = None
             if self.sections:
                 overview = await self._chat(

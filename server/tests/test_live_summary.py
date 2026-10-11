@@ -153,6 +153,28 @@ def test_closed_sections_are_kept_and_not_rewritten(home, fake, monkeypatch):
     assert "まだ録音が続いて" in prompts[3]
 
 
+def test_short_closing_summary_is_made_again(home, fake, monkeypatch):
+    # 区間を確定させるとき、続いていた間の要約よりずっと短ければ、もう一度作って長い方を使う
+    monkeypatch.setattr(live_summary, "CHUNK_CHARS", 60)
+
+    async def main():
+        h = Harness(home, fake)
+        long, retried = "- 長い要約。" * 10, "- 作り直した長い要約。" * 5
+        replies = iter([long, "- 短い", retried, "- 次", "- 概要"])
+        fake.reply_for = lambda body: next(replies) if "format" not in body else None
+        h.live.add_final(0.0, "一つ目の話題について話します。")
+        await h.live.run()
+        h.live.add_final(10.0, "まだ一つ目の話題の続きです。")
+        h.live.add_final(20.0, "二つ目の話題に移ります。")
+        await h.live.run()
+        await h.close()
+        return h
+
+    h = run(main())
+    assert "## 00:00:00〜00:00:20\n\n- 作り直した長い要約。" in h.writer.live_summary
+    assert "- 短い" not in h.writer.live_summary
+
+
 def test_timer_does_not_advance_while_paused(home, fake):
     async def main():
         h = Harness(home, fake)
