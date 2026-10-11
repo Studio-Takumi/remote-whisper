@@ -9,6 +9,7 @@ import logging
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
 
 from remote_whisper.context import AppContext, get_ctx
 from remote_whisper.documents import SummaryMeta, read_doc
@@ -95,6 +96,23 @@ def get_transcript(pid: str, sid: str, ctx: Ctx) -> dict[str, Any]:
     except (OSError, ValueError) as e:
         raise HTTPException(status_code=500, detail=f"文字起こしを読み込めません: {e}") from e
     return {"meta": meta.to_json(), "lines": parse_transcript_lines(body)}
+
+
+_AUDIO_TYPES = {".mp3": "audio/mpeg", ".m4a": "audio/mp4"}
+
+
+@router.get("/{sid}/recording")
+def get_recording(pid: str, sid: str, ctx: Ctx) -> FileResponse:
+    """録音ファイル（mp3）。ブラウザで再生する
+
+    好きな位置から聞けるよう、Range リクエストに対応する（FileResponse が返す）。
+    ファイルがない（保存期間を過ぎた・録音中・mp3 への変換前）ときは 404
+    """
+    _, files = _session(ctx, pid, sid)
+    path = files.recording()
+    if path is None:
+        raise HTTPException(status_code=404, detail="録音ファイルはありません")
+    return FileResponse(path, media_type=_AUDIO_TYPES.get(path.suffix, "application/octet-stream"))
 
 
 @router.get("/{sid}/summaries")

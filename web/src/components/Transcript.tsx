@@ -10,11 +10,14 @@ export function Transcript({
     lines,
     partial,
     follow = true,
+    onSeek,
 }: {
     sessionId: string;
     lines: TranscriptLine[];
     partial: LivePartial | null;
     follow?: boolean;
+    // 行の時刻を押したとき（録音を再生できるときだけ渡す）
+    onSeek?: (time: string) => void;
 }) {
     const committed = useTypewriter(partial?.committed ?? '', partial?.segment ?? -1);
     // 文字送りが追いついていない分は、未確定の部分と同じく薄く出す
@@ -28,7 +31,20 @@ export function Transcript({
             <div ref={inner} className='flex flex-col gap-2'>
                 {lines.map((line, i) => (
                     <div key={`${line.time}-${i}`} className='flex gap-3'>
-                        <span className='shrink-0 font-mono text-xs leading-6 text-muted-foreground'>{line.time}</span>
+                        {onSeek ? (
+                            // 押すと、その位置から録音を再生する
+                            <button
+                                className='shrink-0 self-start rounded font-mono text-xs leading-6 text-muted-foreground underline-offset-2 hover:text-foreground hover:underline'
+                                aria-label={`${line.time} から再生`}
+                                onClick={() => onSeek(line.time)}
+                            >
+                                {line.time}
+                            </button>
+                        ) : (
+                            <span className='shrink-0 font-mono text-xs leading-6 text-muted-foreground'>
+                                {line.time}
+                            </span>
+                        )}
                         <p className='leading-6'>{line.text}</p>
                     </div>
                 ))}

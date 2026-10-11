@@ -201,6 +201,37 @@ def test_m4a_recording_counts(client, project):
     assert client.get(base(pid)).json()[0]["files"]["recording"] is True
 
 
+def test_get_recording_supports_range(client, project):
+    # ブラウザで好きな位置から聞けるよう、Range リクエストに対応する（#99）
+    pid, d = project
+    (d / f"recording-{SID}.mp3").write_bytes(bytes(range(100)))
+    whole = client.get(f"{base(pid)}/{SID}/recording")
+    assert whole.status_code == 200
+    assert whole.headers["content-type"] == "audio/mpeg"
+    assert whole.headers["accept-ranges"] == "bytes"
+    assert whole.content == bytes(range(100))
+    part = client.get(f"{base(pid)}/{SID}/recording", headers={"Range": "bytes=10-19"})
+    assert part.status_code == 206
+    assert part.content == bytes(range(10, 20))
+    assert part.headers["content-range"] == "bytes 10-19/100"
+
+
+def test_recording_is_404_when_gone(client, project):
+    # 保存期間を過ぎて消えた・mp3 への変換前のセッションは 404（画面は再生バーを出さない）
+    pid, d = project
+    (d / f"recording-{SID}.mp3").unlink()
+    assert client.get(f"{base(pid)}/{SID}/recording").status_code == 404
+    assert client.get(f"{base(pid)}/20261002-100000/recording").status_code == 404
+    assert client.get(f"{base(pid)}/20261231-000000/recording").status_code == 404
+
+
+def test_m4a_recording_is_served_as_mp4(client, project):
+    pid, d = project
+    (d / f"recording-{SID}.mp3").unlink()
+    (d / f"recording-{SID}.m4a").write_bytes(b"\0")
+    assert client.get(f"{base(pid)}/{SID}/recording").headers["content-type"] == "audio/mp4"
+
+
 def test_invalid_session_id(client, project):
     pid, _ = project
     assert client.get(f"{base(pid)}/not-an-id").status_code == 404

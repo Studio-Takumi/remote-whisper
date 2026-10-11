@@ -23,6 +23,15 @@ export function formatClock(sec: number) {
     return `${pad(Math.floor(s / 3600))}:${pad(Math.floor((s % 3600) / 60))}:${pad(s % 60)}`;
 }
 
+// 文字起こしの行の時刻（HH:MM:SS）を秒にする。読めなければ null
+export function clockToSeconds(time: string) {
+    const parts = time.split(':').map((p) => (p.trim() === '' ? NaN : Number(p)));
+    if (parts.some((n) => Number.isNaN(n))) {
+        return null;
+    }
+    return parts.reduce((sec, n) => sec * 60 + n, 0);
+}
+
 // formatDateTime の形（YYYY-MM-DD HH:MM）を Date に戻す。読めなければ null
 function parseDateTime(text: string) {
     const m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})$/.exec(text);
