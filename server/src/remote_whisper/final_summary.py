@@ -192,7 +192,10 @@ class FinalSummarizer:
                 think,
                 text,
                 generated=started,
-                overview_density=density.overview,
+                # 一度に収まって概要を作らなかったときは、概要の要約度は残さない
+                overview_density=(
+                    density.overview if len(split_lines(lines, CHUNK_CHARS)) > 1 else None
+                ),
                 detail_density=density.detail,
             )
         except OSError:

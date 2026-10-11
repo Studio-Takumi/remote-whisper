@@ -317,6 +317,27 @@ def test_density_from_settings_is_used_and_recorded(home, fake, tmp_path, monkey
     assert writer.density == {"overview_density": 1, "detail_density": 5}
 
 
+def test_short_summary_uses_the_detail_density(home, fake, tmp_path):
+    # 一度に収まるときは詳細の要約度で作り、使わなかった概要の要約度は残さない
+    settings = SettingsStore(home)
+    settings.update({"ollama": {"overviewDensity": 5, "detailDensity": 1}})
+    summarizer = FinalSummarizer(
+        OllamaClient(Hub(), settings, transport=fake.transport()), settings
+    )
+    writer = StubWriter(tmp_path)
+    writer.files.transcript.write_text(
+        "---\nid: x\n---\n[00:00:00] 短い話です。\n", encoding="utf-8"
+    )
+
+    async def send(m):
+        pass
+
+    asyncio.run(summarizer.run(writer, send))
+    prompt = [b for b in fake.bodies("/api/chat") if not b.get("format")][0]
+    assert "要点だけに絞って" in prompt["messages"][-1]["content"]
+    assert writer.density == {"overview_density": None, "detail_density": 1}
+
+
 def test_demote_headings():
     assert demote("## 予算") == "### 予算"
     assert demote("# 全体") == "### 全体"

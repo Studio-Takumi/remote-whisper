@@ -296,7 +296,7 @@ contextSet: 20261009-090501
 useContext: true
 generatedAt: 2026-10-09T16:03:11+09:00
 appVersion: 2b23d9b           # 要約を作ったサーバーのバージョン（文字起こしと同じ）
-overviewDensity: 3            # 使った要約度（概要・詳細。5.3 節）。項目のない古いファイルも読める
+overviewDensity: 3            # 使った要約度（概要・詳細。5.3 節）。一度に収まって概要を作らなかったときは null。項目のない古いファイルも読める
 detailDensity: 3
 ---
 （要約の本文）

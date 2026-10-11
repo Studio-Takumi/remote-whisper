@@ -311,7 +311,7 @@ function SettingsForm({
                         <Row
                             id='live-density'
                             label='途中の要約の要約度'
-                            description='区間（約 9 分）ごとの要約の細かさ。1 はごく短く要点だけ、5 はできるだけ省かず細かく'
+                            description='区間（文字起こし約 4000 文字ずつ）ごとの要約の細かさ。1 はごく短く要点だけ、5 はできるだけ省かず細かく'
                         >
                             <DensitySelect
                                 id='live-density'
