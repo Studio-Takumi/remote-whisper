@@ -671,9 +671,21 @@ export const useAppStore = create<AppState>()((set, get) => {
             });
             connection.subscribe((m) => {
                 if (m.type === 'status') {
-                    // recordings と queue は今のところ画面に出さない
+                    // recordings と queue は画面に出さない（GPU キューは jobs で出す）
                     const ollamaBack = m.ollama === 'ready' && get().server.ollama !== 'ready';
-                    set((s) => ({ server: { ...s.server, whisper: m.whisper, ollama: m.ollama } }));
+                    // status は GPU の使用率が変わるたびにも届くが、jobs の秒数はキューが変わったときのまま。
+                    // jobs が変わったときだけ受け取った時刻を記録し直す（経過時間が戻らないように）
+                    const jobsChanged = !!m.jobs && JSON.stringify(m.jobs) !== JSON.stringify(get().server.jobs);
+                    set((s) => ({
+                        server: {
+                            ...s.server,
+                            whisper: m.whisper,
+                            ollama: m.ollama,
+                            jobs: jobsChanged && m.jobs ? m.jobs : s.server.jobs,
+                            jobsAt: jobsChanged ? Date.now() : s.server.jobsAt,
+                            gpu: m.gpu ?? null,
+                        },
+                    }));
                     // Ollama につながるようになったら、モデルの一覧を取り直す（つながらない間は空になっている）
                     if (ollamaBack) {
                         void get().loadOptions();

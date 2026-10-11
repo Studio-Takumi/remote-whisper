@@ -3,6 +3,7 @@ import { useLayoutEffect, useRef } from 'react';
 import { MicIcon, SlidersHorizontalIcon, SparklesIcon } from 'lucide-react';
 
 import { ContextSetSheet } from '@/components/ContextSetSheet';
+import { GpuIndicator } from '@/components/GpuIndicator';
 import { ModelSelect } from '@/components/ModelSelect';
 import { RecordingLock } from '@/components/RecordingLock';
 import { Button } from '@/components/ui/button';
@@ -79,6 +80,8 @@ export function TopBar() {
         >
             {/* スマホの幅ではサイドバーが隠れるので、開くボタンをここに出す */}
             <SidebarTrigger className='size-9 md:hidden' aria-label='メニューを開く' />
+            {/* GPU の状態は録音中も見られるよう、ロックの外に置く */}
+            <GpuIndicator />
             <RecordingLock locked={recording} className='ml-auto'>
                 <div className='flex flex-row items-center gap-2'>
                     <div className='hidden flex-row items-center gap-2 md:flex'>{selects}</div>

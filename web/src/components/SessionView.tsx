@@ -87,7 +87,7 @@ export function SessionView() {
                     {!session && recordingState === 'idle' && (
                         <p className='text-sm text-muted-foreground'>マイクボタンを押すと録音が始まります。</p>
                     )}
-                    <StatusIndicator status={transcriptStatus(recordingState, server)} />
+                    <StatusIndicator status={transcriptStatus(recordingState, server, recordingSessionId)} />
                 </TabsContent>
 
                 <TabsContent value='summary' className='flex flex-col gap-4'>
