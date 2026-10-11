@@ -3,6 +3,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import { AudioLinesIcon, FolderPlusIcon, RefreshCwIcon, TriangleAlertIcon } from 'lucide-react';
 
 import { Markdown } from '@/components/Markdown';
+import { RecordingPlayer } from '@/components/RecordingPlayer';
 import { StatusIndicator } from '@/components/StatusIndicator';
 import { Transcript } from '@/components/Transcript';
 import { Button } from '@/components/ui/button';
@@ -11,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { isScrolledToBottom, scrollToBottom } from '@/scroll';
 import { summaryStatus, transcriptStatus } from '@/status';
 import { currentProject, currentSession, useAppStore, visibleProjects } from '@/store';
+import { clockToSeconds } from '@/time';
 import type { Generating, Session, Summary } from '@/types';
 
 // メイン画面の中身。何も選んでいない・新しいセッション・既存のセッションの3つを出し分ける
@@ -27,21 +29,38 @@ export function SessionView() {
     const liveDraft = useAppStore((s) => s.liveDraft);
     const recordingSessionId = useAppStore((s) => s.recordingSessionId);
     const { tab, changeTab, followTranscript } = useTabScroll(session?.id);
+    const audio = useRef<HTMLAudioElement>(null);
 
     if (!project) {
         return <EmptyState hasProjects={hasProjects} />;
     }
 
     const live = summaryStatus(recordingState, server, liveIntervalMin);
+    // 録音を終えていて、録音ファイルが残っているセッションだけ再生できる（消えた・変換前なら出さない）
+    const recordingUrl =
+        session && session.status !== 'recording' && session.files?.recording
+            ? `/api/projects/${project.id}/sessions/${session.id}/recording`
+            : null;
+    const seek = (time: string) => {
+        const sec = clockToSeconds(time);
+        const player = audio.current;
+        if (sec === null || !player) {
+            return;
+        }
+        player.currentTime = sec;
+        void player.play();
+    };
 
     return (
         <Tabs value={tab} onValueChange={changeTab}>
             {/* 上のバーのすぐ下に貼り付ける（#78）。左右の余白まで背景を塗って、本文が透けないようにする */}
-            <div className='sticky top-(--top-bar-height,0px) z-10 -mx-4 flex justify-center bg-background px-4 pb-2'>
+            {/* 再生バーも一緒に貼り付ける（文字起こしの下の方で時刻を押しても、止められるように） */}
+            <div className='sticky top-(--top-bar-height,0px) z-10 -mx-4 flex flex-col items-center gap-2 bg-background px-4 pb-2'>
                 <TabsList>
                     <TabsTrigger value='transcript'>文字起こし</TabsTrigger>
                     <TabsTrigger value='summary'>要約</TabsTrigger>
                 </TabsList>
+                {recordingUrl && <RecordingPlayer src={recordingUrl} audio={audio} />}
             </div>
             {/* 下の pb は、マイクのボタンの上に出す経過時間（絶対配置）が本文に重ならないようにするため */}
             <div className='mx-auto flex w-full max-w-3xl flex-col gap-4 pt-2 pb-16'>
@@ -82,6 +101,7 @@ export function SessionView() {
                             lines={session.transcript}
                             partial={partial?.sessionId === session.id ? partial : null}
                             follow={followTranscript}
+                            onSeek={recordingUrl ? seek : undefined}
                         />
                     )}
                     {!session && recordingState === 'idle' && (
