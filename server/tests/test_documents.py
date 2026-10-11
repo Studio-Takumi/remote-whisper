@@ -48,6 +48,8 @@ def test_parse_spec_example(tmp_path):
     assert meta.id == "20261009-143012"
     assert meta.context_set == "20261009-090501"
     assert meta.whisper == WhisperUsed(model="large-v3-turbo", beam_size=5, silence_ms=600)
+    # appVersion がない古いファイルも読める（#97）
+    assert meta.app_version is None
     assert meta.duration_sec == 5368
     assert body.startswith("[00:00:03] 今日は")
 
