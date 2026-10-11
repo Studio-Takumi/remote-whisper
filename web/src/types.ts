@@ -21,6 +21,8 @@ export type Session = {
     startedAt: string;
     // 録音を終えた日時。録音中はない
     endedAt?: string;
+    // 録音の長さ（秒）。録音中はない
+    durationSec?: number;
     // recording は録音中（ほかの端末で録音しているものも含む）
     status: 'recording' | 'done' | 'interrupted';
     // どのファイルが残っているか（サーバーから取ったとき）。保存期間を過ぎて消えたものは「期限切れ」と出す

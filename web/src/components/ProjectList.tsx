@@ -2,19 +2,33 @@ import { PlusIcon } from 'lucide-react';
 
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
-import type { Project } from '@/types';
+import { formatElapsed, formatShortDateTime, sessionDuration } from '@/time';
+import type { Project, Session } from '@/types';
+
+// 録音日時と長さ（例: 10/11 14:05 · 1:23:45）。録音中は長さの代わりに「録音中」
+function sessionMeta(session: Session) {
+    const started = formatShortDateTime(session.startedAt);
+    if (session.status === 'recording') {
+        return `${started} · 録音中`;
+    }
+    const duration = sessionDuration(session);
+    return duration === undefined ? started : `${started} · ${formatElapsed(Math.round(duration))}`;
+}
 
 // サイドバーのプロジェクト一覧。基本は全部開いておく。閉じることもできる
 export function ProjectList({
     projects,
     activeProject,
     activeSession,
+    showMeta,
     onSelectSession,
     onNewSession,
 }: {
     projects: Project[];
     activeProject: string | null;
     activeSession: string | null;
+    // セッションの録音日時と長さを出すか（全体設定の display.sessionMeta）
+    showMeta: boolean;
     onSelectSession: (projectId: string, sessionId: string) => void;
     onNewSession: (projectId: string) => void;
 }) {
@@ -46,9 +60,21 @@ export function ProjectList({
                                 <SidebarMenuItem key={session.id}>
                                     <SidebarMenuButton
                                         isActive={session.id === activeSession}
+                                        // 2行にするときは、高さを中身に合わせる
+                                        className={showMeta ? 'h-auto py-1.5' : undefined}
                                         onClick={() => onSelectSession(project.id, session.id)}
                                     >
-                                        <span className='truncate'>{session.title}</span>
+                                        {showMeta ? (
+                                            // 録音日時と長さを、タイトルの下に小さく出す
+                                            <span className='flex min-w-0 flex-col'>
+                                                <span className='truncate'>{session.title}</span>
+                                                <span className='truncate text-xs text-muted-foreground tabular-nums'>
+                                                    {sessionMeta(session)}
+                                                </span>
+                                            </span>
+                                        ) : (
+                                            <span className='truncate'>{session.title}</span>
+                                        )}
                                         {/* 録音中（ほかの端末のものも含む）のセッションには赤い点を付ける */}
                                         {session.status === 'recording' && (
                                             <span

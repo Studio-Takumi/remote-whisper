@@ -1,6 +1,15 @@
 import { useState } from 'react';
 
-import { FileTextIcon, FolderIcon, HardDriveIcon, MicIcon, PlusIcon, SparklesIcon, Trash2Icon } from 'lucide-react';
+import {
+    FileTextIcon,
+    FolderIcon,
+    HardDriveIcon,
+    MicIcon,
+    MonitorIcon,
+    PlusIcon,
+    SparklesIcon,
+    Trash2Icon,
+} from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -119,6 +128,10 @@ function SettingsForm({
                     <TabsTrigger value='materials'>
                         <FileTextIcon />
                         参考資料
+                    </TabsTrigger>
+                    <TabsTrigger value='display'>
+                        <MonitorIcon />
+                        表示
                     </TabsTrigger>
                 </TabsList>
 
@@ -444,6 +457,22 @@ function SettingsForm({
                                 className='w-56'
                                 value={draft.materials.extensions.join(', ')}
                                 onChange={(e) => update('materials', { extensions: e.target.value.split(',') })}
+                            />
+                        </Row>
+                    </Section>
+                </TabsContent>
+
+                <TabsContent value='display' className='min-h-0 overflow-y-auto pr-2'>
+                    <Section>
+                        <Row
+                            id='session-meta'
+                            label='左メニューに録音日時と長さを出す'
+                            description='セッションのタイトルの下に、録音を始めた日時と録音の長さを小さく出す'
+                        >
+                            <Switch
+                                id='session-meta'
+                                checked={draft.display.sessionMeta}
+                                onCheckedChange={(sessionMeta) => update('display', { sessionMeta })}
                             />
                         </Row>
                     </Section>
