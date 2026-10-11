@@ -474,7 +474,7 @@ GPU を使う処理は、1つのキューを通して順番に実行する。
 | `started` | `session` |
 | `ack` | `seq`。ブラウザは、ここまでの音声を手元のバッファから消してよい |
 | `partial` | `segment`、`committed`、`tentative` |
-| `final` | `segment`、`start`、`end`、`text` |
+| `final` | `segment`、`start`、`end`、`text`。`text` が空なら、その区間は文字にならなかった（話していないのに出た文をすべて捨てた・Whisper を使えなかった）。UI は partial を消すだけで、行は足さない |
 | `summary.delta` | `kind`（`live` / `final`）、`text`（追加分） |
 | `summary.done` | `kind` |
 | `title` | `title`、`provisional`（仮のタイトルかどうか） |

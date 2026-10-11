@@ -123,9 +123,12 @@ class LiveTranscriber:
             result = await self.whisper.transcribe(segment.pcm, **self._options())
         except WhisperUnavailable as e:
             log.warning("final of segment %d skipped: %s", segment.index, e)
+            await self._send_final(segment, "")
             return
         text = _join(_drop_hallucinations(result, segment, "final"))
         if not text:
+            # 文字にならなかった区間も、空の final で partial を消してもらう（#89）
+            await self._send_final(segment, "")
             return
         try:
             self.append_final(segment.start, text)
@@ -140,6 +143,9 @@ class LiveTranscriber:
                     "message": f"文字起こしを保存できません: {e}",
                 }
             )
+        await self._send_final(segment, text)
+
+    async def _send_final(self, segment: Segment, text: str) -> None:
         await self.send(
             {
                 "type": "final",

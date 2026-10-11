@@ -138,8 +138,9 @@ def test_skips_segments_while_whisper_is_unavailable():
         return h
 
     h = run(main())
-    # 失敗した区間は飛ばし、次の区間は文字起こしする
-    assert [(m["segment"], m["text"]) for m in h.of_type("final")] == [(1, "1秒")]
+    # 失敗した区間は空の final（partial を消すため）にして、次の区間は文字起こしする
+    assert [(m["segment"], m["text"]) for m in h.of_type("final")] == [(0, ""), (1, "1秒")]
+    assert [text for _, text in h.appended] == ["1秒"]
 
 
 def test_drops_hallucinations_from_final_and_partial_and_logs_them(caplog):
@@ -230,7 +231,9 @@ def test_auto_drops_a_phrase_from_a_short_burst():
         return h
 
     h = run(main())
-    assert [m["text"] for m in h.of_type("final")] == ["本当の発言"]
+    # 捨てた区間は空の final になる（#89）。文字起こしのファイルには書かない
+    assert [m["text"] for m in h.of_type("final")] == ["", "本当の発言"]
+    assert [text for _, text in h.appended] == ["本当の発言"]
 
 
 def test_append_failure_is_reported_but_final_is_sent():
