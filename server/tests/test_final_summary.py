@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 import pytest
 from fake_ollama import FakeOllama
@@ -184,8 +185,8 @@ def test_long_transcript_is_summarized_in_parts(home, fake, monkeypatch):
 
 def test_long_transcript_fails_when_the_overview_is_empty(home, fake, monkeypatch):
     monkeypatch.setattr(final_summary, "CHUNK_CHARS", 30)
-    # 部分ごとの要約は作れたが、概要が空だった
-    replies = iter([["一"], ["二"], ["三"], []])
+    # 部分ごとの要約は作れたが、概要が改行と空白だけだった
+    replies = iter([["一"], ["二"], ["三"], ["\n", " \n"]])
 
     def handle(request):
         if request.url.path == "/api/chat":
@@ -205,6 +206,86 @@ def test_long_transcript_fails_when_the_overview_is_empty(home, fake, monkeypatc
     assert asyncio.run(summarizer._summarize("qwen3.5:4b", lines, None, send)) == ("", "")
     # 概要が空なら、見出しだけを送ったりしない
     assert sent == []
+
+
+def chat_replies(fake, replies):
+    """/api/chat の返事を、呼ばれた順に replies から返す"""
+    replies = iter(replies)
+
+    def handle(request):
+        if request.url.path == "/api/chat" and not json.loads(request.content).get("format"):
+            fake.reply = next(replies)
+        return FakeOllama.handle(fake, request)
+
+    fake.handle = handle
+
+
+def summarize(home, fake, lines):
+    summarizer = FinalSummarizer(
+        OllamaClient(Hub(), SettingsStore(home), transport=fake.transport()), SettingsStore(home)
+    )
+    sent = []
+
+    async def send(m):
+        sent.append(m)
+
+    return asyncio.run(summarizer._summarize("qwen3.5:4b", lines, None, send)), sent
+
+
+def test_empty_part_is_marked_instead_of_dropped(home, fake, monkeypatch, caplog):
+    monkeypatch.setattr(final_summary, "CHUNK_CHARS", 30)
+    chat_replies(fake, [["一"], [], ["三"], ["概要"]])
+    lines = [f"[00:00:{i:02d}] 二十文字ほどの長さの発言です。{i}" for i in range(3)]
+    (text, gist), _ = summarize(home, fake, lines)
+    assert gist == "概要"
+    assert "## 00:00:01〜00:00:02\n\n（この部分は要約できませんでした）" in text
+    assert "part 2/3 of the final summary was empty" in caplog.text
+
+
+def test_long_parts_are_merged_before_the_overview(home, fake, monkeypatch):
+    monkeypatch.setattr(final_summary, "CHUNK_CHARS", 30)
+    # 部分の要約（各10文字）は合わせて 30 文字を超えるので、2つずつまとめてから概要を作る
+    chat_replies(fake, [["あ" * 10]] * 6 + [["い" * 10]] * 3 + [["概要"]])
+    lines = [f"[00:00:{i:02d}] 二十文字ほどの長さの発言です。{i}" for i in range(6)]
+    (text, gist), _ = summarize(home, fake, lines)
+    chats = [b["messages"][-1]["content"] for b in fake.bodies("/api/chat")]
+    assert len(chats) == 10
+    assert all("部分2" in c and "部分3" not in c for c in chats[6:9])
+    # 概要には、まとめたもの（3つ）を渡す
+    assert "い" * 10 in chats[9] and "部分3" in chats[9] and "部分4" not in chats[9]
+    # 詳細は、まとめる前の部分ごとの要約のまま
+    assert gist == "概要"
+    assert text.count("あ" * 10) == 6 and "い" not in text
+
+
+def test_long_summary_is_saved_and_titled_from_the_overview(home, fake, tmp_path, monkeypatch):
+    monkeypatch.setattr(final_summary, "CHUNK_CHARS", 30)
+    chat_replies(fake, [["一"], ["二"], ["概要です"]])
+    settings = SettingsStore(home)
+    summarizer = FinalSummarizer(
+        OllamaClient(Hub(), settings, transport=fake.transport()), settings
+    )
+    writer = StubWriter(tmp_path)
+    writer.files.transcript.write_text(
+        "---\nid: x\n---\n"
+        "[00:00:00] 二十文字ほどの長さの発言です。前半\n"
+        "[00:10:00] 二十文字ほどの長さの発言です。後半\n",
+        encoding="utf-8",
+    )
+    sent = []
+
+    async def send(m):
+        sent.append(m)
+
+    asyncio.run(summarizer.run(writer, send))
+    _, _, text, _ = writer.saved
+    assert text == (
+        "## 全体の概要\n\n概要です\n\n## 00:00:00〜00:10:00\n\n一\n\n## 00:10:00〜00:10:00\n\n二"
+    )
+    # タイトルは、詳細を含まない概要から作る
+    title = [b for b in fake.bodies("/api/chat") if b.get("format")][0]
+    assert title["messages"][-1]["content"] == "概要です"
+    assert writer.meta.title == "リリース計画の確認"
 
 
 def test_demote_headings():

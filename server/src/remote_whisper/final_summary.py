@@ -47,6 +47,7 @@ CHUNK_CHARS = 4000
 # 次の部分に参考として渡す、前の部分の要約の長さ（文字。後ろから）
 PREVIOUS_CHARS = 1000
 OVERVIEW_HEADING = "全体の概要"
+EMPTY_PART = "（この部分は要約できませんでした）"
 
 _TIME = re.compile(r"^\[(\d{2}:\d{2}:\d{2})\]")
 _HEADING = re.compile(r"^(#{1,6})(?=\s)")
@@ -255,6 +256,10 @@ class FinalSummarizer:
                 think=True,
                 options=options,
             )
+            if not part.strip():
+                # その時間帯が見出しだけになって、黙って抜けないようにする
+                log.warning("part %d/%d of the final summary was empty", i + 1, len(chunks))
+                part = EMPTY_PART
             parts.append(part.strip())
         # 概要の材料。部分の要約を合わせてまだ長ければ、いくつかずつまとめるのを繰り返す
         digest = parts
@@ -298,11 +303,17 @@ class FinalSummarizer:
     ) -> str:
         """流れてくる本文を `summary.delta`（final）で送り、つなげて返す
 
-        prefix は最初の1つに付けて送る（本文が1文字も来なければ送らない）。返す本文には含めない
+        prefix は空白でない本文が来たときに、それと一緒に送る（来なければ送らない）。
+        返す本文には含めない
         """
         out: list[str] = []
+        pending = prefix
         async for part in stream:
-            text = part if out else prefix + part
             out.append(part)
-            await send({"type": "summary.delta", "kind": "final", "text": text})
+            if pending:
+                if not part.strip():
+                    pending += part
+                    continue
+                part, pending = pending + part, ""
+            await send({"type": "summary.delta", "kind": "final", "text": part})
         return "".join(out)
