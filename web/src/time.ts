@@ -25,8 +25,8 @@ export function formatClock(sec: number) {
 
 // 文字起こしの行の時刻（HH:MM:SS）を秒にする。読めなければ null
 export function clockToSeconds(time: string) {
-    const parts = time.split(':').map(Number);
-    if (parts.length === 0 || parts.some((n) => Number.isNaN(n))) {
+    const parts = time.split(':').map((p) => (p.trim() === '' ? NaN : Number(p)));
+    if (parts.some((n) => Number.isNaN(n))) {
         return null;
     }
     return parts.reduce((sec, n) => sec * 60 + n, 0);

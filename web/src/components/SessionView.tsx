@@ -30,6 +30,8 @@ export function SessionView() {
     const recordingSessionId = useAppStore((s) => s.recordingSessionId);
     const { tab, changeTab, followTranscript } = useTabScroll(session?.id);
     const audio = useRef<HTMLAudioElement>(null);
+    // 読み込めなかった録音（開いた後に消えたなど）。再生バーを消し、時刻も押せなくする
+    const [failedRecording, setFailedRecording] = useState<string | null>(null);
 
     if (!project) {
         return <EmptyState hasProjects={hasProjects} />;
@@ -37,10 +39,11 @@ export function SessionView() {
 
     const live = summaryStatus(recordingState, server, liveIntervalMin);
     // 録音を終えていて、録音ファイルが残っているセッションだけ再生できる（消えた・変換前なら出さない）
-    const recordingUrl =
+    const url =
         session && session.status !== 'recording' && session.files?.recording
             ? `/api/projects/${project.id}/sessions/${session.id}/recording`
             : null;
+    const recordingUrl = url !== failedRecording ? url : null;
     const seek = (time: string) => {
         const sec = clockToSeconds(time);
         const player = audio.current;
@@ -48,7 +51,8 @@ export function SessionView() {
             return;
         }
         player.currentTime = sec;
-        void player.play();
+        // 読み込めないときなどは、onError で再生バーを消す
+        player.play().catch(() => {});
     };
 
     return (
@@ -60,7 +64,13 @@ export function SessionView() {
                     <TabsTrigger value='transcript'>文字起こし</TabsTrigger>
                     <TabsTrigger value='summary'>要約</TabsTrigger>
                 </TabsList>
-                {recordingUrl && <RecordingPlayer src={recordingUrl} audio={audio} />}
+                {recordingUrl && (
+                    <RecordingPlayer
+                        src={recordingUrl}
+                        audio={audio}
+                        onError={() => setFailedRecording(recordingUrl)}
+                    />
+                )}
             </div>
             {/* 下の pb は、マイクのボタンの上に出す経過時間（絶対配置）が本文に重ならないようにするため */}
             <div className='mx-auto flex w-full max-w-3xl flex-col gap-4 pt-2 pb-16'>
