@@ -70,6 +70,8 @@ class SessionEntry(_Model):
     status: Literal["recording", "done", "interrupted"]
     started_at: str
     ended_at: str | None = None
+    # 録音の長さ（秒、一時停止していた時間は含めない）。録音中と、これを記録する前のセッションはない
+    duration_sec: int | None = None
     context_set: str | None = None
     # 最終の要約を作れなかった（文字起こしのフロントマターと同じ。UI で失敗と作り直しを出す: #17）
     summary_failed: bool = False
@@ -120,6 +122,7 @@ def rebuild_project_file(project_dir: Path) -> ProjectFile | None:
                     status=t.status,
                     started_at=t.started_at,
                     ended_at=t.ended_at,
+                    duration_sec=t.duration_sec,
                     context_set=t.context_set,
                     summary_failed=t.summary_failed,
                 )

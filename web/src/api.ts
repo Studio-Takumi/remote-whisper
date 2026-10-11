@@ -60,6 +60,8 @@ export type SessionJson = {
     status: 'recording' | 'done' | 'interrupted';
     startedAt: string;
     endedAt: string | null;
+    // 録音の長さ（秒）。録音中と、これを記録する前のセッションは null
+    durationSec?: number | null;
     contextSet: string | null;
     // 最終の要約を作れなかった（spec 6.7）。作り直して作れたら false に戻る
     summaryFailed?: boolean;

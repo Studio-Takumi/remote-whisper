@@ -599,7 +599,13 @@ export const useAppStore = create<AppState>()((set, get) => {
                 // 流れている途中で終えると summary.done（live）が来ないので、書きかけの途中の要約は捨てる
                 liveDraft: null,
                 projects: sessionId
-                    ? updateSession(s.projects, sessionId, (x) => ({ ...x, status: 'done', endedAt }))
+                    ? // 長さはサーバーと同じ時計の経過時間。取り直すまでの間も、左メニューに秒まで出せるように
+                      updateSession(s.projects, sessionId, (x) => ({
+                          ...x,
+                          status: 'done',
+                          endedAt,
+                          durationSec: s.elapsed,
+                      }))
                     : s.projects,
                 // 最終の要約はサーバーが作り、summary.delta（final）で届く。届くまでは「作成中」と出す
                 generating: sessionId

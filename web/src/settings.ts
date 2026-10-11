@@ -37,6 +37,10 @@ export type Settings = {
         roots: string[];
         extensions: string[];
     };
+    display: {
+        // 左メニューのセッションに、録音日時と長さを出すか
+        sessionMeta: boolean;
+    };
 };
 
 export const defaultSettings: Settings = {
@@ -74,5 +78,8 @@ export const defaultSettings: Settings = {
     materials: {
         roots: ['D:\\work'],
         extensions: ['.md', '.txt', '.pdf', '.html'],
+    },
+    display: {
+        sessionMeta: false,
     },
 };

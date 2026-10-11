@@ -24,6 +24,7 @@ function toSession(json: SessionJson): Session {
         title: json.title ?? '新しいセッション',
         startedAt: displayTime(json.startedAt) ?? '',
         endedAt: displayTime(json.endedAt),
+        durationSec: json.durationSec ?? undefined,
         status: json.status,
         files: json.files,
         summaryFailed: json.summaryFailed ?? false,

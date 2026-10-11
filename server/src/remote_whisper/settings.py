@@ -76,6 +76,11 @@ class MaterialsSettings(_Model):
     extensions: list[str] = Field(default_factory=lambda: [".md", ".txt", ".pdf", ".html"])
 
 
+class DisplaySettings(_Model):
+    # 左メニューのセッションに、録音日時と長さを出すか
+    session_meta: bool = False
+
+
 class Settings(_Model):
     version: int = SETTINGS_VERSION
     whisper: WhisperSettings = Field(default_factory=WhisperSettings)
@@ -83,6 +88,7 @@ class Settings(_Model):
     recording: RecordingSettings = Field(default_factory=RecordingSettings)
     retention_days: RetentionDays = Field(default_factory=RetentionDays)
     materials: MaterialsSettings = Field(default_factory=MaterialsSettings)
+    display: DisplaySettings = Field(default_factory=DisplaySettings)
 
     def to_json(self) -> dict[str, Any]:
         return self.model_dump(by_alias=True)

@@ -152,7 +152,9 @@ class SessionWriter:
             self.meta.ended_at = iso(ended)
             self.meta.duration_sec = int(duration_sec)
             self._rewrite_meta()
-        self._update_entry(status=status, ended_at=self.meta.ended_at)
+        self._update_entry(
+            status=status, ended_at=self.meta.ended_at, duration_sec=self.meta.duration_sec
+        )
 
     def save_live_summary(self, text: str) -> None:
         atomic_write_text(self.files.live_summary, text)

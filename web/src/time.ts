@@ -23,6 +23,28 @@ export function formatClock(sec: number) {
     return `${pad(Math.floor(s / 3600))}:${pad(Math.floor((s % 3600) / 60))}:${pad(s % 60)}`;
 }
 
+// formatDateTime の形（YYYY-MM-DD HH:MM）を Date に戻す。読めなければ null
+function parseDateTime(text: string) {
+    const m = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})$/.exec(text);
+    return m ? new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]) : null;
+}
+
+// 左メニューに出す録音日時（例: 10/11 14:05）
+export function formatShortDateTime(text: string) {
+    const d = parseDateTime(text);
+    return d ? `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}` : text;
+}
+
+// 録音の長さ（秒）。記録がなければ（記録する前のセッション）開始と終了の日時の差にする（分の単位まで）
+export function sessionDuration(session: { startedAt: string; endedAt?: string; durationSec?: number }) {
+    if (session.durationSec !== undefined) {
+        return session.durationSec;
+    }
+    const start = parseDateTime(session.startedAt);
+    const end = session.endedAt ? parseDateTime(session.endedAt) : null;
+    return start && end ? Math.max(0, (end.getTime() - start.getTime()) / 1000) : undefined;
+}
+
 export function formatDateTime(date = new Date()) {
     const d = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
     return `${d} ${pad(date.getHours())}:${pad(date.getMinutes())}`;

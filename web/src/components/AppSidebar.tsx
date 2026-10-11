@@ -21,6 +21,7 @@ export function AppSidebar() {
     const recording = useAppStore((s) => s.recordingState !== 'idle');
     const projects = useAppStore(visibleProjects);
     const selection = useAppStore((s) => s.selection);
+    const showMeta = useAppStore((s) => s.settings.display.sessionMeta);
     const selectSession = useAppStore((s) => s.selectSession);
     const newSession = useAppStore((s) => s.newSession);
     // スマホの幅ではサイドバーはシートとして重なるので、セッションを選んだら閉じる
@@ -60,6 +61,7 @@ export function AppSidebar() {
                             projects={projects}
                             activeProject={selection.projectId}
                             activeSession={selection.sessionId}
+                            showMeta={showMeta}
                             onSelectSession={(projectId, sessionId) => {
                                 selectSession(projectId, sessionId);
                                 setOpenMobile(false);
