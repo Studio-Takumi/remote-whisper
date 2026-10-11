@@ -180,6 +180,74 @@ def test_cancelling_a_waiting_job_updates_the_size_at_once():
     assert run(main()) == (2, 1, 1)
 
 
+def test_snapshot_lists_running_and_waiting_jobs():
+    async def main():
+        queue = GpuQueue()
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def blocker():
+            started.set()
+            await release.wait()
+
+        async def nothing():
+            pass
+
+        first = queue.submit(Priority.LIVE_SUMMARY, blocker, session="s1")
+        await started.wait()
+        rest = [
+            queue.submit(Priority.BACKGROUND, nothing, kind="finalSummary", session="s0"),
+            queue.submit(Priority.TRANSCRIBE, nothing, session="s1"),
+            queue.submit(Priority.TRANSCRIBE, nothing, session="s1"),
+            queue.submit(Priority.TRANSCRIBE, nothing, kind="whisperLoad", session="s2"),
+            queue.submit(Priority.BACKGROUND, nothing, kind="contextSet"),
+        ]
+        snapshot = queue.snapshot()
+        release.set()
+        await asyncio.gather(first, *rest)
+        after = queue.snapshot()
+        await queue.stop()
+        return snapshot, after
+
+    snapshot, after = run(main())
+    # 種類を省くと優先度から決める
+    running = snapshot["running"]
+    assert (running["kind"], running["session"]) == ("liveSummary", "s1")
+    assert running["runningSec"] >= 0
+    # 待っているジョブは実行する順。続けて並ぶ同じ種類・同じセッションのものはまとめる
+    waiting = [(w["kind"], w["session"], w["count"]) for w in snapshot["waiting"]]
+    assert waiting == [
+        ("transcribe", "s1", 2),
+        ("whisperLoad", "s2", 1),
+        ("finalSummary", "s0", 1),
+        ("contextSet", None, 1),
+    ]
+    assert after == {"running": None, "waiting": []}
+
+
+def test_notifications_are_batched_with_min_interval():
+    async def main():
+        sizes = []
+
+        async def on_change(n):
+            sizes.append(n)
+
+        queue = GpuQueue(on_change, min_interval=0.2)
+
+        async def nothing():
+            pass
+
+        await asyncio.gather(*(queue.submit(Priority.TRANSCRIBE, nothing) for _ in range(20)))
+        await asyncio.sleep(0.5)
+        await queue.stop()
+        return sizes
+
+    sizes = run(main())
+    # 20 個のジョブの出入りでも、間を空けてまとめて送るので数回で済む。最後は 0
+    assert len(sizes) <= 4
+    assert sizes[-1] == 0
+
+
 def test_queue_size_is_sent_as_status(app):
     # アプリでは、待っているジョブと実行中のジョブの数を status の queue で全員に送る
     async def job():

@@ -32,11 +32,17 @@ class AppContext:
     summarizer: Any = None
     # 参考資料セットの作成（ContextSetService）
     context_sets: Any = None
-    # GPU を使う処理（Whisper・Ollama）を順番に実行するキュー。待っている数は status の queue で送る
+    # GPU を使う処理（Whisper・Ollama）を順番に実行するキュー。
+    # 待っている数は status の queue、ジョブの一覧は jobs で送る
     gpu: GpuQueue = field(init=False)
 
     def __post_init__(self) -> None:
-        self.gpu = GpuQueue(lambda n: self.hub.set_status(queue=n))
+        # partial のたびに送りすぎないよう、0.5 秒の間の変化はまとめて送る
+        self.gpu = GpuQueue(
+            lambda n: self.hub.set_status(queue=n, jobs=self.gpu.snapshot()),
+            min_interval=0.5,
+        )
+        self.hub.jobs_source = self.gpu.snapshot
 
     @property
     def is_recording(self) -> bool:

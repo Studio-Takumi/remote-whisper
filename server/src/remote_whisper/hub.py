@@ -2,7 +2,8 @@
 
 import asyncio
 import logging
-from dataclasses import asdict, dataclass
+from collections.abc import Callable
+from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
 from fastapi import WebSocket
@@ -19,6 +20,10 @@ class ServerStatus:
     ollama: OllamaState = "ready"
     recordings: int = 0
     queue: int = 0
+    # GPU キューの実行中のジョブと待っているジョブ（GpuQueue.snapshot）。spec 6.3
+    jobs: dict[str, Any] = field(default_factory=lambda: {"running": None, "waiting": []})
+    # GPU の使用率と VRAM（gpu_stats.GpuStats）。取れない環境では None
+    gpu: dict[str, Any] | None = None
 
     def message(self) -> dict[str, Any]:
         return {"type": "status", **asdict(self)}
@@ -30,9 +35,13 @@ class Hub:
     def __init__(self) -> None:
         self.connections: set[WebSocket] = set()
         self.status = ServerStatus()
+        # jobs の経過秒数は送った時点のものなので、つないできたブラウザには今の値で送る
+        self.jobs_source: Callable[[], dict[str, Any]] | None = None
 
     async def add(self, ws: WebSocket) -> None:
         self.connections.add(ws)
+        if self.jobs_source is not None:
+            self.status.jobs = self.jobs_source()
         await send(ws, self.status.message())
 
     def remove(self, ws: WebSocket) -> None:

@@ -130,7 +130,12 @@ async def regenerate_summary(pid: str, sid: str, ctx: Ctx) -> dict[str, Any]:
     summarizer = ctx.summarizer
     # 頼んだ時点のモデルで作る（キューで待っている間に設定が変わっても、返したモデルと合うように）
     model = ctx.settings.get().ollama.final_summary_model
-    job = ctx.gpu.submit(Priority.BACKGROUND, lambda: summarizer.run(writer, send, model))
+    job = ctx.gpu.submit(
+        Priority.BACKGROUND,
+        lambda: summarizer.run(writer, send, model),
+        kind="finalSummary",
+        session=sid,
+    )
     job.add_done_callback(_log_failure)
     return {"model": model}
 

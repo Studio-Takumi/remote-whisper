@@ -87,7 +87,7 @@ class RecordingSession:
             load_hotwords(self.writer.files.dir, meta.context_set) if meta.use_hotwords else None
         )
         self.transcriber = LiveTranscriber(
-            whisper, gpu, settings.whisper, self.send, self._append_final, hotwords
+            whisper, gpu, settings.whisper, self.send, self._append_final, hotwords, session=self.id
         )
 
     def start_summarizing(
@@ -296,7 +296,9 @@ class RecordingManager:
             session.start_transcribing(self.whisper, self.gpu, self.settings.get())
             # Whisper は録音を始めたときに読み込む（読み込み済みなら何もしない）。spec 6.2
             # 読み込み中に届いた音声の区間は、キューの後ろで待って、読み込み後に文字起こしする
-            loading = self.gpu.submit(Priority.TRANSCRIBE, self.whisper.ensure_loaded)
+            loading = self.gpu.submit(
+                Priority.TRANSCRIBE, self.whisper.ensure_loaded, kind="whisperLoad", session=sid
+            )
             loading.add_done_callback(_ignore_failure)
         return session
 
@@ -335,7 +337,9 @@ class RecordingManager:
         if self.final_summary is None or self.gpu is None:
             return
         job = self.final_summary
-        future = self.gpu.submit(Priority.BACKGROUND, lambda: job(session))
+        future = self.gpu.submit(
+            Priority.BACKGROUND, lambda: job(session), kind="finalSummary", session=session.id
+        )
         future.add_done_callback(_ignore_summary_failure)
 
     async def close(self) -> None:
