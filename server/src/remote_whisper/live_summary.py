@@ -41,6 +41,7 @@ log = logging.getLogger(__name__)
 # 時間がたったかを確かめる間隔（秒）
 CHECK_INTERVAL = 1.0
 LIVE_OVERVIEW_HEADING = "ここまでの概要"
+EMPTY_OVERVIEW = "（概要は次の更新で作ります）"
 # 区間を確定させるとき、続いていた間の要約のこの割合より短ければ作り直す
 SHORT_RATIO = 1 / 3
 
@@ -217,8 +218,9 @@ class LiveSummarizer:
         if not self.sections:
             return current
         blocks = []
-        if overview:
-            blocks.append(f"## {LIVE_OVERVIEW_HEADING}\n\n{demote_text(overview)}")
+        # 概要が空でも見出しは出す（画面は、この見出しで区間に分かれた要約かを見分ける）
+        body = demote_text(overview) if overview else EMPTY_OVERVIEW
+        blocks.append(f"## {LIVE_OVERVIEW_HEADING}\n\n{body}")
         for i, s in enumerate(self.sections):
             heading = f"{s.start}〜{s.end}" if s.start and s.end else f"区間 {i + 1}"
             blocks.append(f"## {heading}\n\n{demote_text(s.text)}")

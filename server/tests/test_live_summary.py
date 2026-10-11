@@ -175,6 +175,96 @@ def test_short_closing_summary_is_made_again(home, fake, monkeypatch):
     assert "- 短い" not in h.writer.live_summary
 
 
+def test_short_retry_keeps_the_longer_of_the_two(home, fake, monkeypatch):
+    # 作り直しても短いままなら、2回のうち長い方を使う（空にはしない）
+    monkeypatch.setattr(live_summary, "CHUNK_CHARS", 60)
+
+    async def main():
+        h = Harness(home, fake)
+        replies = iter(["- 長い要約。" * 10, "- 短めの要約", "- 短", "- 次", "- 概要"])
+        fake.reply_for = lambda body: next(replies) if "format" not in body else None
+        h.live.add_final(0.0, "一つ目の話題について話します。")
+        await h.live.run()
+        h.live.add_final(10.0, "まだ一つ目の話題の続きです。")
+        h.live.add_final(20.0, "二つ目の話題に移ります。")
+        await h.live.run()
+        await h.close()
+        return h
+
+    assert "## 00:00:00〜00:00:20\n\n- 短めの要約\n" in run(main()).writer.live_summary
+
+
+def test_closed_sections_survive_a_failure(home, fake, monkeypatch):
+    # 区間を確定させた後に失敗しても、確定した区間は残し、次の回は続きから作る（spec 6.4）
+    monkeypatch.setattr(live_summary, "CHUNK_CHARS", 60)
+
+    async def main():
+        h = Harness(home, fake)
+        calls = []
+
+        def reply(body):
+            if "format" in body:
+                return None
+            calls.append(user_prompt(body))
+            if len(calls) == 2:
+                # この次（概要を作るところ）から、Ollama につながらなくなる
+                raise_down()
+            return f"- 要約{len(calls)}"
+
+        def raise_down():
+            fake.up = False
+
+        fake.reply_for = reply
+        h.live.add_final(0.0, "一つ目の話題について話します。")
+        h.live.add_final(10.0, "まだ一つ目の話題の続きです。")
+        h.live.add_final(20.0, "二つ目の話題に移ります。")
+        await h.live.run()
+        failed = list(h.sent)
+        fake.up = True
+        await h.live.run()
+        await h.close()
+        return h, failed, calls
+
+    h, failed, calls = run(main())
+    assert [(m["type"], m.get("code")) for m in failed] == [("error", "ollama_unavailable")]
+    # 確定した区間はもう作らない（2回目は、続いている区間と概要だけ。前半の文字起こしは渡さない）
+    assert "一つ目の話題" not in calls[-2] and "二つ目の話題に移ります。" in calls[-2]
+    assert "## 00:00:00〜00:00:20\n\n- 要約1" in h.writer.live_summary
+
+
+def test_several_sections_close_in_one_run(home, fake, monkeypatch):
+    # Ollama が落ちていた後などで、1回に2つ以上の区間が閉じても、順に確定させて前の区間を渡す
+    monkeypatch.setattr(live_summary, "CHUNK_CHARS", 30)
+
+    async def main():
+        h = Harness(home, fake)
+        prompts = []
+
+        def reply(body):
+            if "format" in body:
+                return None
+            prompts.append(user_prompt(body))
+            return f"- 要約{len(prompts)}"
+
+        fake.reply_for = reply
+        for i, text in enumerate(
+            ["一つ目の話題です。", "二つ目の話題です。", "三つ目の話題です。"]
+        ):
+            h.live.add_final(i * 10.0, text)
+        await h.live.run()
+        await h.close()
+        return h, prompts
+
+    h, prompts = run(main())
+    text = h.writer.live_summary
+    assert "## 00:00:00〜00:00:10\n\n- 要約1" in text
+    assert "## 00:00:10〜00:00:20\n\n- 要約2" in text
+    assert "## 00:00:20〜\n\n- 要約3" in text
+    # 2つ目の区間には1つ目の、続いている区間には2つ目の要約を、つながりの参考に渡す
+    assert "## 前の区間の要約" not in prompts[0]
+    assert "- 要約1" in prompts[1] and "- 要約2" in prompts[2]
+
+
 def test_timer_does_not_advance_while_paused(home, fake):
     async def main():
         h = Harness(home, fake)
