@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import { isScrolledToBottom, scrollToBottom } from '@/scroll';
 import type { LivePartial } from '@/store';
@@ -79,18 +79,31 @@ function useTypewriter(text: string, key: number) {
 function useKeepHeight(key: string, content: string) {
     const outer = useRef<HTMLDivElement>(null);
     const inner = useRef<HTMLDivElement>(null);
-    const kept = useRef({ key, height: 0 });
+    const kept = useRef({ key, width: 0, height: 0 });
 
-    useLayoutEffect(() => {
+    const measure = useCallback(() => {
         if (!outer.current || !inner.current) {
             return;
         }
-        if (kept.current.key !== key) {
-            kept.current = { key, height: 0 };
+        // 幅が変わったら（画面を回した・ウィンドウの大きさを変えた）折り返しが変わるので、測り直す
+        const width = inner.current.offsetWidth;
+        if (kept.current.key !== key || kept.current.width !== width) {
+            kept.current = { key, width, height: 0 };
         }
         kept.current.height = Math.max(kept.current.height, inner.current.offsetHeight);
         outer.current.style.minHeight = `${kept.current.height}px`;
-    }, [key, content]);
+    }, [key]);
+
+    useLayoutEffect(measure, [measure, content]);
+
+    useEffect(() => {
+        if (!inner.current) {
+            return;
+        }
+        const observer = new ResizeObserver(measure);
+        observer.observe(inner.current);
+        return () => observer.disconnect();
+    }, [measure]);
 
     return { outer, inner };
 }
