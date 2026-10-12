@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
+import { VitePWA } from 'vite-plugin-pwa';
 
 // 開発中は /api と /ws をサーバーへ転送する。本番はサーバーが web/dist を配信するので同じオリジンになる
 const server = process.env.REMOTE_WHISPER_SERVER ?? 'http://localhost:8000';
@@ -21,7 +22,53 @@ function appVersion() {
 
 // https://vite.dev/config/
 export default defineConfig({
-    plugins: [react(), tailwindcss()],
+    plugins: [
+        react(),
+        tailwindcss(),
+        // PWA（#104）。ホーム画面から単独のアプリとして開けるようにする。
+        // キャッシュするのは画面（HTML・JS・CSS・アイコン）だけで、API と WebSocket はキャッシュしない
+        VitePWA({
+            // 新しい版が入ったら、画面で知らせてから読み込み直す（PwaUpdater）
+            registerType: 'prompt',
+            injectRegister: false,
+            manifest: {
+                name: 'Remote Whisper',
+                short_name: 'Whisper',
+                description: '別のマシンの GPU で、疑似リアルタイムに文字起こしと要約をする',
+                lang: 'ja',
+                start_url: '/',
+                scope: '/',
+                display: 'standalone',
+                background_color: '#171717',
+                theme_color: '#171717',
+                icons: [
+                    { src: 'pwa-192.png', sizes: '192x192', type: 'image/png' },
+                    { src: 'pwa-512.png', sizes: '512x512', type: 'image/png' },
+                    { src: 'pwa-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+                ],
+            },
+            workbox: {
+                // 入れたときに取っておくのは、画面の骨組み（HTML・最初の JS と CSS・アイコン・録音の worklet）だけ。
+                // コードの色付けの言語などの残り（約 300 ファイル・13MB）は、使ったときに取って置いておく
+                globPatterns: ['index.html', 'assets/index-*.{js,css}', '*.{svg,png,js}'],
+                maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
+                navigateFallback: 'index.html',
+                navigateFallbackDenylist: [/^\/api\//, /^\/ws/],
+                cleanupOutdatedCaches: true,
+                runtimeCaching: [
+                    {
+                        // ハッシュ付きの名前なので、中身は変わらない
+                        urlPattern: ({ url }) => url.pathname.startsWith('/assets/'),
+                        handler: 'CacheFirst',
+                        options: {
+                            cacheName: 'assets',
+                            expiration: { maxEntries: 400, maxAgeSeconds: 30 * 24 * 60 * 60 },
+                        },
+                    },
+                ],
+            },
+        }),
+    ],
     define: {
         __APP_VERSION__: JSON.stringify(appVersion()),
     },

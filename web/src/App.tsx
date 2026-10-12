@@ -6,6 +6,7 @@ import { AppSidebar } from '@/components/AppSidebar';
 import { DevPanel } from '@/components/DevPanel';
 import { MicButton } from '@/components/MicButton';
 import { NewProjectDialog } from '@/components/NewProjectDialog';
+import { PwaUpdater } from '@/components/PwaUpdater';
 import { SessionView } from '@/components/SessionView';
 import { SettingsDialog } from '@/components/SettingsDialog';
 import { TopBar } from '@/components/TopBar';
@@ -44,6 +45,7 @@ function App() {
             <SidebarInset className='gap-4 p-4'>
                 <TopBar />
                 <UnsentAlert />
+                <PwaUpdater />
                 <SessionView />
                 <MicButton />
             </SidebarInset>
