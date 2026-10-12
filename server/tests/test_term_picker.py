@@ -90,10 +90,11 @@ def test_picks_only_terms_that_appear_in_several_lines(home):
         return picker, changes, sent
 
     picker, changes, sent = run(main())
-    assert picker.picked == ["フォトンリンク", "ケルビン同期"]
-    assert changes == [["フォトンリンク", "ケルビン同期"]]
-    assert picker.writer.saved == (["フォトンリンク", "ケルビン同期"], [])
-    assert sent == [{"type": "terms", "terms": ["フォトンリンク", "ケルビン同期"], "rejected": []}]
+    # 語のうちカタカナのところだけを使う（ケルビン同期 → ケルビン）
+    assert picker.picked == ["フォトンリンク", "ケルビン"]
+    assert changes == [["フォトンリンク", "ケルビン"]]
+    assert picker.writer.saved == (["フォトンリンク", "ケルビン"], [])
+    assert sent == [{"type": "terms", "terms": ["フォトンリンク", "ケルビン"], "rejected": []}]
     # 用語は JSON Schema で返させ、思考モードはオフ。num_ctx は要約と同じ
     body = [b for b in fake.bodies("/api/chat") if b.get("format")][0]
     assert body["think"] is False and body["options"]["num_ctx"] == 16384
@@ -136,7 +137,7 @@ def test_select_avoids_words_that_would_cement_errors(home):
         await picker.close()
         return picked
 
-    assert run(main()) == ["ゼフィール", "ケルビン同期"]
+    assert run(main()) == ["ゼフィール", "ケルビン"]
 
 
 def test_rejected_terms_are_not_added_again(home):
@@ -149,7 +150,7 @@ def test_rejected_terms_are_not_added_again(home):
             picker.add_final(i * 5.0, line)
         await picker.run()
         # 画面で消した語は外し、以後は拾っても足さない
-        await picker.reject("ケルビン同期")
+        await picker.reject("ケルビン")
         picker.add_final(30.0, "ケルビン同期をもう一度確認します。")
         await picker.run()
         await picker.close()
@@ -157,8 +158,8 @@ def test_rejected_terms_are_not_added_again(home):
 
     picker, sent = run(main())
     assert picker.picked == ["フォトンリンク"]
-    assert picker.writer.saved == (["フォトンリンク"], ["ケルビン同期"])
-    assert sent[-1]["rejected"] == ["ケルビン同期"]
+    assert picker.writer.saved == (["フォトンリンク"], ["ケルビン"])
+    assert sent[-1]["rejected"] == ["ケルビン"]
 
 
 def test_continuing_session_keeps_previous_terms(home):
@@ -167,7 +168,7 @@ def test_continuing_session_keeps_previous_terms(home):
     fake.reply_for = terms_reply("ケルビン同期")
 
     async def main():
-        writer = StubWriter(picked=["フォトンリンク"], rejected=["ケルビン同期"])
+        writer = StubWriter(picked=["フォトンリンク"], rejected=["ケルビン"])
         picker, _, _ = await make(home, fake, writer)
         for i, line in enumerate(LINES):
             picker.add_final(i * 5.0, line)
