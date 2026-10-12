@@ -66,7 +66,11 @@ export function transcriptStatus(state: RecordingState, server: ServerStatus, se
             : { tone: 'idle', text: '待機中' };
     }
     if (server.connection === 'reconnecting') {
-        return { tone: 'warning', text: 'サーバーに再接続しています…（録音は続けています）' };
+        // つながり直せば、そのまま続く。待つ時間を過ぎても、あとで同じセッションの続きを録音できる（#101）
+        return {
+            tone: 'warning',
+            text: 'サーバーに再接続しています…（録音は手元で続けています。つながれば、そのまま続きます）',
+        };
     }
     if (state === 'paused') {
         return { tone: 'paused', text: '一時停止中' };

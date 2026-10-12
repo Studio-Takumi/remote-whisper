@@ -377,6 +377,19 @@ function SettingsForm({
                             />
                         </Row>
                         <Row
+                            id='resume-timeout'
+                            label='接続が切れたときに待つ時間'
+                            description='この時間のうちにつながり直せば、そのまま録音が続く。過ぎると途中で終わるが、あとで同じセッションの続きを録音できる'
+                        >
+                            <NumberInput
+                                id='resume-timeout'
+                                value={draft.recording.resumeTimeoutMin}
+                                min={1}
+                                unit='分'
+                                onChange={(resumeTimeoutMin) => update('recording', { resumeTimeoutMin })}
+                            />
+                        </Row>
+                        <Row
                             id='noise-suppression'
                             label='ブラウザの雑音抑制'
                             description='ブラウザがマイクの雑音を抑える。次に録音を始めたときから効く'

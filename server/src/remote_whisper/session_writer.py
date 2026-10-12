@@ -27,6 +27,16 @@ from remote_whisper.version import app_version
 
 _LINE = re.compile(r"^\[(\d{2}:\d{2}:\d{2})\] (.*)$")
 
+# 文字起こしのファイルごとのロック。続きを録音するとき（#101）、前の録音の残りの文字起こしと
+# 続きの録音が、別々の SessionWriter から同じファイルに書くので、ロックはファイルで共有する
+_locks: dict[Path, threading.Lock] = {}
+_locks_guard = threading.Lock()
+
+
+def _lock_for(path: Path) -> threading.Lock:
+    with _locks_guard:
+        return _locks.setdefault(path.resolve(), threading.Lock())
+
 
 def fmt_clock(sec: float) -> str:
     """文字起こしの行の時刻。録音の開始からの秒数を HH:MM:SS にする"""
@@ -43,7 +53,7 @@ class SessionWriter:
         self.id = sid
         self.started = started
         self.files = SessionFiles(store.dir(pid), sid)
-        self._lock = threading.Lock()
+        self._lock = _lock_for(self.files.transcript)
         project = store.load(pid)
         selection = project.effective_selection()
         # そのセッションで使った設定値は、フロントマターに記録する（spec 6.2）
@@ -81,7 +91,7 @@ class SessionWriter:
         writer.pid = pid
         writer.id = sid
         writer.files = SessionFiles(store.dir(pid), sid)
-        writer._lock = threading.Lock()
+        writer._lock = _lock_for(writer.files.transcript)
         writer.meta = read_doc(writer.files.transcript, TranscriptMeta)[0]
         writer.started = datetime.fromisoformat(writer.meta.started_at)
         selection = store.load(pid).effective_selection()

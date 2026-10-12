@@ -7,7 +7,9 @@ export type ClientMessage =
     | { type: 'pause' }
     | { type: 'unpause' }
     // 再接続のためのもの。一時停止からの再開は unpause
-    | { type: 'resume'; session: string; nextSeq: number };
+    | { type: 'resume'; session: string; nextSeq: number }
+    // 途中で終わった（interrupted）セッションの続きを、同じセッションのまま録音する（#101）
+    | { type: 'continue'; project: string; session: string };
 
 export type SummaryKind = 'live' | 'final';
 
@@ -27,7 +29,8 @@ export type ContextSetStatus = 'generating' | 'ready' | 'failed';
 // サーバー → ブラウザ。セッションに関係するものには session が付く
 export type ServerMessage =
     // resumed は再接続（resume）で続きから録音するとき
-    | { type: 'started'; session: string; resumed?: boolean }
+    // continued・offsetSec は続きを録音するとき（offsetSec は前の録音の長さ。時刻はここから続く）
+    | { type: 'started'; session: string; resumed?: boolean; continued?: boolean; offsetSec?: number }
     // ここまでの音声を手元のバッファから消してよい
     | { type: 'ack'; session: string; seq: number }
     | { type: 'partial'; session: string; segment: number; committed: string; tentative: string }
@@ -56,6 +59,8 @@ export type ErrorCode =
     | 'already_recording'
     | 'too_many_recordings'
     | 'session_not_found'
+    // 続きを録音できない（途中で終わったセッションではない・録音ファイルが残っていない）
+    | 'cannot_continue'
     | 'project_not_found'
     | 'write_failed'
     | 'ollama_unavailable'

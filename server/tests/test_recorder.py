@@ -1,3 +1,4 @@
+import asyncio
 import time
 import wave
 
@@ -8,6 +9,7 @@ from fastapi.testclient import TestClient
 from remote_whisper import audio_convert
 from remote_whisper.app import create_app
 from remote_whisper.documents import TranscriptMeta, read_doc
+from remote_whisper.live_transcriber import LiveTranscriber
 
 # test_mock.py と同じ小さな道具
 
@@ -486,6 +488,51 @@ def test_continue_an_interrupted_session(client, project):
     wait_for(lambda: summarized)
     assert summarized == [sid]
     assert client.get(f"/api/projects/{pid}/sessions").json()[0]["status"] == "done"
+
+
+def test_continue_while_the_previous_part_is_still_transcribing(client, project, monkeypatch):
+    # 前の録音の残りの文字起こしが GPU の空きを待っていても、待たずに続きを始める。
+    # 前の録音は WAV のまま引き継ぎ、mp3 への変換は続きを録音し終えたときにまとめて行う
+    pid, d = project
+    gate = {}
+    original = LiveTranscriber.wait
+
+    async def slow_wait(self):
+        event = gate.setdefault("event", asyncio.Event())
+        await event.wait()
+        await original(self)
+
+    monkeypatch.setattr(LiveTranscriber, "wait", slow_wait)
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        sid = start(ws, pid)
+        for seq in range(3):
+            ws.send_bytes(chunk(seq, value=3000))
+            receive_until(ws, of_type("ack", seq=seq))
+    wait_for(lambda: client.app.state.ctx.recorder.sessions[sid].ended)
+    # まだ mp3 になっていない（WAV のまま）
+    assert not (d / f"recording-{sid}.mp3").exists()
+    monkeypatch.setattr(LiveTranscriber, "wait", original)
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        ws.send_json({"type": "continue", "project": pid, "session": sid})
+        started = receive_until(ws, of_type("started"))[-1]
+        assert started["offsetSec"] == pytest.approx(1.5, abs=0.05)
+        previous = client.app.state.ctx.recorder.sessions
+        # 前の後始末を進める（変換はしない）
+        client.portal.call(lambda: _set(gate))
+        for seq in range(2):
+            ws.send_bytes(chunk(seq, value=0))
+            receive_until(ws, of_type("ack", seq=seq))
+        ws.send_json({"type": "stop"})
+    finished(client, sid)
+    assert previous[sid].offset == pytest.approx(1.5, abs=0.05)
+    assert abs(audio_seconds(d / f"recording-{sid}.mp3") - 2.5) < 0.3
+    assert not (d / ".tmp" / sid / "audio.wav").exists()
+
+
+async def _set(gate):
+    gate["event"].set()
 
 
 def test_continue_needs_an_interrupted_session_with_its_recording(client, project):

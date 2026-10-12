@@ -108,6 +108,11 @@ class RecordingSession:
         # 途中の要約（Ollama がないサーバーではない）
         self.summarizer: LiveSummarizer | None = None
         self._finishing: asyncio.Task | None = None
+        # 録音を終えたあとの後始末の途中で、続きの録音に引き継がれた（#101）。
+        # mp3 への変換は続きの方で行う
+        self.superseded = False
+        # mp3 に変換している途中（続きを録音するときは、終わるのを待つ。WAV を読んでいるため）
+        self.converting = False
 
     def start_transcribing(self, whisper: WhisperWorker, gpu: GpuQueue, settings: Settings) -> None:
         meta = self.writer.meta
@@ -242,7 +247,14 @@ class RecordingSession:
                 await self.transcriber.wait()
             finally:
                 await self.transcriber.close()
-        await self._convert()
+        if self.superseded:
+            # 続きの録音が WAV を引き継いだ（変換は続きを録音し終えたときに行う）
+            return
+        self.converting = True
+        try:
+            await self._convert()
+        finally:
+            self.converting = False
         if status == "done":
             self.manager.submit_final_summary(self)
 
@@ -362,8 +374,13 @@ class RecordingManager:
         if previous is not None and not previous.ended:
             raise RecordingError("already_recording", "このセッションは録音中です")
         if previous is not None:
-            # 前の録音の後始末（残りの文字起こし・mp3 への変換）が終わるのを待つ
-            await previous.wait_finished()
+            if previous.converting:
+                # mp3 に変換している途中なら、終わるのを待つ（CPU で数秒。WAV を読んでいるため）
+                await previous.wait_finished()
+            else:
+                # 残りの文字起こし（GPU の空きを待つことがある）は待たずに、そのまま続けさせる。
+                # 変換は、続きを録音し終えたときにまとめて行う
+                previous.superseded = True
         try:
             writer = SessionWriter.existing(self.projects, project, sid)
         except (ProjectError, OSError, ValueError) as e:

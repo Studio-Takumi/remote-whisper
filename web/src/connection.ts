@@ -223,6 +223,18 @@ export class AudioSender {
         this.isHolding = true;
     }
 
+    // サーバーに届いていない音声（ack されていないものと、まだチャンクになっていないもの）を、順に PCM で返す。
+    // 録音が途中で終わったとき、続きを録音するセッションの頭に足すため（#101）
+    unsent(): Int16Array[] {
+        const frames = [...this.pending.keys()]
+            .sort((a, b) => a - b)
+            .map((key) => new Int16Array(this.pending.get(key)!.slice(4)));
+        if (this.length > 0) {
+            frames.push(this.buffer.slice(0, this.length));
+        }
+        return frames;
+    }
+
     // ack されていない音声を、連番の順に送り直して、送信を再開する（つなぎ直した後、サーバーの ack を受けてから呼ぶ）
     resend() {
         this.isHolding = false;
