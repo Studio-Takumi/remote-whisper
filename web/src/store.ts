@@ -3,6 +3,7 @@ import { create } from 'zustand';
 
 import { ApiError, type ProjectJson, api } from '@/api';
 import { type MicState, Microphone, MicrophoneError, SAMPLE_RATE, watchMicrophonePermission } from '@/audio/microphone';
+import { type UnsentSession, clearSession, deleteUpTo, listUnsent, saveChunk } from '@/audio/unsentStore';
 import { keepScreenOn } from '@/audio/wakeLock';
 import { AudioSender, connection } from '@/connection';
 import { fetchContextSets, fetchProjects, fetchSessionDetail, isDemo, mergeProjects, toSelection } from '@/data';
@@ -68,6 +69,12 @@ type AppState = {
     continueRecording: (sessionId: string) => Promise<void>;
     // 止まったマイクを開き直す（録音はそのまま続ける。#102）
     reopenMicrophone: () => Promise<void>;
+    // ページを読み込み直す前に、サーバーに届かなかった音声（IndexedDB に置いてあったもの。#102）
+    unsent: { sessionId: string; projectId: string; seconds: number } | null;
+    // 届かなかった音声を送り、同じセッションの続きを録音する
+    recoverUnsent: () => Promise<void>;
+    // 届かなかった音声を捨てる
+    discardUnsent: () => Promise<void>;
     pauseRecording: () => Promise<void>;
     resumeRecording: () => void;
     stopRecording: () => Promise<void>;
@@ -164,6 +171,8 @@ let stoppedWhileOffline: string | null = null;
 // 録音が途中で終わったとき、サーバーに届かなかった音声。そのセッションの続きを録音するときに先に送る（#101）
 // （ページを読み込み直すと消える）
 let leftover: { sessionId: string; pcm: Int16Array[] } | null = null;
+// ページを読み込み直す前に溜めていた音声（IndexedDB から読んだもの。#102）
+let unsentEntry: UnsentSession | null = null;
 
 type StartedMessage = Extract<ServerMessage, { type: 'started' }>;
 type ErrorMessage = Extract<ServerMessage, { type: 'error' }>;
@@ -203,14 +212,10 @@ export const useAppStore = create<AppState>()((set, get) => {
         );
     }
 
-    // continueSessionId を渡すと、途中で終わったそのセッションの続きを録音する
-    async function beginRecording(projectId: string, continueSessionId?: string) {
-        closeRecording();
-        stoppedWhileOffline = null;
-        sender = new AudioSender((pendingAudio) => set({ pendingAudio }));
-        mic = await openMicrophone();
-        // 接続した直後に届く status も受け取れるように、つなぐ前に購読する
-        unsubscribe = connection.subscribe((m) => {
+    // 録音のためのメッセージ（ack・partial・final・途中の要約）を受け取る。
+    // 接続した直後に届く status も受け取れるように、つなぐ前に呼ぶ
+    function subscribeRecording() {
+        return connection.subscribe((m) => {
             if (m.type === 'ack') {
                 sender?.ack(m.seq);
                 // つなぎ直した直後の ack は、サーバーが受け取り済みの最後の連番。その次から送り直す
@@ -274,6 +279,31 @@ export const useAppStore = create<AppState>()((set, get) => {
             // 最終の要約・タイトル・要約の失敗は、作り直し（ほかの端末から頼んだものも）でも届くので、
             // 録音ごとではなく、常時の購読（connectServer）で受け取る
         });
+    }
+
+    // 届いていない音声を IndexedDB に置き、サーバーが受け取ったら消す（#102）
+    function persistUnsent(target: AudioSender, sessionId: string, projectId: string) {
+        let warned = false;
+        target.onFrame = (seq, frame) => {
+            void saveChunk(sessionId, projectId, seq, frame).then((saved) => {
+                if (!saved && !warned) {
+                    warned = true;
+                    toast.warning(
+                        'サーバーに届いていない音声が多すぎるため、これより後はページを読み込み直すと消えます。ページを閉じずに、つながるのを待ってください',
+                    );
+                }
+            });
+        };
+        target.onAcked = (seq) => void deleteUpTo(sessionId, seq);
+    }
+
+    // continueSessionId を渡すと、途中で終わったそのセッションの続きを録音する
+    async function beginRecording(projectId: string, continueSessionId?: string) {
+        closeRecording();
+        stoppedWhileOffline = null;
+        sender = new AudioSender((pendingAudio) => set({ pendingAudio }));
+        mic = await openMicrophone();
+        unsubscribe = subscribeRecording();
         await connection.open();
         connection.send(
             continueSessionId
@@ -306,7 +336,12 @@ export const useAppStore = create<AppState>()((set, get) => {
                 partial: null,
                 liveDraft: null,
             }));
-            // 切れている間に録音した分（サーバーに届かなかった音声）を、続きの頭に送る
+            // 切れている間に録音した分（サーバーに届かなかった音声）を、続きの頭に送る。
+            // IndexedDB に置いてあった分は、新しい連番で置き直す
+            await clearSession(continueSessionId);
+            if (sender) {
+                persistUnsent(sender, continueSessionId, projectId);
+            }
             if (leftover?.sessionId === continueSessionId && sender) {
                 for (const pcm of leftover.pcm) {
                     sender.push(pcm);
@@ -328,6 +363,9 @@ export const useAppStore = create<AppState>()((set, get) => {
             summaries: [],
         };
         recordedSamples = 0;
+        if (sender) {
+            persistUnsent(sender, created.id, projectId);
+        }
         set((s) => ({
             // 先に一覧の取り直しでサーバーのものが入っていることがあるので、同じ ID のものは置き換える
             projects: s.projects.map((p) =>
@@ -524,6 +562,7 @@ export const useAppStore = create<AppState>()((set, get) => {
         elapsed: 0,
         micLevel: 0,
         micState: 'ok',
+        unsent: null,
         pendingAudio: 0,
         partial: null,
         liveDraft: null,
@@ -644,6 +683,74 @@ export const useAppStore = create<AppState>()((set, get) => {
             await startOrContinue(project.id);
         },
 
+        recoverUnsent: async () => {
+            const entry = unsentEntry;
+            if (!entry || get().recordingState !== 'idle' || starting) {
+                return;
+            }
+            starting = true;
+            resuming = true;
+            const { session: sessionId, project: projectId } = entry;
+            try {
+                closeRecording();
+                stoppedWhileOffline = null;
+                // 溜めていたチャンクのまま、同じ連番で送り直す（サーバーが受け取り済みの分は ack の後で捨てる）
+                sender = AudioSender.restore(entry.frames, (pendingAudio) => set({ pendingAudio }));
+                persistUnsent(sender, sessionId, projectId);
+                mic = await openMicrophone();
+                unsubscribe = subscribeRecording();
+                await connection.open();
+                connection.send({ type: 'resume', session: sessionId, nextSeq: sender.nextSeq });
+                const reply = await connection.waitFor(
+                    (m): m is StartedMessage | ErrorMessage =>
+                        (m.type === 'started' && m.session === sessionId) || m.type === 'error',
+                    10000,
+                );
+                if (reply.type === 'error') {
+                    if (reply.code !== 'session_not_found') {
+                        throw new Error(reply.message);
+                    }
+                    // 待つ時間を過ぎて途中で終わっていた。届かなかった音声を頭に足して、続きを録音する（#101）
+                    leftover = { sessionId, pcm: sender.unsent() };
+                    closeRecording();
+                    unsentEntry = null;
+                    set({ unsent: null });
+                    starting = false;
+                    await startOrContinue(projectId, sessionId);
+                    return;
+                }
+                // 続く ack（サーバーが受け取り済みの最後の連番）を受けたら、溜めていた音声を送り直す
+                resendAfterAck = true;
+                recordedSamples = Math.round((reply.offsetSec ?? 0) * SAMPLE_RATE) + sender.unsentSamples;
+                unsentEntry = null;
+                set((s) => ({
+                    unsent: null,
+                    projects: updateSession(s.projects, sessionId, (x) => ({ ...x, status: 'recording' })),
+                    selection: { projectId, sessionId },
+                    recordingState: 'recording',
+                    recordingSessionId: sessionId,
+                    elapsed: Math.floor(recordedSamples / SAMPLE_RATE),
+                    partial: null,
+                    liveDraft: null,
+                }));
+            } catch (e) {
+                closeRecording();
+                toast.error(`届いていない音声を送れません: ${(e as Error).message}`);
+            } finally {
+                starting = false;
+                resuming = false;
+            }
+        },
+
+        discardUnsent: async () => {
+            const entry = unsentEntry;
+            unsentEntry = null;
+            set({ unsent: null });
+            if (entry) {
+                await clearSession(entry.session);
+            }
+        },
+
         reopenMicrophone: async () => {
             if (get().recordingState === 'idle' || !mic) {
                 return;
@@ -747,6 +854,24 @@ export const useAppStore = create<AppState>()((set, get) => {
                 return;
             }
             serverSubscribed = true;
+            // 前にページを開いていたときに、サーバーに届かなかった音声が残っていないか（#102）
+            if (!isDemo) {
+                void listUnsent().then((list) => {
+                    const entry = list.find((e) => e.frames.length > 0);
+                    if (!entry || get().recordingState !== 'idle') {
+                        return;
+                    }
+                    unsentEntry = entry;
+                    const samples = entry.frames.reduce((n, f) => n + (f.frame.byteLength - 4) / 2, 0);
+                    set({
+                        unsent: {
+                            sessionId: entry.session,
+                            projectId: entry.project,
+                            seconds: Math.round(samples / SAMPLE_RATE),
+                        },
+                    });
+                });
+            }
             connection.onStateChange((connected) => {
                 set((s) => ({
                     server: { ...s.server, connection: connected ? 'connected' : 'reconnecting' },

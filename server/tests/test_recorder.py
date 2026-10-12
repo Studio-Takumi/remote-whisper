@@ -231,7 +231,11 @@ def test_resume_and_interrupted(client, project, keep_wav):
     with client.websocket_connect("/ws") as ws:
         ws.receive_json()
         ws.send_json({"type": "resume", "session": sid, "nextSeq": 1})
-        assert receive_until(ws, of_type("ack"))[-1]["seq"] == 0
+        seen = receive_until(ws, of_type("ack"))
+        assert seen[-1]["seq"] == 0
+        # 受け取り済みの録音の長さも返す（ページを読み込み直したブラウザが経過時間を戻すため。#102）
+        started = next(m for m in seen if m["type"] == "started")
+        assert started["offsetSec"] == pytest.approx(100 / 16000)
         ws.send_bytes(chunk(1, samples=100))
         receive_until(ws, of_type("ack", seq=1))
 

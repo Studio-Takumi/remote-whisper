@@ -469,7 +469,8 @@ class RecordingManager:
         if session is None or session.ended:
             raise RecordingError("session_not_found", "再開できるセッションがありません")
         await session.attach(ws)
-        await session.send({"type": "started", "resumed": True})
+        # offsetSec は受け取り済みの録音の長さ（読み込み直したブラウザが経過時間を戻すため。#102）
+        await session.send({"type": "started", "resumed": True, "offsetSec": session.elapsed})
         await session.send({"type": "ack", "seq": session.last_seq})
         return session
 

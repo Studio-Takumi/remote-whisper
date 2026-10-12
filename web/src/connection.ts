@@ -163,9 +163,34 @@ export class AudioSender {
     private isHolding = false;
 
     private readonly onPendingChange: (count: number) => void;
+    // チャンクを作ったとき・サーバーが受け取ったとき（IndexedDB に置く・消すため。#102）
+    onFrame: ((seq: number, frame: ArrayBuffer) => void) | null = null;
+    onAcked: ((seq: number) => void) | null = null;
 
     constructor(onPendingChange: (count: number) => void = () => {}) {
         this.onPendingChange = onPendingChange;
+    }
+
+    // ページを読み込み直す前に溜めていたチャンク（IndexedDB に置いてあったもの）から作り直す（#102）。
+    // resume が済むまでは送らずに溜めておく
+    static restore(frames: { seq: number; frame: ArrayBuffer }[], onPendingChange?: (count: number) => void) {
+        const sender = new AudioSender(onPendingChange);
+        for (const { seq, frame } of frames) {
+            sender.pending.set(seq, frame);
+            sender.seq = Math.max(sender.seq, seq + 1);
+        }
+        sender.isHolding = true;
+        sender.onPendingChange(sender.pending.size);
+        return sender;
+    }
+
+    // 手元に溜まっている音声のサンプル数（サーバーに届いていない分）
+    get unsentSamples() {
+        let samples = this.length;
+        for (const frame of this.pending.values()) {
+            samples += (frame.byteLength - 4) / 2;
+        }
+        return samples;
     }
 
     push(pcm: Int16Array) {
@@ -190,6 +215,7 @@ export class AudioSender {
         new DataView(frame).setUint32(0, this.seq, true);
         new Int16Array(frame, 4).set(this.buffer.subarray(0, this.length));
         this.pending.set(this.seq, frame);
+        this.onFrame?.(this.seq, frame);
         if (!this.isHolding) {
             connection.sendBinary(frame);
         }
@@ -205,6 +231,7 @@ export class AudioSender {
                 this.pending.delete(key);
             }
         }
+        this.onAcked?.(seq);
         this.onPendingChange(this.pending.size);
     }
 

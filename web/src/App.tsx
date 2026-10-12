@@ -9,6 +9,7 @@ import { NewProjectDialog } from '@/components/NewProjectDialog';
 import { SessionView } from '@/components/SessionView';
 import { SettingsDialog } from '@/components/SettingsDialog';
 import { TopBar } from '@/components/TopBar';
+import { UnsentAlert } from '@/components/UnsentAlert';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { Toaster } from '@/components/ui/sonner';
 import { useAppStore } from '@/store';
@@ -42,6 +43,7 @@ function App() {
             <AppSidebar />
             <SidebarInset className='gap-4 p-4'>
                 <TopBar />
+                <UnsentAlert />
                 <SessionView />
                 <MicButton />
             </SidebarInset>
