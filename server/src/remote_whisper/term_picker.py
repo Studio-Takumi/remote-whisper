@@ -13,6 +13,7 @@
 import asyncio
 import contextlib
 import logging
+import re
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -35,6 +36,33 @@ MAX_CHARS = 20
 # Whisper に渡す用語リストの長さの上限（文字）。hotwords と initial_prompt を合わせて約 224 トークン
 # （spec 6.6）なので、日本語の 1 文字を 1 トークンとみて余裕を残す
 HOTWORDS_MAX_CHARS = 200
+# 用語として足すのは、カタカナかラテン文字を含む語だけ
+_DISTINCT = re.compile(r"[ァ-ヺー]|[A-Za-z]")
+# よく使うカタカナ語。用語リストに足しても役に立たず、枠を使ってしまう
+COMMON_WORDS = frozenset(
+    [
+        "チーム",
+        "データ",
+        "スケジュール",
+        "リスク",
+        "システム",
+        "サーバー",
+        "ツール",
+        "プロジェクト",
+        "ミーティング",
+        "メンバー",
+        "テスト",
+        "ユーザー",
+        "サービス",
+        "アプリ",
+        "メール",
+        "ファイル",
+        "タスク",
+        "レビュー",
+        "コスト",
+        "ポイント",
+    ]
+)
 
 
 def combine_hotwords(base: str | None, picked: list[str]) -> str | None:
@@ -145,18 +173,42 @@ class TermPicker:
             await self._update(picked)
 
     def select(self, candidates: list[str]) -> list[str]:
-        """採用する語を、出てくる行が多い順に選ぶ"""
+        """採用する語を、出てくる行が多い順に選ぶ
+
+        誤認識を固めないよう、次の語は足さない（#103 で測って決めた）
+        - 文字起こしの MIN_LINES 行未満にしか出てこない語
+        - カタカナかラテン文字を含まない語（漢字だけの語は、同音の誤認識（負荷→付加など）と
+          見分けられない。漢字の用語は参考資料セットから入れる）。ひらがなだけの語も
+        - よく使うカタカナ語（チーム・データなど。用語リストの枠を使ってしまう）
+        - 1 文字だけ違う書き方が文字起こしに同じくらい出てくる語（基盤と基板など。どちらが正しいか
+          分からない）
+        - ほかに採用した語に含まれる短い語（ケルビン同期があれば、ケルビン・同期は足さない）
+        """
         counts: dict[str, int] = {}
         for word in candidates:
-            if word in counts or word in self.rejected:
+            if word in counts or word in self.rejected or word in COMMON_WORDS:
                 continue
-            if not MIN_CHARS <= len(word) <= MAX_CHARS:
+            if not MIN_CHARS <= len(word) <= MAX_CHARS or not _DISTINCT.search(word):
                 continue
             n = self.count_lines(word)
-            if n >= MIN_LINES:
+            if n >= MIN_LINES and n >= 2 * self._variant_lines(word):
                 counts[word] = n
         ranked = sorted(counts, key=lambda w: -counts[w])
-        return ranked[:TERMS_MAX]
+        kept = [w for w in ranked if not any(w != o and w in o for o in ranked)]
+        return kept[:TERMS_MAX]
+
+    def _variant_lines(self, word: str) -> int:
+        """1 文字だけ違う書き方が出てくる行の数（いちばん多いもの）"""
+        best = 0
+        for i in range(len(word)):
+            pattern = re.compile(re.escape(word[:i]) + "(.)" + re.escape(word[i + 1 :]))
+            variants: dict[str, int] = {}
+            for _, text in self.finals:
+                for m in pattern.finditer(text):
+                    if m.group(1) != word[i]:
+                        variants[m.group(0)] = variants.get(m.group(0), 0) + 1
+            best = max(best, *variants.values(), 0)
+        return best
 
     async def reject(self, word: str) -> None:
         """画面で消された語。以後は足さない"""

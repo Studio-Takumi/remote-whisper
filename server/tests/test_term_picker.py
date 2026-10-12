@@ -100,6 +100,45 @@ def test_picks_only_terms_that_appear_in_several_lines(home):
     assert "フォトンリンクの導入" in body["messages"][-1]["content"]
 
 
+def test_select_avoids_words_that_would_cement_errors(home):
+    # #103 で測ったときに入ってしまった語を、足さないようにする
+    fake = FakeOllama()
+
+    async def main():
+        picker, _, _ = await make(home, fake)
+        for i, line in enumerate(
+            [
+                "ゼフィール基盤の付加試験をします。チームで同期します。",
+                "ゼフィール基板は去年から使っています。チームで同期します。",
+                "ゼフィール基盤の付加試験は来週です。なきかみさんに頼みます。",
+                "ゼフィール基板の切り替えは来月です。なきかみさんに頼みます。",
+                "ケルビン同期とケルビン同期の確認です。",
+                "ケルビン同期の設定をします。",
+            ]
+        ):
+            picker.add_final(i * 5.0, line)
+        picked = picker.select(
+            [
+                # 漢字だけ（同音の誤認識と見分けられない）・ひらがなだけ・よく使うカタカナ語
+                "付加試験",
+                "同期",
+                "なきかみ",
+                "チーム",
+                # 1 文字違い（基盤と基板）が同じくらい出てくる
+                "ゼフィール基盤",
+                "ゼフィール基板",
+                # 長い語に含まれる短い語
+                "ケルビン",
+                "ケルビン同期",
+                "ゼフィール",
+            ]
+        )
+        await picker.close()
+        return picked
+
+    assert run(main()) == ["ゼフィール", "ケルビン同期"]
+
+
 def test_rejected_terms_are_not_added_again(home):
     fake = FakeOllama()
     fake.reply_for = terms_reply("フォトンリンク", "ケルビン同期")
