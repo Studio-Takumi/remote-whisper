@@ -2,7 +2,8 @@ import { toast } from 'sonner';
 import { create } from 'zustand';
 
 import { ApiError, type ProjectJson, api } from '@/api';
-import { Microphone, MicrophoneError, SAMPLE_RATE, watchMicrophonePermission } from '@/audio/microphone';
+import { type MicState, Microphone, MicrophoneError, SAMPLE_RATE, watchMicrophonePermission } from '@/audio/microphone';
+import { keepScreenOn } from '@/audio/wakeLock';
 import { AudioSender, connection } from '@/connection';
 import { fetchContextSets, fetchProjects, fetchSessionDetail, isDemo, mergeProjects, toSelection } from '@/data';
 import { demoProjects, fallbackOptions, initialContextSets } from '@/mock';
@@ -32,6 +33,8 @@ type AppState = {
     elapsed: number;
     // マイクの音量（RMS、0〜1）。ボタンのアニメーションに使う
     micLevel: number;
+    // 録音中のマイクの状態（止まっていないか。#102）
+    micState: MicState;
     // 送ったが ack がまだ来ていない音声のチャンクの数
     pendingAudio: number;
     // 文字起こし中の区間（partial）。final が来たら消える
@@ -63,6 +66,8 @@ type AppState = {
     startRecording: () => Promise<void>;
     // 途中で終わったセッションの続きを、同じセッションのまま録音する（#101）
     continueRecording: (sessionId: string) => Promise<void>;
+    // 止まったマイクを開き直す（録音はそのまま続ける。#102）
+    reopenMicrophone: () => Promise<void>;
     pauseRecording: () => Promise<void>;
     resumeRecording: () => void;
     stopRecording: () => Promise<void>;
@@ -174,13 +179,11 @@ export const useAppStore = create<AppState>()((set, get) => {
     }
 
     // マイクを開き、サーバーに start を送り、started が来たらセッションを作る
-    // continueSessionId を渡すと、途中で終わったそのセッションの続きを録音する
-    async function beginRecording(projectId: string, continueSessionId?: string) {
-        closeRecording();
-        stoppedWhileOffline = null;
-        sender = new AudioSender((pendingAudio) => set({ pendingAudio }));
+    // マイクを開く。届いた音声を送り、マイクが止まったら画面で知らせる（#102）
+    function openMicrophone() {
         const { noiseSuppression, autoGainControl } = get().settings.recording;
-        mic = await Microphone.open(
+        set({ micState: 'ok' });
+        return Microphone.open(
             (pcm, level) => {
                 // 一時停止中の音声は送らない
                 if (get().recordingState === 'recording' && sender) {
@@ -190,7 +193,22 @@ export const useAppStore = create<AppState>()((set, get) => {
                 }
             },
             { noiseSuppression, autoGainControl },
+            (micState) => {
+                const before = get().micState;
+                set({ micState });
+                if (micState !== 'ok' && before === 'ok' && get().recordingState !== 'idle') {
+                    toast.error(micStateMessage(micState), { duration: 15000 });
+                }
+            },
         );
+    }
+
+    // continueSessionId を渡すと、途中で終わったそのセッションの続きを録音する
+    async function beginRecording(projectId: string, continueSessionId?: string) {
+        closeRecording();
+        stoppedWhileOffline = null;
+        sender = new AudioSender((pendingAudio) => set({ pendingAudio }));
+        mic = await openMicrophone();
         // 接続した直後に届く status も受け取れるように、つなぐ前に購読する
         unsubscribe = connection.subscribe((m) => {
             if (m.type === 'ack') {
@@ -505,6 +523,7 @@ export const useAppStore = create<AppState>()((set, get) => {
         recordingSessionId: null,
         elapsed: 0,
         micLevel: 0,
+        micState: 'ok',
         pendingAudio: 0,
         partial: null,
         liveDraft: null,
@@ -623,6 +642,26 @@ export const useAppStore = create<AppState>()((set, get) => {
                 return;
             }
             await startOrContinue(project.id);
+        },
+
+        reopenMicrophone: async () => {
+            if (get().recordingState === 'idle' || !mic) {
+                return;
+            }
+            const state = get().micState;
+            try {
+                if (state === 'suspended') {
+                    await mic.restart();
+                    return;
+                }
+                // 止まったトラックは戻らないので、マイクを開き直す（送信と経過時間はそのまま続く）
+                const next = await openMicrophone();
+                mic.close();
+                mic = next;
+                toast.success('マイクを開き直しました。録音を続けています');
+            } catch (e) {
+                toast.error(`マイクを開き直せません: ${(e as Error).message}`);
+            }
         },
 
         continueRecording: async (sessionId) => {
@@ -996,6 +1035,27 @@ export const useAppStore = create<AppState>()((set, get) => {
         setNewProjectOpen: (newProjectOpen) => set({ newProjectOpen }),
         setNoProjects: (noProjects) => set({ noProjects }),
     };
+});
+
+// マイクが止まったときの知らせ（#102）
+export function micStateMessage(state: MicState) {
+    switch (state) {
+        case 'ended':
+            return 'マイクが止まりました。録音されていません。「マイクを開き直す」を押してください';
+        case 'muted':
+            return 'マイクの音が届いていません（ほかのアプリや OS がマイクを止めています）。録音されていません';
+        case 'suspended':
+            return '音声の処理が止まりました（電話や通知などのため）。「マイクを開き直す」を押してください';
+        default:
+            return '';
+    }
+}
+
+// 録音中（一時停止中も）は、画面がスリープしないようにする（#102）
+useAppStore.subscribe((s, prev) => {
+    if (s.recordingSessionId !== prev.recordingSessionId) {
+        keepScreenOn(s.recordingSessionId !== null);
+    }
 });
 
 // 開発中は、ブラウザの開発者ツールや Playwright からストアと接続を見られるようにする

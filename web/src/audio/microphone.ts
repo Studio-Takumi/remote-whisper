@@ -8,6 +8,10 @@ export const SAMPLE_RATE = 16000;
 
 export type PcmHandler = (pcm: Int16Array, level: number) => void;
 
+// マイクの状態（#102）。ended はトラックが止まった（ほかのアプリに取られた・抜かれたなど）、
+// muted は音が来ていない（OS やほかのアプリが止めている）、suspended は音声の処理が止まった（電話が来たなど）
+export type MicState = 'ok' | 'muted' | 'ended' | 'suspended';
+
 // マイクが使えないときのエラー。denied はユーザーかブラウザが許可しなかったもの
 export class MicrophoneError extends Error {
     readonly reason: 'denied' | 'unavailable';
@@ -25,6 +29,7 @@ export class Microphone {
     private readonly node: AudioWorkletNode;
     // flush の返事（'flushed'）を待っているもの
     private readonly flushing: (() => void)[] = [];
+    private closed = false;
 
     private constructor(
         stream: MediaStream,
@@ -60,9 +65,11 @@ export class Microphone {
     }
 
     // processing はブラウザのマイクの処理（全体設定の recording.noiseSuppression・autoGainControl）
+    // onState は、マイクが止まったり戻ったりしたときに呼ぶ（録音が知らないうちに止まらないよう、画面で知らせる）
     static async open(
         onPcm: PcmHandler,
         processing: { noiseSuppression: boolean; autoGainControl: boolean },
+        onState: (state: MicState) => void = () => {},
     ): Promise<Microphone> {
         if (!navigator.mediaDevices?.getUserMedia) {
             // getUserMedia は安全なコンテキスト（HTTPS か localhost）でしか使えない
@@ -88,6 +95,7 @@ export class Microphone {
             source.connect(node);
             // Safari などでは、AudioContext が止まった状態（suspended）で作られることがある
             await context.resume();
+            mic.watch(onState);
             return mic;
         } catch (e) {
             stream.getTracks().forEach((t) => t.stop());
@@ -96,7 +104,37 @@ export class Microphone {
         }
     }
 
+    // トラックと音声の処理を見張る（#102）
+    private watch(onState: (state: MicState) => void) {
+        const track = this.stream.getAudioTracks()[0];
+        const report = () => {
+            if (this.closed) {
+                return;
+            }
+            if (!track || track.readyState === 'ended') {
+                onState('ended');
+            } else if (track.muted) {
+                onState('muted');
+            } else if (this.context.state !== 'running') {
+                onState('suspended');
+            } else {
+                onState('ok');
+            }
+        };
+        track?.addEventListener('ended', report);
+        track?.addEventListener('mute', report);
+        track?.addEventListener('unmute', report);
+        this.context.addEventListener('statechange', report);
+        report();
+    }
+
+    // 止まった音声の処理を動かし直す（suspended から戻すとき）
+    async restart() {
+        await this.context.resume();
+    }
+
     close() {
+        this.closed = true;
         this.node.port.onmessage = null;
         this.source.disconnect();
         this.stream.getTracks().forEach((t) => t.stop());
