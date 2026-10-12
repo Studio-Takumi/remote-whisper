@@ -26,7 +26,8 @@ export function ContextSetSheet() {
     const sets = useAppStore(currentContextSets);
     const selection = useAppStore(useShallow(currentContextSelection));
     const extensions = useAppStore((s) => s.settings.materials.extensions);
-    const pickTermsEnabled = useAppStore((s) => s.settings.ollama.pickTerms);
+    // 前のサーバーの設定にはない
+    const pickTermsEnabled = useAppStore((s) => s.settings.ollama.pickTerms ?? false);
     const onChangeSelection = useAppStore((s) => s.changeContextSelection);
     const onCreate = useAppStore((s) => s.createContextSet);
     const [pickerOpen, setPickerOpen] = useState(false);

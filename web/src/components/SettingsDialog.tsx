@@ -357,7 +357,7 @@ function SettingsForm({
                         >
                             <Switch
                                 id='pick-terms'
-                                checked={draft.ollama.pickTerms}
+                                checked={draft.ollama.pickTerms ?? false}
                                 onCheckedChange={(pickTerms) => update('ollama', { pickTerms })}
                             />
                         </Row>
