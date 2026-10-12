@@ -102,6 +102,10 @@ class LiveSummarizer:
     def add_final(self, start: float, text: str) -> None:
         self.finals.append((start, text))
 
+    def restart_at(self, elapsed: float) -> None:
+        """続きを録音するとき（#101）。次の要約までの時間を、ここから数える"""
+        self._last_at = elapsed
+
     async def close(self) -> None:
         """録音を終えた。タイマーを止める（作っている途中の要約はそのまま終わらせる）"""
         self._loop.cancel()

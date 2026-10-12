@@ -433,3 +433,90 @@ def test_live_summary_while_recording(client, project, fake_ollama):
     assert meta.title == "リリース計画の確認"
     prompt = fake_ollama.bodies("/api/chat")[0]["messages"][-1]["content"]
     assert "[00:00:00] fake 1.0s" in prompt
+
+
+def interrupted_session(client, pid, seconds=1.5):
+    """seconds 秒話してから接続が切れ、interrupted になったセッションを作る"""
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        sid = start(ws, pid)
+        for seq in range(int(seconds * 2)):
+            ws.send_bytes(chunk(seq, value=3000))
+            receive_until(ws, of_type("ack", seq=seq))
+    wait_for(lambda: client.app.state.ctx.recorder.sessions[sid].ended)
+    finished(client, sid)
+    return sid
+
+
+def test_continue_an_interrupted_session(client, project):
+    # 途中で終わったセッションの続きを、同じセッションのまま録音できる（#101）
+    pid, d = project
+    summarized = []
+
+    async def final_summary(session):
+        summarized.append(session.id)
+
+    client.app.state.ctx.recorder.final_summary = final_summary
+    sid = interrupted_session(client, pid)
+    assert (d / f"recording-{sid}.mp3").is_file()
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        ws.send_json({"type": "continue", "project": pid, "session": sid})
+        started = receive_until(ws, of_type("started"))[-1]
+        assert (started["session"], started["continued"]) == (sid, True)
+        # 前の録音（mp3 を WAV に戻したもの）の長さから続ける
+        assert started["offsetSec"] == pytest.approx(1.5, abs=0.1)
+        assert client.get(f"/api/projects/{pid}/sessions").json()[0]["status"] == "recording"
+        # 1 秒話して 1 秒黙る。文字起こしの時刻も前の続きになる
+        for seq in range(4):
+            ws.send_bytes(chunk(seq, value=3000 if seq < 2 else 0))
+            receive_until(ws, of_type("ack", seq=seq))
+        final = receive_until(ws, of_type("final"))[-1]
+        assert final["start"] == pytest.approx(1.5, abs=0.1)
+        ws.send_json({"type": "stop"})
+    finished(client, sid)
+
+    meta, body = read_doc(d / f"transcript-{sid}.md", TranscriptMeta)
+    assert (meta.status, meta.recording) == ("done", f"recording-{sid}.mp3")
+    # 長さと録音ファイルは、前の録音と続きを合わせたもの
+    assert meta.duration_sec == 3
+    assert abs(audio_seconds(d / f"recording-{sid}.mp3") - 3.5) < 0.3
+    # 文字起こしは同じファイルに続けて足す
+    assert body.splitlines()[-2:] == ["[00:00:00] fake 1.5s", "[00:00:01] fake 1.0s"]
+    wait_for(lambda: summarized)
+    assert summarized == [sid]
+    assert client.get(f"/api/projects/{pid}/sessions").json()[0]["status"] == "done"
+
+
+def test_continue_needs_an_interrupted_session_with_its_recording(client, project):
+    pid, d = project
+    sid = interrupted_session(client, pid, seconds=0.5)
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        # 録音中・録音を終えたセッションは続けられない
+        ws.send_json({"type": "continue", "project": pid, "session": "20200101-000000"})
+        assert receive_until(ws, of_type("error"))[-1]["code"] == "session_not_found"
+        # 録音ファイルが保存期間を過ぎて消えていたら、続けられない
+        (d / f"recording-{sid}.mp3").unlink()
+        ws.send_json({"type": "continue", "project": pid, "session": sid})
+        error = receive_until(ws, of_type("error"))[-1]
+        assert error["code"] == "cannot_continue"
+        meta, _ = read_doc(d / f"transcript-{sid}.md", TranscriptMeta)
+        assert meta.status == "interrupted"
+        # 新しく録音して終えたセッションも続けられない
+        other = start(ws, pid)
+        ws.send_json({"type": "stop"})
+    finished(client, other)
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        ws.send_json({"type": "continue", "project": pid, "session": other})
+        assert receive_until(ws, of_type("error"))[-1]["code"] == "cannot_continue"
+
+
+def test_resume_timeout_follows_the_setting(home):
+    # 待つ時間は全体設定（recording.resumeTimeoutMin、既定 10 分）。テスト用の上書きがなければ使う
+    app = create_app(home)
+    recorder = app.state.ctx.recorder
+    assert recorder.resume_timeout_sec() == 600
+    app.state.ctx.settings.update({"recording": {"resumeTimeoutMin": 2}})
+    assert recorder.resume_timeout_sec() == 120

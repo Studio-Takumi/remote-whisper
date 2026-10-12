@@ -62,6 +62,9 @@ class OllamaSettings(_Model):
 
 class RecordingSettings(_Model):
     max_concurrent: int = Field(1, ge=1)
+    # ブラウザとの接続が切れてから、つながり直すのを待つ時間（分）。過ぎたら interrupted にする
+    # （interrupted になっても、続きから録音できる。spec 6.7、#101）
+    resume_timeout_min: float = Field(10, gt=0)
     # ブラウザのマイクの処理（getUserMedia の制約）。
     # サーバーは使わず、録音を始めるときにブラウザが読む
     noise_suppression: bool = True

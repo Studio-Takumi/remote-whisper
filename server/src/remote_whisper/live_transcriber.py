@@ -52,9 +52,12 @@ class LiveTranscriber:
         hotwords: str | None = None,
         vad: Probabilities | None = None,
         session: str | None = None,
+        offset: float = 0.0,
     ):
         # session は GPU キューの一覧に出すためのもの
         self.session = session
+        # 時刻に足す秒数。途中で終わったセッションの続きを録音するとき、前の録音の長さ（#101）
+        self.offset = offset
         self.whisper = whisper
         self.gpu = gpu
         self.settings = settings
@@ -136,7 +139,7 @@ class LiveTranscriber:
             await self._send_final(segment, "")
             return
         try:
-            self.append_final(segment.start, text)
+            self.append_final(segment.start + self.offset, text)
         except OSError as e:
             # 文字起こしのファイルに書けない（ディスクが一杯など）。
             # 画面には出し、書けなかったことも伝える
@@ -155,8 +158,8 @@ class LiveTranscriber:
             {
                 "type": "final",
                 "segment": segment.index,
-                "start": round(segment.start, 2),
-                "end": round(segment.end, 2),
+                "start": round(segment.start + self.offset, 2),
+                "end": round(segment.end + self.offset, 2),
                 "text": text,
             }
         )

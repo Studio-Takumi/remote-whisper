@@ -16,7 +16,8 @@ from typing import Any
 
 from fastapi import WebSocket
 
-from remote_whisper.audio_convert import convert_wav
+from remote_whisper.audio_convert import convert_wav, decode_pcm
+from remote_whisper.documents import recording_name
 from remote_whisper.gpu_queue import GpuQueue, Priority
 from remote_whisper.hub import Hub, send
 from remote_whisper.live_summary import LiveSummarizer, load_context
@@ -34,21 +35,39 @@ log = logging.getLogger(__name__)
 SAMPLE_RATE = 16000
 SAMPLE_WIDTH = 2  # Int16
 
-# 接続が切れてから、resume を待つ時間（秒）。過ぎたら interrupted にする（spec 6.7）
-RESUME_TIMEOUT = 60.0
-
 
 class WavAppender:
-    """`.tmp/<ID>/audio.wav` に追記する。書くたびにヘッダーの長さも直すので、落ちても読める"""
+    """`.tmp/<ID>/audio.wav` に追記する。書くたびにヘッダーの長さも直すので、落ちても読める
 
-    def __init__(self, path: Path):
+    restore を渡すと、その音声（前の WAV か、変換済みの mp3・m4a）を頭に書いてから続ける
+    （途中で終わったセッションの続きを録音するとき。#101）
+    """
+
+    def __init__(self, path: Path, restore: Path | None = None):
         path.parent.mkdir(parents=True, exist_ok=True)
         self.path = path
+        previous = None
+        if restore is not None and restore == path:
+            # 同じ名前の WAV に書き直すので、前のものは別の名前にしておく
+            previous = path.with_name(path.name + ".prev")
+            path.replace(previous)
+            restore = previous
         self._wav = wave.open(str(path), "wb")
         self._wav.setnchannels(1)
         self._wav.setsampwidth(SAMPLE_WIDTH)
         self._wav.setframerate(SAMPLE_RATE)
         self.frames = 0
+        if restore is not None:
+            try:
+                for pcm in decode_pcm(restore):
+                    self.write(pcm)
+            except BaseException:
+                self._wav.close()
+                if previous is not None:
+                    previous.replace(path)
+                raise
+            if previous is not None:
+                previous.unlink()
 
     def write(self, pcm: bytes) -> None:
         # Int16 なので、半端な1バイトは捨てる
@@ -65,7 +84,14 @@ class WavAppender:
 
 
 class RecordingSession:
-    def __init__(self, manager: "RecordingManager", writer: SessionWriter, ws: WebSocket):
+    def __init__(
+        self,
+        manager: "RecordingManager",
+        writer: SessionWriter,
+        ws: WebSocket,
+        restore: Path | None = None,
+    ):
+        """restore は、続きを録音するときの前の録音（WAV か mp3・m4a）。頭に書いてから続ける"""
         self.manager = manager
         self.writer = writer
         self.id = writer.id
@@ -73,7 +99,9 @@ class RecordingSession:
         self.last_seq = -1
         self.ended = False
         self.paused = False
-        self.wav = WavAppender(writer.files.dir / ".tmp" / self.id / "audio.wav")
+        self.wav = WavAppender(writer.files.dir / ".tmp" / self.id / "audio.wav", restore)
+        # 続きを録音するときの、前の録音の長さ（秒）。文字起こしの時刻はここから続ける
+        self.offset = self.wav.seconds
         self._expire: asyncio.Task | None = None
         # 録音中の文字起こし（Whisper がないサーバーではない）
         self.transcriber: LiveTranscriber | None = None
@@ -87,7 +115,14 @@ class RecordingSession:
             load_hotwords(self.writer.files.dir, meta.context_set) if meta.use_hotwords else None
         )
         self.transcriber = LiveTranscriber(
-            whisper, gpu, settings.whisper, self.send, self._append_final, hotwords, session=self.id
+            whisper,
+            gpu,
+            settings.whisper,
+            self.send,
+            self._append_final,
+            hotwords,
+            session=self.id,
+            offset=self.offset,
         )
 
     def start_summarizing(
@@ -102,6 +137,12 @@ class RecordingSession:
         self.summarizer = LiveSummarizer(
             ollama, gpu, settings, self.writer, self.send, lambda: self.elapsed, context
         )
+        if self.offset > 0:
+            # 続きを録音するときは、前の文字起こしも途中の要約に入れる
+            for start, text in self.writer.final_lines():
+                self.summarizer.add_final(start, text)
+            # 前回の要約からの時間は、続きを始めたところから数える
+            self.summarizer.restart_at(self.offset)
 
     def _append_final(self, start: float, text: str) -> None:
         """確定した区間を文字起こしのファイルに足し、途中の要約の材料にする"""
@@ -155,13 +196,15 @@ class RecordingSession:
         await self._end("done")
 
     def detach(self) -> None:
-        """接続が切れた。RESUME_TIMEOUT 秒以内に resume されなければ interrupted にする"""
+        """接続が切れた。recording.resumeTimeoutMin 分のうちに resume されなければ interrupted
+
+        （interrupted になっても、continue で続きから録音できる。#101）"""
         self.ws = None
         if not self.ended:
             self._expire = asyncio.create_task(self._expire_later())
 
     async def _expire_later(self) -> None:
-        await asyncio.sleep(self.manager.resume_timeout)
+        await asyncio.sleep(self.manager.resume_timeout_sec())
         log.info("session %s interrupted", self.id)
         await self._end("interrupted")
 
@@ -217,6 +260,12 @@ class RecordingSession:
             # 記録できなければ WAV を残す（次の起動時に直す: #33）
             log.exception("failed to record the recording file of %s", self.id)
             return
+        # 続きを録音したとき、前の録音が別の形式（m4a）だったら、古い方は消す（#101）
+        for ext in ("mp3", "m4a"):
+            old = self.writer.files.dir / recording_name(self.id, ext)
+            if old != recording:
+                with contextlib.suppress(OSError):
+                    old.unlink()
         with contextlib.suppress(OSError):
             wav.unlink()
             # .tmp/<ID>/ に途中の要約が残っていなければ、ディレクトリごと消す
@@ -247,7 +296,7 @@ class RecordingManager:
         projects: ProjectStore,
         settings: SettingsStore,
         on_count: Callable[[int], None] | None = None,
-        resume_timeout: float = RESUME_TIMEOUT,
+        resume_timeout: float | None = None,
         whisper: WhisperWorker | None = None,
         gpu: GpuQueue | None = None,
         ollama: OllamaClient | None = None,
@@ -264,8 +313,14 @@ class RecordingManager:
         self.final_summary: Callable[[RecordingSession], Awaitable[None]] | None = None
         # 録音中のセッションの数が変わったときに呼ぶ（設定のロックに使う）
         self.on_count = on_count or (lambda n: None)
+        # 接続が切れてから resume を待つ秒数。None なら全体設定（recording.resumeTimeoutMin）
         self.resume_timeout = resume_timeout
         self.sessions: dict[str, RecordingSession] = {}
+
+    def resume_timeout_sec(self) -> float:
+        if self.resume_timeout is not None:
+            return self.resume_timeout
+        return self.settings.get().recording.resume_timeout_min * 60
 
     def active(self) -> list[RecordingSession]:
         return [s for s in self.sessions.values() if not s.ended]
@@ -290,6 +345,56 @@ class RecordingManager:
         self.sessions[sid] = session
         await self._count_changed()
         await session.send({"type": "started"})
+        self._begin(session)
+        return session
+
+    async def continue_session(
+        self, ws: WebSocket, project: str, sid: str, max_concurrent: int
+    ) -> RecordingSession:
+        """途中で終わった（interrupted）セッションの続きを、同じセッションのまま録音する（#101）
+
+        録音は前の録音（.tmp の WAV、なければ変換済みの mp3・m4a）を WAV に戻した後ろに続けて書き、
+        文字起こしの時刻も前の録音の長さから続ける。文字起こしは同じファイルに足していく
+        """
+        if len(self.active()) >= max_concurrent:
+            raise RecordingError("too_many_recordings", "同時に録音できる数を超えています")
+        previous = self.sessions.get(sid)
+        if previous is not None and not previous.ended:
+            raise RecordingError("already_recording", "このセッションは録音中です")
+        if previous is not None:
+            # 前の録音の後始末（残りの文字起こし・mp3 への変換）が終わるのを待つ
+            await previous.wait_finished()
+        try:
+            writer = SessionWriter.existing(self.projects, project, sid)
+        except (ProjectError, OSError, ValueError) as e:
+            raise RecordingError(
+                "session_not_found", "続きを録音できるセッションがありません"
+            ) from e
+        if writer.meta.status != "interrupted":
+            raise RecordingError(
+                "cannot_continue", "続きを録音できるのは、途中で終わったセッションだけです"
+            )
+        wav = writer.files.dir / ".tmp" / sid / "audio.wav"
+        restore = wav if wav.is_file() else writer.files.recording()
+        if restore is None:
+            raise RecordingError(
+                "cannot_continue", "録音ファイルが残っていないので、続きを録音できません"
+            )
+        try:
+            session = RecordingSession(self, writer, ws, restore)
+        except Exception as e:  # noqa: BLE001 前の録音を読めない（壊れているなど）
+            log.exception("failed to restore the recording of %s", sid)
+            raise RecordingError("cannot_continue", f"前の録音を読み込めません: {e}") from e
+        writer.reopen()
+        self.sessions[sid] = session
+        await self._count_changed()
+        await session.send({"type": "started", "continued": True, "offsetSec": session.offset})
+        self._begin(session)
+        return session
+
+    def _begin(self, session: RecordingSession) -> None:
+        """途中の要約と文字起こしを始める"""
+        sid = session.id
         if self.ollama is not None and self.gpu is not None:
             session.start_summarizing(self.ollama, self.gpu, self.settings)
         if self.whisper is not None and self.gpu is not None:
@@ -300,7 +405,6 @@ class RecordingManager:
                 Priority.TRANSCRIBE, self.whisper.ensure_loaded, kind="whisperLoad", session=sid
             )
             loading.add_done_callback(_ignore_failure)
-        return session
 
     async def resume(self, ws: WebSocket, sid: str) -> RecordingSession:
         session = self.sessions.get(sid)
