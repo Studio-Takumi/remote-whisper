@@ -166,7 +166,8 @@ class TermPicker:
             return
         self._done = upto
         candidates = [*self.picked, *parse_terms(reply)]
-        picked = self.select(candidates)
+        # 長い録音では全行に正規表現をかけるので、音声の受け取りを止めないよう別のスレッドで
+        picked = await asyncio.to_thread(self.select, candidates)
         if picked != self.picked:
             added = [w for w in picked if w not in self.picked]
             log.info("session %s picked terms: %s", self.writer.id, added)
@@ -205,11 +206,12 @@ class TermPicker:
         best = 0
         for i in range(len(word)):
             pattern = re.compile(re.escape(word[:i]) + "(.)" + re.escape(word[i + 1 :]))
+            # count_lines と同じく、回数ではなく出てくる行の数で比べる
             variants: dict[str, int] = {}
             for _, text in self.finals:
-                for m in pattern.finditer(text):
-                    if m.group(1) != word[i]:
-                        variants[m.group(0)] = variants.get(m.group(0), 0) + 1
+                found = {m.group(0) for m in pattern.finditer(text) if m.group(1) != word[i]}
+                for variant in found:
+                    variants[variant] = variants.get(variant, 0) + 1
             best = max(best, *variants.values(), 0)
         return best
 

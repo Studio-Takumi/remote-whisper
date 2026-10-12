@@ -104,12 +104,22 @@ async def reject_term(pid: str, sid: str, term: str, ctx: Ctx) -> dict[str, Any]
 
     録音中なら、録音中の用語リストからもすぐ外す（次の区間から効く）
     """
+    # term はパスの一部なので「/」を含む語は消せない
+    # （拾う語は「/」を含まない: term_picker._DISTINCT_RUN）
     _session(ctx, pid, sid)
     session = getattr(ctx.recorder, "sessions", {}).get(sid)
-    picker = getattr(session, "picker", None)
-    if session is not None and not session.ended and picker is not None:
-        await picker.reject(term)
-        return {"pickedTerms": picker.picked, "rejectedTerms": sorted(picker.rejected)}
+    if session is not None:
+        # recorder にセッションが残っていれば（止めた後の後始末の途中も）、そのセッションの
+        # writer が古い内容を書き戻さないよう、メモリ上の状態を正にする
+        picker = getattr(session, "picker", None)
+        if picker is not None:
+            await picker.reject(term)
+            return {"pickedTerms": picker.picked, "rejectedTerms": sorted(picker.rejected)}
+        meta = session.writer.meta
+        picked = [w for w in meta.picked_terms if w != term]
+        rejected = sorted({*meta.rejected_terms, term})
+        session.writer.set_terms(picked, rejected)
+        return {"pickedTerms": picked, "rejectedTerms": rejected}
     try:
         writer = SessionWriter.existing(ctx.projects, pid, sid)
     except (OSError, ValueError) as e:

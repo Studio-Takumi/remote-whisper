@@ -683,6 +683,35 @@ def test_picked_terms_go_into_the_hotwords(client, project, fake_ollama):
     assert (meta.picked_terms, meta.rejected_terms) == ([], ["fake"])
 
 
+def test_reject_right_after_stopping_survives_the_cleanup(client, project, fake_ollama):
+    # 止めた直後（mp3 への変換などの後始末の途中）に消しても、後始末が古い内容を書き戻さない
+    pid, d = project
+
+    def reply(body):
+        if "terms" in (body.get("format") or {}).get("properties", {}):
+            return json.dumps({"terms": ["fake"]})
+        return None
+
+    fake_ollama.reply_for = reply
+    client.patch("/api/settings", json={"ollama": {"liveSummaryIntervalMin": 0.005}})
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        sid = start(ws, pid)
+        for seq in range(8):
+            ws.send_bytes(chunk(seq, value=3000 if seq % 4 < 2 else 0))
+            receive_until(ws, of_type("ack", seq=seq))
+        receive_until(ws, of_type("terms"))
+        ws.send_json({"type": "stop"})
+        receive_until(ws, of_type("status", recordings=0))
+        # 後始末（変換・最終の要約）が終わる前に消す
+        res = client.delete(f"/api/projects/{pid}/sessions/{sid}/terms/fake")
+        assert res.json() == {"pickedTerms": [], "rejectedTerms": ["fake"]}
+    finished(client, sid)
+    meta, _ = read_doc(d / f"transcript-{sid}.md", TranscriptMeta)
+    assert meta.recording == f"recording-{sid}.mp3"
+    assert (meta.picked_terms, meta.rejected_terms) == ([], ["fake"])
+
+
 def test_terms_are_not_picked_when_turned_off(client, project, fake_ollama):
     pid, d = project
     client.patch(f"/api/projects/{pid}/selection", json={"pickTerms": False})
@@ -697,9 +726,11 @@ def test_terms_are_not_picked_when_turned_off(client, project, fake_ollama):
 def test_reject_a_term_after_recording(client, project):
     pid, d = project
     sid = interrupted_session(client, pid, seconds=0.5)
-    writer = client.app.state.ctx.recorder.sessions[sid].writer
-    writer.detached = False
-    writer.set_terms(["フォトンリンク", "ケルビン同期"], [])
+    session = client.app.state.ctx.recorder.sessions[sid]
+    session.writer.set_terms(["フォトンリンク", "ケルビン同期"], [])
+    # 録音を終えた後も recorder に残っている間は、拾う係の状態が正
+    if session.picker is not None:
+        session.picker.picked = ["フォトンリンク", "ケルビン同期"]
     res = client.delete(f"/api/projects/{pid}/sessions/{sid}/terms/ケルビン同期")
     assert res.json() == {"pickedTerms": ["フォトンリンク"], "rejectedTerms": ["ケルビン同期"]}
     meta, _ = read_doc(d / f"transcript-{sid}.md", TranscriptMeta)
