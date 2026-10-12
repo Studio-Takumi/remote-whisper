@@ -34,7 +34,10 @@ class Priority(IntEnum):
 
 
 # ジョブの種類。画面に出す名前はブラウザが決める
-JobKind = Literal["transcribe", "whisperLoad", "liveSummary", "finalSummary", "contextSet", "other"]
+# terms は録音中に文字起こしから用語を拾うもの（#103）
+JobKind = Literal[
+    "transcribe", "whisperLoad", "liveSummary", "finalSummary", "contextSet", "terms", "other"
+]
 
 # 種類を指定しなかったときの、優先度ごとの種類
 _DEFAULT_KIND: dict[Priority, JobKind] = {

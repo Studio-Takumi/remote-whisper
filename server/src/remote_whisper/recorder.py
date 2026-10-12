@@ -27,6 +27,7 @@ from remote_whisper.projects import ProjectError, ProjectStore
 from remote_whisper.recording import RecordingError
 from remote_whisper.session_writer import SessionWriter
 from remote_whisper.settings import Settings, SettingsStore
+from remote_whisper.term_picker import TermPicker, combine_hotwords
 from remote_whisper.timeutil import make_id, now
 from remote_whisper.whisper_worker import WhisperWorker
 
@@ -107,6 +108,10 @@ class RecordingSession:
         self.transcriber: LiveTranscriber | None = None
         # 途中の要約（Ollama がないサーバーではない）
         self.summarizer: LiveSummarizer | None = None
+        # 録音中に用語を拾うもの（Ollama がないサーバー・プロジェクトでオフにしたときはない。#103）
+        self.picker: TermPicker | None = None
+        # 参考資料セットの用語（「、」区切り）。拾った語はこの後ろに足す
+        self.base_hotwords: str | None = None
         self._finishing: asyncio.Task | None = None
         # 録音を終えたあとの後始末の途中で、続きの録音に引き継がれた（#101）。
         # mp3 への変換は続きの方で行う
@@ -118,7 +123,7 @@ class RecordingSession:
 
     def start_transcribing(self, whisper: WhisperWorker, gpu: GpuQueue, settings: Settings) -> None:
         meta = self.writer.meta
-        hotwords = (
+        self.base_hotwords = (
             load_hotwords(self.writer.files.dir, meta.context_set) if meta.use_hotwords else None
         )
         self.transcriber = LiveTranscriber(
@@ -127,10 +132,35 @@ class RecordingSession:
             settings.whisper,
             self.send,
             self._append_final,
-            hotwords,
+            combine_hotwords(self.base_hotwords, meta.picked_terms),
             session=self.id,
             offset=self.offset,
         )
+
+    def apply_hotwords(self) -> None:
+        """参考資料セットの用語と拾った語から、録音中の用語リストを作り直す（次の区間から効く）"""
+        if self.transcriber is None:
+            return
+        picked = self.picker.picked if self.picker is not None else self.writer.meta.picked_terms
+        self.transcriber.hotwords = combine_hotwords(self.base_hotwords, picked)
+
+    def start_picking(self, ollama: OllamaClient, gpu: GpuQueue, settings: SettingsStore) -> None:
+        """録音中に文字起こしから用語を拾い、用語リストに足す（#103）"""
+        self.picker = TermPicker(
+            ollama,
+            gpu,
+            settings,
+            self.writer,
+            self.send,
+            lambda: self.elapsed,
+            lambda _picked: self.apply_hotwords(),
+        )
+        if self.offset > 0:
+            # 続きを録音するときは、前の文字起こしでも数える（拾い直しはしない）
+            lines = self.writer.final_lines()
+            for start, text in lines:
+                self.picker.add_final(start, text)
+            self.picker.restart_at(self.offset, len(lines))
 
     def start_summarizing(
         self, ollama: OllamaClient, gpu: GpuQueue, settings: SettingsStore
@@ -156,6 +186,8 @@ class RecordingSession:
         self.writer.append_final(start, text)
         if self.summarizer is not None:
             self.summarizer.add_final(start, text)
+        if self.picker is not None:
+            self.picker.add_final(start, text)
 
     async def send(self, message: dict[str, Any]) -> None:
         if self.ws is not None:
@@ -244,6 +276,9 @@ class RecordingSession:
             # 途中の要約のタイマーを止める。作っている途中のものは、キューの中でそのまま終わる
             # （最終の要約は優先度が低いので、その後に動く）
             await self.summarizer.close()
+        if self.picker is not None:
+            # 用語を拾うのもやめる（拾っている途中のものは、そのまま終わる）
+            await self.picker.close()
         if self.transcriber is not None:
             try:
                 await self.transcriber.wait()
@@ -457,6 +492,8 @@ class RecordingManager:
             session.start_summarizing(self.ollama, self.gpu, self.settings)
         if self.whisper is not None and self.gpu is not None:
             session.start_transcribing(self.whisper, self.gpu, self.settings.get())
+            if self.ollama is not None and session.writer.pick_terms:
+                session.start_picking(self.ollama, self.gpu, self.settings)
             # Whisper は録音を始めたときに読み込む（読み込み済みなら何もしない）。spec 6.2
             # 読み込み中に届いた音声の区間は、キューの後ろで待って、読み込み後に文字起こしする
             loading = self.gpu.submit(
@@ -491,7 +528,9 @@ class RecordingManager:
             if writer.pid != pid or writer.meta.context_set != set_id:
                 continue
             if session.transcriber is not None and writer.meta.use_hotwords:
-                session.transcriber.hotwords = load_hotwords(writer.files.dir, set_id)
+                # 拾った語（#103）は、セットの用語の後ろに付け直す
+                session.base_hotwords = load_hotwords(writer.files.dir, set_id)
+                session.apply_hotwords()
             if session.summarizer is not None and writer.use_context:
                 session.summarizer.context = load_context(writer.files.dir, set_id)
             log.info("session %s now uses the context set %s", session.id, set_id)

@@ -43,6 +43,7 @@ class SelectionBody(BaseModel):
     context_set: str | None = None
     use_hotwords: bool | None = None
     use_context: bool | None = None
+    pick_terms: bool | None = None
 
 
 def _service(ctx: AppContext) -> ContextSetService:
@@ -92,6 +93,8 @@ def change_selection(
             selection.use_hotwords = changes["use_hotwords"]
         if changes.get("use_context") is not None:
             selection.use_context = changes["use_context"]
+        if changes.get("pick_terms") is not None:
+            selection.pick_terms = changes["pick_terms"]
         project.selection = selection
 
     try:

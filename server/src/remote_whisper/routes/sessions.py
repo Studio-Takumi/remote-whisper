@@ -98,6 +98,28 @@ def get_transcript(pid: str, sid: str, ctx: Ctx) -> dict[str, Any]:
     return {"meta": meta.to_json(), "lines": parse_transcript_lines(body)}
 
 
+@router.delete("/{sid}/terms/{term}")
+async def reject_term(pid: str, sid: str, term: str, ctx: Ctx) -> dict[str, Any]:
+    """録音中に拾った語を消す（誤った語）。消した語は、以後そのセッションでは足さない（#103）
+
+    録音中なら、録音中の用語リストからもすぐ外す（次の区間から効く）
+    """
+    _session(ctx, pid, sid)
+    session = getattr(ctx.recorder, "sessions", {}).get(sid)
+    picker = getattr(session, "picker", None)
+    if session is not None and not session.ended and picker is not None:
+        await picker.reject(term)
+        return {"pickedTerms": picker.picked, "rejectedTerms": sorted(picker.rejected)}
+    try:
+        writer = SessionWriter.existing(ctx.projects, pid, sid)
+    except (OSError, ValueError) as e:
+        raise _gone("文字起こし") from e
+    picked = [w for w in writer.meta.picked_terms if w != term]
+    rejected = sorted({*writer.meta.rejected_terms, term})
+    writer.set_terms(picked, rejected)
+    return {"pickedTerms": picked, "rejectedTerms": rejected}
+
+
 _AUDIO_TYPES = {".mp3": "audio/mpeg", ".m4a": "audio/mp4"}
 
 

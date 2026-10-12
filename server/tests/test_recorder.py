@@ -1,4 +1,5 @@
 import asyncio
+import json
 import time
 import wave
 
@@ -646,3 +647,62 @@ def test_resume_timeout_follows_the_setting(home):
     assert recorder.resume_timeout_sec() == 600
     app.state.ctx.settings.update({"recording": {"resumeTimeoutMin": 2}})
     assert recorder.resume_timeout_sec() == 120
+
+
+def test_picked_terms_go_into_the_hotwords(client, project, fake_ollama):
+    # 録音中に文字起こしから拾った語を、録音中の用語リスト（hotwords）に足す（#103）
+    pid, d = project
+
+    def reply(body):
+        if "terms" in (body.get("format") or {}).get("properties", {}):
+            # 偽の Whisper は「fake 1.0s」のように書くので、fake は 2 行に出てくる
+            return json.dumps({"terms": ["fake", "一度だけの語"]}, ensure_ascii=False)
+        return None
+
+    fake_ollama.reply_for = reply
+    client.patch("/api/settings", json={"ollama": {"liveSummaryIntervalMin": 0.005}})
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        sid = start(ws, pid)
+        # 2 回話して黙る → final が 2 行
+        for seq in range(8):
+            ws.send_bytes(chunk(seq, value=3000 if seq % 4 < 2 else 0))
+            receive_until(ws, of_type("ack", seq=seq))
+        terms = receive_until(ws, of_type("terms"))[-1]
+        assert terms["terms"] == ["fake"]
+        session = client.app.state.ctx.recorder.sessions[sid]
+        assert session.transcriber.hotwords == "fake"
+        # 画面で消すと、録音中の用語リストからもすぐ外す
+        res = client.delete(f"/api/projects/{pid}/sessions/{sid}/terms/fake")
+        assert res.json() == {"pickedTerms": [], "rejectedTerms": ["fake"]}
+        assert session.transcriber.hotwords is None
+        ws.send_json({"type": "stop"})
+    finished(client, sid)
+    meta, _ = read_doc(d / f"transcript-{sid}.md", TranscriptMeta)
+    assert (meta.picked_terms, meta.rejected_terms) == ([], ["fake"])
+
+
+def test_terms_are_not_picked_when_turned_off(client, project, fake_ollama):
+    pid, d = project
+    client.patch(f"/api/projects/{pid}/selection", json={"pickTerms": False})
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        sid = start(ws, pid)
+        assert client.app.state.ctx.recorder.sessions[sid].picker is None
+        ws.send_json({"type": "stop"})
+    finished(client, sid)
+
+
+def test_reject_a_term_after_recording(client, project):
+    pid, d = project
+    sid = interrupted_session(client, pid, seconds=0.5)
+    writer = client.app.state.ctx.recorder.sessions[sid].writer
+    writer.detached = False
+    writer.set_terms(["フォトンリンク", "ケルビン同期"], [])
+    res = client.delete(f"/api/projects/{pid}/sessions/{sid}/terms/ケルビン同期")
+    assert res.json() == {"pickedTerms": ["フォトンリンク"], "rejectedTerms": ["ケルビン同期"]}
+    meta, _ = read_doc(d / f"transcript-{sid}.md", TranscriptMeta)
+    assert (meta.picked_terms, meta.rejected_terms) == (["フォトンリンク"], ["ケルビン同期"])
+    # セッション詳細にも出る（画面は開いたときにここから読む）
+    detail = client.get(f"/api/projects/{pid}/sessions/{sid}").json()
+    assert detail["transcriptMeta"]["pickedTerms"] == ["フォトンリンク"]
