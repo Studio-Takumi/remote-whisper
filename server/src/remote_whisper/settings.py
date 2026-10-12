@@ -58,6 +58,9 @@ class OllamaSettings(_Model):
     live_summary_density: int = Field(3, ge=1, le=5)
     overview_density: int = Field(3, ge=1, le=5)
     detail_density: int = Field(3, ge=1, le=5)
+    # 録音中に文字起こしから用語を拾うか（#103）。録音中の GPU の負荷が上がるので
+    # 既定はオフ（#116）。オンのときも、プロジェクトの selection.pick_terms がオフなら拾わない
+    pick_terms: bool = False
 
 
 class RecordingSettings(_Model):

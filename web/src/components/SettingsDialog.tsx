@@ -351,6 +351,17 @@ function SettingsForm({
                             />
                         </Row>
                         <Row
+                            id='pick-terms'
+                            label='録音中に用語を拾う'
+                            description='途中の要約と同じ間隔で、文字起こしに何度も出てくる固有名詞・専門用語を用語リストに足す。録音中の GPU の負荷が上がる。プロジェクトごとのスイッチ（参考資料）もオンのときだけ拾う'
+                        >
+                            <Switch
+                                id='pick-terms'
+                                checked={draft.ollama.pickTerms ?? false}
+                                onCheckedChange={(pickTerms) => update('ollama', { pickTerms })}
+                            />
+                        </Row>
+                        <Row
                             id='keep-alive'
                             label='使い終わってからモデルを止めるまで'
                             description='最後に要約してからこの時間がたったら、モデルを止めて VRAM を空ける。録音中は止めない'

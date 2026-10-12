@@ -492,7 +492,10 @@ class RecordingManager:
             session.start_summarizing(self.ollama, self.gpu, self.settings)
         if self.whisper is not None and self.gpu is not None:
             session.start_transcribing(self.whisper, self.gpu, self.settings.get())
-            if self.ollama is not None and session.writer.pick_terms:
+            # 全体設定とプロジェクトの両方でオンのときだけ拾う（#116）
+            # 録音中は全体設定を変えられないので、始めるときに一度だけ見る
+            picking = self.settings.get().ollama.pick_terms and session.writer.pick_terms
+            if self.ollama is not None and picking:
                 session.start_picking(self.ollama, self.gpu, self.settings)
             # Whisper は録音を始めたときに読み込む（読み込み済みなら何もしない）。spec 6.2
             # 読み込み中に届いた音声の区間は、キューの後ろで待って、読み込み後に文字起こしする

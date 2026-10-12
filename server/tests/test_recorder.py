@@ -661,7 +661,9 @@ def test_picked_terms_go_into_the_hotwords(client, project, fake_ollama):
         return None
 
     fake_ollama.reply_for = reply
-    client.patch("/api/settings", json={"ollama": {"liveSummaryIntervalMin": 0.005}})
+    client.patch(
+        "/api/settings", json={"ollama": {"liveSummaryIntervalMin": 0.005, "pickTerms": True}}
+    )
     with client.websocket_connect("/ws") as ws:
         ws.receive_json()
         sid = start(ws, pid)
@@ -693,7 +695,9 @@ def test_reject_right_after_stopping_survives_the_cleanup(client, project, fake_
         return None
 
     fake_ollama.reply_for = reply
-    client.patch("/api/settings", json={"ollama": {"liveSummaryIntervalMin": 0.005}})
+    client.patch(
+        "/api/settings", json={"ollama": {"liveSummaryIntervalMin": 0.005, "pickTerms": True}}
+    )
     with client.websocket_connect("/ws") as ws:
         ws.receive_json()
         sid = start(ws, pid)
@@ -712,13 +716,52 @@ def test_reject_right_after_stopping_survives_the_cleanup(client, project, fake_
     assert (meta.picked_terms, meta.rejected_terms) == ([], ["fake"])
 
 
-def test_terms_are_not_picked_when_turned_off(client, project, fake_ollama):
+@pytest.mark.parametrize(
+    ("setting", "project_switch", "picking"),
+    [(False, True, False), (False, False, False), (True, False, False), (True, True, True)],
+)
+def test_terms_are_picked_only_when_both_switches_are_on(
+    client, project, fake_ollama, setting, project_switch, picking
+):
+    # 全体設定（ollama.pickTerms、既定はオフ）とプロジェクトの selection.pickTerms の
+    # 両方がオンのときだけ拾う（#116）
     pid, d = project
-    client.patch(f"/api/projects/{pid}/selection", json={"pickTerms": False})
+    client.patch("/api/settings", json={"ollama": {"pickTerms": setting}})
+    client.patch(f"/api/projects/{pid}/selection", json={"pickTerms": project_switch})
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        sid = start(ws, pid)
+        assert (client.app.state.ctx.recorder.sessions[sid].picker is not None) is picking
+        ws.send_json({"type": "stop"})
+    finished(client, sid)
+
+
+def test_terms_are_not_picked_by_default(client, project, fake_ollama):
+    pid, d = project
     with client.websocket_connect("/ws") as ws:
         ws.receive_json()
         sid = start(ws, pid)
         assert client.app.state.ctx.recorder.sessions[sid].picker is None
+        ws.send_json({"type": "stop"})
+    finished(client, sid)
+
+
+def test_reject_a_term_while_continuing_without_picking(client, project):
+    # 拾うのがオフ（既定）でも、続きの録音では前に拾った語が用語リストに入る。消せばすぐ外す（#116）
+    pid, d = project
+    sid = interrupted_session(client, pid)
+    session = client.app.state.ctx.recorder.sessions[sid]
+    session.writer.set_terms(["フォトンリンク", "ケルビン"], [])
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        ws.send_json({"type": "continue", "project": pid, "session": sid})
+        receive_until(ws, of_type("started"))
+        session = client.app.state.ctx.recorder.sessions[sid]
+        assert session.picker is None
+        assert session.transcriber.hotwords == "フォトンリンク、ケルビン"
+        res = client.delete(f"/api/projects/{pid}/sessions/{sid}/terms/ケルビン")
+        assert res.json() == {"pickedTerms": ["フォトンリンク"], "rejectedTerms": ["ケルビン"]}
+        assert session.transcriber.hotwords == "フォトンリンク"
         ws.send_json({"type": "stop"})
     finished(client, sid)
 
