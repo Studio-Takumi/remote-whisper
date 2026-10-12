@@ -535,12 +535,87 @@ async def _set(gate):
     gate["event"].set()
 
 
+def test_refused_continue_keeps_the_previous_cleanup(client, project, monkeypatch):
+    # 後始末中の録音を終えた（done）セッションに continue が来て断ったときも、
+    # そのセッションの mp3 への変換と最終の要約は元どおり行う（#101 のレビュー）
+    pid, d = project
+    summarized = []
+
+    async def final_summary(session):
+        summarized.append(session.id)
+
+    client.app.state.ctx.recorder.final_summary = final_summary
+    gate = {}
+    original = LiveTranscriber.wait
+
+    async def slow_wait(self):
+        event = gate.setdefault("event", asyncio.Event())
+        await event.wait()
+        await original(self)
+
+    monkeypatch.setattr(LiveTranscriber, "wait", slow_wait)
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        sid = start(ws, pid)
+        ws.send_bytes(chunk(0, value=3000))
+        receive_until(ws, of_type("ack", seq=0))
+        ws.send_json({"type": "stop"})
+        wait_for(lambda: client.app.state.ctx.recorder.sessions[sid].ended)
+        ws.send_json({"type": "continue", "project": pid, "session": sid})
+        assert receive_until(ws, of_type("error"))[-1]["code"] == "cannot_continue"
+    client.portal.call(lambda: _set(gate))
+    finished(client, sid)
+    assert (d / f"recording-{sid}.mp3").is_file()
+    wait_for(lambda: summarized)
+    assert summarized == [sid]
+
+
+def test_continue_twice_adds_up(client, project):
+    # 続きでも途中で終わったら、もう一度続けられる。時刻は合計の長さから続く
+    pid, d = project
+    sid = interrupted_session(client, pid, seconds=1.0)
+    for expected in (1.0, 2.0):
+        with client.websocket_connect("/ws") as ws:
+            ws.receive_json()
+            ws.send_json({"type": "continue", "project": pid, "session": sid})
+            started = receive_until(ws, of_type("started"))[-1]
+            assert started["offsetSec"] == pytest.approx(expected, abs=0.1)
+            for seq in range(2):
+                ws.send_bytes(chunk(seq, value=3000))
+                receive_until(ws, of_type("ack", seq=seq))
+        wait_for(lambda: client.app.state.ctx.recorder.sessions[sid].ended)
+        finished(client, sid)
+    meta, _ = read_doc(d / f"transcript-{sid}.md", TranscriptMeta)
+    assert (meta.status, meta.duration_sec) == ("interrupted", 3)
+    assert abs(audio_seconds(d / f"recording-{sid}.mp3") - 3.0) < 0.3
+
+
+def test_continue_replaces_an_m4a_with_the_new_recording(client, project, monkeypatch):
+    # 前の録音が m4a（mp3 のエンコーダーがない配布版）で、続きを mp3 にしたら、古い m4a は消す
+    pid, d = project
+    monkeypatch.setattr(audio_convert, "pick_format", lambda: ("m4a", "mp4", "aac"))
+    sid = interrupted_session(client, pid, seconds=1.0)
+    assert (d / f"recording-{sid}.m4a").is_file()
+    monkeypatch.undo()
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        ws.send_json({"type": "continue", "project": pid, "session": sid})
+        assert receive_until(ws, of_type("started"))[-1]["offsetSec"] == pytest.approx(1.0, abs=0.1)
+        ws.send_bytes(chunk(0, value=3000))
+        receive_until(ws, of_type("ack", seq=0))
+        ws.send_json({"type": "stop"})
+    finished(client, sid)
+    assert (d / f"recording-{sid}.mp3").is_file()
+    assert not (d / f"recording-{sid}.m4a").exists()
+    assert abs(audio_seconds(d / f"recording-{sid}.mp3") - 1.5) < 0.3
+
+
 def test_continue_needs_an_interrupted_session_with_its_recording(client, project):
     pid, d = project
     sid = interrupted_session(client, pid, seconds=0.5)
     with client.websocket_connect("/ws") as ws:
         ws.receive_json()
-        # 録音中・録音を終えたセッションは続けられない
+        # ないセッションは続けられない
         ws.send_json({"type": "continue", "project": pid, "session": "20200101-000000"})
         assert receive_until(ws, of_type("error"))[-1]["code"] == "session_not_found"
         # 録音ファイルが保存期間を過ぎて消えていたら、続けられない

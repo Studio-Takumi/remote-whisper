@@ -111,6 +111,8 @@ class RecordingSession:
         # 録音を終えたあとの後始末の途中で、続きの録音に引き継がれた（#101）。
         # mp3 への変換は続きの方で行う
         self.superseded = False
+        # 引き継いだために後始末を止めたときの、録音を終えた状態（take_back で続きを行う）
+        self._handed_over: str | None = None
         # mp3 に変換している途中（続きを録音するときは、終わるのを待つ。WAV を読んでいるため）
         self.converting = False
 
@@ -248,8 +250,14 @@ class RecordingSession:
             finally:
                 await self.transcriber.close()
         if self.superseded:
-            # 続きの録音が WAV を引き継いだ（変換は続きを録音し終えたときに行う）
+            # 続きの録音が WAV を引き継いだ（変換は続きを録音し終えたときに行う）。
+            # 続けられなかったときは take_back で続きを行う
+            self._handed_over = status
             return
+        await self._complete(status)
+
+    async def _complete(self, status: str) -> None:
+        """mp3 に変換して、録音を終えたのなら最終の要約を積む"""
         self.converting = True
         try:
             await self._convert()
@@ -257,6 +265,13 @@ class RecordingSession:
             self.converting = False
         if status == "done":
             self.manager.submit_final_summary(self)
+
+    def take_back(self) -> None:
+        """続きの録音に引き継ごうとしたが、続けられなかった。後始末を元どおり行う（#101）"""
+        self.superseded = False
+        if self._handed_over is not None:
+            status, self._handed_over = self._handed_over, None
+            self._finishing = asyncio.create_task(self._complete(status))
 
     async def _convert(self) -> None:
         """WAV を mp3 に変換して WAV を消す。失敗したら WAV を残す（次の起動時に変換し直す: #33）"""
@@ -379,8 +394,27 @@ class RecordingManager:
                 await previous.wait_finished()
             else:
                 # 残りの文字起こし（GPU の空きを待つことがある）は待たずに、そのまま続けさせる。
-                # 変換は、続きを録音し終えたときにまとめて行う
+                # その間に WAV を変換し始めないよう、先に止めておく（続けられなければ戻す）
                 previous.superseded = True
+        try:
+            session = await self._restore(ws, project, sid)
+        except BaseException:
+            if previous is not None:
+                # 続けられなかったので、前の録音の変換（と最終の要約）を元どおり行わせる
+                previous.take_back()
+            raise
+        session.writer.reopen()
+        if previous is not None:
+            # 前の録音の途中の要約などが、古いフロントマターを書き戻さないようにする
+            previous.writer.detached = True
+        self.sessions[sid] = session
+        await self._count_changed()
+        await session.send({"type": "started", "continued": True, "offsetSec": session.offset})
+        self._begin(session)
+        return session
+
+    async def _restore(self, ws: WebSocket, project: str, sid: str) -> RecordingSession:
+        """続きを録音できるか確かめて、前の録音を WAV に戻したセッションを作る"""
         try:
             writer = SessionWriter.existing(self.projects, project, sid)
         except (ProjectError, OSError, ValueError) as e:
@@ -398,16 +432,11 @@ class RecordingManager:
                 "cannot_continue", "録音ファイルが残っていないので、続きを録音できません"
             )
         try:
-            session = RecordingSession(self, writer, ws, restore)
+            # mp3 のデコードは長い録音だと時間がかかるので、ほかの録音を止めないよう別のスレッドで
+            return await asyncio.to_thread(RecordingSession, self, writer, ws, restore)
         except Exception as e:  # noqa: BLE001 前の録音を読めない（壊れているなど）
             log.exception("failed to restore the recording of %s", sid)
             raise RecordingError("cannot_continue", f"前の録音を読み込めません: {e}") from e
-        writer.reopen()
-        self.sessions[sid] = session
-        await self._count_changed()
-        await session.send({"type": "started", "continued": True, "offsetSec": session.offset})
-        self._begin(session)
-        return session
 
     def _begin(self, session: RecordingSession) -> None:
         """途中の要約と文字起こしを始める"""

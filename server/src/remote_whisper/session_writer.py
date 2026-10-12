@@ -54,6 +54,9 @@ class SessionWriter:
         self.started = started
         self.files = SessionFiles(store.dir(pid), sid)
         self._lock = _lock_for(self.files.transcript)
+        # 続きの録音に引き継がれた（#101）。フロントマターと project.json は続きの方が書くので、
+        # こちらは書かない（古い状態やタイトルを書き戻さないように）。文字起こしの行は足す
+        self.detached = False
         project = store.load(pid)
         selection = project.effective_selection()
         # そのセッションで使った設定値は、フロントマターに記録する（spec 6.2）
@@ -92,6 +95,7 @@ class SessionWriter:
         writer.id = sid
         writer.files = SessionFiles(store.dir(pid), sid)
         writer._lock = _lock_for(writer.files.transcript)
+        writer.detached = False
         writer.meta = read_doc(writer.files.transcript, TranscriptMeta)[0]
         writer.started = datetime.fromisoformat(writer.meta.started_at)
         selection = store.load(pid).effective_selection()
@@ -148,10 +152,15 @@ class SessionWriter:
 
     def _rewrite_meta(self) -> None:
         """本文はそのままで、フロントマターだけを書き換える"""
+        if self.detached:
+            return
         _, body = parse(self.files.transcript.read_text(encoding="utf-8"))
         write_doc(self.files.transcript, self.meta, body)
 
     def _update_entry(self, **changes) -> None:
+        if self.detached:
+            return
+
         def change(project: ProjectFile) -> None:
             for s in project.sessions:
                 if s.id == self.id:
