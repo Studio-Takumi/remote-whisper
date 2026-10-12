@@ -119,6 +119,8 @@ async def reject_term(pid: str, sid: str, term: str, ctx: Ctx) -> dict[str, Any]
         picked = [w for w in meta.picked_terms if w != term]
         rejected = sorted({*meta.rejected_terms, term})
         session.writer.set_terms(picked, rejected)
+        # 拾うのがオフでも、続きの録音では前に拾った語が用語リストに入っている（#116）
+        session.apply_hotwords()
         return {"pickedTerms": picked, "rejectedTerms": rejected}
     try:
         writer = SessionWriter.existing(ctx.projects, pid, sid)

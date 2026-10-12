@@ -746,6 +746,26 @@ def test_terms_are_not_picked_by_default(client, project, fake_ollama):
     finished(client, sid)
 
 
+def test_reject_a_term_while_continuing_without_picking(client, project):
+    # 拾うのがオフ（既定）でも、続きの録音では前に拾った語が用語リストに入る。消せばすぐ外す（#116）
+    pid, d = project
+    sid = interrupted_session(client, pid)
+    session = client.app.state.ctx.recorder.sessions[sid]
+    session.writer.set_terms(["フォトンリンク", "ケルビン"], [])
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        ws.send_json({"type": "continue", "project": pid, "session": sid})
+        receive_until(ws, of_type("started"))
+        session = client.app.state.ctx.recorder.sessions[sid]
+        assert session.picker is None
+        assert session.transcriber.hotwords == "フォトンリンク、ケルビン"
+        res = client.delete(f"/api/projects/{pid}/sessions/{sid}/terms/ケルビン")
+        assert res.json() == {"pickedTerms": ["フォトンリンク"], "rejectedTerms": ["ケルビン"]}
+        assert session.transcriber.hotwords == "フォトンリンク"
+        ws.send_json({"type": "stop"})
+    finished(client, sid)
+
+
 def test_reject_a_term_after_recording(client, project):
     pid, d = project
     sid = interrupted_session(client, pid, seconds=0.5)
