@@ -343,6 +343,8 @@ class RecordingManager:
         # 接続が切れてから resume を待つ秒数。None なら全体設定（recording.resumeTimeoutMin）
         self.resume_timeout = resume_timeout
         self.sessions: dict[str, RecordingSession] = {}
+        # 続きを録音するために、前の録音を WAV に戻している途中のセッション
+        self._restoring: set[str] = set()
 
     def resume_timeout_sec(self) -> float:
         if self.resume_timeout is not None:
@@ -383,11 +385,21 @@ class RecordingManager:
         録音は前の録音（.tmp の WAV、なければ変換済みの mp3・m4a）を WAV に戻した後ろに続けて書き、
         文字起こしの時刻も前の録音の長さから続ける。文字起こしは同じファイルに足していく
         """
-        if len(self.active()) >= max_concurrent:
+        # 前の録音を戻している途中のものも、録音中として数える（同じセッションを同時に続けない）
+        if len(self.active()) + len(self._restoring) >= max_concurrent:
             raise RecordingError("too_many_recordings", "同時に録音できる数を超えています")
         previous = self.sessions.get(sid)
-        if previous is not None and not previous.ended:
+        if (previous is not None and not previous.ended) or sid in self._restoring:
             raise RecordingError("already_recording", "このセッションは録音中です")
+        self._restoring.add(sid)
+        try:
+            return await self._continue(ws, project, sid, previous)
+        finally:
+            self._restoring.discard(sid)
+
+    async def _continue(
+        self, ws: WebSocket, project: str, sid: str, previous: "RecordingSession | None"
+    ) -> RecordingSession:
         if previous is not None:
             if previous.converting:
                 # mp3 に変換している途中なら、終わるのを待つ（CPU で数秒。WAV を読んでいるため）
