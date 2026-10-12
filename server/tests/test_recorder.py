@@ -537,7 +537,8 @@ def test_continue_while_the_previous_part_is_still_transcribing(client, project,
 
 
 async def _set(gate):
-    gate["event"].set()
+    # 待つ側がまだ待ち始めていなくても、先に開けておく
+    gate.setdefault("event", asyncio.Event()).set()
 
 
 def test_refused_continue_keeps_the_previous_cleanup(client, project, monkeypatch):
