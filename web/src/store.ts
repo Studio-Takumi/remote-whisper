@@ -4,7 +4,7 @@ import { create } from 'zustand';
 import { ApiError, type ProjectJson, api } from '@/api';
 import { type MicState, Microphone, MicrophoneError, SAMPLE_RATE, watchMicrophonePermission } from '@/audio/microphone';
 import { type UnsentSession, clearSession, deleteUpTo, listUnsent, saveChunk } from '@/audio/unsentStore';
-import { keepScreenOn } from '@/audio/wakeLock';
+import { keepScreenOn, screenKeptOn } from '@/audio/wakeLock';
 import { AudioSender, connection } from '@/connection';
 import { fetchContextSets, fetchProjects, fetchSessionDetail, isDemo, mergeProjects, toSelection } from '@/data';
 import { demoProjects, fallbackOptions, initialContextSets } from '@/mock';
@@ -1186,5 +1186,11 @@ useAppStore.subscribe((s, prev) => {
 // 開発中は、ブラウザの開発者ツールや Playwright からストアと接続を見られるようにする
 // （接続は、切れたときの動きを確かめるため）
 if (import.meta.env.DEV) {
-    Object.assign(window, { appStore: useAppStore, appConnection: connection });
+    Object.assign(window, {
+        appStore: useAppStore,
+        appConnection: connection,
+        // マイクが止まったとき・画面のスリープを止めているかを確かめるため（#102）
+        appMicrophone: () => mic,
+        appScreenKeptOn: screenKeptOn,
+    });
 }
