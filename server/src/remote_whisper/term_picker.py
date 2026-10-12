@@ -168,6 +168,8 @@ class TermPicker:
         candidates = [*self.picked, *parse_terms(reply)]
         # 長い録音では全行に正規表現をかけるので、音声の受け取りを止めないよう別のスレッドで
         picked = await asyncio.to_thread(self.select, candidates)
+        # 選んでいる間に画面で消された語は除く
+        picked = [w for w in picked if w not in self.rejected]
         if picked != self.picked:
             added = [w for w in picked if w not in self.picked]
             log.info("session %s picked terms: %s", self.writer.id, added)
