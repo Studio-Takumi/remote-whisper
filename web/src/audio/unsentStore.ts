@@ -41,6 +41,14 @@ function done(tx: IDBTransaction): Promise<void> {
 // 置いた量（バイト）。セッションごと
 const sizes = new Map<string, number>();
 
+// 読み込み直した後、IndexedDB に置いてあった量から数え直す（上限を守るため）
+export function restoreSize(session: string, frames: { frame: ArrayBuffer }[]) {
+    sizes.set(
+        session,
+        frames.reduce((n, f) => n + f.frame.byteLength, 0),
+    );
+}
+
 // チャンク（先頭4バイトが連番の、送るときの形）を置く。上限を超えたら置かずに false
 export async function saveChunk(session: string, project: string, seq: number, frame: ArrayBuffer) {
     const size = (sizes.get(session) ?? 0) + frame.byteLength;

@@ -3,7 +3,7 @@ import { create } from 'zustand';
 
 import { ApiError, type ProjectJson, api } from '@/api';
 import { type MicState, Microphone, MicrophoneError, SAMPLE_RATE, watchMicrophonePermission } from '@/audio/microphone';
-import { type UnsentSession, clearSession, deleteUpTo, listUnsent, saveChunk } from '@/audio/unsentStore';
+import { type UnsentSession, clearSession, deleteUpTo, listUnsent, restoreSize, saveChunk } from '@/audio/unsentStore';
 import { keepScreenOn, screenKeptOn } from '@/audio/wakeLock';
 import { AudioSender, connection } from '@/connection';
 import { fetchContextSets, fetchProjects, fetchSessionDetail, isDemo, mergeProjects, toSelection } from '@/data';
@@ -173,6 +173,8 @@ let stoppedWhileOffline: string | null = null;
 let leftover: { sessionId: string; pcm: Int16Array[] } | null = null;
 // ページを読み込み直す前に溜めていた音声（IndexedDB から読んだもの。#102）
 let unsentEntry: UnsentSession | null = null;
+// 読み込み直した後に resume したとき、サーバーが受け取り済みの録音の長さ（サンプル数）。最初の ack で使う
+let recoveredBase: number | null = null;
 
 type StartedMessage = Extract<ServerMessage, { type: 'started' }>;
 type ErrorMessage = Extract<ServerMessage, { type: 'error' }>;
@@ -187,11 +189,10 @@ export const useAppStore = create<AppState>()((set, get) => {
         }
     }
 
-    // マイクを開き、サーバーに start を送り、started が来たらセッションを作る
-    // マイクを開く。届いた音声を送り、マイクが止まったら画面で知らせる（#102）
+    // マイクを開く。届いた音声を送り、マイクが止まったら画面で知らせる（#102）。
+    // 状態は開けたときに最初の知らせで決まる（開き直しに失敗したら、止まったままの警告を残す）
     function openMicrophone() {
         const { noiseSuppression, autoGainControl } = get().settings.recording;
-        set({ micState: 'ok' });
         return Microphone.open(
             (pcm, level) => {
                 // 一時停止中の音声は送らない
@@ -221,6 +222,12 @@ export const useAppStore = create<AppState>()((set, get) => {
                 // つなぎ直した直後の ack は、サーバーが受け取り済みの最後の連番。その次から送り直す
                 if (resendAfterAck) {
                     resendAfterAck = false;
+                    // ページを読み込み直した後なら、サーバーが受け取り済みの分を ack で除いてから経過時間を戻す
+                    if (recoveredBase !== null && sender) {
+                        recordedSamples = recoveredBase + sender.unsentSamples;
+                        recoveredBase = null;
+                        set({ elapsed: Math.floor(recordedSamples / SAMPLE_RATE) });
+                    }
                     sender?.resend();
                     // 溜めた音声を送り終えてから、切れている間の操作を今の状態に合わせて伝える
                     if (stoppedWhileOffline) {
@@ -550,6 +557,7 @@ export const useAppStore = create<AppState>()((set, get) => {
         mic?.close();
         mic = null;
         sender = null;
+        recoveredBase = null;
         unsubscribe?.();
         unsubscribe = null;
     }
@@ -696,6 +704,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                 stoppedWhileOffline = null;
                 // 溜めていたチャンクのまま、同じ連番で送り直す（サーバーが受け取り済みの分は ack の後で捨てる）
                 sender = AudioSender.restore(entry.frames, (pendingAudio) => set({ pendingAudio }));
+                restoreSize(sessionId, entry.frames);
                 persistUnsent(sender, sessionId, projectId);
                 mic = await openMicrophone();
                 unsubscribe = subscribeRecording();
@@ -721,7 +730,9 @@ export const useAppStore = create<AppState>()((set, get) => {
                 }
                 // 続く ack（サーバーが受け取り済みの最後の連番）を受けたら、溜めていた音声を送り直す
                 resendAfterAck = true;
-                recordedSamples = Math.round((reply.offsetSec ?? 0) * SAMPLE_RATE) + sender.unsentSamples;
+                // 経過時間は、続く ack を受けて受け取り済みの分を除いてから決める（二重に数えないように）
+                recoveredBase = Math.round((reply.offsetSec ?? 0) * SAMPLE_RATE);
+                recordedSamples = recoveredBase;
                 unsentEntry = null;
                 set((s) => ({
                     unsent: null,
