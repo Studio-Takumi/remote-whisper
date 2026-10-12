@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- 仮のアプリのアイコン（#104）。音声の波形。maskable でも切れないよう、中身は中央の 60% に収める -->
+  <rect width="512" height="512" fill="#171717"/>
+  <g fill="none" stroke="#fafafa" stroke-linecap="round" stroke-width="30">
+    <line x1="166" y1="226" x2="166" y2="286"/>
+    <line x1="211" y1="186" x2="211" y2="326"/>
+    <line x1="256" y1="156" x2="256" y2="356"/>
+    <line x1="301" y1="196" x2="301" y2="316"/>
+    <line x1="346" y1="231" x2="346" y2="281"/>
+  </g>
+</svg>
