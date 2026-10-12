@@ -6,6 +6,7 @@ m4a（AAC）にする（#36 で確かめる）。CPU で動くので、GPU キ�
 
 import contextlib
 import logging
+from collections.abc import Iterator
 from pathlib import Path
 
 import av
@@ -33,6 +34,20 @@ def pick_format() -> tuple[str, str, str]:
         if _encoder_available(fmt[2]):
             return fmt
     raise RuntimeError("mp3 と AAC のどちらのエンコーダーもありません")
+
+
+def decode_pcm(path: Path) -> Iterator[bytes]:
+    """音声ファイル（WAV・mp3・m4a）を 16kHz・モノラル・Int16 の PCM にして、少しずつ返す
+
+    途中で終わったセッションの続きを録音するとき、前の録音を WAV に戻すのに使う（#101）
+    """
+    resampler = av.AudioResampler(format="s16", layout="mono", rate=16000)
+    with av.open(str(path)) as src:
+        for frame in src.decode(audio=0):
+            for out in resampler.resample(frame):
+                yield bytes(out.planes[0])[: out.samples * 2]
+        for out in resampler.resample(None):
+            yield bytes(out.planes[0])[: out.samples * 2]
 
 
 def convert_wav(wav: Path, out_dir: Path, sid: str) -> Path:

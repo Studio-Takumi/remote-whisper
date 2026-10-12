@@ -25,6 +25,18 @@ from remote_whisper.settings import Settings
 from remote_whisper.timeutil import iso, make_id, now
 from remote_whisper.version import app_version
 
+_LINE = re.compile(r"^\[(\d{2}:\d{2}:\d{2})\] (.*)$")
+
+# 文字起こしのファイルごとのロック。続きを録音するとき（#101）、前の録音の残りの文字起こしと
+# 続きの録音が、別々の SessionWriter から同じファイルに書くので、ロックはファイルで共有する
+_locks: dict[Path, threading.Lock] = {}
+_locks_guard = threading.Lock()
+
+
+def _lock_for(path: Path) -> threading.Lock:
+    with _locks_guard:
+        return _locks.setdefault(path.resolve(), threading.Lock())
+
 
 def fmt_clock(sec: float) -> str:
     """文字起こしの行の時刻。録音の開始からの秒数を HH:MM:SS にする"""
@@ -41,7 +53,10 @@ class SessionWriter:
         self.id = sid
         self.started = started
         self.files = SessionFiles(store.dir(pid), sid)
-        self._lock = threading.Lock()
+        self._lock = _lock_for(self.files.transcript)
+        # 続きの録音に引き継がれた（#101）。フロントマターと project.json は続きの方が書くので、
+        # こちらは書かない（古い状態やタイトルを書き戻さないように）。文字起こしの行は足す
+        self.detached = False
         project = store.load(pid)
         selection = project.effective_selection()
         # そのセッションで使った設定値は、フロントマターに記録する（spec 6.2）
@@ -79,7 +94,8 @@ class SessionWriter:
         writer.pid = pid
         writer.id = sid
         writer.files = SessionFiles(store.dir(pid), sid)
-        writer._lock = threading.Lock()
+        writer._lock = _lock_for(writer.files.transcript)
+        writer.detached = False
         writer.meta = read_doc(writer.files.transcript, TranscriptMeta)[0]
         writer.started = datetime.fromisoformat(writer.meta.started_at)
         selection = store.load(pid).effective_selection()
@@ -105,6 +121,29 @@ class SessionWriter:
 
         self.store.update(self.pid, add)
 
+    def reopen(self) -> None:
+        """途中で終わったセッションの続きを録音する。状態を recording に戻す（#101）
+
+        終了日時と長さは、続きを録音し終えたときに決め直す
+        """
+        with self._lock:
+            self.meta.status = "recording"
+            self.meta.ended_at = None
+            self.meta.duration_sec = None
+            self._rewrite_meta()
+        self._update_entry(status="recording", ended_at=None, duration_sec=None)
+
+    def final_lines(self) -> list[tuple[float, str]]:
+        """文字起こしの行（録音の開始からの秒数, 本文）。続きを録音するとき、途中の要約に入れる"""
+        _, body = parse(self.files.transcript.read_text(encoding="utf-8"))
+        lines = []
+        for line in body.splitlines():
+            m = _LINE.match(line)
+            if m:
+                h, mi, s = (int(x) for x in m.group(1).split(":"))
+                lines.append((h * 3600 + mi * 60 + s, m.group(2)))
+        return lines
+
     def append_final(self, start_sec: float, text: str) -> None:
         """確定した区間を文字起こしに足す"""
         with self._lock:
@@ -113,10 +152,15 @@ class SessionWriter:
 
     def _rewrite_meta(self) -> None:
         """本文はそのままで、フロントマターだけを書き換える"""
+        if self.detached:
+            return
         _, body = parse(self.files.transcript.read_text(encoding="utf-8"))
         write_doc(self.files.transcript, self.meta, body)
 
     def _update_entry(self, **changes) -> None:
+        if self.detached:
+            return
+
         def change(project: ProjectFile) -> None:
             for s in project.sessions:
                 if s.id == self.id:

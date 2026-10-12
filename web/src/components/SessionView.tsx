@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 
-import { AudioLinesIcon, FolderPlusIcon, RefreshCwIcon, TriangleAlertIcon } from 'lucide-react';
+import { AudioLinesIcon, FolderPlusIcon, MicIcon, RefreshCwIcon, TriangleAlertIcon } from 'lucide-react';
 
 import { LiveSummary } from '@/components/LiveSummary';
 import { Markdown } from '@/components/Markdown';
@@ -29,6 +29,7 @@ export function SessionView() {
     const partial = useAppStore((s) => s.partial);
     const liveDraft = useAppStore((s) => s.liveDraft);
     const recordingSessionId = useAppStore((s) => s.recordingSessionId);
+    const continueRecording = useAppStore((s) => s.continueRecording);
     const { tab, changeTab, followTranscript } = useTabScroll(session?.id);
     const audio = useRef<HTMLAudioElement>(null);
     // 読み込めなかった録音（開いた後に消えたなど）。再生バーを消し、時刻も押せなくする
@@ -89,6 +90,20 @@ export function SessionView() {
                                 (session.id === recordingSessionId ? '・録音中' : '・ほかの端末で録音中')}
                             {session.status === 'interrupted' && '・途中で中断'}
                         </p>
+                        {/* 途中で終わったセッションは、同じセッションのまま続きを録音できる（#101）。
+                            録音ファイルがまだ mp3 になっていない（WAV のまま）こともあるので、ファイルの有無では隠さない
+                            （残っていなければ、サーバーが断る） */}
+                        {session.status === 'interrupted' && recordingState === 'idle' && (
+                            <Button
+                                variant='outline'
+                                size='sm'
+                                className='mt-2'
+                                onClick={() => void continueRecording(session.id)}
+                            >
+                                <MicIcon />
+                                続きから録音
+                            </Button>
+                        )}
                     </div>
                 ) : (
                     <div>

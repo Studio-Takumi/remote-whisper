@@ -61,6 +61,8 @@ type AppState = {
     selectSession: (projectId: string, sessionId: string) => void;
     newSession: (projectId: string) => void;
     startRecording: () => Promise<void>;
+    // 途中で終わったセッションの続きを、同じセッションのまま録音する（#101）
+    continueRecording: (sessionId: string) => Promise<void>;
     pauseRecording: () => Promise<void>;
     resumeRecording: () => void;
     stopRecording: () => Promise<void>;
@@ -154,6 +156,9 @@ let resumeGeneration = 0;
 let resendAfterAck = false;
 // 接続が切れている間に録音を終えたセッション。つながり直したら resume して、残りの音声と stop を送る
 let stoppedWhileOffline: string | null = null;
+// 録音が途中で終わったとき、サーバーに届かなかった音声。そのセッションの続きを録音するときに先に送る（#101）
+// （ページを読み込み直すと消える）
+let leftover: { sessionId: string; pcm: Int16Array[] } | null = null;
 
 type StartedMessage = Extract<ServerMessage, { type: 'started' }>;
 type ErrorMessage = Extract<ServerMessage, { type: 'error' }>;
@@ -169,7 +174,8 @@ export const useAppStore = create<AppState>()((set, get) => {
     }
 
     // マイクを開き、サーバーに start を送り、started が来たらセッションを作る
-    async function beginRecording(projectId: string) {
+    // continueSessionId を渡すと、途中で終わったそのセッションの続きを録音する
+    async function beginRecording(projectId: string, continueSessionId?: string) {
         closeRecording();
         stoppedWhileOffline = null;
         sender = new AudioSender((pendingAudio) => set({ pendingAudio }));
@@ -251,12 +257,46 @@ export const useAppStore = create<AppState>()((set, get) => {
             // 録音ごとではなく、常時の購読（connectServer）で受け取る
         });
         await connection.open();
-        connection.send({ type: 'start', project: projectId });
+        connection.send(
+            continueSessionId
+                ? { type: 'continue', project: projectId, session: continueSessionId }
+                : { type: 'start', project: projectId },
+        );
         const reply = await connection.waitFor(
             (m): m is StartedMessage | ErrorMessage => m.type === 'started' || m.type === 'error',
+            // 続きを録音するときは、サーバーが前の録音（mp3）を WAV に戻すので、長い録音ほど時間がかかる
+            continueSessionId ? 60000 : 5000,
         );
         if (reply.type === 'error') {
             throw new Error(reply.message);
+        }
+
+        if (continueSessionId) {
+            // 続きを録音する。経過時間と文字起こしの時刻は、前の録音の長さから続ける（#101）
+            recordedSamples = Math.round((reply.offsetSec ?? 0) * SAMPLE_RATE);
+            set((s) => ({
+                projects: updateSession(s.projects, continueSessionId, (x) => ({
+                    ...x,
+                    status: 'recording',
+                    endedAt: undefined,
+                    durationSec: undefined,
+                })),
+                selection: { projectId, sessionId: continueSessionId },
+                recordingState: 'recording',
+                recordingSessionId: continueSessionId,
+                elapsed: Math.floor(recordedSamples / SAMPLE_RATE),
+                partial: null,
+                liveDraft: null,
+            }));
+            // 切れている間に録音した分（サーバーに届かなかった音声）を、続きの頭に送る
+            if (leftover?.sessionId === continueSessionId && sender) {
+                for (const pcm of leftover.pcm) {
+                    sender.push(pcm);
+                    countRecorded(pcm);
+                }
+            }
+            leftover = null;
+            return;
         }
 
         // セッションは録音を始めたときに作る。ID はサーバーが決めた、録音を始めた時刻（spec 5.2）
@@ -286,6 +326,24 @@ export const useAppStore = create<AppState>()((set, get) => {
         }));
     }
 
+    // 録音を始める（continueSessionId があれば、途中で終わったそのセッションの続きを録音する）
+    async function startOrContinue(projectId: string, continueSessionId?: string) {
+        starting = true;
+        try {
+            await beginRecording(projectId, continueSessionId);
+        } catch (e) {
+            closeRecording();
+            if (e instanceof MicrophoneError && e.reason === 'denied') {
+                set({ server: { ...get().server, microphone: 'denied' } });
+                toast.error('マイクが使えません。ブラウザの設定でマイクを許可してください');
+            } else {
+                toast.error((e as Error).message);
+            }
+        } finally {
+            starting = false;
+        }
+    }
+
     // 録音中に切れた接続がつながり直したら、resume を送って続きから録音する（spec 6.7・7.2）
     // 切れている間もマイクは止めず、音声は ack されるまで手元に溜めておく
     async function resumeAfterReconnect() {
@@ -308,7 +366,7 @@ export const useAppStore = create<AppState>()((set, get) => {
             }
             if (reply.type === 'error') {
                 if (reply.code === 'session_not_found') {
-                    // サーバーが待てる時間（60秒）を過ぎた、サーバーが再起動したなど
+                    // サーバーが待てる時間（recording.resumeTimeoutMin）を過ぎた、サーバーが再起動したなど
                     interruptRecording(sessionId);
                 } else {
                     retryResume();
@@ -339,6 +397,10 @@ export const useAppStore = create<AppState>()((set, get) => {
     function interruptRecording(sessionId: string) {
         resendAfterAck = false;
         stoppedWhileOffline = null;
+        // 切れている間に録音してサーバーに届かなかった音声は、続きを録音するときに頭に足す（#101）
+        if (sender) {
+            leftover = { sessionId, pcm: sender.unsent() };
+        }
         closeRecording();
         set((s) => ({
             recordingState: 'idle',
@@ -353,10 +415,12 @@ export const useAppStore = create<AppState>()((set, get) => {
                 endedAt: formatDateTime(),
             })),
         }));
+        // 同じセッションのまま続きを録音できる（#101）。セッションの画面にも「続きから録音」を出す
         toast.error(
             'サーバーで録音を続けられなくなったため、録音は途中で終わりました（接続が長く切れていた、サーバーが再起動したなど）。そこまでの録音はサーバーに残っています',
             {
-                duration: 10000,
+                duration: 15000,
+                action: { label: '続きから録音', onClick: () => void get().continueRecording(sessionId) },
             },
         );
     }
@@ -558,21 +622,22 @@ export const useAppStore = create<AppState>()((set, get) => {
                 );
                 return;
             }
-            starting = true;
-            try {
-                await beginRecording(project.id);
-            } catch (e) {
-                closeRecording();
-                if (e instanceof MicrophoneError && e.reason === 'denied') {
-                    set({ server: { ...get().server, microphone: 'denied' } });
-                    toast.error('マイクが使えません。ブラウザの設定でマイクを許可してください');
-                } else {
-                    toast.error((e as Error).message);
-                }
+            await startOrContinue(project.id);
+        },
+
+        continueRecording: async (sessionId) => {
+            const s = get();
+            const project = s.projects.find((p) => p.sessions.some((x) => x.id === sessionId));
+            if (!project || s.recordingState !== 'idle' || starting) {
                 return;
-            } finally {
-                starting = false;
             }
+            if (stoppedWhileOffline) {
+                toast.warning(
+                    '前の録音の残りをサーバーに送るのを待っています。サーバーにつながってから、もう一度押してください',
+                );
+                return;
+            }
+            await startOrContinue(project.id, sessionId);
         },
 
         // 一時停止の前までの音声を送り切ってから pause を送る
@@ -933,7 +998,8 @@ export const useAppStore = create<AppState>()((set, get) => {
     };
 });
 
-// 開発中は、ブラウザの開発者ツールや Playwright からストアを見られるようにする
+// 開発中は、ブラウザの開発者ツールや Playwright からストアと接続を見られるようにする
+// （接続は、切れたときの動きを確かめるため）
 if (import.meta.env.DEV) {
-    Object.assign(window, { appStore: useAppStore });
+    Object.assign(window, { appStore: useAppStore, appConnection: connection });
 }
