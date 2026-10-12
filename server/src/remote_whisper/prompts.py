@@ -259,3 +259,52 @@ async def make_title(
         options={"num_ctx": NUM_CTX},
     )
     return parse_title(reply)
+
+
+# 録音中に文字起こしから拾う用語（#103）。JSON Schema で一覧を返させる
+TERMS_MAX = 30
+TERMS_FORMAT: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "terms": {"type": "array", "items": {"type": "string"}, "maxItems": TERMS_MAX},
+    },
+    "required": ["terms"],
+}
+
+
+def terms_messages(lines: list[str]) -> list[dict[str, str]]:
+    """文字起こしから、音声認識（Whisper）に渡す用語を抜き出す（#103）
+
+    誤認識した語を足すと、その誤りが固まる。拾った語は、文字起こしに何度も出てくるかを
+    あとで確かめるので、ここでは文字起こしの表記のまま抜き出させる
+    """
+    user = (
+        "## 文字起こし（音声認識の結果。誤認識を含むことがある）\n"
+        + "\n".join(lines)
+        + "\n\nこの文字起こしから、固有名詞（人名・組織名・製品名・地名など）と専門用語を"
+        + "抜き出してください。文字起こしに書いてある表記のまま、1語ずつにしてください。"
+        + "一般的な言葉（会議・確認・予定など）や、意味の通らない語（誤認識と思われるもの）は"
+        + "含めないでください。"
+    )
+    return [
+        {"role": "system", "content": "あなたは、音声認識の精度を上げるための用語集を作る係です。"},
+        {"role": "user", "content": user},
+    ]
+
+
+def parse_terms(reply: str) -> list[str]:
+    """`{"terms": [...]}` から用語を取り出す。取り出せなければ空"""
+    try:
+        terms = json.loads(reply)["terms"]
+    except (ValueError, KeyError, TypeError):
+        log.warning("could not parse the terms: %r", reply[:200])
+        return []
+    if not isinstance(terms, list):
+        return []
+    out: list[str] = []
+    for t in terms:
+        if isinstance(t, str):
+            word = " ".join(t.split()).strip("「」『』\"'・、。 ")
+            if word and word not in out:
+                out.append(word)
+    return out

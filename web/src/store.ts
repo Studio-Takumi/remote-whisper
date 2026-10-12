@@ -1,7 +1,7 @@
 import { toast } from 'sonner';
 import { create } from 'zustand';
 
-import { ApiError, type ProjectJson, api } from '@/api';
+import { ApiError, type ProjectJson, type TermsJson, api } from '@/api';
 import { type MicState, Microphone, MicrophoneError, SAMPLE_RATE, watchMicrophonePermission } from '@/audio/microphone';
 import { type UnsentSession, clearSession, deleteUpTo, listUnsent, restoreSize, saveChunk } from '@/audio/unsentStore';
 import { keepScreenOn, screenKeptOn } from '@/audio/wakeLock';
@@ -69,6 +69,8 @@ type AppState = {
     continueRecording: (sessionId: string) => Promise<void>;
     // 止まったマイクを開き直す（録音はそのまま続ける。#102）
     reopenMicrophone: () => Promise<void>;
+    // 拾った語を消す（誤った語。以後そのセッションでは足さない。#103）
+    rejectTerm: (sessionId: string, term: string) => Promise<void>;
     // ページを読み込み直す前に、サーバーに届かなかった音声（IndexedDB に置いてあったもの。#102）
     unsent: { sessionId: string; projectId: string; seconds: number } | null;
     // 届かなかった音声を送り、同じセッションの続きを録音する
@@ -124,6 +126,7 @@ export const currentContextSelection = (s: AppState): ContextSelection => {
             setId: currentContextSets(s).find((x) => x.status === 'ready')?.id ?? null,
             useHotwords: true,
             useContext: true,
+            pickTerms: true,
         }
     );
 };
@@ -274,6 +277,11 @@ export const useAppStore = create<AppState>()((set, get) => {
                         sessionId: m.session,
                         text: (s.liveDraft?.sessionId === m.session ? s.liveDraft.text : '') + m.text,
                     },
+                }));
+            } else if (m.type === 'terms') {
+                // 録音中に拾った語が変わった（#103）
+                set((s) => ({
+                    projects: updateSession(s.projects, m.session, (x) => ({ ...x, pickedTerms: m.terms })),
                 }));
             } else if (m.type === 'summary.done' && m.kind === 'live') {
                 set((s) => ({
@@ -762,6 +770,35 @@ export const useAppStore = create<AppState>()((set, get) => {
             }
         },
 
+        rejectTerm: async (sessionId, term) => {
+            const project = get().projects.find((p) => p.sessions.some((x) => x.id === sessionId));
+            if (!project) {
+                return;
+            }
+            const drop = (terms?: string[]) => terms?.filter((t) => t !== term);
+            // 先に画面から消す（失敗したら戻す）
+            const before = project.sessions.find((x) => x.id === sessionId)?.pickedTerms;
+            set((s) => ({
+                projects: updateSession(s.projects, sessionId, (x) => ({ ...x, pickedTerms: drop(x.pickedTerms) })),
+            }));
+            if (isDemo) {
+                return;
+            }
+            try {
+                const res = await api.delete<TermsJson>(
+                    `/api/projects/${project.id}/sessions/${sessionId}/terms/${encodeURIComponent(term)}`,
+                );
+                set((s) => ({
+                    projects: updateSession(s.projects, sessionId, (x) => ({ ...x, pickedTerms: res.pickedTerms })),
+                }));
+            } catch (e) {
+                set((s) => ({
+                    projects: updateSession(s.projects, sessionId, (x) => ({ ...x, pickedTerms: before })),
+                }));
+                toast.error(`用語を消せません: ${(e as Error).message}`);
+            }
+        },
+
         reopenMicrophone: async () => {
             if (get().recordingState === 'idle' || !mic) {
                 return;
@@ -1094,6 +1131,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                     contextSet: next.setId,
                     useHotwords: next.useHotwords,
                     useContext: next.useContext,
+                    pickTerms: next.pickTerms,
                 });
                 // 保存できたら、サーバーの選択（project.selection）を正にして、手元の上書きは消す
                 // （ほかの端末で変えた選択も、取り直しで出るように）

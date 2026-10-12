@@ -98,6 +98,38 @@ def get_transcript(pid: str, sid: str, ctx: Ctx) -> dict[str, Any]:
     return {"meta": meta.to_json(), "lines": parse_transcript_lines(body)}
 
 
+@router.delete("/{sid}/terms/{term}")
+async def reject_term(pid: str, sid: str, term: str, ctx: Ctx) -> dict[str, Any]:
+    """録音中に拾った語を消す（誤った語）。消した語は、以後そのセッションでは足さない（#103）
+
+    録音中なら、録音中の用語リストからもすぐ外す（次の区間から効く）
+    """
+    # term はパスの一部なので「/」を含む語は消せない
+    # （拾う語は「/」を含まない: term_picker._DISTINCT_RUN）
+    _session(ctx, pid, sid)
+    session = getattr(ctx.recorder, "sessions", {}).get(sid)
+    if session is not None:
+        # recorder にセッションが残っていれば（止めた後の後始末の途中も）、そのセッションの
+        # writer が古い内容を書き戻さないよう、メモリ上の状態を正にする
+        picker = getattr(session, "picker", None)
+        if picker is not None:
+            await picker.reject(term)
+            return {"pickedTerms": picker.picked, "rejectedTerms": sorted(picker.rejected)}
+        meta = session.writer.meta
+        picked = [w for w in meta.picked_terms if w != term]
+        rejected = sorted({*meta.rejected_terms, term})
+        session.writer.set_terms(picked, rejected)
+        return {"pickedTerms": picked, "rejectedTerms": rejected}
+    try:
+        writer = SessionWriter.existing(ctx.projects, pid, sid)
+    except (OSError, ValueError) as e:
+        raise _gone("文字起こし") from e
+    picked = [w for w in writer.meta.picked_terms if w != term]
+    rejected = sorted({*writer.meta.rejected_terms, term})
+    writer.set_terms(picked, rejected)
+    return {"pickedTerms": picked, "rejectedTerms": rejected}
+
+
 _AUDIO_TYPES = {".mp3": "audio/mpeg", ".m4a": "audio/mp4"}
 
 

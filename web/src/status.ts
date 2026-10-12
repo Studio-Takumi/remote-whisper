@@ -31,6 +31,7 @@ export const jobKindLabel: Record<GpuJobKind, string> = {
     liveSummary: '途中の要約',
     finalSummary: '最終の要約',
     contextSet: '参考資料セットの作成',
+    terms: '文字起こしからの用語の抽出',
     other: 'その他',
 };
 
@@ -39,6 +40,7 @@ const blockingReason: Partial<Record<GpuJobKind, string>> = {
     liveSummary: '途中の要約の生成中',
     finalSummary: '最終の要約の生成中',
     contextSet: '参考資料セットの作成中',
+    terms: '用語の抽出中',
 };
 
 // 文字起こし以外のジョブ（要約など）が GPU を使っていて、このセッションの文字起こしが後ろで待たされているか

@@ -153,9 +153,16 @@ def test_selection(client, project, root, fake_ollama):
     body, _ = create_and_wait(client, pid, materials(root))
     url = f"/api/projects/{pid}/selection"
     res = client.patch(url, json={"contextSet": body["id"], "useContext": False})
-    assert res.json() == {"contextSet": body["id"], "useHotwords": True, "useContext": False}
+    assert res.json() == {
+        "contextSet": body["id"],
+        "useHotwords": True,
+        "useContext": False,
+        "pickTerms": True,
+    }
     # 省いたものは今のまま
     assert client.patch(url, json={"useHotwords": False}).json()["useContext"] is False
+    # 録音中に用語を拾うかも、プロジェクトごとに切り替えられる（#103）
+    assert client.patch(url, json={"pickTerms": False}).json()["pickTerms"] is False
     projects = client.get("/api/projects").json()
     assert projects[0]["selection"]["contextSet"] == body["id"]
     # セットを使わない

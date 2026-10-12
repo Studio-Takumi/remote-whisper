@@ -119,7 +119,12 @@ def test_register_and_list(client, workdir, home):
     body = res.json()
     assert body["name"] == "meetings"
     assert body["path"] == str(real_path(workdir / "meetings"))
-    assert body["selection"] == {"contextSet": None, "useHotwords": True, "useContext": True}
+    assert body["selection"] == {
+        "contextSet": None,
+        "useHotwords": True,
+        "useContext": True,
+        "pickTerms": True,
+    }
 
     data = json.loads((home / "projects" / body["id"] / "project.json").read_text("utf-8"))
     assert data["version"] == 1

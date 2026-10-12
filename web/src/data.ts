@@ -51,7 +51,12 @@ export async function fetchProjects(): Promise<Project[]> {
 }
 
 export function toSelection(json: ProjectJson['selection']): ContextSelection {
-    return { setId: json.contextSet, useHotwords: json.useHotwords, useContext: json.useContext };
+    return {
+        setId: json.contextSet,
+        useHotwords: json.useHotwords,
+        useContext: json.useContext,
+        pickTerms: json.pickTerms ?? true,
+    };
 }
 
 // プロジェクトの参考資料セットの一覧
@@ -94,7 +99,9 @@ export async function fetchSessionDetail(projectId: string, session: Session) {
     const base = `/api/projects/${projectId}/sessions/${session.id}`;
     // どのファイルがあるか分からない（手元で作ったセッション）ときは、先にサーバーに聞く
     const files = session.files ?? (await api.get<SessionJson>(base)).files;
-    const transcript = files?.transcript ? (await api.get<TranscriptJson>(`${base}/transcript`)).lines : [];
+    const transcriptJson = files?.transcript ? await api.get<TranscriptJson>(`${base}/transcript`) : null;
+    const transcript = transcriptJson?.lines ?? [];
+    const pickedTerms = transcriptJson?.meta?.pickedTerms ?? [];
     const infos = files?.summaries ? await api.get<SummaryInfoJson[]>(`${base}/summaries`) : [];
     const summaries: Summary[] = await Promise.all(
         infos.map(async (info) => {
@@ -113,5 +120,5 @@ export async function fetchSessionDetail(projectId: string, session: Session) {
         const json = await api.get<SummaryJson>(`${base}/summaries/latest`);
         liveSummary = json.kind === 'live' ? json.text : undefined;
     }
-    return { files, transcript, summaries, liveSummary };
+    return { files, transcript, summaries, liveSummary, pickedTerms };
 }

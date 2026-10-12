@@ -136,6 +136,9 @@ class TranscriptMeta(_Meta):
     summary_failed: bool = False
     # 録音したサーバーのバージョン（コミットハッシュ）。以前のファイルにはない
     app_version: str | None = None
+    # 録音中に文字起こしから拾って、用語リストに足した語と、画面で消された語（#103）
+    picked_terms: list[str] = Field(default_factory=list)
+    rejected_terms: list[str] = Field(default_factory=list)
 
 
 class SummaryMeta(_Meta):

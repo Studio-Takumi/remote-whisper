@@ -14,7 +14,15 @@ export type ClientMessage =
 export type SummaryKind = 'live' | 'final';
 
 // GPU キューのジョブ（status の jobs。spec 6.3・7.2）。秒数はサーバーが送った時点のもの
-export type GpuJobKind = 'transcribe' | 'whisperLoad' | 'liveSummary' | 'finalSummary' | 'contextSet' | 'other';
+export type GpuJobKind =
+    | 'transcribe'
+    | 'whisperLoad'
+    | 'liveSummary'
+    | 'finalSummary'
+    | 'contextSet'
+    // 録音中に文字起こしから用語を拾う（#103）
+    | 'terms'
+    | 'other';
 export type GpuJobs = {
     running: { kind: GpuJobKind; session: string | null; runningSec: number } | null;
     // 実行する順。続けて並ぶ同じ種類・同じセッションのものは count にまとめてある
@@ -39,6 +47,8 @@ export type ServerMessage =
     | { type: 'summary.delta'; session: string; kind: SummaryKind; text: string }
     | { type: 'summary.done'; session: string; kind: SummaryKind }
     | { type: 'title'; session: string; title: string; provisional: boolean }
+    // 録音中に文字起こしから拾って用語リストに足した語と、消された語（#103）
+    | { type: 'terms'; session: string; terms: string[]; rejected: string[] }
     | { type: 'contextSet'; project: string; id: string; status: ContextSetStatus }
     | {
           type: 'status';

@@ -56,6 +56,8 @@ class Selection(_Model):
     context_set: str | None = None
     use_hotwords: bool = True
     use_context: bool = True
+    # 録音中に文字起こしから用語を拾い、用語リストに足すか（#103）
+    pick_terms: bool = True
 
 
 class ContextSetEntry(_Model):

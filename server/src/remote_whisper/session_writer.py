@@ -81,6 +81,8 @@ class SessionWriter:
             app_version=app_version(),
         )
         self.use_context = selection.context_set is not None and selection.use_context
+        # 録音中に文字起こしから用語を拾うか（プロジェクトの選択。#103）
+        self.pick_terms = selection.pick_terms
 
     @classmethod
     def existing(cls, store: ProjectStore, pid: str, sid: str) -> "SessionWriter":
@@ -100,6 +102,7 @@ class SessionWriter:
         writer.started = datetime.fromisoformat(writer.meta.started_at)
         selection = store.load(pid).effective_selection()
         writer.use_context = writer.meta.context_set is not None and selection.use_context
+        writer.pick_terms = selection.pick_terms
         return writer
 
     def start(self) -> None:
@@ -174,6 +177,13 @@ class SessionWriter:
             self.meta.title = title
             self._rewrite_meta()
         self._update_entry(title=title)
+
+    def set_terms(self, picked: list[str], rejected: list[str]) -> None:
+        """録音中に拾った語と、画面で消された語を、フロントマターに記録する（#103）"""
+        with self._lock:
+            self.meta.picked_terms = list(picked)
+            self.meta.rejected_terms = list(rejected)
+            self._rewrite_meta()
 
     def set_recording(self, name: str) -> None:
         """録音ファイル（mp3）ができた。フロントマターに記録する"""
