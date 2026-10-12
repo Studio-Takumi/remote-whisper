@@ -37,6 +37,8 @@ export type Session = {
     provisionalTitle?: boolean;
     // 最終の要約を作れなかった（Ollama につながらなかったなど）。作り直して作れたら false
     summaryFailed?: boolean;
+    // 録音中に文字起こしから拾って、用語リストに足した語（#103）
+    pickedTerms?: string[];
 };
 
 export type Project = {
@@ -63,6 +65,8 @@ export type ContextSelection = {
     setId: string | null;
     useHotwords: boolean;
     useContext: boolean;
+    // 録音中に文字起こしから用語を拾い、用語リストに足すか（#103）
+    pickTerms: boolean;
 };
 
 // 資料のファイル名だけを並べた、セットの表示名

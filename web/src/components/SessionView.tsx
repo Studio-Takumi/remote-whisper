@@ -5,6 +5,7 @@ import { AudioLinesIcon, FolderPlusIcon, MicIcon, RefreshCwIcon, TriangleAlertIc
 import { LiveSummary } from '@/components/LiveSummary';
 import { Markdown } from '@/components/Markdown';
 import { MicAlert } from '@/components/MicAlert';
+import { PickedTerms } from '@/components/PickedTerms';
 import { RecordingPlayer } from '@/components/RecordingPlayer';
 import { StatusIndicator } from '@/components/StatusIndicator';
 import { Transcript } from '@/components/Transcript';
@@ -117,6 +118,7 @@ export function SessionView() {
                 )}
 
                 <TabsContent value='transcript' className='flex flex-col gap-2'>
+                    {session && <PickedTerms session={session} />}
                     {session && !session.loaded && <p className='text-sm text-muted-foreground'>読み込んでいます…</p>}
                     {session && expired(session, 'transcript') && (
                         <p className='text-sm text-muted-foreground'>

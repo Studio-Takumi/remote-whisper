@@ -40,6 +40,7 @@ export const api = {
     get: <T>(path: string) => request<T>('GET', path),
     post: <T>(path: string, body?: unknown) => request<T>('POST', path, body ?? {}),
     patch: <T>(path: string, body: unknown) => request<T>('PATCH', path, body),
+    delete: <T>(path: string) => request<T>('DELETE', path),
 };
 
 // --- 返ってくるものの型 ---
@@ -48,7 +49,8 @@ export type ProjectJson = {
     id: string;
     name: string;
     path: string;
-    selection: { contextSet: string | null; useHotwords: boolean; useContext: boolean };
+    // pickTerms は前のサーバーにはない
+    selection: { contextSet: string | null; useHotwords: boolean; useContext: boolean; pickTerms?: boolean };
 };
 
 // どのファイルが残っているか。保存期間を過ぎて消えたものは「期限切れ」と出す
@@ -68,7 +70,14 @@ export type SessionJson = {
     files: SessionFiles;
 };
 
-export type TranscriptJson = { lines: { time: string; text: string }[] };
+// meta は文字起こしのフロントマター（使うところだけ）
+export type TranscriptJson = {
+    lines: { time: string; text: string }[];
+    meta?: { pickedTerms?: string[] };
+};
+
+// 拾った語を消したときの返事（#103）
+export type TermsJson = { pickedTerms: string[]; rejectedTerms: string[] };
 
 export type SummaryInfoJson = {
     generationId: string;

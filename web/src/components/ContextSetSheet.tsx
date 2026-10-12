@@ -100,6 +100,19 @@ export function ContextSetSheet() {
                                 onCheckedChange={(useContext) => onChangeSelection({ ...selection, useContext })}
                             />
                         </label>
+                        {/* 参考資料セットがなくても使える（#103） */}
+                        <label className='flex items-center justify-between gap-2 text-sm'>
+                            <span>
+                                録音中に用語を拾う
+                                <span className='block text-xs text-muted-foreground'>
+                                    文字起こしに何度も出てくる固有名詞・専門用語を、用語リストに足す
+                                </span>
+                            </span>
+                            <Switch
+                                checked={selection.pickTerms}
+                                onCheckedChange={(pickTerms) => onChangeSelection({ ...selection, pickTerms })}
+                            />
+                        </label>
                     </div>
                 ) : (
                     <p className='px-4 text-sm text-muted-foreground'>
