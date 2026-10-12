@@ -26,6 +26,7 @@ export function ContextSetSheet() {
     const sets = useAppStore(currentContextSets);
     const selection = useAppStore(useShallow(currentContextSelection));
     const extensions = useAppStore((s) => s.settings.materials.extensions);
+    const pickTermsEnabled = useAppStore((s) => s.settings.ollama.pickTerms);
     const onChangeSelection = useAppStore((s) => s.changeContextSelection);
     const onCreate = useAppStore((s) => s.createContextSet);
     const [pickerOpen, setPickerOpen] = useState(false);
@@ -100,16 +101,19 @@ export function ContextSetSheet() {
                                 onCheckedChange={(useContext) => onChangeSelection({ ...selection, useContext })}
                             />
                         </label>
-                        {/* 参考資料セットがなくても使える（#103） */}
+                        {/* 参考資料セットがなくても使える（#103）。全体設定でオフなら切り替えられない（#116） */}
                         <label className='flex items-center justify-between gap-2 text-sm'>
                             <span>
                                 録音中に用語を拾う
                                 <span className='block text-xs text-muted-foreground'>
-                                    文字起こしに何度も出てくる固有名詞・専門用語を、用語リストに足す
+                                    {pickTermsEnabled
+                                        ? '文字起こしに何度も出てくる固有名詞・専門用語を、用語リストに足す'
+                                        : '設定（要約）でオフになっています'}
                                 </span>
                             </span>
                             <Switch
-                                checked={selection.pickTerms}
+                                checked={pickTermsEnabled && selection.pickTerms}
+                                disabled={!pickTermsEnabled}
                                 onCheckedChange={(pickTerms) => onChangeSelection({ ...selection, pickTerms })}
                             />
                         </label>

@@ -24,6 +24,8 @@ export type Settings = {
         liveSummaryDensity: number;
         overviewDensity: number;
         detailDensity: number;
+        // 録音中に文字起こしから用語を拾うか（既定はオフ）。オンでも、プロジェクトの pickTerms がオフなら拾わない
+        pickTerms: boolean;
     };
     recording: {
         maxConcurrent: number;
@@ -72,6 +74,7 @@ export const defaultSettings: Settings = {
         liveSummaryDensity: 3,
         overviewDensity: 3,
         detailDensity: 3,
+        pickTerms: false,
     },
     recording: {
         maxConcurrent: 1,
