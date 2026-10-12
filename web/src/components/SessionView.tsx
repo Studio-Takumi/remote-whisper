@@ -4,6 +4,7 @@ import { AudioLinesIcon, FolderPlusIcon, MicIcon, RefreshCwIcon, TriangleAlertIc
 
 import { LiveSummary } from '@/components/LiveSummary';
 import { Markdown } from '@/components/Markdown';
+import { MicAlert } from '@/components/MicAlert';
 import { RecordingPlayer } from '@/components/RecordingPlayer';
 import { StatusIndicator } from '@/components/StatusIndicator';
 import { Transcript } from '@/components/Transcript';
@@ -66,6 +67,7 @@ export function SessionView() {
                     <TabsTrigger value='transcript'>文字起こし</TabsTrigger>
                     <TabsTrigger value='summary'>要約</TabsTrigger>
                 </TabsList>
+                <MicAlert />
                 {recordingUrl && (
                     <RecordingPlayer
                         src={recordingUrl}
