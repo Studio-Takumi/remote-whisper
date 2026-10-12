@@ -21,11 +21,32 @@ export function PwaUpdater() {
             registration.current = r ?? null;
             if (r) {
                 setInterval(() => void r.update(), CHECK_INTERVAL_MS);
+                // 登録より先にサーバーのバージョンが届いていたら、ここで確かめる
+                const server = useAppStore.getState().serverVersion;
+                if (server && server !== webVersion) {
+                    void r.update();
+                }
             }
         },
     });
     const serverVersion = useAppStore((s) => s.serverVersion);
     const recording = useAppStore((s) => s.recordingState !== 'idle');
+
+    // 古い版の画面のまま、サーバーではもう消えた JS を読もうとして失敗したら（ビルドし直した後）、
+    // 新しい版を確かめて、読み込み直すように知らせる
+    useEffect(() => {
+        const onPreloadError = (e: Event) => {
+            e.preventDefault();
+            void registration.current?.update();
+            toast.warning('画面の一部を読み込めません（サーバーが新しい版になりました）', {
+                description: '読み込み直すと直ります',
+                duration: Infinity,
+                action: { label: '読み込み直す', onClick: () => location.reload() },
+            });
+        };
+        window.addEventListener('vite:preloadError', onPreloadError);
+        return () => window.removeEventListener('vite:preloadError', onPreloadError);
+    }, []);
 
     useEffect(() => {
         if (serverVersion && serverVersion !== webVersion) {
