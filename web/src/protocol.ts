@@ -67,6 +67,8 @@ export type ServerMessage =
           gpu?: GpuStats | null;
           // 最終の要約を作っているセッション（録音を終えてから要約ができるまでと、作り直し）。#118
           summarizing?: string[];
+          // 最終の文字起こしを作っているセッション（録音が終わるのを待っている間も含む）。#124
+          transcribing?: string[];
       }
     | { type: 'error'; session?: string; code: ErrorCode; message: string };
 
@@ -84,10 +86,13 @@ export type ErrorCode =
     | 'ollama_unavailable'
     | 'summary_skipped'
     // 最終の要約を作る途中で、思わぬエラーになった
-    | 'summary_failed';
+    | 'summary_failed'
+    // 最終の文字起こしを作り直せなかった（#124）
+    | 'final_transcript_failed';
 
 // GET /api/settings/options
 export type SettingsOptions = {
-    whisper: { models: string[]; computeTypes: string[] };
+    // finalTranscript は、最終の文字起こし（WhisperX）を作れるサーバーか（#124。古いサーバーにはない）
+    whisper: { models: string[]; computeTypes: string[]; finalTranscript?: boolean };
     ollama: { models: { name: string; thinking: boolean }[] };
 };
