@@ -59,6 +59,8 @@ export type ServerMessage =
           // 古いサーバーにはない
           jobs?: GpuJobs;
           gpu?: GpuStats | null;
+          // 最終の要約を作っているセッション（録音を終えてから要約ができるまでと、作り直し）。#118
+          summarizing?: string[];
       }
     | { type: 'error'; session?: string; code: ErrorCode; message: string };
 
@@ -74,7 +76,9 @@ export type ErrorCode =
     | 'project_not_found'
     | 'write_failed'
     | 'ollama_unavailable'
-    | 'summary_skipped';
+    | 'summary_skipped'
+    // 最終の要約を作る途中で、思わぬエラーになった
+    | 'summary_failed';
 
 // GET /api/settings/options
 export type SettingsOptions = {

@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
@@ -24,6 +25,9 @@ class ServerStatus:
     jobs: dict[str, Any] = field(default_factory=lambda: {"running": None, "waiting": []})
     # GPU の使用率と VRAM（gpu_stats.GpuStats）。取れない環境では None
     gpu: dict[str, Any] | None = None
+    # 最終の要約を作っているセッション（録音を終えてから要約ができるまでと、作り直し）。#118
+    # 結果のメッセージを取りこぼしたブラウザが、作り終えたことに気づけるように
+    summarizing: list[str] = field(default_factory=list)
 
     def message(self) -> dict[str, Any]:
         return {"type": "status", **asdict(self)}
@@ -37,6 +41,44 @@ class Hub:
         self.status = ServerStatus()
         # jobs の経過秒数は送った時点のものなので、つないできたブラウザには今の値で送る
         self.jobs_source: Callable[[], dict[str, Any]] | None = None
+        # 最終の要約を作っているセッションと、その数（同じセッションで重なることがある）
+        self._summarizing: Counter[str] = Counter()
+        self._tasks: set[asyncio.Task] = set()
+
+    def begin_summary(self, sid: str) -> Callable[[], None]:
+        """最終の要約を作り始めた（status の summarizing に入れる）。返す関数で終えたことにする
+
+        返す関数は何度呼んでもよい（2回目からは何もしない）。イベントループの中で呼ぶ
+        """
+        self._summarizing[sid] += 1
+        self._summarizing_changed()
+        ended = False
+
+        def end() -> None:
+            nonlocal ended
+            if ended:
+                return
+            ended = True
+            self._summarizing[sid] -= 1
+            if self._summarizing[sid] <= 0:
+                del self._summarizing[sid]
+            self._summarizing_changed()
+
+        return end
+
+    def _summarizing_changed(self) -> None:
+        summarizing = sorted(self._summarizing)
+        if summarizing == self.status.summarizing:
+            return
+        self.status.summarizing = summarizing
+        # Future の done callback からも呼ぶので、送るのは別のタスクにする。
+        # 送る中身は送る時点のもの（間に set_status が送った新しい値を、古い値で戻さないように）
+        task = asyncio.get_running_loop().create_task(self._send_status())
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
+    async def _send_status(self) -> None:
+        await self.broadcast(self.status.message())
 
     async def add(self, ws: WebSocket) -> None:
         self.connections.add(ws)

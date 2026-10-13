@@ -126,7 +126,30 @@ class FinalSummarizer:
 
         model を省くと、動き始めた時点の finalSummaryModel を使う
         （作り直しは、頼んだ時点のものを渡す）
+
+        思わぬ例外で止まっても、`title` か `error` のどちらかは必ず送る
+        （送らないと、ブラウザが「作成中」のままになる。#118）
         """
+        try:
+            return await self._run(writer, send, model)
+        except Exception:
+            log.exception("final summary of %s failed", writer.id)
+            _mark_failed(writer, True)
+            await send(
+                {
+                    "type": "error",
+                    "code": "summary_failed",
+                    "message": "最終の要約を作る途中でエラーになりました",
+                }
+            )
+            return None
+
+    async def _run(
+        self,
+        writer: SessionWriter,
+        send: Callable[[dict[str, Any]], Awaitable[None]],
+        model: str | None,
+    ) -> str | None:
         # 生成 ID は、生成を始めた時刻（spec 5.2）
         started = now()
         if self.whisper is not None and not self.recording():
@@ -181,6 +204,10 @@ class FinalSummarizer:
             title = await make_title(self.ollama, model, gist)
         except OllamaUnavailable as e:
             log.warning("title of %s failed: %s", writer.id, e)
+            title = None
+        except Exception:
+            # 本文はもうできているので、タイトルだけの失敗で捨てない（#118）
+            log.exception("title of %s failed", writer.id)
             title = None
         # 作れなければ、仮のタイトルか要約の最初の行を使う
         title = title or writer.meta.title or fallback_title(gist)

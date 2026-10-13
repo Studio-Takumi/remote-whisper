@@ -549,16 +549,17 @@ GPU を使う処理は、1つのキューを通して順番に実行する。
 | `title` | `title`、`provisional`（仮のタイトルかどうか） |
 | `terms` | `terms`（録音中に拾って用語リストに足した語）、`rejected`（消された語）。拾った語が変わったときに送る |
 | `contextSet` | `project`（プロジェクト ID）、`id`、`status`（`generating` / `ready` / `failed`） |
-| `status` | `whisper`（`unloaded` / `loading` / `ready` / `error`）、`ollama`（`ready` / `error`）、`recordings`（録音中のセッションの数）、`queue`（待っている・実行中のジョブの数）、`jobs`、`gpu` |
+| `status` | `whisper`（`unloaded` / `loading` / `ready` / `error`）、`ollama`（`ready` / `error`）、`recordings`（録音中のセッションの数）、`queue`（待っている・実行中のジョブの数）、`jobs`、`gpu`、`summarizing` |
 | `error` | `code`、`message` |
 
 - `resume` を受け付けたら、`started`（`resumed: true`、`offsetSec` は受け取り済みの録音の長さ）と、受け取り済みの最後の連番の `ack` を返す。ブラウザはその次から送り直す。再開できるセッションがなければ `error`（`session_not_found`）。
 - 音声の連番は 0 から始める。抜けがあったチャンクは受け取らず、受け取り済みの最後の連番の `ack` を返す。受け取り済みの連番がもう一度届いたら、捨てて `ack` だけ返す。
-- `error` の `code`: `bad_message`（読めないメッセージ）、`not_recording`、`already_recording`（1つの接続で録音できるのは1つだけ）、`too_many_recordings`（`recording.maxConcurrent` を超えた）、`session_not_found`、`cannot_continue`（`continue` で、途中で終わったセッションではない・録音ファイルが残っていない・前の録音を読み込めない）、`project_not_found`（`start` のプロジェクトが登録されていない）、`write_failed`（ディスクが一杯などで音声を保存できない。そのチャンクは受け取らずに、受け取り済みの最後の連番の `ack` を返す。最終の要約を保存できなかったときにも使う）、`ollama_unavailable`、`summary_skipped`（文字起こしが空か読み込めないので、最終の要約を作らなかった）、`not_available`（録音を受け付けられないサーバー）。
+- `error` の `code`: `bad_message`（読めないメッセージ）、`not_recording`、`already_recording`（1つの接続で録音できるのは1つだけ）、`too_many_recordings`（`recording.maxConcurrent` を超えた）、`session_not_found`、`cannot_continue`（`continue` で、途中で終わったセッションではない・録音ファイルが残っていない・前の録音を読み込めない）、`project_not_found`（`start` のプロジェクトが登録されていない）、`write_failed`（ディスクが一杯などで音声を保存できない。そのチャンクは受け取らずに、受け取り済みの最後の連番の `ack` を返す。最終の要約を保存できなかったときにも使う）、`ollama_unavailable`、`summary_skipped`（文字起こしが空か読み込めないので、最終の要約を作らなかった）、`summary_failed`（最終の要約を作る途中で思わぬエラーになった。失敗として記録する）、`not_available`（録音を受け付けられないサーバー）。
 - サーバーとの接続（再接続中かどうか）とマイクの許可は、`status` には含めず、ブラウザ側で判定して表示する。
 - `recordings` と `queue` は、今のところ UI には出さない。
 - `jobs` は GPU キュー（6.3 節）の `running`（実行中のジョブ。`kind`・`session`・`runningSec`、なければ `null`）と `waiting`（待っているジョブを実行する順に。`kind`・`session`・`count`・`waitingSec`）。続けて並ぶ同じ種類・同じセッションのジョブは1つにまとめて `count` にする（partial が溜まっても長くならないように）。秒数は送った時点のもので、ブラウザは受け取ってからの時間を足して出す。ジョブが変わるたびに送るが、0.5 秒の間の変化はまとめて送る（partial のたびに送りすぎないように）。
 - `gpu` は GPU の使用率と VRAM（`util`（%）・`memUsedMb`・`memTotalMb`）。`nvidia-ml-py` で3秒おきに取る。NVIDIA の GPU やドライバがない環境とモックでは `null`（サーバーはそのまま動く）。
+- `summarizing` は、最終の要約を作っているセッションの ID の一覧。録音を終えてから（残りの文字起こし・変換のあいだも含めて）最終の要約のジョブが終わるまでと、作り直しのジョブが終わるまで入る。録音を終えたときは、`recordings` が減ったことを知らせる `status` にすでに入っている。最終の要約の結果（`title`・`error`）は一度しか送らないので、接続が切れていて取りこぼしたブラウザは、`summarizing` から外れたこと（つながり直した直後の `status` に入っていないこと）で作り終えたと判断し、保存されたものを取り直して「作成中」を消す（#118）。
 
 ### 7.3 ディレクトリ一覧 API の安全対策
 

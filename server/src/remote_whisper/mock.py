@@ -225,14 +225,22 @@ class MockSession:
 
     async def stop(self) -> None:
         current, start = self.current, self.current_start
-        await self._end()
-        # 話している途中の文は、そこまでを final にする
-        if current is not None:
-            await self._final(current, start)
-        if self.writer:
-            self.writer.finish(self.elapsed)
+        # 作り終えるまで status の summarizing に入れる。
+        # 録音中の数が減ったことを送る前に入れる（本物と同じ。#118）
+        end = self.recorder.hub.begin_summary(self.id)
+        try:
+            await self._end()
+            # 話している途中の文は、そこまでを final にする
+            if current is not None:
+                await self._final(current, start)
+            if self.writer:
+                self.writer.finish(self.elapsed)
+        except BaseException:
+            end()
+            raise
         # 要約は時間がかかるので、受信の処理を止めないように別のタスクで流す
         self.summary_task = asyncio.create_task(self._final_summary())
+        self.summary_task.add_done_callback(lambda _: end())
 
     async def _final_summary(self) -> None:
         if self.recorder.hub.status.ollama != "ready":
