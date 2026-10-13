@@ -12,6 +12,9 @@ export type Settings = {
         // 話しているかの判定。auto は音の大きさをそろえてから VAD で判定する。manual は speechDbfs より大きい音を話し声とみなす
         speechThreshold: 'auto' | 'manual';
         speechDbfs: number;
+        // 録音を終えたら録音全体から最終の文字起こしを作るか・話者を分けるか（#121。古いサーバーにはない）
+        finalTranscript?: boolean;
+        diarize?: boolean;
     };
     ollama: {
         host: string;
@@ -64,6 +67,8 @@ export const defaultSettings: Settings = {
         unloadAfterMin: 10,
         speechThreshold: 'auto',
         speechDbfs: -40,
+        finalTranscript: true,
+        diarize: true,
     },
     ollama: {
         host: 'http://localhost:11434',

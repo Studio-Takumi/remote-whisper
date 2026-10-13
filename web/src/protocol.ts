@@ -22,6 +22,8 @@ export type GpuJobKind =
     | 'contextSet'
     // 録音中に文字起こしから用語を拾う（#103）
     | 'terms'
+    // 録音後に録音全体から作る最終の文字起こし（#121）
+    | 'finalTranscript'
     | 'other';
 export type GpuJobs = {
     running: { kind: GpuJobKind; session: string | null; runningSec: number } | null;
@@ -44,6 +46,8 @@ export type ServerMessage =
     | { type: 'partial'; session: string; segment: number; committed: string; tentative: string }
     // start・end は録音の開始からの秒数
     | { type: 'final'; session: string; segment: number; start: number; end: number; text: string }
+    // 最終の文字起こしができた（#121。全員に送る）
+    | { type: 'finalTranscript'; session: string; generationId: string }
     // 音は届いているのに文字起こしが出ていない（stalled: true）・また出るようになった（false）。#120
     | { type: 'transcriptionStalled'; session: string; stalled: boolean }
     | { type: 'summary.delta'; session: string; kind: SummaryKind; text: string }

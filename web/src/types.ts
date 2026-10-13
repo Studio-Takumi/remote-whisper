@@ -15,6 +15,17 @@ export type Summary = {
     text?: string;
 };
 
+// 最終の文字起こし（#121）。行は文ごと。話者を分けたときは、本文が「話者 1: …」で始まる
+export type FinalTranscript = {
+    generationId: string;
+    model: string;
+    generatedAt: string;
+    // 話者分け。done は分けた、off は設定で切っていた、unavailable はモデルを使えなかった
+    diarization: 'done' | 'off' | 'unavailable';
+    speakers: number;
+    lines: TranscriptLine[];
+};
+
 export type Session = {
     id: string;
     title: string;
@@ -30,6 +41,8 @@ export type Session = {
     // 文字起こしと要約を取ってきたか。取るのはセッションを開いたとき
     loaded?: boolean;
     transcript: TranscriptLine[];
+    // 録音後に録音全体から作った最終の文字起こし（#121）。いちばん新しい世代。なければない
+    finalTranscript?: FinalTranscript;
     summaries: Summary[];
     // 途中の要約（いちばん新しいもの）。最終の要約がまだないときに代わりに出す
     liveSummary?: string;

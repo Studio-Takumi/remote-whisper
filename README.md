@@ -69,6 +69,16 @@ uv sync
 
 依存（faster-whisper、FastAPI など）は `server/pyproject.toml` にまとめてあります。cuBLAS と cuDNN の DLL は pip で入れた `nvidia-*` パッケージから読み込むので、CUDA Toolkit を別途インストールする必要はありません。
 
+#### 最終の文字起こし（任意）
+
+録音を終えたあとに、録音全体から文ごとの文字起こしを作り直す機能（WhisperX）は、別に入れます。torch（CUDA 版）などで数 GB になります。入れなければ、この機能だけが動きません。
+
+```bash
+uv sync --extra final
+```
+
+話者分け（「話者 1」「話者 2」）には、[HuggingFace](https://huggingface.co/) のトークンと、[pyannote/speaker-diarization-community-1](https://huggingface.co/pyannote/speaker-diarization-community-1) のページで利用条件に同意することが必要です。トークンは環境変数 `HF_TOKEN` で渡すか、`uv run hf auth login` で保存してください（`HF_HOME` の下に保存され、サーバーも同じ `HF_HOME` で起動すれば読みます）。なければ、話者を分けずに作ります。
+
 ### 起動
 
 ```bash

@@ -247,6 +247,29 @@ function SettingsForm({
                             </Row>
                         )}
                         <Row
+                            id='final-transcript'
+                            label='最終の文字起こしを作る'
+                            description='録音を終えたら、保存した録音全体から文ごとの文字起こしを作り直す（録音中のものも残る）。サーバーに WhisperX が入っているときだけ'
+                        >
+                            <Switch
+                                id='final-transcript'
+                                checked={draft.whisper.finalTranscript ?? true}
+                                onCheckedChange={(finalTranscript) => update('whisper', { finalTranscript })}
+                            />
+                        </Row>
+                        <Row
+                            id='diarize'
+                            label='話者を分ける'
+                            description='最終の文字起こしで、話している人ごとに「話者 1」「話者 2」と付ける。HuggingFace のトークンと、モデルの利用条件への同意が要る'
+                        >
+                            <Switch
+                                id='diarize'
+                                checked={draft.whisper.diarize ?? true}
+                                disabled={draft.whisper.finalTranscript === false}
+                                onCheckedChange={(diarize) => update('whisper', { diarize })}
+                            />
+                        </Row>
+                        <Row
                             id='unload-after'
                             label='使い終わってからモデルを止めるまで'
                             description='最後に文字起こししてからこの時間がたったら、モデルを止めて VRAM を空ける'

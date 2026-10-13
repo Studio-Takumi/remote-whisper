@@ -32,6 +32,7 @@ export const jobKindLabel: Record<GpuJobKind, string> = {
     finalSummary: '最終の要約',
     contextSet: '参考資料セットの作成',
     terms: '文字起こしからの用語の抽出',
+    finalTranscript: '最終の文字起こし',
     other: 'その他',
 };
 
@@ -41,7 +42,15 @@ const blockingReason: Partial<Record<GpuJobKind, string>> = {
     finalSummary: '最終の要約の生成中',
     contextSet: '参考資料セットの作成中',
     terms: '用語の抽出中',
+    finalTranscript: '最終の文字起こしの作成中',
 };
+
+// このセッションの最終の文字起こし（#121）を作っている・作るのを待っているか
+export function makingFinalTranscript(jobs: GpuJobs, sessionId: string) {
+    const mine = (j: { kind: GpuJobKind; session: string | null } | null) =>
+        j?.kind === 'finalTranscript' && j.session === sessionId;
+    return mine(jobs.running) || jobs.waiting.some(mine);
+}
 
 // 文字起こし以外のジョブ（要約など）が GPU を使っていて、このセッションの文字起こしが後ろで待たされているか
 export function transcriptWaitingFor(jobs: GpuJobs, sessionId: string | null): GpuJobKind | null {

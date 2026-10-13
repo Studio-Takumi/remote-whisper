@@ -1,5 +1,6 @@
 // サーバーの REST API から、画面で使う形（types.ts）のデータを作る
 import {
+    type FinalTranscriptJson,
     type ProjectJson,
     type SessionJson,
     type SummaryInfoJson,
@@ -8,7 +9,7 @@ import {
     api,
 } from '@/api';
 import { formatDateTime } from '@/time';
-import type { ContextSelection, ContextSet, Project, Session, Summary } from '@/types';
+import type { ContextSelection, ContextSet, FinalTranscript, Project, Session, Summary } from '@/types';
 
 // URL に ?demo を付けると、サーバーのデータではなく mock.ts のダミーデータを出す（説明用のスクリーンショットを撮るため）
 export const isDemo = new URLSearchParams(location.search).has('demo');
@@ -87,11 +88,27 @@ function mergeSession(old: Session | undefined, s: Session, keep: Set<string>): 
         !old?.loaded ||
         old.status === 'recording' ||
         old.files?.summaries !== s.files?.summaries ||
-        old.files?.transcript !== s.files?.transcript
+        old.files?.transcript !== s.files?.transcript ||
+        old.files?.finalTranscripts !== s.files?.finalTranscripts
     ) {
         return s;
     }
-    return { ...s, loaded: true, transcript: old.transcript, summaries: old.summaries, liveSummary: old.liveSummary };
+    return {
+        ...s,
+        loaded: true,
+        transcript: old.transcript,
+        finalTranscript: old.finalTranscript,
+        summaries: old.summaries,
+        liveSummary: old.liveSummary,
+    };
+}
+
+// 最終の文字起こし（#121）のいちばん新しい世代
+export async function fetchFinalTranscript(projectId: string, sessionId: string): Promise<FinalTranscript> {
+    const json = await api.get<FinalTranscriptJson>(
+        `/api/projects/${projectId}/sessions/${sessionId}/final-transcripts/latest`,
+    );
+    return { ...json.meta, generatedAt: displayTime(json.meta.generatedAt) ?? '', lines: json.lines };
 }
 
 // セッションの文字起こしと要約。ファイルが消えているもの（期限切れ）は取らない
@@ -102,6 +119,7 @@ export async function fetchSessionDetail(projectId: string, session: Session) {
     const transcriptJson = files?.transcript ? await api.get<TranscriptJson>(`${base}/transcript`) : null;
     const transcript = transcriptJson?.lines ?? [];
     const pickedTerms = transcriptJson?.meta?.pickedTerms ?? [];
+    const finalTranscript = files?.finalTranscripts ? await fetchFinalTranscript(projectId, session.id) : undefined;
     const infos = files?.summaries ? await api.get<SummaryInfoJson[]>(`${base}/summaries`) : [];
     const summaries: Summary[] = await Promise.all(
         infos.map(async (info) => {
@@ -120,5 +138,5 @@ export async function fetchSessionDetail(projectId: string, session: Session) {
         const json = await api.get<SummaryJson>(`${base}/summaries/latest`);
         liveSummary = json.kind === 'live' ? json.text : undefined;
     }
-    return { files, transcript, summaries, liveSummary, pickedTerms };
+    return { files, transcript, finalTranscript, summaries, liveSummary, pickedTerms };
 }
