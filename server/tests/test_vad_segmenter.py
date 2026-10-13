@@ -195,7 +195,13 @@ def test_falls_back_to_level_when_the_vad_stops_responding():
     # 音量で区切った区間が出る。声の部分を含み、voiced_sec は声くらいの音だった長さ
     assert closed
     assert all(s.voiced_sec and s.voiced_sec > 0 for s in closed)
-    # VAD がまた反応したら戻す
+    # VAD が 1〜2 窓だけ反応しても、まだ戻さない
+    vad.deaf = False
+    seg.feed(level(2, -20))
+    vad.deaf = True
+    seg.feed(level(5, -60))
+    assert seg.fallback
+    # VAD がまた続けて反応したら戻す
     vad.deaf = False
     seg.feed(talk(2))
     assert not seg.fallback
