@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { AudioLinesIcon, FolderPlusIcon, MicIcon, RefreshCwIcon, TriangleAlertIcon } from 'lucide-react';
 
@@ -8,7 +8,7 @@ import { MicAlert } from '@/components/MicAlert';
 import { PickedTerms } from '@/components/PickedTerms';
 import { RecordingPlayer } from '@/components/RecordingPlayer';
 import { StatusIndicator } from '@/components/StatusIndicator';
-import { Transcript } from '@/components/Transcript';
+import { type Playback, Transcript } from '@/components/Transcript';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -36,6 +36,20 @@ export function SessionView() {
     const audio = useRef<HTMLAudioElement>(null);
     // 読み込めなかった録音（開いた後に消えたなど）。再生バーを消し、時刻も押せなくする
     const [failedRecording, setFailedRecording] = useState<string | null>(null);
+    // 録音の再生位置に当たる行（#122）。行が変わったときだけ変える（再生中の timeupdate のたびに描き直さない）
+    const [playback, setPlayback] = useState<(Playback & { sessionId: string }) | null>(null);
+    const lines = session?.transcript;
+    const starts = useMemo(() => (lines ?? []).map((l) => clockToSeconds(l.time) ?? 0), [lines]);
+    const seek = useCallback((time: string) => {
+        const sec = clockToSeconds(time);
+        const player = audio.current;
+        if (sec === null || !player) {
+            return;
+        }
+        player.currentTime = sec;
+        // 読み込めないときなどは、onError で再生バーを消す
+        player.play().catch(() => {});
+    }, []);
 
     if (!project) {
         return <EmptyState hasProjects={hasProjects} />;
@@ -48,15 +62,19 @@ export function SessionView() {
             ? `/api/projects/${project.id}/sessions/${session.id}/recording`
             : null;
     const recordingUrl = url !== failedRecording ? url : null;
-    const seek = (time: string) => {
-        const sec = clockToSeconds(time);
-        const player = audio.current;
-        if (sec === null || !player) {
+    const onTime = (sec: number, playing: boolean, seeked: boolean) => {
+        if (!session) {
             return;
         }
-        player.currentTime = sec;
-        // 読み込めないときなどは、onError で再生バーを消す
-        player.play().catch(() => {});
+        const index = lineAt(starts, sec);
+        setPlayback((p) => {
+            const same = p?.sessionId === session.id;
+            if (same && p.index === index && p.playing === playing && !seeked) {
+                return p;
+            }
+            const seeks = (same ? p.seeks : 0) + (seeked ? 1 : 0);
+            return { sessionId: session.id, index, playing, seeks };
+        });
     };
 
     return (
@@ -74,6 +92,7 @@ export function SessionView() {
                         src={recordingUrl}
                         audio={audio}
                         onError={() => setFailedRecording(recordingUrl)}
+                        onTime={onTime}
                     />
                 )}
             </div>
@@ -132,6 +151,7 @@ export function SessionView() {
                             partial={partial?.sessionId === session.id ? partial : null}
                             follow={followTranscript}
                             onSeek={recordingUrl ? seek : undefined}
+                            playback={recordingUrl && playback?.sessionId === session.id ? playback : null}
                         />
                     )}
                     {!session && recordingState === 'idle' && (
@@ -370,6 +390,21 @@ function SummaryPanel({
             <Markdown>{summary.text ?? ''}</Markdown>
         </>
     );
+}
+
+// 再生位置（秒）に当たる行。行の始まり（starts は時刻の順）が再生位置以前の、最後の行。まだなければ null
+function lineAt(starts: number[], sec: number) {
+    let lo = 0;
+    let hi = starts.length;
+    while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (starts[mid] <= sec) {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    return lo > 0 ? lo - 1 : null;
 }
 
 // 保存期間を過ぎて、ファイルが消えているか（spec 6.8）。サーバーから取ったセッションだけ判定できる
