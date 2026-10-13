@@ -66,7 +66,8 @@ export function LiveSummary({ text, streaming = false }: { text: string; streami
                             )}
                         </CollapsibleTrigger>
                         <CollapsibleContent className='px-3 pb-3'>
-                            <Markdown>{block.body}</Markdown>
+                            {/* 続いている区間は、届いた分から流れて出る（#123） */}
+                            <Markdown streaming={streaming && !block.closed}>{block.body}</Markdown>
                         </CollapsibleContent>
                     </Collapsible>
                 );

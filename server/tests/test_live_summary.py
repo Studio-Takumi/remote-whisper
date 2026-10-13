@@ -8,7 +8,7 @@ from remote_whisper.documents import context_name, dump
 from remote_whisper.gpu_queue import GpuQueue
 from remote_whisper.hub import Hub
 from remote_whisper.live_summary import LiveSummarizer, load_context
-from remote_whisper.ollama import OllamaClient
+from remote_whisper.ollama import OllamaClient, OllamaUnavailable
 from remote_whisper.prompts import parse_title
 from remote_whisper.settings import SettingsStore
 
@@ -73,6 +73,18 @@ def user_prompt(body):
     return body["messages"][-1]["content"]
 
 
+def assert_failed(sent):
+    """失敗したら ollama_unavailable を送り、全体の置き換え（summary.done の前）は送らない
+
+    流し始める前の前置き（replace）は届いていてよい。画面は失敗を受けたら下書きを捨てて、
+    前の要約に戻す（#123）
+    """
+    assert [(m["type"], m.get("code")) for m in sent if m["type"] != "summary.delta"] == [
+        ("error", "ollama_unavailable")
+    ]
+    assert sent[-1]["type"] == "error"
+
+
 def test_summarizes_new_finals_after_the_interval(home, fake):
     async def main():
         h = Harness(home, fake)
@@ -93,9 +105,15 @@ def test_summarizes_new_finals_after_the_interval(home, fake):
         return h, first
 
     h, first = run(main())
-    # できあがった全体を一度に送る（読んでいる途中で伸び縮みしないように。#93）
-    assert first == [
-        {"type": "summary.delta", "kind": "live", "text": "要約です"},
+    # 続いている区間は届いた分から流す（#123）。先に前置き（区間が1つのうちは空）で置き換え、
+    # 流し終えたら、できあがった全体で置き換える
+    live = {"type": "summary.delta", "kind": "live"}
+    assert first[0] == {**live, "text": "", "replace": True}
+    streamed = [m for m in first[1:-3] if m["type"] == "summary.delta"]
+    assert all("replace" not in m for m in streamed)
+    assert "".join(m["text"] for m in streamed) == "要約です"
+    assert first[-3:] == [
+        {**live, "text": "要約です", "replace": True},
         {"type": "summary.done", "kind": "live"},
         {"type": "title", "title": "リリース計画の確認", "provisional": True},
     ]
@@ -226,10 +244,130 @@ def test_closed_sections_survive_a_failure(home, fake, monkeypatch):
         return h, failed, calls
 
     h, failed, calls = run(main())
-    assert [(m["type"], m.get("code")) for m in failed] == [("error", "ollama_unavailable")]
+    assert_failed(failed)
     # 確定した区間はもう作らない（2回目は、続いている区間と概要だけ。前半の文字起こしは渡さない）
     assert "一つ目の話題" not in calls[-2] and "二つ目の話題に移ります。" in calls[-2]
     assert "## 00:00:00〜00:00:20\n\n- 要約1" in h.writer.live_summary
+
+
+def test_only_the_ongoing_section_is_streamed(home, fake, monkeypatch):
+    # 区間に分かれたあとは、前回の概要と確定した区間を前置きにして、続いている区間だけを流す（#123）
+    monkeypatch.setattr(live_summary, "CHUNK_CHARS", 60)
+
+    async def main():
+        h = Harness(home, fake)
+        n = 0
+
+        def reply(body):
+            nonlocal n
+            if "format" in body:
+                return None
+            n += 1
+            return f"### 見出し{n}\n- 要約{n}"
+
+        fake.reply_for = reply
+        h.live.add_final(0.0, "一つ目の話題について話します。")
+        h.live.add_final(10.0, "まだ一つ目の話題の続きです。")
+        h.live.add_final(20.0, "二つ目の話題に移ります。")
+        await h.live.run()
+        h.sent.clear()
+        h.live.add_final(30.0, "二つ目の話題の続きです。")
+        await h.live.run()
+        await h.close()
+        return h
+
+    h = run(main())
+    deltas = h.of_type("summary.delta")
+    prefix = deltas[0]
+    assert prefix["replace"] is True
+    # 前回の概要と確定した区間は前置きに入れ、続いている区間は見出しだけ
+    assert prefix["text"].startswith("## ここまでの概要\n\n")
+    assert "## 00:00:00〜00:00:20\n\n#### 見出し1\n- 要約1" in prefix["text"]
+    assert prefix["text"].endswith("## 00:00:20〜\n\n")
+    # 流す本文は、区間の中の見出しを1段下げたもの（全体を作るときと同じ）
+    streamed = "".join(m["text"] for m in deltas[1:-1])
+    assert streamed.startswith("#### 見出し")
+    # 最後に、新しい概要を入れた全体で置き換える
+    final = deltas[-1]
+    assert final["replace"] is True
+    assert final["text"].startswith("## ここまでの概要\n\n")
+    assert "## 00:00:00〜00:00:20\n\n#### 見出し1\n- 要約1" in final["text"]
+    assert final["text"].endswith("## 00:00:20〜\n\n" + streamed.strip())
+    assert final["text"] == h.writer.live_summary
+
+
+def test_a_failure_while_streaming_keeps_the_previous_summary(home, fake):
+    # 本文を流し始めてから失敗しても、前の回の要約のまま。次の回に作り直せる（#123）
+    async def main():
+        h = Harness(home, fake)
+        h.live.add_final(0.0, "今日はリリース計画を決めます。")
+        await h.live.run()
+        before = (h.live.summary, h.writer.live_summary, h.live._done)
+        h.sent.clear()
+        stream = h.ollama.chat_stream
+
+        async def broken(*args, **kwargs):
+            yield "途中まで"
+            yield "流れた"
+            raise OllamaUnavailable("切れた")
+
+        h.ollama.chat_stream = broken
+        h.live.add_final(5.0, "負荷試験はまだです。")
+        await h.live.run()
+        failed = list(h.sent)
+        after = (h.live.summary, h.writer.live_summary, h.live._done)
+        h.ollama.chat_stream = stream
+        h.sent.clear()
+        await h.live.run()
+        await h.close()
+        return h, before, failed, after
+
+    h, before, failed, after = run(main())
+    assert_failed(failed)
+    # 流した分は届いているが、全体の置き換えと summary.done は送らない
+    assert [m["text"] for m in failed if m["type"] == "summary.delta" and "replace" not in m] == [
+        "途中まで",
+        "流れた",
+    ]
+    assert after == before
+    # 次の回は作り直せる
+    assert h.of_type("summary.done") == [{"type": "summary.done", "kind": "live"}]
+    assert h.live._done == 2
+
+
+def test_the_prefix_has_the_previous_overview(home, fake, monkeypatch):
+    # 流している間は前回の概要を出しておき、最後の全体で新しい概要に替える（#123）
+    monkeypatch.setattr(live_summary, "CHUNK_CHARS", 60)
+
+    async def main():
+        h = Harness(home, fake)
+        overviews = 0
+
+        def reply(body):
+            nonlocal overviews
+            if "format" in body:
+                return None
+            if "ここまでの話の概要" in user_prompt(body):
+                overviews += 1
+                return f"- 概要{overviews}"
+            return "- 区間の要約"
+
+        fake.reply_for = reply
+        h.live.add_final(0.0, "一つ目の話題について話します。")
+        h.live.add_final(10.0, "まだ一つ目の話題の続きです。")
+        h.live.add_final(20.0, "二つ目の話題に移ります。")
+        await h.live.run()
+        h.sent.clear()
+        h.live.add_final(30.0, "二つ目の話題の続きです。")
+        await h.live.run()
+        await h.close()
+        return h, overviews
+
+    h, overviews = run(main())
+    assert overviews == 2
+    deltas = h.of_type("summary.delta")
+    assert deltas[0]["text"].startswith("## ここまでの概要\n\n- 概要1\n\n")
+    assert deltas[-1]["text"].startswith("## ここまでの概要\n\n- 概要2\n\n")
 
 
 def test_several_sections_close_in_one_run(home, fake, monkeypatch):
@@ -306,7 +444,7 @@ def test_ollama_unavailable_sends_an_error_and_retries(home, fake):
         return h, failed
 
     h, failed = run(main())
-    assert [(m["type"], m.get("code")) for m in failed] == [("error", "ollama_unavailable")]
+    assert_failed(failed)
     # 失敗した分も、次の回に要約に入れる
     summaries = [b for b in fake.bodies("/api/chat") if "format" not in b]
     assert "つながらない" in user_prompt(summaries[-1])

@@ -475,8 +475,10 @@ function SummaryPanel({
     );
 
     if (!summary) {
-        // 最終の要約がまだないときは、途中の要約を代わりに出す（届いている途中なら、それを少しずつ）
-        const live = liveDraft?.sessionId === session.id ? liveDraft.text : session.liveSummary;
+        // 最終の要約がまだないときは、途中の要約を代わりに出す（届いている途中なら、それを少しずつ）。
+        // 下書きがまだ空（前置きだけ届いた）なら、前の要約を出しておく（#123）
+        const draft = liveDraft?.sessionId === session.id && liveDraft.text ? liveDraft.text : null;
+        const live = draft ?? session.liveSummary;
         if (live) {
             return (
                 <>
@@ -484,7 +486,7 @@ function SummaryPanel({
                     <p className='text-xs text-muted-foreground'>
                         途中の要約{session.status === 'recording' ? '（録音中に数分おきに更新します）' : ''}
                     </p>
-                    <LiveSummary text={live} streaming={liveDraft?.sessionId === session.id} />
+                    <LiveSummary text={live} streaming={draft !== null} />
                 </>
             );
         }

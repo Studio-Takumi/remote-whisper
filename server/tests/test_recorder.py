@@ -470,8 +470,9 @@ def test_live_summary_while_recording(client, project, fake_ollama):
         receive_until(ws, of_type("status", recordings=0))
     finished(client, sid)
 
-    deltas = [m["text"] for m in seen if m["type"] == "summary.delta" and m["kind"] == "live"]
-    assert "".join(deltas) == "要約です"
+    deltas = [m for m in seen if m["type"] == "summary.delta" and m["kind"] == "live"]
+    # 流したあと、できあがった全体で置き換える（#123）
+    assert deltas[-1]["text"] == "要約です" and deltas[-1]["replace"] is True
     assert {"type": "summary.done", "kind": "live", "session": sid} in seen
     assert seen[-1] == {
         "type": "title",

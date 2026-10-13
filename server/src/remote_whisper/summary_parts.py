@@ -5,6 +5,7 @@
 """
 
 import re
+from collections.abc import AsyncIterator
 
 # Ollama に渡すコンテキストの長さ（トークン）。Ollama の既定は小さいので、明示する
 # 思考は5千トークンを超えることがあり、8192 では本文が途中で切れていた（#92 で測った。
@@ -50,6 +51,19 @@ def demote(line: str) -> str:
 
 def demote_text(text: str) -> str:
     return "\n".join(demote(line) for line in text.split("\n"))
+
+
+async def demote_lines(stream: AsyncIterator[str]) -> AsyncIterator[str]:
+    """流れてくる本文を行ごとにまとめ、見出しを1段下げて返す"""
+    buffer = ""
+    async for part in stream:
+        buffer += part
+        if "\n" not in buffer:
+            continue
+        done, buffer = buffer.rsplit("\n", 1)
+        yield "\n".join(demote(line) for line in done.split("\n")) + "\n"
+    if buffer:
+        yield demote(buffer)
 
 
 def line_time(line: str) -> str | None:

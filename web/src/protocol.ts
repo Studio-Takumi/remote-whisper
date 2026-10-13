@@ -50,7 +50,8 @@ export type ServerMessage =
     | { type: 'finalTranscript'; session: string; generationId: string }
     // 音は届いているのに文字起こしが出ていない（stalled: true）・また出るようになった（false）。#120
     | { type: 'transcriptionStalled'; session: string; stalled: boolean }
-    | { type: 'summary.delta'; session: string; kind: SummaryKind; text: string }
+    // replace は、届いている下書きをこの text で置き換える（途中の要約の前置きと、できあがった全体。#123）
+    | { type: 'summary.delta'; session: string; kind: SummaryKind; text: string; replace?: boolean }
     | { type: 'summary.done'; session: string; kind: SummaryKind }
     | { type: 'title'; session: string; title: string; provisional: boolean }
     // 録音中に文字起こしから拾って用語リストに足した語と、消された語（#103）
