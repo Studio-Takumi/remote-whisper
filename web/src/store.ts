@@ -1214,11 +1214,13 @@ export const useAppStore = create<AppState>()((set, get) => {
             if (!project) {
                 return;
             }
+            // 返事より先に結果（失敗の error）が届くこともあるので、頼む前に覚えておく
+            regeneratingTranscripts.add(sessionId);
             try {
                 // 結果は WebSocket（finalTranscript か error）で届く。作っている間は status の transcribing に入る
                 await api.post(`/api/projects/${project.id}/sessions/${sessionId}/final-transcripts`);
-                regeneratingTranscripts.add(sessionId);
             } catch (e) {
+                regeneratingTranscripts.delete(sessionId);
                 if (e instanceof ApiError && e.status === 409) {
                     toast.error('録音中か、録音を終えた直後のセッションです。少し待ってから作り直してください');
                 } else if (e instanceof ApiError && e.status === 410) {

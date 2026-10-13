@@ -146,6 +146,11 @@ async def regenerate_final_transcript(pid: str, sid: str, ctx: Ctx) -> dict[str,
         raise HTTPException(
             status_code=409, detail="録音中のセッションの文字起こしは作り直せません"
         )
+    if sid in ctx.hub.status.transcribing:
+        # 連打やほかの端末から頼まれても、同じものを重ねて作らない（数分 GPU を使うため）
+        raise HTTPException(
+            status_code=409, detail="このセッションの文字起こしは作っている途中です"
+        )
     wav = files.dir / ".tmp" / sid / "audio.wav"
     if files.recording() is None and not wav.is_file():
         raise _gone("録音ファイル")

@@ -103,7 +103,11 @@ class FinalTranscriber:
 
         作れなかったら error（final_transcript_failed）を全員に送る
         """
+        # 作っている途中に入れるのは、タスクが動き始める前
+        # （返事のすぐあとに重ねて頼まれても断れるように）
+        end = self.hub.begin_final_transcript(files.id)
         task = asyncio.create_task(self._regenerate(files, meta, model, diarize))
+        task.add_done_callback(lambda _: end())
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 

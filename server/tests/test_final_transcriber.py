@@ -1,5 +1,6 @@
 import asyncio
 import sys
+import time
 
 import pytest
 from test_final_summary import client, project, record  # noqa: F401 フィクスチャも使う
@@ -298,6 +299,66 @@ def test_it_cannot_be_made_again_without_a_recording_or_whisperx(client, project
     (d / f"recording-{sid}.mp3").unlink()
     assert client.post(url).status_code == 410
     assert not fake_worker.count.exists()
+
+
+def test_making_again_waits_for_recordings_and_refuses_duplicates(
+    client,  # noqa: F811
+    project,  # noqa: F811
+    fake_worker,
+):
+    pid, d = project
+    sid = recorded_session(client, pid)
+    final = use_fake(client, fake_worker())
+    url = f"/api/projects/{pid}/sessions/{sid}/final-transcripts"
+    # 録音中のセッション（の文字起こしの元）は消えていてもよい。録音が残っていれば作れる
+    (d / f"transcript-{sid}.md").unlink()
+    # ほかのセッションを録音している間に頼まれたら、録音が終わるまで待ってから作る
+    final.recordings_changed(1)
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        assert client.post(url).status_code == 202
+        # 作っている途中なので、重ねて頼まれても断る
+        assert client.post(url).status_code == 409
+        time.sleep(0.5)
+        assert not fake_worker.count.exists()
+        client.portal.call(final.recordings_changed, 0)
+        receive_until(ws, lambda m: m["type"] == "finalTranscript")
+    assert fake_worker.count.read_text() == "1"
+    assert len(client.get(url).json()) == 1
+
+
+def test_making_again_is_refused_while_recording(client, project, fake_worker):  # noqa: F811
+    from test_recorder import chunk, of_type, start
+
+    pid, _ = project
+    use_fake(client, fake_worker())
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        sid = start(ws, pid)
+        ws.send_bytes(chunk(0, value=3000))
+        receive_until(ws, of_type("ack", seq=0))
+        url = f"/api/projects/{pid}/sessions/{sid}/final-transcripts"
+        assert client.post(url).status_code == 409
+
+
+def test_close_stops_making_again(home, session_files, fake_worker):
+    files, meta = session_files
+
+    async def go():
+        gpu = GpuQueue()
+        final = FinalTranscriber(
+            SettingsStore(home), Hub(), gpu, command=fake_worker("slow"), available=lambda: True
+        )
+        final.regenerate(files, meta, "large-v3-turbo", False)
+        while not fake_worker.count.exists():
+            await asyncio.sleep(0.05)
+        await asyncio.wait_for(final.close(), 10)
+        await gpu.stop()
+        return final.hub.status.transcribing
+
+    # 止めたら作っている途中のものは消え、子プロセスも残らない（30 秒待たずに終わる）
+    assert asyncio.run(go()) == []
+    assert files.final_transcripts() == []
 
 
 def recorded_session(test_client, pid):

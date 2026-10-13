@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { AudioLinesIcon, FolderPlusIcon, MicIcon, RefreshCwIcon, TriangleAlertIcon } from 'lucide-react';
 
@@ -12,6 +12,7 @@ import { type Playback, Transcript } from '@/components/Transcript';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { pickFinalTranscript } from '@/data';
 import { isScrolledToBottom, scrollToBottom } from '@/scroll';
 import { makingFinalTranscript, summaryStatus, transcriptStatus } from '@/status';
 import { currentProject, currentSession, useAppStore, visibleProjects } from '@/store';
@@ -265,6 +266,17 @@ function FinalTranscriptBar({
     const pick = useAppStore((s) => s.showFinalTranscript);
     const final = session.finalTranscript;
     const generations = session.finalTranscripts ?? [];
+    // 手で選んだ世代。セッションを替えたときと、世代が増えた（作り直した）ときは既定に戻す（要約と同じ）
+    const [picked, setPicked] = useState<{ sessionId: string; count: number } | null>(null);
+    const pickedByHand = picked?.sessionId === session.id && picked.count === generations.length;
+    // 既定の世代（今の Whisper のモデルのうちいちばん新しいもの）。モデルを変えたら選び直す
+    const preferred = pickFinalTranscript(generations, whisperModel)?.generationId;
+    const shown = final?.generationId;
+    useEffect(() => {
+        if (shown && preferred && preferred !== shown && !pickedByHand) {
+            void pick(session.id, preferred);
+        }
+    }, [shown, preferred, pickedByHand, pick, session.id]);
 
     // 作り直せるのは、録音を終えていて録音ファイルが残っているセッション（作っている間は押せない）。#124
     const done = session.status !== 'recording' && session.loaded === true;
@@ -293,7 +305,7 @@ function FinalTranscriptBar({
             return status;
         }
         // 最終の文字起こしがまだない（作らない設定だった・作れなかった・機能を入れる前のセッション）
-        return regenerateButton ? <div>{regenerateButton}</div> : null;
+        return regenerateButton ? <div>{regenerateButton}</div> : noRecording || null;
     }
     const label = (g: FinalTranscriptInfo) =>
         [g.model, g.diarization === 'done' ? `話者 ${g.speakers} 人` : null, g.generatedAt].filter(Boolean).join('・');
@@ -324,7 +336,10 @@ function FinalTranscriptBar({
                     // 作り直した世代を切り替える（要約と同じ。#124）
                     <Select
                         value={final.generationId}
-                        onValueChange={(generationId) => void pick(session.id, generationId)}
+                        onValueChange={(generationId) => {
+                            setPicked({ sessionId: session.id, count: generations.length });
+                            void pick(session.id, generationId);
+                        }}
                     >
                         <SelectTrigger size='sm' className='text-xs' aria-label='表示する最終の文字起こし'>
                             <SelectValue />
