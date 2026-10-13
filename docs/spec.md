@@ -132,7 +132,7 @@ erDiagram
     "liveSummaryModel": "qwen3.5:4b",
     "finalSummaryModel": "qwen3.5:4b",
     "contextModel": "qwen3.5:4b",
-    "liveSummaryIntervalMin": 3,
+    "liveSummaryIntervalMin": 5,
     "keepAliveMin": 10,
     "liveSummaryDensity": 3,
     "overviewDensity": 3,

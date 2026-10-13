@@ -26,7 +26,7 @@ def test_creates_default_file(home):
     assert data["version"] == 1
     assert data["whisper"]["model"] == "large-v3-turbo"
     assert data["whisper"]["computeType"] == "float16"
-    assert data["ollama"]["liveSummaryIntervalMin"] == 3
+    assert data["ollama"]["liveSummaryIntervalMin"] == 5
     assert data["retentionDays"] == {
         "recording": 10,
         "transcript": 30,
@@ -131,7 +131,7 @@ def test_settings_accepts_spec_example():
                 "liveSummaryModel": "qwen3.5:4b",
                 "finalSummaryModel": "qwen3.5:4b",
                 "contextModel": "qwen3.5:4b",
-                "liveSummaryIntervalMin": 3,
+                "liveSummaryIntervalMin": 5,
                 "keepAliveMin": 10,
             },
             "recording": {"maxConcurrent": 1, "noiseSuppression": True, "autoGainControl": True},
