@@ -302,11 +302,12 @@ export const useAppStore = create<AppState>()((set, get) => {
                 // 録音を終えた後に届いた途中の要約は出さない（もう最終の要約を作成中と出している）
             } else if (m.type === 'summary.delta' && m.kind === 'live') {
                 // 途中の要約は毎回まるごと作り直される。summary.done で下書きを消すので、
-                // その後に届いた最初の delta から、新しい下書きとして積んでいく
+                // その後に届いた最初の delta から、新しい下書きとして積んでいく。
+                // replace（前置き・できあがった全体）は、下書きを置き換える（#123）
                 set((s) => ({
                     liveDraft: {
                         sessionId: m.session,
-                        text: (s.liveDraft?.sessionId === m.session ? s.liveDraft.text : '') + m.text,
+                        text: (!m.replace && s.liveDraft?.sessionId === m.session ? s.liveDraft.text : '') + m.text,
                     },
                 }));
             } else if (m.type === 'terms') {

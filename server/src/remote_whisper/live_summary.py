@@ -6,8 +6,9 @@
   区間が閉じたら（次の区間が始まったら）その区間の要約を確定させ、以後は書き直さない。
   まだ続いている最新の区間だけを毎回作り直す。録音が長くなっても、前半の要約が縮んでいかない
 - 区間が2つ以上になったら、区間ごとの要約から短い「ここまでの概要」を作って上に置く
-- できあがった全体を `summary.delta`（live）で一度に送り（読んでいる途中で書き換わりながら
-  伸び縮みしないように）、`.tmp/<ID>/live-summary.md` に保存する
+- 続いている区間の要約だけを、届いた分から `summary.delta`（live）で流す（#123）。前置き（前回の概要・
+  確定した区間・続いている区間の見出し）を `replace` で送ってから流し、できあがった全体を `replace` で
+  送り直して、`.tmp/<ID>/live-summary.md` に保存する
 - 続けて仮のタイトルを作り、`title`（provisional: true）で送る
 - GPU キューには優先度 2 で積む。Ollama につながらなければ ollama_unavailable を送り、
   次の回に作り直す（確定できた区間はそのまま）
@@ -16,7 +17,7 @@
 import asyncio
 import contextlib
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -31,6 +32,7 @@ from remote_whisper.summary_parts import (
     CHUNK_CHARS,
     NUM_CTX,
     PREVIOUS_CHARS,
+    demote_lines,
     demote_text,
     line_time,
     split_lines,
@@ -94,6 +96,8 @@ class LiveSummarizer:
         self._base = 0
         # 続いている区間の、前回の要約（区間が始まる final の位置, 本文）
         self._ongoing: tuple[int, str] = (0, "")
+        # 前回の「ここまでの概要」。流している間は、これを上に出しておく（#123）
+        self._overview: str | None = None
         self._done = 0  # 要約に入れた final の数
         self._last_at = 0.0  # 前回の要約を始めたときの、録音した長さ
         self._job: asyncio.Future | None = None
@@ -173,11 +177,13 @@ class LiveSummarizer:
                 self.sections.append(Section(line_time(chunk[0]), end, text))
                 self._base += len(chunk)
             current_lines = chunks[-1]
-            current = await self._chat(
+            # 続いている区間は、届いた分から流して出す（#123）
+            current = await self._stream_current(
                 model,
                 live_section_messages(
                     current_lines, self.context, self._previous(), ongoing=True, density=density
                 ),
+                line_time(current_lines[0]),
             )
             if not current:
                 raise OllamaUnavailable("要約が空でした")
@@ -195,8 +201,10 @@ class LiveSummarizer:
             await self.send(ollama_error("途中の要約"))
             return
         text = self._compose(overview, line_time(current_lines[0]), current)
-        await self.send({"type": "summary.delta", "kind": "live", "text": text})
+        # 概要と、続いている区間の見出しの付け方を整えた全体で置き換える
+        await self.send({"type": "summary.delta", "kind": "live", "text": text, "replace": True})
         await self.send({"type": "summary.done", "kind": "live"})
+        self._overview = overview
         self.summary = text
         self._done = upto
         try:
@@ -217,6 +225,31 @@ class LiveSummarizer:
         except OSError:
             log.exception("failed to save the provisional title of %s", self.writer.id)
         await self.send({"type": "title", "title": title, "provisional": True})
+
+    async def _stream_current(
+        self, model: str, messages: list[dict[str, str]], current_start: str | None
+    ) -> str:
+        """続いている区間の要約を流して送り、本文を返す（#123）
+
+        先に、前回の概要・確定した区間・続いている区間の見出しを `replace` で送ってから、
+        届いた本文を続けて送る（画面は、確定した区間を畳んだまま、続いている区間だけが流れる）。
+        途中で失敗したら、画面は下書きを捨てて前の要約に戻す（ollama_unavailable）
+        """
+        prefix = self._compose(self._overview, current_start, "") if self.sections else ""
+        await self.send({"type": "summary.delta", "kind": "live", "text": prefix, "replace": True})
+        raw: list[str] = []
+        stream = self.ollama.chat_stream(model, messages, think=False, options={"num_ctx": NUM_CTX})
+
+        async def collect() -> AsyncIterator[str]:
+            async for part in stream:
+                raw.append(part)
+                yield part
+
+        # 区間に分かれているときは、区間の中の見出しを1段下げて送る（全体を作るときと同じ）
+        parts = demote_lines(collect()) if self.sections else collect()
+        async for part in parts:
+            await self.send({"type": "summary.delta", "kind": "live", "text": part})
+        return "".join(raw).strip()
 
     def _compose(self, overview: str | None, current_start: str | None, current: str) -> str:
         """途中の要約の全体。区間が1つだけなら、その要約をそのまま出す（短い録音は今までどおり）

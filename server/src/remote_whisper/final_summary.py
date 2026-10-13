@@ -40,6 +40,7 @@ from remote_whisper.summary_parts import (
     NUM_CTX,
     PREVIOUS_CHARS,
     demote,
+    demote_lines,
     section_heading,
     split_lines,
 )
@@ -62,19 +63,6 @@ class Density:
 
 
 EMPTY_PART = "（この部分は要約できませんでした）"
-
-
-async def demote_lines(stream: AsyncIterator[str]) -> AsyncIterator[str]:
-    """流れてくる本文を行ごとにまとめ、見出しを1段下げて返す"""
-    buffer = ""
-    async for part in stream:
-        buffer += part
-        if "\n" not in buffer:
-            continue
-        done, buffer = buffer.rsplit("\n", 1)
-        yield "\n".join(demote(line) for line in done.split("\n")) + "\n"
-    if buffer:
-        yield demote(buffer)
 
 
 def _mark_failed(writer: SessionWriter, failed: bool) -> None:
