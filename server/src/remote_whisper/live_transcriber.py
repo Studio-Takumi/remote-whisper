@@ -27,6 +27,9 @@ log = logging.getLogger(__name__)
 
 # partial を出すのは、区間がこの長さを超えてから（短すぎると結果がぶれるため）
 MIN_PARTIAL_SEC = 0.5
+# 声くらいの音が合わせてこれだけ届いたのに、文字が1つも出ていなければ、
+# 止まっていると知らせる（#120）
+STALL_LOUD_SEC = 60.0
 
 
 def load_hotwords(project_dir: Path, set_id: str | None) -> str | None:
@@ -79,6 +82,9 @@ class LiveTranscriber:
         self._finals: list[asyncio.Future] = []
         self._partial: asyncio.Future | None = None
         self._partial_samples = 0  # 前の partial のときの区間の長さ
+        # 文字起こしが止まって見えるか（音は来ているのに文字にならない。#120）
+        self.stalled = False
+        self._loud_at_text = 0.0  # 最後に文字が出たときの、声くらいの音の長さの合計
         self._loop_task = asyncio.create_task(self._partial_loop())
 
     def _options(self) -> dict[str, Any]:
@@ -138,6 +144,11 @@ class LiveTranscriber:
             # 文字にならなかった区間も、空の final で partial を消してもらう（#89）
             await self._send_final(segment, "")
             return
+        self._loud_at_text = self.segmenter.loud_sec
+        if self.stalled:
+            self.stalled = False
+            log.info("transcription of %s resumed", self.session)
+            await self.send({"type": "transcriptionStalled", "stalled": False})
         try:
             self.append_final(segment.start + self.offset, text)
         except OSError as e:
@@ -169,6 +180,7 @@ class LiveTranscriber:
     async def _partial_loop(self) -> None:
         while True:
             await asyncio.sleep(self.settings.partial_interval_sec)
+            await self._check_stalled()
             current = self.segmenter.current()
             if current is None or (self._partial is not None and not self._partial.done()):
                 continue
@@ -181,6 +193,18 @@ class LiveTranscriber:
                 Priority.TRANSCRIBE, lambda c=current: self._run_partial(c), session=self.session
             )
             self._partial.add_done_callback(_consume)
+
+    async def _check_stalled(self) -> None:
+        """声くらいの音が STALL_LOUD_SEC 届いたのに文字が出ていなければ、画面に知らせる（#120）"""
+        if self.stalled or self.segmenter.loud_sec - self._loud_at_text < STALL_LOUD_SEC:
+            return
+        self.stalled = True
+        log.warning(
+            "transcription of %s looks stalled: %.0fs of loud audio without any text",
+            self.session,
+            self.segmenter.loud_sec - self._loud_at_text,
+        )
+        await self.send({"type": "transcriptionStalled", "stalled": True})
 
     async def _run_partial(self, segment: Segment) -> None:
         # 文字起こしを待っている間に区間が終わっていたら、出さない（final が出るため）

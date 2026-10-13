@@ -538,6 +538,9 @@ class RecordingManager:
         # offsetSec は受け取り済みの録音の長さ（読み込み直したブラウザが経過時間を戻すため。#102）
         await session.send({"type": "started", "resumed": True, "offsetSec": session.elapsed})
         await session.send({"type": "ack", "seq": session.last_seq})
+        if session.transcriber is not None and session.transcriber.stalled:
+            # 切れている間に知らせた「文字起こしが止まっている」を、つながり直したブラウザにも出す
+            await session.send({"type": "transcriptionStalled", "stalled": True})
         return session
 
     async def ended(self, session: RecordingSession) -> None:

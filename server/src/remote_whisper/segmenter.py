@@ -45,6 +45,9 @@ class Segmenter:
         self._current: bytearray | None = None  # 話している区間
         self._start = 0
         self._silence = 0  # 区間の中で続いている無音のフレーム数
+        # 話しているとみなした音の長さ（秒）の合計。
+        # 文字起こしが止まっていないかを見るのに使う（#120）
+        self.loud_sec = 0.0
 
     @property
     def in_speech(self) -> bool:
@@ -91,6 +94,8 @@ class Segmenter:
 
     def _frame(self, frame: bytes) -> Segment | None:
         speech = _dbfs(frame) >= self.threshold_dbfs
+        if speech:
+            self.loud_sec += FRAME_SAMPLES / SAMPLE_RATE
         start = self._samples
         self._samples += FRAME_SAMPLES
         if self._current is None:
