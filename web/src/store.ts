@@ -36,6 +36,8 @@ type AppState = {
     micLevel: number;
     // 録音中のマイクの状態（止まっていないか。#102）
     micState: MicState;
+    // 音は届いているのに、しばらく文字起こしが出ていない（サーバーが知らせる。#120）
+    transcriptionStalled: boolean;
     // 送ったが ack がまだ来ていない音声のチャンクの数
     pendingAudio: number;
     // 文字起こし中の区間（partial）。final が来たら消える
@@ -204,7 +206,8 @@ export const useAppStore = create<AppState>()((set, get) => {
     // マイクを開く。届いた音声を送り、マイクが止まったら画面で知らせる（#102）。
     // 状態は開けたときに最初の知らせで決まる（開き直しに失敗したら、止まったままの警告を残す）
     function openMicrophone() {
-        const { noiseSuppression, autoGainControl } = get().settings.recording;
+        // 古いサーバーは echoCancellation を返さない（そのときはオン）
+        const { noiseSuppression, autoGainControl, echoCancellation = true } = get().settings.recording;
         return Microphone.open(
             (pcm, level) => {
                 // 一時停止中の音声は送らない
@@ -214,7 +217,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                     set({ micLevel: level });
                 }
             },
-            { noiseSuppression, autoGainControl },
+            { noiseSuppression, autoGainControl, echoCancellation },
             (micState) => {
                 const before = get().micState;
                 set({ micState });
@@ -260,6 +263,11 @@ export const useAppStore = create<AppState>()((set, get) => {
                         tentative: m.tentative,
                     },
                 });
+            } else if (m.type === 'transcriptionStalled') {
+                if (m.stalled && !get().transcriptionStalled) {
+                    toast.warning(stalledMessage, { duration: 15000 });
+                }
+                set({ transcriptionStalled: m.stalled });
             } else if (m.type === 'final') {
                 // 区間全体の文字起こしで、partial を置き換える。text が空なら文字にならなかった区間なので、partial を消すだけ（#89）
                 const line = { time: formatClock(m.start), text: m.text };
@@ -486,6 +494,7 @@ export const useAppStore = create<AppState>()((set, get) => {
             recordingState: 'idle',
             recordingSessionId: null,
             micLevel: 0,
+            transcriptionStalled: false,
             pendingAudio: 0,
             partial: null,
             liveDraft: null,
@@ -623,6 +632,7 @@ export const useAppStore = create<AppState>()((set, get) => {
         elapsed: 0,
         micLevel: 0,
         micState: 'ok',
+        transcriptionStalled: false,
         unsent: null,
         pendingAudio: 0,
         partial: null,
@@ -916,6 +926,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                 recordingState: 'idle',
                 recordingSessionId: null,
                 micLevel: 0,
+                transcriptionStalled: false,
                 // 流れている途中で終えると summary.done（live）が来ないので、書きかけの途中の要約は捨てる
                 liveDraft: null,
                 projects: sessionId
@@ -1274,6 +1285,10 @@ export const useAppStore = create<AppState>()((set, get) => {
 });
 
 // マイクが止まったときの知らせ（#102）
+// 音は届いているのに文字起こしが出ないとき（#120）。録音は続いている（音声はサーバーに保存されている）
+export const stalledMessage =
+    '音は届いていますが、しばらく文字起こしが出ていません。録音は続いています。マイクの処理（設定の「エコー除去」「ノイズ抑制」）を切ると直ることがあります';
+
 export function micStateMessage(state: MicState) {
     switch (state) {
         case 'ended':

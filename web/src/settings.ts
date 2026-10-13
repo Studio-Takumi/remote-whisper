@@ -34,6 +34,7 @@ export type Settings = {
         // ブラウザのマイクの処理（getUserMedia の制約）。録音を始めるときに使う
         noiseSuppression: boolean;
         autoGainControl: boolean;
+        echoCancellation: boolean;
     };
     retentionDays: {
         recording: number;
@@ -81,6 +82,7 @@ export const defaultSettings: Settings = {
         resumeTimeoutMin: 10,
         noiseSuppression: true,
         autoGainControl: true,
+        echoCancellation: true,
     },
     retentionDays: {
         recording: 10,

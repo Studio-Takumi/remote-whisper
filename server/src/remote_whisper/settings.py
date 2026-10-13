@@ -74,6 +74,8 @@ class RecordingSettings(_Model):
     # サーバーは使わず、録音を始めるときにブラウザが読む
     noise_suppression: bool = True
     auto_gain_control: bool = True
+    # 切り替えると直ることがあるように（#120）。既定はオンのまま
+    echo_cancellation: bool = True
 
 
 class RetentionDays(_Model):

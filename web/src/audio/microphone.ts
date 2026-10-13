@@ -64,11 +64,11 @@ export class Microphone {
         this.node.port.postMessage('discard');
     }
 
-    // processing はブラウザのマイクの処理（全体設定の recording.noiseSuppression・autoGainControl）
+    // processing はブラウザのマイクの処理（全体設定の recording.noiseSuppression・autoGainControl・echoCancellation）
     // onState は、マイクが止まったり戻ったりしたときに呼ぶ（録音が知らないうちに止まらないよう、画面で知らせる）
     static async open(
         onPcm: PcmHandler,
-        processing: { noiseSuppression: boolean; autoGainControl: boolean },
+        processing: { noiseSuppression: boolean; autoGainControl: boolean; echoCancellation: boolean },
         onState: (state: MicState) => void = () => {},
     ): Promise<Microphone> {
         if (!navigator.mediaDevices?.getUserMedia) {
@@ -78,7 +78,7 @@ export class Microphone {
         let stream: MediaStream;
         try {
             stream = await navigator.mediaDevices.getUserMedia({
-                audio: { channelCount: 1, echoCancellation: true, ...processing },
+                audio: { channelCount: 1, ...processing },
             });
         } catch (e) {
             if (e instanceof DOMException && (e.name === 'NotAllowedError' || e.name === 'SecurityError')) {
