@@ -575,9 +575,13 @@ class RecordingManager:
         # summarizing から外すのは、ジョブが終わったとき（失敗・cancel でも）
         end = session._summary_end or self.hub.begin_summary(session.id)
         session._summary_end = None
-        future = self.gpu.submit(
-            Priority.BACKGROUND, lambda: job(session), kind="finalSummary", session=session.id
-        )
+        try:
+            future = self.gpu.submit(
+                Priority.BACKGROUND, lambda: job(session), kind="finalSummary", session=session.id
+            )
+        except BaseException:
+            end()
+            raise
         future.add_done_callback(_ignore_summary_failure)
         future.add_done_callback(lambda _: end())
 

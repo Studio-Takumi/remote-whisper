@@ -184,12 +184,16 @@ async def regenerate_summary(pid: str, sid: str, ctx: Ctx) -> dict[str, Any]:
     model = ctx.settings.get().ollama.final_summary_model
     # 作り終えるまで status の summarizing に入れる（結果を取りこぼしたブラウザのため。#118）
     end = ctx.hub.begin_summary(sid)
-    job = ctx.gpu.submit(
-        Priority.BACKGROUND,
-        lambda: summarizer.run(writer, send, model),
-        kind="finalSummary",
-        session=sid,
-    )
+    try:
+        job = ctx.gpu.submit(
+            Priority.BACKGROUND,
+            lambda: summarizer.run(writer, send, model),
+            kind="finalSummary",
+            session=sid,
+        )
+    except BaseException:
+        end()
+        raise
     job.add_done_callback(_log_failure)
     job.add_done_callback(lambda _: end())
     return {"model": model}

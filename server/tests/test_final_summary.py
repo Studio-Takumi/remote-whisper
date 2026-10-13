@@ -540,17 +540,38 @@ def test_unreadable_transcript_is_reported(home, fake, tmp_path):
     assert [m["code"] for m in sent] == ["summary_skipped"]
 
 
-def test_unexpected_error_is_reported_and_recorded(home, fake, tmp_path, monkeypatch):
+def test_title_error_still_saves_the_summary(home, fake, tmp_path, monkeypatch):
     async def broken(*args, **kwargs):
         raise RuntimeError("broken")
 
-    # タイトルを作る途中の思わぬ例外でも、「作成中」のまま残さない（#118）
+    # タイトルだけの思わぬ失敗では、できている本文を捨てない
     monkeypatch.setattr(final_summary, "make_title", broken)
     settings = SettingsStore(home)
     summarizer = FinalSummarizer(
         OllamaClient(Hub(), settings, transport=fake.transport()), settings
     )
     writer = StubWriter(tmp_path)
+    sent = []
+
+    async def send(m):
+        sent.append(m)
+
+    assert asyncio.run(summarizer.run(writer, send)) is not None
+    assert sent[-1] == {"type": "title", "title": "要約です", "provisional": False}
+
+
+def test_unexpected_error_is_reported_and_recorded(home, fake, tmp_path):
+    settings = SettingsStore(home)
+    summarizer = FinalSummarizer(
+        OllamaClient(Hub(), settings, transport=fake.transport()), settings
+    )
+    writer = StubWriter(tmp_path)
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("broken")
+
+    # 保存の途中の思わぬ例外でも、「作成中」のまま残さない（#118）
+    writer.save_final_summary = broken
     sent = []
 
     async def send(m):

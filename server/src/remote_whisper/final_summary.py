@@ -205,6 +205,10 @@ class FinalSummarizer:
         except OllamaUnavailable as e:
             log.warning("title of %s failed: %s", writer.id, e)
             title = None
+        except Exception:
+            # 本文はもうできているので、タイトルだけの失敗で捨てない（#118）
+            log.exception("title of %s failed", writer.id)
+            title = None
         # 作れなければ、仮のタイトルか要約の最初の行を使う
         title = title or writer.meta.title or fallback_title(gist)
         try:

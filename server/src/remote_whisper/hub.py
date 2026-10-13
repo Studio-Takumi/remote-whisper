@@ -71,11 +71,14 @@ class Hub:
         if summarizing == self.status.summarizing:
             return
         self.status.summarizing = summarizing
-        # Future の done callback からも呼ぶので、送るのは別のタスクにする
-        # （送る中身はこの時点のもの）
-        task = asyncio.get_running_loop().create_task(self.broadcast(self.status.message()))
+        # Future の done callback からも呼ぶので、送るのは別のタスクにする。
+        # 送る中身は送る時点のもの（間に set_status が送った新しい値を、古い値で戻さないように）
+        task = asyncio.get_running_loop().create_task(self._send_status())
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
+
+    async def _send_status(self) -> None:
+        await self.broadcast(self.status.message())
 
     async def add(self, ws: WebSocket) -> None:
         self.connections.add(ws)
