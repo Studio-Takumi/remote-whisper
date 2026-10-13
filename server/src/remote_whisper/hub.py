@@ -28,9 +28,14 @@ class ServerStatus:
     # 最終の要約を作っているセッション（録音を終えてから要約ができるまでと、作り直し）。#118
     # 結果のメッセージを取りこぼしたブラウザが、作り終えたことに気づけるように
     summarizing: list[str] = field(default_factory=list)
+    # 最終の文字起こしを作っているセッション（録音が終わるのを待っている間も含む）。#124
+    transcribing: list[str] = field(default_factory=list)
 
     def message(self) -> dict[str, Any]:
         return {"type": "status", **asdict(self)}
+
+
+Tracked = Literal["summarizing", "transcribing"]
 
 
 class Hub:
@@ -41,8 +46,12 @@ class Hub:
         self.status = ServerStatus()
         # jobs の経過秒数は送った時点のものなので、つないできたブラウザには今の値で送る
         self.jobs_source: Callable[[], dict[str, Any]] | None = None
-        # 最終の要約を作っているセッションと、その数（同じセッションで重なることがある）
-        self._summarizing: Counter[str] = Counter()
+        # 最終の要約・最終の文字起こしを作っているセッションと、その数
+        # （同じセッションで重なることがある）
+        self._tracked: dict[Tracked, Counter[str]] = {
+            "summarizing": Counter(),
+            "transcribing": Counter(),
+        }
         self._tasks: set[asyncio.Task] = set()
 
     def begin_summary(self, sid: str) -> Callable[[], None]:
@@ -50,8 +59,16 @@ class Hub:
 
         返す関数は何度呼んでもよい（2回目からは何もしない）。イベントループの中で呼ぶ
         """
-        self._summarizing[sid] += 1
-        self._summarizing_changed()
+        return self._begin("summarizing", sid)
+
+    def begin_final_transcript(self, sid: str) -> Callable[[], None]:
+        """最終の文字起こしを作り始めた（status の transcribing に入れる）。begin_summary と同じ"""
+        return self._begin("transcribing", sid)
+
+    def _begin(self, name: Tracked, sid: str) -> Callable[[], None]:
+        counter = self._tracked[name]
+        counter[sid] += 1
+        self._tracked_changed(name)
         ended = False
 
         def end() -> None:
@@ -59,18 +76,18 @@ class Hub:
             if ended:
                 return
             ended = True
-            self._summarizing[sid] -= 1
-            if self._summarizing[sid] <= 0:
-                del self._summarizing[sid]
-            self._summarizing_changed()
+            counter[sid] -= 1
+            if counter[sid] <= 0:
+                del counter[sid]
+            self._tracked_changed(name)
 
         return end
 
-    def _summarizing_changed(self) -> None:
-        summarizing = sorted(self._summarizing)
-        if summarizing == self.status.summarizing:
+    def _tracked_changed(self, name: Tracked) -> None:
+        current = sorted(self._tracked[name])
+        if current == getattr(self.status, name):
             return
-        self.status.summarizing = summarizing
+        setattr(self.status, name, current)
         # Future の done callback からも呼ぶので、送るのは別のタスクにする。
         # 送る中身は送る時点のもの（間に set_status が送った新しい値を、古い値で戻さないように）
         task = asyncio.get_running_loop().create_task(self._send_status())

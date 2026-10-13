@@ -3,6 +3,7 @@ import sys
 
 import pytest
 from test_final_summary import client, project, record  # noqa: F401 フィクスチャも使う
+from test_recorder import receive_until
 
 from remote_whisper import final_transcriber
 from remote_whisper.documents import FinalTranscriptMeta, TranscriptMeta, read_doc
@@ -253,17 +254,68 @@ def test_a_recording_that_starts_before_the_worker_stops_it(home, session_files,
     assert fake_worker.count.read_text() == "1"
 
 
-def test_final_transcript_api_errors(client, project):  # noqa: F811
-    pid, _ = project
+def test_it_can_be_made_again_as_a_new_generation(client, project, fake_ollama, fake_worker):  # noqa: F811
+    pid, d = project
+    final = use_fake(client, fake_worker())
+    sid, _ = record(client, pid)
+    url = f"/api/projects/{pid}/sessions/{sid}/final-transcripts"
+    assert client.get("/api/settings/options").json()["whisper"]["finalTranscript"] is True
+    client.patch("/api/settings", json={"whisper": {"diarize": False}})
     with client.websocket_connect("/ws") as ws:
         ws.receive_json()
-        from test_recorder import chunk, finished, of_type, receive_until, start
+        # 今の全体設定のモデルと話者分けで作り直す（#124）
+        res = client.post(url)
+        assert res.status_code == 202
+        assert res.json() == {"model": "large-v3-turbo", "diarize": False}
+        # 作っている間は status の transcribing に入る
+        receive_until(ws, lambda m: m["type"] == "status" and m["transcribing"] == [sid])
+        done = receive_until(ws, lambda m: m["type"] == "finalTranscript")[-1]
+        receive_until(ws, lambda m: m["type"] == "status" and m["transcribing"] == [])
+    # 前の世代は残り、新しい世代が増える
+    listed = client.get(url).json()
+    assert len(listed) == 2
+    assert listed[-1]["generationId"] == done["generationId"]
+    assert listed[-1]["diarization"] == "off"
+    # 作れなかったら、失敗を全員に知らせる
+    final.command = fake_worker("fail")
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        assert client.post(url).status_code == 202
+        error = receive_until(ws, lambda m: m["type"] == "error")[-1]
+    assert (error["code"], error["session"]) == ("final_transcript_failed", sid)
+    assert len(client.get(url).json()) == 2
 
+
+def test_it_cannot_be_made_again_without_a_recording_or_whisperx(client, project, fake_worker):  # noqa: F811
+    pid, d = project
+    sid = recorded_session(client, pid)
+    url = f"/api/projects/{pid}/sessions/{sid}/final-transcripts"
+    # WhisperX のないサーバー
+    assert client.post(url).status_code == 503
+    assert client.get("/api/settings/options").json()["whisper"]["finalTranscript"] is False
+    use_fake(client, fake_worker())
+    # 録音ファイルが消えている（保存期間を過ぎた）
+    (d / f"recording-{sid}.mp3").unlink()
+    assert client.post(url).status_code == 410
+    assert not fake_worker.count.exists()
+
+
+def recorded_session(test_client, pid):
+    from test_recorder import chunk, finished, of_type, receive_until, start
+
+    with test_client.websocket_connect("/ws") as ws:
+        ws.receive_json()
         sid = start(ws, pid)
         ws.send_bytes(chunk(0, value=3000))
         receive_until(ws, of_type("ack", seq=0))
         ws.send_json({"type": "stop"})
-    finished(client, sid)
+    finished(test_client, sid)
+    return sid
+
+
+def test_final_transcript_api_errors(client, project):  # noqa: F811
+    pid, _ = project
+    sid = recorded_session(client, pid)
     url = f"/api/projects/{pid}/sessions/{sid}/final-transcripts"
     assert client.get(url).json() == []
     # まだない（作らなかった・保存期間を過ぎた）ときは 410、形のおかしい生成 ID は 404

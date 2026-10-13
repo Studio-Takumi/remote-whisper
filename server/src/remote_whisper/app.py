@@ -96,6 +96,8 @@ def create_app(
         # 最終の要約などのジョブが積まれて、ワーカーが作り直されないようにするため
         if isinstance(ctx.recorder, RecordingManager):
             await ctx.recorder.close()
+        if ctx.final_transcriber is not None:
+            await ctx.final_transcriber.close()
         await ctx.gpu.stop()
         if ctx.whisper is not None:
             await ctx.whisper.close()

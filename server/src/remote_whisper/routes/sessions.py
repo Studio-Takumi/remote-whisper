@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 
 from remote_whisper.context import AppContext, get_ctx
-from remote_whisper.documents import FinalTranscriptMeta, SummaryMeta, read_doc
+from remote_whisper.documents import FinalTranscriptMeta, SummaryMeta, TranscriptMeta, read_doc
 from remote_whisper.gpu_queue import Priority
 from remote_whisper.projects import ProjectError, ProjectFile, SessionEntry
 from remote_whisper.session_writer import SessionWriter
@@ -125,6 +125,43 @@ def get_final_transcript(pid: str, sid: str, gid: str, ctx: Ctx) -> dict[str, An
         raise HTTPException(status_code=500, detail=f"文字起こしを読み込めません: {e}") from e
     meta = meta.model_copy(update={"id": sid, "generation_id": gid})
     return {"meta": meta.to_json(), "lines": parse_transcript_lines(body)}
+
+
+@router.post("/{sid}/final-transcripts", status_code=202)
+async def regenerate_final_transcript(pid: str, sid: str, ctx: Ctx) -> dict[str, Any]:
+    """最終の文字起こしを作り直す（#124）
+
+    今の全体設定の Whisper のモデル（と話者分けのオン・オフ）で作る。
+    GPU キュー（優先度 3）に積んで、すぐ返す（録音中なら、録音が終わってから作る）。
+    できたら `finalTranscript`、作れなければ `error`（final_transcript_failed）を全員に送る。
+    既存の文字起こしは上書きせず、新しい世代にする
+    """
+    entry, files = _session(ctx, pid, sid)
+    final = ctx.final_transcriber
+    if final is None or not final.available():
+        raise HTTPException(
+            status_code=503, detail="このサーバーには最終の文字起こしの機能（WhisperX）がありません"
+        )
+    if entry.status == "recording" or _still_finishing(ctx, sid):
+        raise HTTPException(
+            status_code=409, detail="録音中のセッションの文字起こしは作り直せません"
+        )
+    wav = files.dir / ".tmp" / sid / "audio.wav"
+    if files.recording() is None and not wav.is_file():
+        raise _gone("録音ファイル")
+    if files.transcript.is_file():
+        try:
+            meta, _ = read_transcript(files)
+        except (OSError, ValueError) as e:
+            raise HTTPException(status_code=500, detail=f"文字起こしを読み込めません: {e}") from e
+    else:
+        # 録音中の文字起こしが保存期間を過ぎて消えていても、録音が残っていれば作れる
+        meta = TranscriptMeta(
+            id=sid, project=_project(ctx, pid).path, status="done", started_at=entry.started_at
+        )
+    whisper = ctx.settings.get().whisper
+    final.regenerate(files, meta, whisper.model, whisper.diarize)
+    return {"model": whisper.model, "diarize": whisper.diarize}
 
 
 @router.delete("/{sid}/terms/{term}")

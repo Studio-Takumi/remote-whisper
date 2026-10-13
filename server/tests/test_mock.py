@@ -66,6 +66,7 @@ def test_status_on_connect(mock_client):
             # モックでは GPU の使用率を取らない
             "gpu": None,
             "summarizing": [],
+            "transcribing": [],
         }
 
 
