@@ -34,6 +34,7 @@ def add_session(store, pid, d, ended_days_ago, status="done"):
     for name in (
         f"recording-{sid}.mp3",
         f"transcript-{sid}.md",
+        f"transcript-final-{sid}-{make_id(ago(ended_days_ago))}.md",
         f"summary-{sid}-{make_id(ago(ended_days_ago))}.md",
     ):
         (d / name).write_text("x", encoding="utf-8")
@@ -70,20 +71,21 @@ def test_only_expired_files_are_removed(home, tmp_path):
     report = clean(store, settings, at=AT)
 
     left = names(d)
-    # 40 日前: 録音・文字起こし・要約・途中の要約がすべて消える
+    # 40 日前: 録音・文字起こし（最終の文字起こしも）・要約・途中の要約がすべて消える
     assert not any(old in n for n in left)
     assert not (d / ".tmp" / old).exists()
     # 20 日前: 録音だけ消える
     assert f"recording-{middle}.mp3" not in left
     assert f"transcript-{middle}.md" in left
+    assert any(n.startswith(f"transcript-final-{middle}-") for n in left)
     assert any(n.startswith(f"summary-{middle}-") for n in left)
     assert (d / ".tmp" / middle / "live-summary.md").exists()
     # 1 日前: 何も消えない
-    assert sum(new in n for n in left) == 3
+    assert sum(new in n for n in left) == 4
     # 参考資料セットは無期限、選んだディレクトリのコピーは消さない
     assert hotwords_name(old_set) in left
     assert copy.exists()
-    assert len(report.removed) == 5
+    assert len(report.removed) == 6
     # セッションは project.json に残る（UI で「期限切れ」と出す）
     assert [s.id for s in store.load(pid).sessions] == [old, middle, new]
 
@@ -125,7 +127,7 @@ def test_strange_ids_are_ignored(home, tmp_path):
     report = clean(store, settings, at=AT)
     assert report.removed == [] and report.context_sets == []
     assert (d / "project.json").exists()
-    assert sum(keep in n for n in names(d)) == 3
+    assert sum(keep in n for n in names(d)) == 4
     assert (d / ".tmp" / keep).exists()
 
 
@@ -136,7 +138,7 @@ def test_recording_sessions_are_kept(home, tmp_path):
     # 終了日時がない録音中のセッション（開始は 5 日前）
     sid = add_session(store, pid, d, ended_days_ago=5, status="recording")
     clean(store, settings, at=AT)
-    assert sum(sid in n for n in names(d)) == 3
+    assert sum(sid in n for n in names(d)) == 4
 
 
 def test_zero_means_forever(home, tmp_path):
@@ -145,7 +147,7 @@ def test_zero_means_forever(home, tmp_path):
     settings.update({"retentionDays": {"recording": 0, "transcript": 0, "summary": 0}})
     sid = add_session(store, pid, d, ended_days_ago=3650)
     assert clean(store, settings, at=AT).removed == []
-    assert sum(sid in n for n in names(d)) == 3
+    assert sum(sid in n for n in names(d)) == 4
 
 
 def test_expired_context_sets_are_removed_from_the_project(home, tmp_path):
