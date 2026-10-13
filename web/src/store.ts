@@ -156,6 +156,15 @@ let recordedSamples = 0;
 let lastRecordings = -1;
 // 最終の要約ができて、サーバーに保存されたもので置き換えるセッション（取り直しで手元のものを残さない）
 let releasing: string | null = null;
+// 最終の要約ができたので取り直しているセッション（title と status の両方から呼ばれても1回にする）
+const reloadingSummaries = new Set<string>();
+// サーバーが最終の要約を作っているセッション（直近の status の summarizing。古いサーバーでは null）。#118
+let summarizing: Set<string> | null = null;
+// つながってから、まだ status を受け取っていない。つながり直した直後の status には、
+// 切れている間に作り終えたことが含まれる（title を取りこぼしていても、ここで気づける）
+let freshConnection = false;
+// summarizing から外れた（作り終えた）セッション。作り直しの返事より先に作り終えたときに使う
+const finishedSummaries = new Set<string>();
 
 // 録音に使うもの。React の状態にする必要がないので外に置く
 let mic: Microphone | null = null;
@@ -531,19 +540,55 @@ export const useAppStore = create<AppState>()((set, get) => {
             set((s) => finishDemoSummary(s, sessionId));
             return;
         }
-        // このセッションは手元で積み上げたものを捨てて、サーバーに保存されたもので置き換える
-        releasing = sessionId;
+        if (reloadingSummaries.has(sessionId)) {
+            return;
+        }
+        reloadingSummaries.add(sessionId);
         try {
-            await get().loadProjects();
+            // このセッションは手元で積み上げたものを捨てて、サーバーに保存されたもので置き換える
+            releasing = sessionId;
+            try {
+                await get().loadProjects();
+            } finally {
+                releasing = null;
+            }
+            const project = get().projects.find((p) => p.sessions.some((x) => x.id === sessionId));
+            const session = project?.sessions.find((x) => x.id === sessionId);
+            if (project && session && !session.loaded) {
+                await loadSession(project.id, session);
+            }
+            set((s) => ({ generating: s.generating?.sessionId === sessionId ? null : s.generating }));
         } finally {
-            releasing = null;
+            reloadingSummaries.delete(sessionId);
         }
-        const project = get().projects.find((p) => p.sessions.some((x) => x.id === sessionId));
-        const session = project?.sessions.find((x) => x.id === sessionId);
-        if (project && session && !session.loaded) {
-            await loadSession(project.id, session);
+    }
+
+    // status の summarizing を受け取った。「作成中」のセッションの要約をサーバーが作り終えていたら、
+    // 保存されたものを取り直して「作成中」を消す（結果のメッセージを取りこぼしても残らないように。#118）
+    function receiveSummarizing(list: string[]) {
+        const before = summarizing;
+        const fresh = freshConnection;
+        summarizing = new Set(list);
+        freshConnection = false;
+        for (const id of before ?? []) {
+            if (!summarizing.has(id)) {
+                finishedSummaries.add(id);
+            }
         }
-        set((s) => ({ generating: s.generating?.sessionId === sessionId ? null : s.generating }));
+        for (const id of summarizing) {
+            finishedSummaries.delete(id);
+        }
+        const s = get();
+        const id = s.generating?.sessionId;
+        // 作っている途中か、まだ始まっていない（録音中・切れている間に止めて、stop をまだ送っていない）
+        if (!id || summarizing.has(id) || id === s.recordingSessionId || id === stoppedWhileOffline) {
+            return;
+        }
+        // 作っていたのに外れた・つながり直したらもう作っていなかった。
+        // （止めた直後に、止める前の status が遅れて届いたときは、どちらでもないので何もしない）
+        if (before?.has(id) || fresh) {
+            void reloadAfterFinalSummary(id);
+        }
     }
 
     // セッションの文字起こしと要約を取ってくる（開いたとき）
@@ -926,6 +971,10 @@ export const useAppStore = create<AppState>()((set, get) => {
                     // 切れたら、届きかけの途中の要約は捨てる（つながり直した後の断片が続けて足されないように）
                     liveDraft: connected ? s.liveDraft : null,
                 }));
+                if (connected) {
+                    // 最初に届く status で、切れている間に最終の要約ができていないかを確かめる（#118）
+                    freshConnection = true;
+                }
                 if (connected && !isDemo) {
                     // 切れている間に届かなかった contextSet（作成の終わり）を取りこぼさないように、一覧を取り直す
                     void refreshContextSets(get().projects.map((p) => p.id));
@@ -972,6 +1021,10 @@ export const useAppStore = create<AppState>()((set, get) => {
                         lastRecordings = m.recordings;
                         void get().loadProjects();
                     }
+                    // 古いサーバーは summarizing を送らない（そのときは title と error だけで消す）
+                    if (m.summarizing && !isDemo) {
+                        receiveSummarizing(m.summarizing);
+                    }
                 } else if (m.type === 'summary.delta' && m.kind === 'final') {
                     // 最終の要約（録音を終えた後と、作り直し）。少しずつ届く
                     set((s) => ({
@@ -1000,7 +1053,10 @@ export const useAppStore = create<AppState>()((set, get) => {
                 if (
                     m.type === 'error' &&
                     m.session &&
-                    (m.code === 'ollama_unavailable' || m.code === 'summary_skipped' || m.code === 'write_failed')
+                    (m.code === 'ollama_unavailable' ||
+                        m.code === 'summary_skipped' ||
+                        m.code === 'summary_failed' ||
+                        m.code === 'write_failed')
                 ) {
                     // 要約を作れなかった（作らなかった）。作成中の表示を消す。
                     // Ollama の失敗なら、途中の要約の下書きも捨てる（届きかけの分が、次の回の要約に混ざらないように。
@@ -1085,10 +1141,16 @@ export const useAppStore = create<AppState>()((set, get) => {
             if (!project) {
                 return;
             }
+            finishedSummaries.delete(sessionId);
             try {
                 const { model } = await api.post<{ model: string }>(
                     `/api/projects/${project.id}/sessions/${sessionId}/summaries`,
                 );
+                if (finishedSummaries.has(sessionId)) {
+                    // 返事より先に作り終えていた（「作成中」にすると、消すきっかけがもう来ない）
+                    void reloadAfterFinalSummary(sessionId);
+                    return;
+                }
                 // 結果は WebSocket（summary.delta）で届く。届くまでは「作成中」と出す。
                 // 返事より先に届いた分があれば残す
                 set((s) => ({
