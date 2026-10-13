@@ -40,6 +40,12 @@ export function SessionView() {
     const [playback, setPlayback] = useState<(Playback & { sessionId: string }) | null>(null);
     // 録音中の文字起こしに切り替えたセッション（#121。最終の文字起こしがあれば、ふだんはそちらを出す）
     const [liveViewOf, setLiveViewOf] = useState<string | null>(null);
+    // 別のセッションを開いたら、切り替えを戻す（開き直すと最終の文字起こしから出す）
+    const [openedSession, setOpenedSession] = useState(session?.id);
+    if (openedSession !== session?.id) {
+        setOpenedSession(session?.id);
+        setLiveViewOf(null);
+    }
     const final = session?.finalTranscript;
     const showFinal = !!final && liveViewOf !== session?.id;
     const lines = showFinal ? final.lines : session?.transcript;
@@ -237,8 +243,6 @@ function useTabScroll(sessionId: string | undefined) {
     return { tab: state.tab, changeTab, followTranscript };
 }
 
-// 最終の要約。既定は、今選んでいるモデルの要約のうちいちばん新しいもの。なければモデルを問わずいちばん新しいもの。
-// 世代が複数あれば切り替えられる（spec 6.5）
 // 最終の文字起こし（#121）と録音中の文字起こしの切り替え。作っている途中なら、そう出す
 function FinalTranscriptBar({
     session,
@@ -302,6 +306,8 @@ function FinalTranscriptBar({
     );
 }
 
+// 最終の要約。既定は、今選んでいるモデルの要約のうちいちばん新しいもの。なければモデルを問わずいちばん新しいもの。
+// 世代が複数あれば切り替えられる（spec 6.5）
 function SummaryPanel({
     session,
     finalModel,

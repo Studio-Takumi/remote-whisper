@@ -119,7 +119,10 @@ export async function fetchSessionDetail(projectId: string, session: Session) {
     const transcriptJson = files?.transcript ? await api.get<TranscriptJson>(`${base}/transcript`) : null;
     const transcript = transcriptJson?.lines ?? [];
     const pickedTerms = transcriptJson?.meta?.pickedTerms ?? [];
-    const finalTranscript = files?.finalTranscripts ? await fetchFinalTranscript(projectId, session.id) : undefined;
+    // 取れなくても（消えた直後など）、録音中の文字起こしと要約は出す
+    const finalTranscript = files?.finalTranscripts
+        ? await fetchFinalTranscript(projectId, session.id).catch(() => undefined)
+        : undefined;
     const infos = files?.summaries ? await api.get<SummaryInfoJson[]>(`${base}/summaries`) : [];
     const summaries: Summary[] = await Promise.all(
         infos.map(async (info) => {

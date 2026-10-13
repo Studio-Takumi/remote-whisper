@@ -4,6 +4,7 @@ import sys
 import pytest
 from test_final_summary import client, project, record  # noqa: F401 フィクスチャも使う
 
+from remote_whisper import final_transcriber
 from remote_whisper.documents import FinalTranscriptMeta, TranscriptMeta, read_doc
 from remote_whisper.final_transcriber import FinalTranscriber
 from remote_whisper.gpu_queue import GpuQueue
@@ -24,6 +25,8 @@ if sys.argv[2] == "slow" and n == 1:
     time.sleep(30)
 if sys.argv[2] == "missing":
     sys.exit(3)
+if sys.argv[2] == "fail":
+    sys.exit(1)
 chars = [{"word": c, "start": i * 0.1, "end": i * 0.1 + 0.1, "speaker": "SPEAKER_01"}
          for i, c in enumerate("最終です。")]
 chars += [{"word": c, "start": 1.0 + i * 0.1, "end": 1.1 + i * 0.1, "speaker": "SPEAKER_00"}
@@ -31,6 +34,10 @@ chars += [{"word": c, "start": 1.0 + i * 0.1, "end": 1.1 + i * 0.1, "speaker": "
 result = {"segments": [{"start": 0.0, "end": 1.3, "text": "最終です。はい。", "words": chars}],
           "diarization": "done" if job["diarize"] else "off", "diarizationError": None,
           "alignModel": "fake-align", "device": "cpu", "job": job}
+if sys.argv[2] == "unavailable":
+    for c in chars:
+        c["speaker"] = None
+    result.update(diarization="unavailable", diarizationError="GatedRepoError: 403")
 Path(job["out"]).write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
 """
 
@@ -145,3 +152,121 @@ def test_a_recording_stops_it_and_it_is_made_again_afterwards(home, tmp_path, fa
     assert gid is not None
     assert fake_worker.count.read_text() == "2"
     assert files.final_transcript(gid).is_file()
+
+
+@pytest.fixture
+def session_files(tmp_path):
+    files = SessionFiles(tmp_path, "20261013-090000")
+    (tmp_path / "recording-20261013-090000.mp3").write_bytes(b"fake")
+    meta = TranscriptMeta(
+        id=files.id, status="done", started_at="2026-10-13T09:00:00+09:00", duration_sec=60
+    )
+    return files, meta
+
+
+def run_final(home, command, files, meta, **kwargs):
+    async def go():
+        gpu = GpuQueue()
+        final = FinalTranscriber(
+            SettingsStore(home), Hub(), gpu, command=command, available=lambda: True, **kwargs
+        )
+        try:
+            return await asyncio.wait_for(final.run(files, meta), 30)
+        finally:
+            await gpu.stop()
+
+    return asyncio.run(go())
+
+
+def test_nothing_is_made_without_a_recording(home, session_files, fake_worker):
+    files, meta = session_files
+    files.recording().unlink()
+    assert run_final(home, fake_worker(), files, meta) is None
+    assert not fake_worker.count.exists()
+
+
+def test_a_failed_worker_makes_nothing(home, session_files, fake_worker):
+    files, meta = session_files
+    assert run_final(home, fake_worker("fail"), files, meta) is None
+    assert files.final_transcripts() == []
+
+
+def test_a_stuck_worker_is_stopped(home, session_files, fake_worker, monkeypatch):
+    # 固まったら打ち切る（GPU キューを止めたままにしない）
+    monkeypatch.setattr(final_transcriber, "TIMEOUT_BASE_SEC", 1.0)
+    monkeypatch.setattr(final_transcriber, "TIMEOUT_PER_SEC", 0.0)
+    files, meta = session_files
+    assert run_final(home, fake_worker("slow"), files, meta) is None
+    assert files.final_transcripts() == []
+
+
+def test_diarization_unavailable_is_saved_without_speakers(home, session_files, fake_worker):
+    files, meta = session_files
+    gid = run_final(home, fake_worker("unavailable"), files, meta)
+    meta_saved, body = read_doc(files.final_transcript(gid), FinalTranscriptMeta)
+    assert (meta_saved.diarization, meta_saved.speakers) == ("unavailable", 0)
+    assert body == "[00:00:00] 最終です。\n[00:00:01] はい。\n"
+
+
+def test_it_gives_up_after_being_stopped_again_and_again(home, session_files, fake_worker):
+    files, meta = session_files
+    # 動かすたびに録音中（3 回まで作り直す）
+    assert run_final(home, fake_worker(), files, meta, recording=lambda: True) is None
+    assert not fake_worker.count.exists()
+
+
+def test_a_recording_that_starts_before_the_worker_stops_it(home, session_files, fake_worker):
+    files, meta = session_files
+
+    class Ollama:
+        final = None
+        calls = 0
+
+        async def unload_all(self):
+            # VRAM を空けている途中（子プロセスを起こす前）に録音が始まる
+            self.calls += 1
+            if self.calls == 1:
+                self.final.recordings_changed(1)
+                asyncio.get_running_loop().call_later(0.3, self.final.recordings_changed, 0)
+
+    async def go():
+        gpu = GpuQueue()
+        ollama = Ollama()
+        final = FinalTranscriber(
+            SettingsStore(home),
+            Hub(),
+            gpu,
+            ollama=ollama,
+            command=fake_worker(),
+            available=lambda: True,
+        )
+        ollama.final = final
+        try:
+            return await asyncio.wait_for(final.run(files, meta), 30), ollama.calls
+        finally:
+            await gpu.stop()
+
+    gid, calls = asyncio.run(go())
+    # 1 回目は子プロセスを起こさずに止め、録音が終わってから作り直した
+    assert gid is not None
+    assert calls == 2
+    assert fake_worker.count.read_text() == "1"
+
+
+def test_final_transcript_api_errors(client, project):  # noqa: F811
+    pid, _ = project
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        from test_recorder import chunk, finished, of_type, receive_until, start
+
+        sid = start(ws, pid)
+        ws.send_bytes(chunk(0, value=3000))
+        receive_until(ws, of_type("ack", seq=0))
+        ws.send_json({"type": "stop"})
+    finished(client, sid)
+    url = f"/api/projects/{pid}/sessions/{sid}/final-transcripts"
+    assert client.get(url).json() == []
+    # まだない（作らなかった・保存期間を過ぎた）ときは 410、形のおかしい生成 ID は 404
+    assert client.get(f"{url}/latest").status_code == 410
+    assert client.get(f"{url}/20261013-090000").status_code == 410
+    assert client.get(f"{url}/..%2Fsecret").status_code == 404

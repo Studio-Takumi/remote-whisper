@@ -39,6 +39,11 @@ DIARIZATION_MODEL = "pyannote/speaker-diarization-community-1"
 BATCH_SIZE = 8
 # 録音が始まって止めたら、録音が終わってから作り直す。何度も止められたらあきらめる
 MAX_TRIES = 3
+# 子プロセスを打ち切るまでの時間（秒）: TIMEOUT_BASE_SEC + 録音の長さ × TIMEOUT_PER_SEC。
+# RTX 2060 で 60 分の録音が 450 秒、10 分が 204 秒（モデルの読み込みを含む）だったので、
+# 十分に長くとる
+TIMEOUT_BASE_SEC = 900
+TIMEOUT_PER_SEC = 1.0
 WORKER = [sys.executable, "-m", "remote_whisper.final_transcribe_worker"]
 
 
@@ -74,6 +79,8 @@ class FinalTranscriber:
         self._available = available
         self._lock = asyncio.Lock()
         self._proc: asyncio.subprocess.Process | None = None
+        # ジョブを動かしている間（子プロセスを起こす前も含む）。録音が始まったら _preempted を立てる
+        self._running = False
         self._preempted = False
         # 録音していないとき set。録音中は待つ
         self._idle = asyncio.Event()
@@ -86,11 +93,10 @@ class FinalTranscriber:
         """録音中のセッションの数が変わった。録音が始まったら、作っている途中のものを止める"""
         if count > 0:
             self._idle.clear()
-            if self._proc is not None and self._proc.returncode is None:
-                log.info("stopping the final transcript because a recording started")
+            if self._running:
+                # 子プロセスを起こす前（VRAM を空けている途中など）でも、起こしたらすぐ止める
                 self._preempted = True
-                with contextlib.suppress(ProcessLookupError):
-                    self._proc.kill()
+                self._kill("a recording started")
         else:
             self._idle.set()
 
@@ -125,10 +131,26 @@ class FinalTranscriber:
             log.warning("gave up the final transcript of %s", files.id)
             return None
 
+    def _kill(self, reason: str) -> None:
+        if self._proc is not None and self._proc.returncode is None:
+            log.info("stopping the final transcript: %s", reason)
+            with contextlib.suppress(ProcessLookupError):
+                self._proc.kill()
+
     async def _job(
         self, files: SessionFiles, meta: TranscriptMeta, model: str | None, diarize: bool | None
     ) -> str | None:
-        if self.recording():
+        self._running = True
+        self._preempted = self.recording()
+        try:
+            return await self._make(files, meta, model, diarize)
+        finally:
+            self._running = False
+
+    async def _make(
+        self, files: SessionFiles, meta: TranscriptMeta, model: str | None, diarize: bool | None
+    ) -> str | None:
+        if self._preempted:
             raise _Preempted
         audio = files.recording() or _wav(files)
         if audio is None:
@@ -154,24 +176,41 @@ class FinalTranscriber:
             "batchSize": BATCH_SIZE,
             "hotwords": _hotwords(files, meta),
         }
-        self._preempted = False
+        if self._preempted:
+            raise _Preempted
+        # 固まっても GPU キューを止めたままにしないよう、録音の長さに応じた時間で打ち切る
+        timeout = TIMEOUT_BASE_SEC + TIMEOUT_PER_SEC * (meta.duration_sec or 3600)
+        timed_out = False
         try:
             self._proc = await asyncio.create_subprocess_exec(
                 *self.command, stdin=asyncio.subprocess.PIPE
             )
-            await self._proc.communicate(json.dumps(job, ensure_ascii=False).encode("utf-8"))
+            if self._preempted:
+                # 起こしている間に録音が始まった
+                self._kill("a recording started")
+            try:
+                await asyncio.wait_for(
+                    self._proc.communicate(json.dumps(job, ensure_ascii=False).encode("utf-8")),
+                    timeout,
+                )
+            except TimeoutError:
+                timed_out = True
+                self._kill(f"no result in {timeout:.0f}s")
+                await self._proc.wait()
             code = self._proc.returncode
         except asyncio.CancelledError:
             # サーバーを止めるときなど。子プロセスを残さない
-            if self._proc is not None and self._proc.returncode is None:
-                with contextlib.suppress(ProcessLookupError):
-                    self._proc.kill()
+            self._kill("cancelled")
             raise
         finally:
             self._proc = None
         if self._preempted:
             out.unlink(missing_ok=True)
             raise _Preempted
+        if timed_out:
+            log.warning("the final transcript of %s timed out", files.id)
+            out.unlink(missing_ok=True)
+            return None
         if code == EXIT_NOT_INSTALLED:
             log.warning("WhisperX is not installed; the final transcript is not made")
             return None
