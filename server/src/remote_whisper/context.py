@@ -30,6 +30,8 @@ class AppContext:
     ollama: Any = None
     # 最終の要約を作るもの（FinalSummarizer。モックでは MockFinalSummarizer）。作り直しに使う
     summarizer: Any = None
+    # 録音後に作る最終の文字起こし（FinalTranscriber。#121）。モックではない
+    final_transcriber: Any = None
     # 参考資料セットの作成（ContextSetService）
     context_sets: Any = None
     # GPU を使う処理（Whisper・Ollama）を順番に実行するキュー。

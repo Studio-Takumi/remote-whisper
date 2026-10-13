@@ -18,6 +18,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from remote_whisper.documents import (
+    FINAL_TRANSCRIPT_RE,
     SUMMARY_RE,
     ContextSetMeta,
     context_name,
@@ -115,6 +116,11 @@ def clean_project(
             _remove(tmp / "audio.wav", project_dir, report)
         if expired(ended, days.transcript, at):
             _remove(files.transcript, project_dir, report)
+            # 最終の文字起こし（#121）も、文字起こしの期限で消す
+            for path in sorted(project_dir.glob(f"transcript-final-{s.id}-*.md")):
+                m = FINAL_TRANSCRIPT_RE.fullmatch(path.name)
+                if m and m.group(1) == s.id:
+                    _remove(path, project_dir, report)
         if expired(ended, days.summary, at):
             for path in sorted(project_dir.glob(f"summary-{s.id}-*.md")):
                 m = SUMMARY_RE.fullmatch(path.name)

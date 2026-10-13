@@ -17,6 +17,7 @@ HOTWORDS_RE = re.compile(rf"hotwords-({ID})\.md")
 CONTEXT_RE = re.compile(rf"context-({ID})\.md")
 TRANSCRIPT_RE = re.compile(rf"transcript-({ID})\.md")
 SUMMARY_RE = re.compile(rf"summary-({ID})-({ID})\.md")
+FINAL_TRANSCRIPT_RE = re.compile(rf"transcript-final-({ID})-({ID})\.md")
 RECORDING_RE = re.compile(rf"recording-({ID})\.(mp3|m4a)")
 
 
@@ -34,6 +35,11 @@ def transcript_name(sid: str) -> str:
 
 def summary_name(sid: str, gid: str) -> str:
     return f"summary-{sid}-{gid}.md"
+
+
+def final_transcript_name(sid: str, gid: str) -> str:
+    """録音後に作り直した最終の文字起こし（#121）。作り直すたびに生成 ID の世代が増える"""
+    return f"transcript-final-{sid}-{gid}.md"
 
 
 def recording_name(sid: str, ext: str = "mp3") -> str:
@@ -161,6 +167,24 @@ class SummaryMeta(_Meta):
     # 使った要約度（1〜5。#100）。概要と、部分ごとの要約（詳細）。以前のファイルにはない
     overview_density: int | None = None
     detail_density: int | None = None
+
+
+class FinalTranscriptMeta(_Meta):
+    """最終の文字起こし `transcript-final-<ID>-<生成 ID>.md` のフロントマター（#121）"""
+
+    id: str
+    generation_id: str
+    project: str | None = None
+    model: str
+    generated_at: str
+    # 起こし直した録音のファイル
+    recording: str | None = None
+    # 単語の時刻を合わせたモデル（wav2vec2）
+    align_model: str | None = None
+    # 話者分け。done は分けた、off は設定で切っていた、unavailable はモデルを使えなかった
+    diarization: Literal["done", "off", "unavailable"] = "off"
+    speakers: int = 0
+    app_version: str | None = None
 
 
 M = TypeVar("M", bound=_Meta)

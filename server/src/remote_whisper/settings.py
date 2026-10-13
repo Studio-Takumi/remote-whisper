@@ -44,6 +44,11 @@ class WhisperSettings(_Model):
     # manual は speech_dbfs より大きい音を話し声とみなす（#82）
     speech_threshold: Literal["auto", "manual"] = "auto"
     speech_dbfs: float = Field(-40, ge=-70, le=-10)
+    # 録音を終えたら、保存した録音全体から最終の文字起こしを作る
+    # （#121。WhisperX が入っているときだけ）
+    final_transcript: bool = True
+    # 最終の文字起こしで話者を分ける（pyannote。HuggingFace のトークンと利用条件への同意が要る）
+    diarize: bool = True
 
 
 class OllamaSettings(_Model):

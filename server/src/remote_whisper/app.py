@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from remote_whisper.context import AppContext
 from remote_whisper.context_sets import ContextSetService, OllamaGenerator
 from remote_whisper.final_summary import FinalSummarizer
+from remote_whisper.final_transcriber import FinalTranscriber, installed
 from remote_whisper.gpu_stats import GpuStats
 from remote_whisper.janitor import Janitor
 from remote_whisper.mock import (
@@ -121,6 +122,9 @@ def create_app(
 
     def on_count(n: int) -> None:
         ctx.recordings = n
+        if ctx.final_transcriber is not None:
+            # 録音が始まったら、作っている途中の最終の文字起こしを止める（録音が終わったら作り直す）
+            ctx.final_transcriber.recordings_changed(n)
         if n == 0 and ctx.ollama is not None:
             # 録音中は下ろさないようにしていた Ollama のモデルを、keepAliveMin 分で下ろすように戻す
             task = asyncio.create_task(ctx.ollama.recording_ended())
@@ -144,6 +148,19 @@ def create_app(
             gpu=ctx.gpu,
             ollama=ctx.ollama,
         )
+        # 録音を終えたら、録音全体から最終の文字起こしを作る（#121）。
+        # WhisperX が入っていなければ作らない。偽の Whisper（テスト）では作らない
+        # （テストは FinalTranscriber を差し替えて確かめる）
+        ctx.final_transcriber = FinalTranscriber(
+            ctx.settings,
+            ctx.hub,
+            ctx.gpu,
+            whisper=ctx.whisper,
+            ollama=ctx.ollama,
+            recording=lambda: ctx.is_recording,
+            available=installed if backend != "fake" else lambda: False,
+        )
+        ctx.recorder.final_transcript = ctx.final_transcriber
         if ctx.ollama is not None:
             # 録音を終えたら最終の要約とタイトルを作る
             # （ほかに録音中でなければ Whisper を下ろしてから）
