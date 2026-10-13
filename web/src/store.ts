@@ -303,13 +303,16 @@ export const useAppStore = create<AppState>()((set, get) => {
             } else if (m.type === 'summary.delta' && m.kind === 'live') {
                 // 途中の要約は毎回まるごと作り直される。summary.done で下書きを消すので、
                 // その後に届いた最初の delta から、新しい下書きとして積んでいく。
-                // replace（前置き・できあがった全体）は、下書きを置き換える（#123）
-                set((s) => ({
-                    liveDraft: {
-                        sessionId: m.session,
-                        text: (!m.replace && s.liveDraft?.sessionId === m.session ? s.liveDraft.text : '') + m.text,
-                    },
-                }));
+                // replace（前置き・できあがった全体）は、下書きを置き換える（#123）。
+                // 回の始まり（前置き）を受けていない続き（つながり直した直後など）は、断片だけが出ないように捨てる
+                if (m.replace || get().liveDraft?.sessionId === m.session) {
+                    set((s) => ({
+                        liveDraft: {
+                            sessionId: m.session,
+                            text: (!m.replace && s.liveDraft?.sessionId === m.session ? s.liveDraft.text : '') + m.text,
+                        },
+                    }));
+                }
             } else if (m.type === 'terms') {
                 // 録音中に拾った語が変わった（#103）
                 set((s) => ({

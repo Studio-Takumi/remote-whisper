@@ -8,7 +8,7 @@ from remote_whisper.documents import context_name, dump
 from remote_whisper.gpu_queue import GpuQueue
 from remote_whisper.hub import Hub
 from remote_whisper.live_summary import LiveSummarizer, load_context
-from remote_whisper.ollama import OllamaClient
+from remote_whisper.ollama import OllamaClient, OllamaUnavailable
 from remote_whisper.prompts import parse_title
 from remote_whisper.settings import SettingsStore
 
@@ -294,6 +294,80 @@ def test_only_the_ongoing_section_is_streamed(home, fake, monkeypatch):
     assert "## 00:00:00〜00:00:20\n\n#### 見出し1\n- 要約1" in final["text"]
     assert final["text"].endswith("## 00:00:20〜\n\n" + streamed.strip())
     assert final["text"] == h.writer.live_summary
+
+
+def test_a_failure_while_streaming_keeps_the_previous_summary(home, fake):
+    # 本文を流し始めてから失敗しても、前の回の要約のまま。次の回に作り直せる（#123）
+    async def main():
+        h = Harness(home, fake)
+        h.live.add_final(0.0, "今日はリリース計画を決めます。")
+        await h.live.run()
+        before = (h.live.summary, h.writer.live_summary, h.live._done)
+        h.sent.clear()
+        stream = h.ollama.chat_stream
+
+        async def broken(*args, **kwargs):
+            yield "途中まで"
+            yield "流れた"
+            raise OllamaUnavailable("切れた")
+
+        h.ollama.chat_stream = broken
+        h.live.add_final(5.0, "負荷試験はまだです。")
+        await h.live.run()
+        failed = list(h.sent)
+        after = (h.live.summary, h.writer.live_summary, h.live._done)
+        h.ollama.chat_stream = stream
+        h.sent.clear()
+        await h.live.run()
+        await h.close()
+        return h, before, failed, after
+
+    h, before, failed, after = run(main())
+    assert_failed(failed)
+    # 流した分は届いているが、全体の置き換えと summary.done は送らない
+    assert [m["text"] for m in failed if m["type"] == "summary.delta" and "replace" not in m] == [
+        "途中まで",
+        "流れた",
+    ]
+    assert after == before
+    # 次の回は作り直せる
+    assert h.of_type("summary.done") == [{"type": "summary.done", "kind": "live"}]
+    assert h.live._done == 2
+
+
+def test_the_prefix_has_the_previous_overview(home, fake, monkeypatch):
+    # 流している間は前回の概要を出しておき、最後の全体で新しい概要に替える（#123）
+    monkeypatch.setattr(live_summary, "CHUNK_CHARS", 60)
+
+    async def main():
+        h = Harness(home, fake)
+        overviews = 0
+
+        def reply(body):
+            nonlocal overviews
+            if "format" in body:
+                return None
+            if "ここまでの話の概要" in user_prompt(body):
+                overviews += 1
+                return f"- 概要{overviews}"
+            return "- 区間の要約"
+
+        fake.reply_for = reply
+        h.live.add_final(0.0, "一つ目の話題について話します。")
+        h.live.add_final(10.0, "まだ一つ目の話題の続きです。")
+        h.live.add_final(20.0, "二つ目の話題に移ります。")
+        await h.live.run()
+        h.sent.clear()
+        h.live.add_final(30.0, "二つ目の話題の続きです。")
+        await h.live.run()
+        await h.close()
+        return h, overviews
+
+    h, overviews = run(main())
+    assert overviews == 2
+    deltas = h.of_type("summary.delta")
+    assert deltas[0]["text"].startswith("## ここまでの概要\n\n- 概要1\n\n")
+    assert deltas[-1]["text"].startswith("## ここまでの概要\n\n- 概要2\n\n")
 
 
 def test_several_sections_close_in_one_run(home, fake, monkeypatch):

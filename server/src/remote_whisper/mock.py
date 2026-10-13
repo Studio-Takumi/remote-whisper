@@ -198,6 +198,9 @@ class MockSession:
             await self.send({"type": "title", "title": LIVE_TITLE, "provisional": True})
 
     async def _stream(self, kind: str, text: str) -> None:
+        if kind == "live":
+            # 本物と同じく、回の始まりに前置き（ここでは空）を replace で送る（#123）
+            await self.send({"type": "summary.delta", "kind": kind, "text": "", "replace": True})
         for i in range(0, len(text), 6):
             await self.send({"type": "summary.delta", "kind": kind, "text": text[i : i + 6]})
             await asyncio.sleep(self.timing.stream)
