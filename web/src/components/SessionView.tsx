@@ -392,8 +392,6 @@ function SummaryPanel({
     );
 }
 
-// 保存期間を過ぎて、ファイルが消えているか（spec 6.8）。サーバーから取ったセッションだけ判定できる
-// 要約は「まだ作っていない」と区別できないので、文字起こしも消えているときだけ期限切れとみなす
 // 再生位置（秒）に当たる行。行の始まり（starts は時刻の順）が再生位置以前の、最後の行。まだなければ null
 function lineAt(starts: number[], sec: number) {
     let lo = 0;
@@ -409,6 +407,8 @@ function lineAt(starts: number[], sec: number) {
     return lo > 0 ? lo - 1 : null;
 }
 
+// 保存期間を過ぎて、ファイルが消えているか（spec 6.8）。サーバーから取ったセッションだけ判定できる
+// 要約は「まだ作っていない」と区別できないので、文字起こしも消えているときだけ期限切れとみなす
 function expired(session: Session, what: 'transcript' | 'summary') {
     const files = session.files;
     if (!files || !session.loaded || session.status === 'recording') {

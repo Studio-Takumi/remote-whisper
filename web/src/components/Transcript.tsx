@@ -126,10 +126,17 @@ function useFollowPlayback(active: number | null, seeks: number, playing: boolea
         if (!playing) {
             return;
         }
-        const stop = () => setStopped({ seeks, stopped: true });
+        const stop = (e: Event) => {
+            if (scrollsPage(e.target)) {
+                setStopped({ seeks, stopped: true });
+            }
+        };
         const onKey = (e: KeyboardEvent) => {
-            if (['PageUp', 'PageDown', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(e.key)) {
-                stop();
+            if (
+                ['PageUp', 'PageDown', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(e.key) &&
+                !isEditable(e.target)
+            ) {
+                stop(e);
             }
         };
         window.addEventListener('wheel', stop, { passive: true });
@@ -150,6 +157,19 @@ function useFollowPlayback(active: number | null, seeks: number, playing: boolea
 
     const followAgain = useCallback(() => setStopped({ seeks, stopped: false }), [seeks]);
     return { activeRow, following, followAgain };
+}
+
+// ページのスクロールになる操作か。ダイアログ・選択肢の一覧・再生バーの中の操作は、ページを動かさない
+function scrollsPage(target: EventTarget | null) {
+    return !(target instanceof Element && target.closest('[role="dialog"], [role="listbox"], [role="menu"], audio'));
+}
+
+// 文字を入力している・値を選んでいるところ（矢印キーなどはその中で使う）
+function isEditable(target: EventTarget | null) {
+    return (
+        target instanceof HTMLElement &&
+        (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
+    );
 }
 
 // 確定した文字を少しずつ出す（文字送りの演出）。key が変わったら（次の区間になったら）最初から
