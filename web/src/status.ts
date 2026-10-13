@@ -12,6 +12,8 @@ export type ServerStatus = {
     // jobs を受け取った時刻（Date.now()）。経過時間を数え足すのに使う
     jobsAt: number;
     gpu: GpuStats | null;
+    // 最終の文字起こしを作っているセッション（#124）
+    transcribing: string[];
 };
 
 export const initialServerStatus: ServerStatus = {
@@ -22,6 +24,7 @@ export const initialServerStatus: ServerStatus = {
     jobs: { running: null, waiting: [] },
     jobsAt: 0,
     gpu: null,
+    transcribing: [],
 };
 
 // GPU キューのジョブの種類の名前

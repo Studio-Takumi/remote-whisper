@@ -27,7 +27,13 @@ async def get_options(ctx: Annotated[AppContext, Depends(get_ctx)]) -> dict[str,
             ollama = await ctx.ollama.models()
         except OllamaUnavailable:
             ollama = []
+    # 最終の文字起こし（WhisperX）を作れるサーバーか（#121・#124。画面は作り直すボタンを出し分ける）
+    final = ctx.final_transcriber is not None and ctx.final_transcriber.available()
     return {
-        "whisper": {"models": WHISPER_MODELS, "computeTypes": COMPUTE_TYPES},
+        "whisper": {
+            "models": WHISPER_MODELS,
+            "computeTypes": COMPUTE_TYPES,
+            "finalTranscript": final,
+        },
         "ollama": {"models": ollama},
     }

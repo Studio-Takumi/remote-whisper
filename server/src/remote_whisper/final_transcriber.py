@@ -85,9 +85,56 @@ class FinalTranscriber:
         # 録音していないとき set。録音中は待つ
         self._idle = asyncio.Event()
         self._idle.set()
+        # 作り直し（結果を待たない）のタスク
+        self._tasks: set[asyncio.Task] = set()
+
+    def available(self) -> bool:
+        """WhisperX が入っていて作れるか（設定は見ない。作り直しは設定を切っていても作る）"""
+        return self._available()
 
     def enabled(self) -> bool:
+        """録音を終えたときに作るか"""
         return self.settings.get().whisper.final_transcript and self._available()
+
+    def regenerate(
+        self, files: SessionFiles, meta: TranscriptMeta, model: str, diarize: bool
+    ) -> None:
+        """作り直す（#124）。結果は待たない
+
+        作れなかったら error（final_transcript_failed）を全員に送る
+        """
+        # 作っている途中に入れるのは、タスクが動き始める前
+        # （返事のすぐあとに重ねて頼まれても断れるように）
+        end = self.hub.begin_final_transcript(files.id)
+        task = asyncio.create_task(self._regenerate(files, meta, model, diarize))
+        task.add_done_callback(lambda _: end())
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
+    async def _regenerate(
+        self, files: SessionFiles, meta: TranscriptMeta, model: str, diarize: bool
+    ) -> None:
+        try:
+            gid = await self.run(files, meta, model, diarize)
+        except Exception:  # noqa: BLE001
+            log.exception("regenerating the final transcript of %s failed", files.id)
+            gid = None
+        if gid is None:
+            await self.hub.broadcast(
+                {
+                    "type": "error",
+                    "code": "final_transcript_failed",
+                    "session": files.id,
+                    "message": "最終の文字起こしを作れませんでした（サーバーのログを見てください）",
+                }
+            )
+
+    async def close(self) -> None:
+        """サーバーを止めるとき。作り直しの途中のものを止める"""
+        for task in list(self._tasks):
+            task.cancel()
+        if self._tasks:
+            await asyncio.gather(*self._tasks, return_exceptions=True)
 
     def recordings_changed(self, count: int) -> None:
         """録音中のセッションの数が変わった。録音が始まったら、作っている途中のものを止める"""
@@ -111,6 +158,16 @@ class FinalTranscriber:
 
         model・diarize を省くと、作り始める時点の全体設定のものを使う
         """
+        # 作り終えるまで status の transcribing に入れる（録音が終わるのを待っている間も。#124）
+        end = self.hub.begin_final_transcript(files.id)
+        try:
+            return await self._run(files, meta, model, diarize)
+        finally:
+            end()
+
+    async def _run(
+        self, files: SessionFiles, meta: TranscriptMeta, model: str | None, diarize: bool | None
+    ) -> str | None:
         async with self._lock:
             for attempt in range(MAX_TRIES):
                 await self._idle.wait()

@@ -26,6 +26,9 @@ export type FinalTranscript = {
     lines: TranscriptLine[];
 };
 
+// 最終の文字起こしの世代（#124。作り直すたびに増える）。本文は表示するときに取る
+export type FinalTranscriptInfo = Omit<FinalTranscript, 'lines'>;
+
 export type Session = {
     id: string;
     title: string;
@@ -41,8 +44,10 @@ export type Session = {
     // 文字起こしと要約を取ってきたか。取るのはセッションを開いたとき
     loaded?: boolean;
     transcript: TranscriptLine[];
-    // 録音後に録音全体から作った最終の文字起こし（#121）。いちばん新しい世代。なければない
+    // 録音後に録音全体から作った最終の文字起こし（#121）。表示している世代。なければない
     finalTranscript?: FinalTranscript;
+    // 最終の文字起こしの世代の一覧（#124。古いものから）
+    finalTranscripts?: FinalTranscriptInfo[];
     summaries: Summary[];
     // 途中の要約（いちばん新しいもの）。最終の要約がまだないときに代わりに出す
     liveSummary?: string;

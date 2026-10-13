@@ -9,6 +9,7 @@ import { AudioSender, connection } from '@/connection';
 import {
     fetchContextSets,
     fetchFinalTranscript,
+    fetchFinalTranscripts,
     fetchProjects,
     fetchSessionDetail,
     isDemo,
@@ -97,6 +98,9 @@ type AppState = {
     changeSettings: (settings: Settings) => Promise<boolean>;
     // 今の全体設定（finalSummaryModel）で、最終の要約を作り直す（POST .../summaries）
     regenerateSummary: (sessionId: string) => Promise<void>;
+    // 最終の文字起こしを今の全体設定で作り直す・表示する世代を選ぶ（#124）
+    regenerateFinalTranscript: (sessionId: string) => Promise<void>;
+    showFinalTranscript: (sessionId: string, generationId: string) => Promise<void>;
     changeContextSelection: (selection: ContextSelection) => Promise<void>;
     createContextSet: (materials: string[]) => Promise<void>;
     setServer: (server: ServerStatus) => void;
@@ -175,6 +179,8 @@ let summarizing: Set<string> | null = null;
 let freshConnection = false;
 // summarizing から外れた（作り終えた）セッション。作り直しの返事より先に作り終えたときに使う
 const finishedSummaries = new Set<string>();
+// この画面から最終の文字起こしの作り直しを頼んだセッション（できたら、要約も作り直すかを聞く。#124）
+const regeneratingTranscripts = new Set<string>();
 
 // 録音に使うもの。React の状態にする必要がないので外に置く
 let mic: Microphone | null = null;
@@ -608,7 +614,9 @@ export const useAppStore = create<AppState>()((set, get) => {
         }
     }
 
-    async function receiveFinalTranscript(sessionId: string) {
+    // 最終の文字起こしができた（作り直した）。できた世代を出す
+    async function receiveFinalTranscript(sessionId: string, gid: string) {
+        const requested = regeneratingTranscripts.delete(sessionId);
         const project = get().projects.find((p) => p.sessions.some((x) => x.id === sessionId));
         if (!project) {
             // まだ一覧にない（ほかの端末のセッションなど）
@@ -616,23 +624,35 @@ export const useAppStore = create<AppState>()((set, get) => {
             return;
         }
         try {
-            const finalTranscript = await fetchFinalTranscript(project.id, sessionId);
+            const [finalTranscripts, finalTranscript] = await Promise.all([
+                fetchFinalTranscripts(project.id, sessionId),
+                fetchFinalTranscript(project.id, sessionId, gid),
+            ]);
             set((s) => ({
                 projects: updateSession(s.projects, sessionId, (x) => ({
                     ...x,
                     finalTranscript,
-                    files: x.files && { ...x.files, finalTranscripts: (x.files.finalTranscripts ?? 0) + 1 },
+                    finalTranscripts,
+                    files: x.files && { ...x.files, finalTranscripts: finalTranscripts.length },
                 })),
             }));
         } catch {
             // 取れなければ、次に一覧を取り直したときに出る
+            return;
+        }
+        if (requested) {
+            // 要約は勝手に作り直さず、聞くだけにする（#124）
+            toast.success('最終の文字起こしを作り直しました', {
+                duration: 15000,
+                action: { label: '要約も作り直す', onClick: () => void get().regenerateSummary(sessionId) },
+            });
         }
     }
 
     // セッションの文字起こしと要約を取ってくる（開いたとき）
     async function loadSession(projectId: string, session: Session) {
         try {
-            const detail = await fetchSessionDetail(projectId, session);
+            const detail = await fetchSessionDetail(projectId, session, get().settings.whisper.model);
             set((s) => ({
                 projects: updateSession(s.projects, session.id, (x) => ({ ...x, ...detail, loaded: true })),
             }));
@@ -1050,6 +1070,11 @@ export const useAppStore = create<AppState>()((set, get) => {
                             jobs: jobsChanged && m.jobs ? m.jobs : s.server.jobs,
                             jobsAt: jobsChanged ? Date.now() : s.server.jobsAt,
                             gpu: m.gpu ?? null,
+                            // 同じ中身なら前の配列のまま（描き直さないように）
+                            transcribing:
+                                JSON.stringify(m.transcribing ?? []) === JSON.stringify(s.server.transcribing)
+                                    ? s.server.transcribing
+                                    : (m.transcribing ?? []),
                         },
                     }));
                     // Ollama につながるようになったら、モデルの一覧を取り直す（つながらない間は空になっている）
@@ -1080,7 +1105,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                 } else if (m.type === 'finalTranscript' && !isDemo) {
                     // 最終の文字起こしができた（#121）。最終の要約を待っている間（一覧の取り直しでは中身を
                     // 置き換えない）でも出せるように、そのセッションの最終の文字起こしだけを取ってきて足す
-                    void receiveFinalTranscript(m.session);
+                    void receiveFinalTranscript(m.session, m.generationId);
                 } else if (m.type === 'title') {
                     set((s) => ({
                         projects: updateSession(s.projects, m.session, (x) => ({
@@ -1093,6 +1118,10 @@ export const useAppStore = create<AppState>()((set, get) => {
                     if (!m.provisional) {
                         void reloadAfterFinalSummary(m.session);
                     }
+                }
+                if (m.type === 'error' && m.session && m.code === 'final_transcript_failed') {
+                    // 作り直しを頼んだ文字起こしができなかった（知らせは下でトーストに出す）
+                    regeneratingTranscripts.delete(m.session);
                 }
                 if (
                     m.type === 'error' &&
@@ -1173,6 +1202,47 @@ export const useAppStore = create<AppState>()((set, get) => {
                     toast.error(`設定を保存できません: ${(e as Error).message}`);
                 }
                 return false;
+            }
+        },
+
+        regenerateFinalTranscript: async (sessionId) => {
+            if (isDemo) {
+                toast.info('デモでは文字起こしを作り直せません');
+                return;
+            }
+            const project = get().projects.find((p) => p.sessions.some((x) => x.id === sessionId));
+            if (!project) {
+                return;
+            }
+            // 返事より先に結果（失敗の error）が届くこともあるので、頼む前に覚えておく
+            regeneratingTranscripts.add(sessionId);
+            try {
+                // 結果は WebSocket（finalTranscript か error）で届く。作っている間は status の transcribing に入る
+                await api.post(`/api/projects/${project.id}/sessions/${sessionId}/final-transcripts`);
+            } catch (e) {
+                regeneratingTranscripts.delete(sessionId);
+                if (e instanceof ApiError && e.status === 409) {
+                    toast.error('録音中か、録音を終えた直後のセッションです。少し待ってから作り直してください');
+                } else if (e instanceof ApiError && e.status === 410) {
+                    toast.error('録音ファイルが保存期間を過ぎて消えているため、文字起こしを作り直せません');
+                } else {
+                    toast.error(`文字起こしを作り直せません: ${(e as Error).message}`);
+                }
+            }
+        },
+
+        showFinalTranscript: async (sessionId, generationId) => {
+            const project = get().projects.find((p) => p.sessions.some((x) => x.id === sessionId));
+            if (!project) {
+                return;
+            }
+            try {
+                const finalTranscript = await fetchFinalTranscript(project.id, sessionId, generationId);
+                set((s) => ({
+                    projects: updateSession(s.projects, sessionId, (x) => ({ ...x, finalTranscript })),
+                }));
+            } catch (e) {
+                toast.error(`文字起こしを読み込めません: ${(e as Error).message}`);
             }
         },
 
