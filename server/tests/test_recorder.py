@@ -331,6 +331,48 @@ def test_stop_converts_to_mp3_and_queues_the_final_summary(client, project):
     assert summarized == [(sid, ["[00:00:00] fake 1.5s"])]
 
 
+def test_status_tells_which_sessions_are_being_summarized(client, project):
+    pid, _ = project
+    release = asyncio.Event()
+
+    async def final_summary(session):
+        await release.wait()
+
+    client.app.state.ctx.recorder.final_summary = final_summary
+    with client.websocket_connect("/ws") as ws:
+        assert ws.receive_json()["summarizing"] == []
+        sid = start(ws, pid)
+        ws.send_bytes(chunk(0, value=3000))
+        receive_until(ws, of_type("ack", seq=0))
+        ws.send_json({"type": "stop"})
+        # 録音中の数が減ったことを知らせる status に、要約を待っていることが含まれる（#118）
+        ended = receive_until(ws, lambda m: m["type"] == "status" and m["recordings"] == 0)[-1]
+        assert ended["summarizing"] == [sid]
+        client.portal.call(release.set)
+        # 要約のジョブが終わったら外れる（結果を取りこぼしたブラウザは、これで取り直す）
+        receive_until(ws, lambda m: m["type"] == "status" and m["summarizing"] == [])
+    finished(client, sid)
+
+
+def test_summarizing_is_cleared_even_if_the_final_summary_fails(client, project):
+    pid, _ = project
+
+    async def final_summary(session):
+        raise RuntimeError("broken")
+
+    client.app.state.ctx.recorder.final_summary = final_summary
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        sid = start(ws, pid)
+        ws.send_bytes(chunk(0, value=3000))
+        receive_until(ws, of_type("ack", seq=0))
+        ws.send_json({"type": "stop"})
+        receive_until(ws, lambda m: m["type"] == "status" and m["summarizing"] == [sid])
+        receive_until(ws, lambda m: m["type"] == "status" and m["summarizing"] == [])
+    finished(client, sid)
+    assert client.app.state.ctx.hub.status.summarizing == []
+
+
 def test_interrupted_recording_is_converted_without_a_final_summary(client, project):
     pid, d = project
     summarized = []

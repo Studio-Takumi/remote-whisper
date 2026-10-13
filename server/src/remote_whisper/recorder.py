@@ -120,6 +120,9 @@ class RecordingSession:
         self._handed_over: str | None = None
         # mp3 に変換している途中（続きを録音するときは、終わるのを待つ。WAV を読んでいるため）
         self.converting = False
+        # 最終の要約を作る予定のあいだ、status の summarizing から外すための関数（#118）。
+        # 録音を終えたときに入れ、要約を積んだらキューのジョブに引き渡す
+        self._summary_end: Callable[[], None] | None = None
 
     def start_transcribing(self, whisper: WhisperWorker, gpu: GpuQueue, settings: Settings) -> None:
         meta = self.writer.meta
@@ -257,6 +260,10 @@ class RecordingSession:
         if self.ended:
             return
         self.ended = True
+        if status == "done" and self.manager.will_summarize():
+            # 録音中の数が減ったことを送る status に、要約を待っていることを含める
+            # （ブラウザは、summarizing から外れたら要約ができたものとして取り直す）
+            self._summary_end = self.manager.hub.begin_summary(self.id)
         try:
             self.wav.close()
             self.writer.finish(self.elapsed, status=status)
@@ -271,7 +278,20 @@ class RecordingSession:
         # 残りの文字起こし・変換・最終の要約は時間がかかるので、受信の処理を止めないように後ろで行う
         self._finishing = asyncio.create_task(self._finish(status))
 
+    def _settle_summary(self) -> None:
+        """要約を積まずに後始末を終えた（失敗・引き継ぎ）。summarizing から外す"""
+        end, self._summary_end = self._summary_end, None
+        if end is not None:
+            end()
+
     async def _finish(self, status: str) -> None:
+        try:
+            await self._finish_steps(status)
+        finally:
+            # 要約を積んでいれば、外すのはキューのジョブが終わったとき（_summary_end は None）
+            self._settle_summary()
+
+    async def _finish_steps(self, status: str) -> None:
         if self.summarizer is not None:
             # 途中の要約のタイマーを止める。作っている途中のものは、キューの中でそのまま終わる
             # （最終の要約は優先度が低いので、その後に動く）
@@ -301,12 +321,18 @@ class RecordingSession:
         if status == "done":
             self.manager.submit_final_summary(self)
 
+    async def _complete_taken_back(self, status: str) -> None:
+        try:
+            await self._complete(status)
+        finally:
+            self._settle_summary()
+
     def take_back(self) -> None:
         """続きの録音に引き継ごうとしたが、続けられなかった。後始末を元どおり行う（#101）"""
         self.superseded = False
         if self._handed_over is not None:
             status, self._handed_over = self._handed_over, None
-            self._finishing = asyncio.create_task(self._complete(status))
+            self._finishing = asyncio.create_task(self._complete_taken_back(status))
 
     async def _convert(self) -> None:
         """WAV を mp3 に変換して WAV を消す。失敗したら WAV を残す（次の起動時に変換し直す: #33）"""
@@ -538,14 +564,22 @@ class RecordingManager:
                 session.summarizer.context = load_context(writer.files.dir, set_id)
             log.info("session %s now uses the context set %s", session.id, set_id)
 
+    def will_summarize(self) -> bool:
+        """録音を終えたら最終の要約を作るサーバーか"""
+        return self.final_summary is not None and self.gpu is not None
+
     def submit_final_summary(self, session: RecordingSession) -> None:
         if self.final_summary is None or self.gpu is None:
             return
         job = self.final_summary
+        # summarizing から外すのは、ジョブが終わったとき（失敗・cancel でも）
+        end = session._summary_end or self.hub.begin_summary(session.id)
+        session._summary_end = None
         future = self.gpu.submit(
             Priority.BACKGROUND, lambda: job(session), kind="finalSummary", session=session.id
         )
         future.add_done_callback(_ignore_summary_failure)
+        future.add_done_callback(lambda _: end())
 
     async def close(self) -> None:
         """サーバーを止めるとき。録音中の WAV を閉じ、録音を終えたあとの処理を止める

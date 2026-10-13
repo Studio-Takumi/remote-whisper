@@ -132,7 +132,10 @@ def test_ollama_unavailable_keeps_the_live_summary(client, project, fake_ollama)
     with client.websocket_connect("/ws") as ws:
         ws.receive_json()
         assert client.post(f"{url}/summaries").status_code == 202
+        # 作り直している間も status の summarizing に入る（#118）
+        receive_until(ws, lambda m: m["type"] == "status" and m["summarizing"] == [sid])
         receive_until(ws, lambda m: m["type"] == "title" and not m["provisional"])
+        receive_until(ws, lambda m: m["type"] == "status" and m["summarizing"] == [])
     assert client.get(url).json()["summaryFailed"] is False
 
 
@@ -535,3 +538,24 @@ def test_unreadable_transcript_is_reported(home, fake, tmp_path):
 
     assert asyncio.run(summarizer.run(writer, send)) is None
     assert [m["code"] for m in sent] == ["summary_skipped"]
+
+
+def test_unexpected_error_is_reported_and_recorded(home, fake, tmp_path, monkeypatch):
+    async def broken(*args, **kwargs):
+        raise RuntimeError("broken")
+
+    # タイトルを作る途中の思わぬ例外でも、「作成中」のまま残さない（#118）
+    monkeypatch.setattr(final_summary, "make_title", broken)
+    settings = SettingsStore(home)
+    summarizer = FinalSummarizer(
+        OllamaClient(Hub(), settings, transport=fake.transport()), settings
+    )
+    writer = StubWriter(tmp_path)
+    sent = []
+
+    async def send(m):
+        sent.append(m)
+
+    assert asyncio.run(summarizer.run(writer, send)) is None
+    assert sent[-1]["type"] == "error" and sent[-1]["code"] == "summary_failed"
+    assert writer.summary_failed is True

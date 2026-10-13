@@ -65,6 +65,7 @@ def test_status_on_connect(mock_client):
             "jobs": {"running": None, "waiting": []},
             # モックでは GPU の使用率を取らない
             "gpu": None,
+            "summarizing": [],
         }
 
 
