@@ -422,6 +422,17 @@ function SettingsForm({
                                 onCheckedChange={(autoGainControl) => update('recording', { autoGainControl })}
                             />
                         </Row>
+                        <Row
+                            id='echo-cancellation'
+                            label='ブラウザのエコー除去'
+                            description='スピーカーの音がマイクに回り込むのを消す。文字起こしが止まるときは切ってみる。次に録音を始めたときから効く'
+                        >
+                            <Switch
+                                id='echo-cancellation'
+                                checked={draft.recording.echoCancellation}
+                                onCheckedChange={(echoCancellation) => update('recording', { echoCancellation })}
+                            />
+                        </Row>
                     </Section>
                     <Section title='保存期間' description='期間を過ぎたファイルは自動で消える。0 にすると無期限'>
                         <Row id='keep-recording' label='録音ファイル'>

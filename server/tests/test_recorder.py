@@ -237,6 +237,9 @@ def test_resume_and_interrupted(client, project, keep_wav):
         # 受け取り済みの録音の長さも返す（ページを読み込み直したブラウザが経過時間を戻すため。#102）
         started = next(m for m in seen if m["type"] == "started")
         assert started["offsetSec"] == pytest.approx(100 / 16000)
+        # 文字起こしが止まっているかの今の状態も送り直す（切れている間の知らせは届かないため。#120）
+        stalled = receive_until(ws, of_type("transcriptionStalled"))[-1]
+        assert stalled["stalled"] is False
         ws.send_bytes(chunk(1, samples=100))
         receive_until(ws, of_type("ack", seq=1))
 

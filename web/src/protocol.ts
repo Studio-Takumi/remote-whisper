@@ -44,6 +44,8 @@ export type ServerMessage =
     | { type: 'partial'; session: string; segment: number; committed: string; tentative: string }
     // start・end は録音の開始からの秒数
     | { type: 'final'; session: string; segment: number; start: number; end: number; text: string }
+    // 音は届いているのに文字起こしが出ていない（stalled: true）・また出るようになった（false）。#120
+    | { type: 'transcriptionStalled'; session: string; stalled: boolean }
     | { type: 'summary.delta'; session: string; kind: SummaryKind; text: string }
     | { type: 'summary.done'; session: string; kind: SummaryKind }
     | { type: 'title'; session: string; title: string; provisional: boolean }

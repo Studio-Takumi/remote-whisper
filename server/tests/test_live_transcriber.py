@@ -2,6 +2,7 @@ import asyncio
 
 import numpy as np
 
+from remote_whisper import live_transcriber
 from remote_whisper.documents import dump, hotwords_name
 from remote_whisper.gpu_queue import GpuQueue
 from remote_whisper.live_transcriber import LiveTranscriber, load_hotwords
@@ -251,6 +252,35 @@ def test_append_failure_is_reported_but_final_is_sent():
     h = run(main())
     assert [m["code"] for m in h.of_type("error")] == ["write_failed"]
     assert [m["text"] for m in h.of_type("final")] == ["1秒"]
+
+
+def test_tells_when_loud_audio_gives_no_text(monkeypatch):
+    monkeypatch.setattr(live_transcriber, "STALL_LOUD_SEC", 1.0)
+
+    async def go():
+        h = Harness()
+        silent = h.whisper.transcribe
+
+        async def nothing(pcm, **options):
+            await silent(pcm, **options)
+            return []
+
+        h.whisper.transcribe = nothing
+        # 声くらいの音が届いても文字にならない（#120）
+        h.live.feed(tone(0.7) + silence(0.3) + tone(0.7) + silence(0.3))
+        await h.live.wait()
+        await asyncio.sleep(0.2)
+        stalled = list(h.of_type("transcriptionStalled"))
+        # 文字が出たら、止まっていないと知らせ直す
+        h.whisper.transcribe = silent
+        h.live.feed(tone(0.7) + silence(0.3))
+        await h.live.wait()
+        await h.close()
+        return stalled, h.of_type("transcriptionStalled")
+
+    stalled, all_messages = run(go())
+    assert stalled == [{"type": "transcriptionStalled", "stalled": True}]
+    assert all_messages[-1] == {"type": "transcriptionStalled", "stalled": False}
 
 
 def test_load_hotwords(tmp_path):

@@ -13,6 +13,9 @@
   # 離れた場所の小さい声: ずっと鳴っている雑音の中に、小さい声の会話を置く（#88）
   uv run --project server python scripts/make_noise_test_audio.py faint \
       --talk D:\\work\\other.wav --voice-db -50 --floor-db -63 --out D:\\work\\faint.wav
+  # 途中から、響きが多く強いノイズ抑制がかかった音にする（VAD が反応しなくなる。#120）
+  uv run --project server python scripts/make_noise_test_audio.py degrade \
+      --talk D:\\work\\talk.wav --out D:\\work\\degrade.wav
 """
 
 import argparse
@@ -109,6 +112,57 @@ def make_faint(args: argparse.Namespace) -> None:
     write(args.out, out)
 
 
+def lowpass(audio: np.ndarray, cutoff: float, taps: int = 511) -> np.ndarray:
+    t = np.arange(taps) - taps // 2
+    h = np.sinc(2 * cutoff / RATE * t) * np.hamming(taps)
+    return np.convolve(audio, h / h.sum(), "same").astype(np.float32)
+
+
+def reverb(audio: np.ndarray, rt60: float, rng: np.random.Generator) -> np.ndarray:
+    """指数で減衰する雑音を残響の応答にする（部屋の響きのまね）"""
+    n = int(rt60 * RATE)
+    ir = rng.standard_normal(n) * np.exp(-6.9 * np.arange(n) / n)
+    ir[0] = 1.0
+    return np.convolve(audio, ir)[: len(audio)].astype(np.float32)
+
+
+def suppress(audio: np.ndarray, strength: float, rng: np.random.Generator) -> np.ndarray:
+    """強いノイズ抑制のまね。周波数ごとに小さい成分を消し、残りもまばらに欠けさせる"""
+    n, hop = 512, 128
+    win = np.hanning(n)
+    padded = np.pad(audio, (n, n))
+    frames = np.lib.stride_tricks.sliding_window_view(padded, n)[::hop] * win
+    spec = np.fft.rfft(frames, axis=1)
+    mag = np.abs(spec)
+    mask = mag > np.quantile(mag, 0.6, axis=0) * strength
+    mask &= rng.random(mask.shape) > 0.3
+    out = np.zeros(len(frames) * hop + n)
+    norm = np.zeros_like(out)
+    for i, frame in enumerate(np.fft.irfft(spec * mask, n=n, axis=1) * win):
+        out[i * hop : i * hop + n] += frame
+        norm[i * hop : i * hop + n] += win**2
+    return (out / np.maximum(norm, 1e-6))[n : n + len(audio)].astype(np.float32)
+
+
+def make_degrade(args: argparse.Namespace) -> None:
+    """録音の途中から、マイクの処理が変わったような音にする（#120）
+
+    前半はそのままの会話、後半は残響を足して強いノイズ抑制をかけた会話（帯域を狭めることもできる）。
+    音量（RMS）はどちらも同じにする。既定の強さでは、後半は Silero VAD がほとんど反応しなくなるが、
+    Whisper はまだ中身を（誤りを含みながら）聞き取れる
+    """
+    rng = np.random.default_rng(0)
+    talk = read(args.talk)
+    if args.cutoff is not None:
+        talk_changed = lowpass(talk, args.cutoff)
+    else:
+        talk_changed = talk
+    changed = suppress(reverb(talk_changed, args.rt60, rng), args.strength, rng)
+    out = np.concatenate([at_dbfs(talk, args.db), at_dbfs(changed, args.db), silence(3)])
+    out += pink_noise(len(out) / RATE, args.floor_db, rng)[: len(out)]
+    write(args.out, out)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawTextHelpFormatter
@@ -132,8 +186,21 @@ def main() -> None:
     f.add_argument("--voice-db", type=float, default=-50, help="声の大きさ（dBFS、RMS）")
     f.add_argument("--floor-db", type=float, default=-63, help="雑音の大きさ（dBFS）")
     f.add_argument("--out", type=Path, required=True)
+    d = sub.add_parser("degrade", help="途中から VAD が反応しにくい音にする（#120）")
+    d.add_argument("--talk", type=Path, required=True)
+    d.add_argument("--db", type=float, default=-25, help="声の大きさ（dBFS、RMS）")
+    d.add_argument("--cutoff", type=float, help="帯域の上限（Hz）。省くと狭めない")
+    d.add_argument("--rt60", type=float, default=1.0, help="残響の長さ（秒）")
+    d.add_argument("--strength", type=float, default=10, help="ノイズ抑制の強さ")
+    d.add_argument("--floor-db", type=float, default=-65, help="ずっと鳴っている雑音（dBFS）")
+    d.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
-    {"silence": make_silence, "background": make_background, "faint": make_faint}[args.kind](args)
+    {
+        "silence": make_silence,
+        "background": make_background,
+        "faint": make_faint,
+        "degrade": make_degrade,
+    }[args.kind](args)
 
 
 if __name__ == "__main__":

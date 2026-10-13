@@ -29,6 +29,13 @@ def test_closes_a_segment_after_silence():
     assert seg.index == 1
 
 
+def test_counts_how_long_it_heard_speech():
+    # 文字起こしが止まっていないかを見るのに使う（#120）
+    seg = Segmenter(silence_ms=200, max_segment_sec=25)
+    seg.feed(tone(1.0) + silence(0.5) + tone(0.5))
+    assert seg.loud_sec == pytest.approx(1.5)
+
+
 def test_short_pauses_do_not_split():
     seg = Segmenter(silence_ms=600, max_segment_sec=25)
     closed = seg.feed(tone(0.5) + silence(0.3) + tone(0.5) + silence(0.7))
