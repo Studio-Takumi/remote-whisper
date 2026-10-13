@@ -4,8 +4,16 @@
 声のピークしか越えずに細切れになる。Silero VAD も、元の音量のままでは小さい声を声と判定しない。
 そこで、直近の音量に合わせて音を持ち上げてから VAD にかけ、話している区間を切り出す。
 Whisper にも持ち上げた音を渡す（保存する録音は元の音のまま。recorder.py が別に書く）。
+
+音量は話し声くらいあるのに、VAD がずっと「話していない」と判定し続けることがある（#120。
+ブラウザか OS のマイクの処理が途中で切り替わったときなど、音の性質が変わると
+Silero が反応しなくなる）。FALLBACK_AFTER_SEC のあいだ VAD が一度も反応せず、その間に
+声くらいの音（周りの音より LOUD_MARGIN_DB 以上大きい音）が FALLBACK_LOUD_RATIO 以上あったら、
+音量で区切る（フォールバック）。VAD が RECOVER_WINDOWS 続けて反応したら戻す。
+話していない区間から出た文は、ハルシネーションの判定で落とす。
 """
 
+import logging
 import math
 import threading
 from collections import deque
@@ -39,6 +47,24 @@ GAIN_WINDOW_SEC = 2.0
 GAIN_QUANTILE = 0.95
 TARGET_DBFS = -20.0
 MAX_GAIN_DB = 30.0
+
+# VAD が反応しなくなったときの、音量での区切り（#120）
+FALLBACK_AFTER_SEC = 20.0
+FALLBACK_LOUD_RATIO = 0.2
+# 話し声には息継ぎや間がある。ほとんどずっと同じ大きさで鳴り続ける音（換気扇・雑音）では
+# 切り替えない。
+# 実際に VAD が反応しなくなった録音では 29〜69%、弱い雑音だけの区間では 97% 以上だった
+FALLBACK_MAX_LOUD_RATIO = 0.9
+# 周りの音（直近 FLOOR_WINDOW_SEC の音量の下から FLOOR_QUANTILE）よりこれだけ大きく、
+# かつ LOUD_MIN_DBFS より大きければ、声くらいの音とみなす（元の音量で比べる）。
+# 離れた場所の小さい声（-50 dBFS 前後）は対象にしない（そこは VAD と持ち上げに任せる）
+LOUD_MARGIN_DB = 12.0
+LOUD_MIN_DBFS = -35.0
+FLOOR_WINDOW_SEC = 30.0
+FLOOR_QUANTILE = 0.1
+RECOVER_WINDOWS = 3
+
+log = logging.getLogger(__name__)
 
 # 窓を並べた (n, CONTEXT + WINDOW) の配列を受け取り、それぞれの話している確率を返す
 Probabilities = Callable[[np.ndarray], np.ndarray]
@@ -119,6 +145,16 @@ class VadSegmenter:
         self._start = 0
         self._silence = 0  # 区間の中で続いている、話していない窓の数
         self._voiced = 0  # 区間の中で、話している確率がしきい値以上だった窓の数
+        # VAD が反応しなくなったときの、音量での区切り（#120）
+        self.fallback = False
+        self.fallback_count = 0  # 音量での区切りに切り替えた回数
+        # 声くらいの音だった長さ（秒）の合計。文字起こしが止まっていないかを見るのに使う
+        self.loud_sec = 0.0
+        self._floor_levels: deque[float] = deque(maxlen=int(FLOOR_WINDOW_SEC / WINDOW_SEC))
+        # VAD が続けて反応しなかった窓が、声くらいの音だったか（直近 FALLBACK_AFTER_SEC）
+        self._quiet: deque[bool] = deque(maxlen=int(FALLBACK_AFTER_SEC / WINDOW_SEC))
+        self._quiet_loud = 0
+        self._recover = 0
 
     @property
     def in_speech(self) -> bool:
@@ -153,9 +189,11 @@ class VadSegmenter:
         contexts = np.concatenate([self._context[None], boosted[:-1, -CONTEXT:]])
         self._context = boosted[-1, -CONTEXT:].copy()
         probs = self._probabilities(np.concatenate([contexts, boosted], axis=1))
+        loud = self._loud(audio)
         closed = []
-        for window, gain, prob in zip(raw, gains, probs, strict=True):
-            segment = self._window(window.tobytes(), float(gain), float(prob))
+        for window, gain, prob, is_loud in zip(raw, gains, probs, loud, strict=True):
+            speech = self._speech_prob(float(prob), bool(is_loud))
+            segment = self._window(window.tobytes(), float(gain), speech)
             if segment is not None:
                 closed.append(segment)
         return closed
@@ -170,6 +208,54 @@ class VadSegmenter:
         else:
             self._current.extend(rest)
         return self._close()
+
+    def _loud(self, audio: np.ndarray) -> np.ndarray:
+        """窓ごとに、元の音が声くらいの大きさか（周りの音より LOUD_MARGIN_DB 以上大きいか）"""
+        rms = np.sqrt(np.mean(audio**2, axis=1))
+        levels = np.where(rms > 0, 20 * np.log10(np.maximum(rms, 1e-10)), SILENT_DBFS)
+        self._floor_levels.extend(levels.tolist())
+        history = np.fromiter(self._floor_levels, dtype=np.float32)
+        floor = float(np.quantile(history, FLOOR_QUANTILE))
+        return levels >= max(floor + LOUD_MARGIN_DB, LOUD_MIN_DBFS)
+
+    def _speech_prob(self, prob: float, loud: bool) -> float:
+        """区切りに使う「話している確率」。ふだんは VAD のもの、フォールバック中は音量から決める"""
+        if loud:
+            self.loud_sec += WINDOW_SEC
+        at = self._samples / SAMPLE_RATE
+        if prob >= self.threshold:
+            self._quiet.clear()
+            self._quiet_loud = 0
+            if self.fallback:
+                self._recover += 1
+                if self._recover >= RECOVER_WINDOWS:
+                    self.fallback = False
+                    log.info("VAD responds again at %.1fs; segmenting by VAD", at)
+        else:
+            self._recover = 0
+            if len(self._quiet) == self._quiet.maxlen and self._quiet[0]:
+                self._quiet_loud -= 1
+            self._quiet.append(loud)
+            self._quiet_loud += loud
+            if (
+                not self.fallback
+                and len(self._quiet) == self._quiet.maxlen
+                and FALLBACK_LOUD_RATIO * len(self._quiet)
+                <= self._quiet_loud
+                <= FALLBACK_MAX_LOUD_RATIO * len(self._quiet)
+            ):
+                self.fallback = True
+                self.fallback_count += 1
+                log.warning(
+                    "VAD has not responded for %.0fs although the audio is loud "
+                    "(%.0f%% of windows) at %.1fs; segmenting by level",
+                    FALLBACK_AFTER_SEC,
+                    100 * self._quiet_loud / len(self._quiet),
+                    at,
+                )
+        if self.fallback and self._recover == 0:
+            return 1.0 if loud else 0.0
+        return prob
 
     def _update_gain(self, window: np.ndarray) -> None:
         rms = float(np.sqrt(np.mean(window**2)))

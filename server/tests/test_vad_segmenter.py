@@ -167,6 +167,54 @@ def test_digital_silence_is_not_speech():
     assert seg.flush() is None
 
 
+class SwitchableVad:
+    """偽の VAD: deaf の間は何を流しても話していないと答える（#120）"""
+
+    def __init__(self):
+        self.deaf = True
+
+    def __call__(self, windows: np.ndarray) -> np.ndarray:
+        if self.deaf:
+            return np.zeros(len(windows), dtype=np.float32)
+        return loud_is_speech(windows)
+
+
+def talk(cycles: int, voice_db: float = -20, room_db: float = -60) -> bytes:
+    """話し声らしい音: 約 1.9 秒の声と約 1.3 秒の間を繰り返す"""
+    return (level(60, voice_db) + level(40, room_db)) * cycles
+
+
+def test_falls_back_to_level_when_the_vad_stops_responding():
+    vad = SwitchableVad()
+    seg = VadSegmenter(silence_ms=600, max_segment_sec=25, probabilities=vad)
+    # 20 秒（625 窓）までは VAD に従うので、区切らない
+    assert seg.feed(talk(6)) == []
+    assert not seg.fallback
+    closed = seg.feed(talk(6))
+    assert seg.fallback and seg.fallback_count == 1
+    # 音量で区切った区間が出る。声の部分を含み、voiced_sec は声くらいの音だった長さ
+    assert closed
+    assert all(s.voiced_sec and s.voiced_sec > 0 for s in closed)
+    # VAD がまた反応したら戻す
+    vad.deaf = False
+    seg.feed(talk(2))
+    assert not seg.fallback
+
+
+def test_steady_noise_does_not_switch_to_level():
+    # ずっと同じ大きさで鳴り続ける音は、VAD が反応しなくても声とはみなさない
+    seg = VadSegmenter(silence_ms=600, max_segment_sec=25, probabilities=SwitchableVad())
+    seg.feed(level(100, -60) + level(1000, -30))
+    assert not seg.fallback
+
+
+def test_quiet_sounds_do_not_switch_to_level():
+    # 小さい音（-35 dBFS 未満）は、間があっても声くらいの音とはみなさない
+    seg = VadSegmenter(silence_ms=600, max_segment_sec=25, probabilities=SwitchableVad())
+    assert seg.feed(talk(12, voice_db=-45, room_db=-80)) == []
+    assert not seg.fallback
+
+
 def test_silero_carries_its_state_across_calls():
     # まとめて判定しても、少しずつ判定しても、同じ確率になる
     rng = np.random.default_rng(0)
