@@ -5,9 +5,12 @@ from pathlib import Path
 from typing import Any
 
 from remote_whisper.documents import (
+    FINAL_TRANSCRIPT_RE,
     SUMMARY_RE,
+    FinalTranscriptMeta,
     SummaryMeta,
     TranscriptMeta,
+    final_transcript_name,
     read_doc,
     recording_name,
     summary_name,
@@ -59,14 +62,38 @@ class SessionFiles:
             result.append(meta.model_copy(update={"id": self.id, "generation_id": m.group(2)}))
         return sorted(result, key=lambda s: s.generation_id)
 
+    def final_transcript(self, gid: str) -> Path:
+        return self.dir / final_transcript_name(self.id, gid)
+
+    def final_transcripts(self) -> list[FinalTranscriptMeta]:
+        """最終の文字起こし（#121）のフロントマター。生成 ID の昇順。読めないものは飛ばす"""
+        result = []
+        for path in sorted(self.dir.glob(f"transcript-final-{self.id}-*.md")):
+            m = FINAL_TRANSCRIPT_RE.fullmatch(path.name)
+            if not m or m.group(1) != self.id:
+                continue
+            try:
+                meta, _ = read_doc(path, FinalTranscriptMeta)
+            except (OSError, ValueError):
+                continue
+            result.append(meta.model_copy(update={"id": self.id, "generation_id": m.group(2)}))
+        return sorted(result, key=lambda s: s.generation_id)
+
     def availability(self) -> dict[str, Any]:
         """どのファイルが残っているか。保存期間を過ぎて消えたものを UI で「期限切れ」と出すため"""
         return {
             "recording": self.recording() is not None,
             "transcript": self.transcript.is_file(),
+            "finalTranscripts": len(self.final_transcripts()),
             "summaries": len(self.summaries()),
             "liveSummary": self.live_summary.is_file(),
         }
+
+
+def summary_source(files: SessionFiles) -> Path:
+    """最終の要約を作る元。最終の文字起こし（#121）があれば、いちばん新しいもの。なければ録音中の文字起こし"""
+    finals = files.final_transcripts()
+    return files.final_transcript(finals[-1].generation_id) if finals else files.transcript
 
 
 def pick_latest(summaries: list[SummaryMeta], final_model: str) -> SummaryMeta | None:

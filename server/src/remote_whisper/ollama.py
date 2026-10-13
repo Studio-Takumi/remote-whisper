@@ -195,6 +195,21 @@ class OllamaClient:
         """本文をまとめて返す"""
         return "".join([part async for part in self.chat_stream(model, messages, **kwargs)])
 
+    async def unload_all(self) -> None:
+        """読み込まれているモデルをすべて下ろして VRAM を空ける（最終の文字起こしの前。#121）
+
+        つながらなければ何もしない（下ろせなくても文字起こしは試す）
+        """
+        with contextlib.suppress(OllamaUnavailable):
+            loaded = await self._request("GET", "/api/ps")
+            for item in loaded.get("models") or []:
+                name = item.get("name") or item.get("model")
+                if name:
+                    await self._request(
+                        "POST", "/api/generate", json={"model": name, "keep_alive": 0}
+                    )
+                    self._pinned.discard(name)
+
     async def recording_ended(self) -> None:
         """録音がすべて終わった
 

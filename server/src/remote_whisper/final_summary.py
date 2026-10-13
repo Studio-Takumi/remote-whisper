@@ -33,6 +33,7 @@ from remote_whisper.prompts import (
     reduce_summary_messages,
 )
 from remote_whisper.session_writer import SessionWriter
+from remote_whisper.sessions import summary_source
 from remote_whisper.settings import SettingsStore
 from remote_whisper.summary_parts import (
     CHUNK_CHARS,
@@ -159,7 +160,8 @@ class FinalSummarizer:
             except Exception:  # noqa: BLE001
                 log.exception("failed to unload whisper before the summary")
         try:
-            _, body = parse(writer.files.transcript.read_text(encoding="utf-8"))
+            # 最終の文字起こし（#121）があれば、そちらから作る（文ごとの行で、取りこぼしも少ない）
+            _, body = parse(summary_source(writer.files).read_text(encoding="utf-8"))
         except (OSError, ValueError) as e:
             log.warning("could not read the transcript of %s: %s", writer.id, e)
             await send(

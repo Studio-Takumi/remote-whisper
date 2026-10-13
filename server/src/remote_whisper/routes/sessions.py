@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 
 from remote_whisper.context import AppContext, get_ctx
-from remote_whisper.documents import SummaryMeta, read_doc
+from remote_whisper.documents import FinalTranscriptMeta, SummaryMeta, read_doc
 from remote_whisper.gpu_queue import Priority
 from remote_whisper.projects import ProjectError, ProjectFile, SessionEntry
 from remote_whisper.session_writer import SessionWriter
@@ -95,6 +95,35 @@ def get_transcript(pid: str, sid: str, ctx: Ctx) -> dict[str, Any]:
         meta, body = read_transcript(files)
     except (OSError, ValueError) as e:
         raise HTTPException(status_code=500, detail=f"文字起こしを読み込めません: {e}") from e
+    return {"meta": meta.to_json(), "lines": parse_transcript_lines(body)}
+
+
+@router.get("/{sid}/final-transcripts")
+def list_final_transcripts(pid: str, sid: str, ctx: Ctx) -> list[dict[str, Any]]:
+    """最終の文字起こし（#121）の世代。古いものから"""
+    _, files = _session(ctx, pid, sid)
+    return [m.to_json() for m in files.final_transcripts()]
+
+
+@router.get("/{sid}/final-transcripts/{gid}")
+def get_final_transcript(pid: str, sid: str, gid: str, ctx: Ctx) -> dict[str, Any]:
+    """`latest` はいちばん新しい世代"""
+    _, files = _session(ctx, pid, sid)
+    finals = files.final_transcripts()
+    if gid == "latest":
+        if not finals:
+            raise _gone("最終の文字起こし")
+        gid = finals[-1].generation_id
+    elif not ID_RE.fullmatch(gid):
+        raise HTTPException(status_code=404, detail="最終の文字起こしがありません")
+    path = files.final_transcript(gid)
+    if not path.is_file():
+        raise _gone("最終の文字起こし")
+    try:
+        meta, body = read_doc(path, FinalTranscriptMeta)
+    except (OSError, ValueError) as e:
+        raise HTTPException(status_code=500, detail=f"文字起こしを読み込めません: {e}") from e
+    meta = meta.model_copy(update={"id": sid, "generation_id": gid})
     return {"meta": meta.to_json(), "lines": parse_transcript_lines(body)}
 
 

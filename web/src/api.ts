@@ -54,7 +54,14 @@ export type ProjectJson = {
 };
 
 // どのファイルが残っているか。保存期間を過ぎて消えたものは「期限切れ」と出す
-export type SessionFiles = { recording: boolean; transcript: boolean; summaries: number; liveSummary: boolean };
+// finalTranscripts は最終の文字起こしの世代の数（#121。古いサーバーにはない）
+export type SessionFiles = {
+    recording: boolean;
+    transcript: boolean;
+    finalTranscripts?: number;
+    summaries: number;
+    liveSummary: boolean;
+};
 
 export type SessionJson = {
     id: string;
@@ -74,6 +81,18 @@ export type SessionJson = {
 export type TranscriptJson = {
     lines: { time: string; text: string }[];
     meta?: { pickedTerms?: string[] };
+};
+
+// 最終の文字起こし（#121）。meta はフロントマター（使うところだけ）
+export type FinalTranscriptJson = {
+    lines: { time: string; text: string }[];
+    meta: {
+        generationId: string;
+        model: string;
+        generatedAt: string;
+        diarization: 'done' | 'off' | 'unavailable';
+        speakers: number;
+    };
 };
 
 // 拾った語を消したときの返事（#103）

@@ -312,13 +312,17 @@ class RecordingSession:
         await self._complete(status)
 
     async def _complete(self, status: str) -> None:
-        """mp3 に変換して、録音を終えたのなら最終の要約を積む"""
+        """mp3 に変換して、録音を終えたのなら最終の文字起こしを作り（#121）、最終の要約を積む
+
+        最終の要約は、最終の文字起こしができればそちらから作るので、できるまで待つ
+        """
         self.converting = True
         try:
             await self._convert()
         finally:
             self.converting = False
         if status == "done":
+            await self.manager.make_final_transcript(self)
             self.manager.submit_final_summary(self)
 
     async def _complete_taken_back(self, status: str) -> None:
@@ -399,6 +403,8 @@ class RecordingManager:
         self.ollama = ollama
         # 録音を終えたあとに GPU キューに積む、最終の要約（#27 で入れる）
         self.final_summary: Callable[[RecordingSession], Awaitable[None]] | None = None
+        # 録音を終えたあと、最終の要約の前に作る最終の文字起こし（FinalTranscriber。#121）
+        self.final_transcript: Any = None
         # 録音中のセッションの数が変わったときに呼ぶ（設定のロックに使う）
         self.on_count = on_count or (lambda n: None)
         # 接続が切れてから resume を待つ秒数。None なら全体設定（recording.resumeTimeoutMin）
@@ -568,6 +574,16 @@ class RecordingManager:
             if session.summarizer is not None and writer.use_context:
                 session.summarizer.context = load_context(writer.files.dir, set_id)
             log.info("session %s now uses the context set %s", session.id, set_id)
+
+    async def make_final_transcript(self, session: RecordingSession) -> None:
+        """録音全体から最終の文字起こしを作る（#121）。作れなくても、最終の要約は作る"""
+        final = self.final_transcript
+        if final is None or not final.enabled():
+            return
+        try:
+            await final.run(session.writer.files, session.writer.meta)
+        except Exception:  # noqa: BLE001 作れなければ、録音中の文字起こしから要約を作る
+            log.exception("failed to make the final transcript of %s", session.id)
 
     def will_summarize(self) -> bool:
         """録音を終えたら最終の要約を作るサーバーか"""

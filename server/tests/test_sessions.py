@@ -105,6 +105,7 @@ def test_list_sessions_newest_first_with_files(client, project):
     assert body[0]["files"] == {
         "recording": True,
         "transcript": True,
+        "finalTranscripts": 0,
         "summaries": 2,
         "liveSummary": False,
     }
@@ -112,6 +113,7 @@ def test_list_sessions_newest_first_with_files(client, project):
     assert body[1]["files"] == {
         "recording": False,
         "transcript": False,
+        "finalTranscripts": 0,
         "summaries": 0,
         "liveSummary": False,
     }

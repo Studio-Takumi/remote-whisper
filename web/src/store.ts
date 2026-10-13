@@ -6,7 +6,15 @@ import { type MicState, Microphone, MicrophoneError, SAMPLE_RATE, watchMicrophon
 import { type UnsentSession, clearSession, deleteUpTo, listUnsent, restoreSize, saveChunk } from '@/audio/unsentStore';
 import { keepScreenOn, screenKeptOn } from '@/audio/wakeLock';
 import { AudioSender, connection } from '@/connection';
-import { fetchContextSets, fetchProjects, fetchSessionDetail, isDemo, mergeProjects, toSelection } from '@/data';
+import {
+    fetchContextSets,
+    fetchFinalTranscript,
+    fetchProjects,
+    fetchSessionDetail,
+    isDemo,
+    mergeProjects,
+    toSelection,
+} from '@/data';
 import { demoProjects, fallbackOptions, initialContextSets } from '@/mock';
 import { fetchOptions } from '@/options';
 import type { ServerMessage, SettingsOptions } from '@/protocol';
@@ -600,6 +608,27 @@ export const useAppStore = create<AppState>()((set, get) => {
         }
     }
 
+    async function receiveFinalTranscript(sessionId: string) {
+        const project = get().projects.find((p) => p.sessions.some((x) => x.id === sessionId));
+        if (!project) {
+            // まだ一覧にない（ほかの端末のセッションなど）
+            void get().loadProjects();
+            return;
+        }
+        try {
+            const finalTranscript = await fetchFinalTranscript(project.id, sessionId);
+            set((s) => ({
+                projects: updateSession(s.projects, sessionId, (x) => ({
+                    ...x,
+                    finalTranscript,
+                    files: x.files && { ...x.files, finalTranscripts: (x.files.finalTranscripts ?? 0) + 1 },
+                })),
+            }));
+        } catch {
+            // 取れなければ、次に一覧を取り直したときに出る
+        }
+    }
+
     // セッションの文字起こしと要約を取ってくる（開いたとき）
     async function loadSession(projectId: string, session: Session) {
         try {
@@ -1048,6 +1077,10 @@ export const useAppStore = create<AppState>()((set, get) => {
                             text: (s.generating?.sessionId === m.session ? s.generating.text : '') + m.text,
                         },
                     }));
+                } else if (m.type === 'finalTranscript' && !isDemo) {
+                    // 最終の文字起こしができた（#121）。最終の要約を待っている間（一覧の取り直しでは中身を
+                    // 置き換えない）でも出せるように、そのセッションの最終の文字起こしだけを取ってきて足す
+                    void receiveFinalTranscript(m.session);
                 } else if (m.type === 'title') {
                     set((s) => ({
                         projects: updateSession(s.projects, m.session, (x) => ({

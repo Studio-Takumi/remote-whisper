@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { isScrolledToBottom, scrollToBottom } from '@/scroll';
-import { summaryStatus, transcriptStatus } from '@/status';
+import { makingFinalTranscript, summaryStatus, transcriptStatus } from '@/status';
 import { currentProject, currentSession, useAppStore, visibleProjects } from '@/store';
 import { clockToSeconds } from '@/time';
 import type { Generating, Session, Summary } from '@/types';
@@ -38,7 +38,17 @@ export function SessionView() {
     const [failedRecording, setFailedRecording] = useState<string | null>(null);
     // 録音の再生位置に当たる行（#122）。行が変わったときだけ変える（再生中の timeupdate のたびに描き直さない）
     const [playback, setPlayback] = useState<(Playback & { sessionId: string }) | null>(null);
-    const lines = session?.transcript;
+    // 録音中の文字起こしに切り替えたセッション（#121。最終の文字起こしがあれば、ふだんはそちらを出す）
+    const [liveViewOf, setLiveViewOf] = useState<string | null>(null);
+    // 別のセッションを開いたら、切り替えを戻す（開き直すと最終の文字起こしから出す）
+    const [openedSession, setOpenedSession] = useState(session?.id);
+    if (openedSession !== session?.id) {
+        setOpenedSession(session?.id);
+        setLiveViewOf(null);
+    }
+    const final = session?.finalTranscript;
+    const showFinal = !!final && liveViewOf !== session?.id;
+    const lines = showFinal ? final.lines : session?.transcript;
     const starts = useMemo(() => (lines ?? []).map((l) => clockToSeconds(l.time) ?? 0), [lines]);
     const seek = useCallback((time: string) => {
         const sec = clockToSeconds(time);
@@ -145,10 +155,18 @@ export function SessionView() {
                         </p>
                     )}
                     {session && (
+                        <FinalTranscriptBar
+                            session={session}
+                            showFinal={showFinal}
+                            making={makingFinalTranscript(server.jobs, session.id)}
+                            onChange={(final) => setLiveViewOf(final ? null : session.id)}
+                        />
+                    )}
+                    {session && (
                         <Transcript
                             sessionId={session.id}
-                            lines={session.transcript}
-                            partial={partial?.sessionId === session.id ? partial : null}
+                            lines={lines ?? []}
+                            partial={!showFinal && partial?.sessionId === session.id ? partial : null}
                             follow={followTranscript}
                             onSeek={recordingUrl ? seek : undefined}
                             playback={recordingUrl && playback?.sessionId === session.id ? playback : null}
@@ -223,6 +241,69 @@ function useTabScroll(sessionId: string | undefined) {
     // 文字起こしを出し直したとき、下を追うかどうか。初めて出すときは追う
     const followTranscript = transcript?.atBottom ?? true;
     return { tab: state.tab, changeTab, followTranscript };
+}
+
+// 最終の文字起こし（#121）と録音中の文字起こしの切り替え。作っている途中なら、そう出す
+function FinalTranscriptBar({
+    session,
+    showFinal,
+    making,
+    onChange,
+}: {
+    session: Session;
+    showFinal: boolean;
+    making: boolean;
+    onChange: (final: boolean) => void;
+}) {
+    const final = session.finalTranscript;
+    if (!final) {
+        return making ? (
+            <StatusIndicator status={{ tone: 'active', text: '録音全体から最終の文字起こしを作成中…' }} />
+        ) : null;
+    }
+    const detail = [
+        final.model,
+        final.diarization === 'done' ? `話者 ${final.speakers} 人` : null,
+        final.generatedAt,
+    ].filter(Boolean);
+    return (
+        <div className='flex flex-col gap-1'>
+            <div className='flex flex-wrap items-center gap-2'>
+                <div role='group' aria-label='表示する文字起こし' className='inline-flex rounded-md border p-0.5'>
+                    <Button
+                        size='sm'
+                        variant={showFinal ? 'default' : 'ghost'}
+                        className='h-7'
+                        aria-pressed={showFinal}
+                        onClick={() => onChange(true)}
+                    >
+                        最終
+                    </Button>
+                    <Button
+                        size='sm'
+                        variant={showFinal ? 'ghost' : 'default'}
+                        className='h-7'
+                        aria-pressed={!showFinal}
+                        onClick={() => onChange(false)}
+                    >
+                        録音中
+                    </Button>
+                </div>
+                <span className='text-xs text-muted-foreground'>
+                    {showFinal
+                        ? `録音全体から作り直した文字起こし（${detail.join('・')}）`
+                        : '録音中に流れてきた文字起こし'}
+                </span>
+            </div>
+            {showFinal && final.diarization === 'unavailable' && (
+                <p className='text-xs text-muted-foreground'>
+                    話者分けはできませんでした（HuggingFace
+                    のトークンか、話者分けのモデルの利用条件への同意がありません）。
+                </p>
+            )}
+            {making && <StatusIndicator status={{ tone: 'active', text: '最終の文字起こしを作り直しています…' }} />}
+        </div>
+    );
 }
 
 // 最終の要約。既定は、今選んでいるモデルの要約のうちいちばん新しいもの。なければモデルを問わずいちばん新しいもの。

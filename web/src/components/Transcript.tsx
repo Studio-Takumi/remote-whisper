@@ -107,10 +107,35 @@ const Line = memo(function Line({
             ) : (
                 <span className='shrink-0 font-mono text-xs leading-6 text-muted-foreground'>{line.time}</span>
             )}
-            <p className='leading-6'>{line.text}</p>
+            <LineText text={line.text} />
         </div>
     );
 });
+
+// 最終の文字起こし（#121）で話者を分けた行は「話者 1: …」で始まる。話者は色付きの札にする
+const SPEAKER_RE = /^話者 (\d+): (.*)$/s;
+const SPEAKER_COLORS = [
+    'bg-sky-500/15 text-sky-800 dark:text-sky-300',
+    'bg-amber-500/15 text-amber-800 dark:text-amber-300',
+    'bg-emerald-500/15 text-emerald-800 dark:text-emerald-300',
+    'bg-fuchsia-500/15 text-fuchsia-800 dark:text-fuchsia-300',
+    'bg-rose-500/15 text-rose-800 dark:text-rose-300',
+    'bg-indigo-500/15 text-indigo-800 dark:text-indigo-300',
+];
+
+function LineText({ text }: { text: string }) {
+    const m = SPEAKER_RE.exec(text);
+    if (!m) {
+        return <p className='leading-6'>{text}</p>;
+    }
+    const color = SPEAKER_COLORS[(Number(m[1]) - 1) % SPEAKER_COLORS.length];
+    return (
+        <p className='leading-6'>
+            <span className={`mr-1.5 rounded px-1.5 py-0.5 text-xs whitespace-nowrap ${color}`}>話者 {m[1]}</span>
+            {m[2]}
+        </p>
+    );
+}
 
 // 再生位置の行が見えるように追う（#122）。自分でスクロールしたら追うのをやめ、「再生位置に戻る」で戻す。
 // シークしたら（時刻を押した・再生バーで動かした）、また追う
