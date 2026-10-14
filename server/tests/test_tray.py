@@ -154,3 +154,105 @@ def test_quit_asks_while_recording(monkeypatch):
     monkeypatch.setattr(tray, "confirm", lambda message: True)
     t._quit()
     assert quits == [1]
+
+
+def test_setup_stops_when_already_stopped():
+    # run() の直前にサーバーが止まって stop() が空振りしても、アイコンを出さずに止める
+    from remote_whisper import tray
+
+    class FakeIcon:
+        visible = False
+        stopped = False
+
+        def stop(self):
+            self.stopped = True
+
+    t = tray.Tray(status=ServerStatus, url="", log_dir=None, on_quit=None)
+    t.stop()
+    icon = FakeIcon()
+    t._setup(icon)
+    assert icon.stopped and not icon.visible
+
+
+def test_confirm_on_mac(monkeypatch):
+    import subprocess
+
+    from remote_whisper import tray
+
+    calls = []
+
+    def run(args, **_):
+        calls.append(args)
+        return subprocess.CompletedProcess(args, returncode, stdout, "")
+
+    monkeypatch.setattr(tray.sys, "platform", "darwin")
+    monkeypatch.setattr(tray.subprocess, "run", run)
+    returncode, stdout = 0, "button returned:終了\n"
+    assert tray.confirm('録音中 "a" \\ b')
+    # 引用符と \ はエスケープして渡す
+    assert '録音中 \\"a\\" \\\\ b' in calls[0][2]
+    # キャンセルは osascript が失敗で終わる
+    returncode, stdout = 1, ""
+    assert not tray.confirm("x")
+
+
+class FakeServer:
+    def __init__(self, stop_by_itself=False):
+        self.should_exit = stop_by_itself
+        self.ran = 0.0
+
+    def run(self):
+        import time
+
+        start = time.monotonic()
+        while not self.should_exit:
+            time.sleep(0.01)
+        self.ran = time.monotonic() - start
+
+
+class FakeTray:
+    def __init__(self, fail=False):
+        import threading
+
+        self.fail = fail
+        self.stopped = threading.Event()
+
+    def run(self):
+        if self.fail:
+            raise RuntimeError("no window server")
+        self.stopped.wait(5)
+
+    def stop(self):
+        self.stopped.set()
+
+
+def test_mac_server_stopping_removes_the_menu_bar():
+    from remote_whisper.__main__ import _serve_with_tray_on_main_thread
+
+    icon = FakeTray()
+    _serve_with_tray_on_main_thread(FakeServer(stop_by_itself=True), icon)
+    assert icon.stopped.is_set()
+
+
+def test_mac_quit_from_the_menu_bar_waits_for_the_server():
+    import threading
+
+    from remote_whisper.__main__ import _serve_with_tray_on_main_thread
+
+    server, icon = FakeServer(), FakeTray()
+    # メニューバーの「終了」: サーバーに止めるよう伝え、メニューバーを消す
+    threading.Timer(0.1, lambda: (setattr(server, "should_exit", True), icon.stop())).start()
+    _serve_with_tray_on_main_thread(server, icon)
+    assert server.should_exit and server.ran > 0
+
+
+def test_mac_server_keeps_running_without_a_menu_bar():
+    import threading
+
+    from remote_whisper.__main__ import _serve_with_tray_on_main_thread
+
+    server = FakeServer()
+    threading.Timer(0.3, lambda: setattr(server, "should_exit", True)).start()
+    _serve_with_tray_on_main_thread(server, FakeTray(fail=True))
+    # メニューバーが出せなくても、止められるまで動いていた
+    assert server.ran >= 0.25

@@ -162,6 +162,9 @@ class Tray:
         self._icon = pystray.Icon(
             APP_NAME, icon=icon_image(state.color), title=state.tooltip, menu=pystray.Menu(*items)
         )
+        # 作っている間にサーバーが止まった（ポートが使われていたなど）なら、出さずに戻る
+        if self._stopped.is_set():
+            return
         self._icon.run(setup=self._setup)
 
     def stop(self) -> None:
@@ -171,6 +174,11 @@ class Tray:
                 self._icon.stop()
 
     def _setup(self, icon: Any) -> None:
+        # run() の直前に止められて、その stop() が空振りしていたら、ここで止める
+        # （止めないと icon.run() が戻らず、プロセスが終わらない）
+        if self._stopped.is_set():
+            icon.stop()
+            return
         icon.visible = True
         threading.Thread(target=self._refresh, name="tray-refresh", daemon=True).start()
         if sys.platform == "darwin":
