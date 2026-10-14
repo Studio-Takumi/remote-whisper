@@ -15,9 +15,9 @@ dependencies = [
     "nvidia-cudnn-cu12==9.*; sys_platform == 'win32' or sys_platform == 'linux'",
     "pypdf[crypto]>=5",
     "nvidia-ml-py>=13.615.71",
-    # タスクトレイ（#135）。Windows だけ
-    "pystray>=0.19; sys_platform == 'win32'",
-    "pillow>=10; sys_platform == 'win32'",
+    # タスクトレイ（Windows。#135）とメニューバー（Mac。#136）
+    "pystray>=0.19; sys_platform == 'win32' or sys_platform == 'darwin'",
+    "pillow>=10; sys_platform == 'win32' or sys_platform == 'darwin'",
 ]
 
 [project.optional-dependencies]

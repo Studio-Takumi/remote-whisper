@@ -3,7 +3,7 @@
 使い方: uv run remote-whisper [--host 127.0.0.1] [--port 8000] [--mock] [--no-tray]
 
 `remote-whisper-gui`（Windows）は同じものを、コンソールを出さずに起動する（#135）。
-状態はタスクトレイのアイコンで見る
+状態はタスクトレイ（Mac はメニューバー。#136）のアイコンで見る
 """
 
 import argparse
@@ -38,7 +38,7 @@ def main() -> None:
     parser.add_argument(
         "--no-tray",
         action="store_true",
-        help="タスクトレイにアイコンを出さない（Windows。ほかの OS では出さない）",
+        help="タスクトレイ（Windows）・メニューバー（Mac）にアイコンを出さない",
     )
     args = parser.parse_args()
 
@@ -57,7 +57,8 @@ def main() -> None:
         if args.no_tray or not tray.available():
             server.run()
             return
-        # サーバーはメインスレッドで動かし（Ctrl+C で止められるように）、トレイは別のスレッドで出す
+        # Windows: サーバーはメインスレッドで動かし（Ctrl+C で止められるように）、
+        # トレイは別のスレッドで出す。Mac はその逆（AppKit はメインスレッドでしか動かない）
         host = "127.0.0.1" if args.host in ("0.0.0.0", "::") else args.host
         if ":" in host:
             host = f"[{host}]"  # IPv6 のアドレスは URL では [] で囲む
@@ -68,6 +69,9 @@ def main() -> None:
             # 止めるとき（lifespan の後片付け）を経てから止まる
             on_quit=lambda: setattr(server, "should_exit", True),
         )
+        if tray.must_run_on_main_thread():
+            _serve_with_tray_on_main_thread(server, icon)
+            return
         thread = threading.Thread(target=_run_tray, args=(icon,), name="tray", daemon=True)
         thread.start()
         try:
@@ -79,11 +83,38 @@ def main() -> None:
         logs.shutdown()
 
 
-def _run_tray(icon: "tray.Tray") -> None:
+def _serve_with_tray_on_main_thread(server: uvicorn.Server, icon: "tray.Tray") -> None:
+    """Mac: メニューバーはメインスレッドで動かし、サーバーを別のスレッドに移す（#136）"""
+
+    def serve() -> None:
+        try:
+            server.run()
+        finally:
+            # サーバーが止まったら（ポートが使われていたなど）、メニューバーも消して終える
+            icon.stop()
+
+    # Ctrl+C（と kill）では、サーバーの後片付けを経てから止める（Tray がシグナルを受ける）。
+    # サーバーが止まると serve() がメニューバーを消し、下の icon.run() が戻る
+    thread = threading.Thread(target=serve, name="server")
+    thread.start()
+    try:
+        if not _run_tray(icon):
+            # メニューバーを出せなくても（画面のないところから起動したなど）、サーバーは動かし続ける
+            thread.join()
+    finally:
+        # メニューバーの「終了」や Ctrl+C で止めたら、サーバーも止める（後片付けを待つ）
+        server.should_exit = True
+        thread.join()
+
+
+def _run_tray(icon: "tray.Tray") -> bool:
+    """トレイを出して、消えるまで待つ。出せなければ False"""
     try:
         icon.run()
     except Exception:  # noqa: BLE001 トレイが出せなくても、サーバーは動かし続ける
         log.exception("failed to show the tray icon")
+        return False
+    return True
 
 
 if __name__ == "__main__":

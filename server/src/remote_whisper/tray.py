@@ -1,11 +1,14 @@
-"""タスクトレイ（Windows）にサーバーの状態を出す（#135）。spec 8
+"""タスクトレイ（Windows。#135）・メニューバー（Mac。#136）にサーバーの状態を出す。spec 8
 
 - 中身（点の色・文・メニュー）は tray_state.py で決める。ここは pystray でアイコンを出す部分と、
-  OS ごとに違う部分（確認のダイアログ・フォルダを開く）
+  OS ごとに違う部分（確認のダイアログ・フォルダを開く・状態の行）
 - 状態はサーバーの中（Hub の status）から直接読む。1 秒ごとに見て、変わったらアイコンと文を変える
 - 左クリックで画面をブラウザで開く。右クリックのメニューは
   「画面を開く / ログのフォルダを開く / 終了」
-- pystray と Pillow は Windows だけの依存。ないときは available() が False になり、トレイなしで動く
+- Mac ではクリックでメニューが開き、マウスを乗せたときの文が出ないことがあるので、
+  メニューの一番上に状態の行を出す。アイコンはテンプレート画像にしない（点の色が見えるように）
+- pystray と Pillow は Windows と Mac だけの依存。ないときは available() が False になり、
+  トレイなしで動く
 """
 
 import contextlib
@@ -15,6 +18,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 import webbrowser
 from collections.abc import Callable
 from pathlib import Path
@@ -45,8 +49,18 @@ REFRESH_SEC = 1.0
 
 
 def available() -> bool:
-    """トレイを出せるか（今は Windows だけ。pystray が入っているか）"""
-    return sys.platform == "win32" and importlib.util.find_spec("pystray") is not None
+    """トレイ（メニューバー）を出せるか（Windows と Mac。pystray が入っているか）"""
+    return sys.platform in ("win32", "darwin") and importlib.util.find_spec("pystray") is not None
+
+
+def must_run_on_main_thread() -> bool:
+    """Mac の pystray（AppKit）はメインスレッドで動かす必要がある。Windows は別のスレッドでよい"""
+    return sys.platform == "darwin"
+
+
+def shows_status_line() -> bool:
+    """メニューの一番上に状態の行を出すか（Mac。Windows はマウスを乗せたときの文で見る）"""
+    return sys.platform == "darwin"
 
 
 def icon_image(color: Color) -> Any:
@@ -80,6 +94,17 @@ def confirm(message: str) -> bool:
         mb_yesno, mb_iconwarning, mb_topmost, mb_setforeground = 0x4, 0x30, 0x40000, 0x10000
         flags = mb_yesno | mb_iconwarning | mb_topmost | mb_setforeground
         return ctypes.windll.user32.MessageBoxW(0, message, APP_NAME, flags) == 6  # IDYES
+    if sys.platform == "darwin":
+        quote = message.replace("\\", "\\\\").replace('"', '\\"')
+        script = (
+            f'display dialog "{quote}" with title "{APP_NAME}" with icon caution '
+            'buttons {"キャンセル", "終了"} default button "キャンセル" cancel button "キャンセル"'
+        )
+        # キャンセルなら osascript は失敗で終わる
+        result = subprocess.run(  # noqa: S603, S607
+            ["osascript", "-e", script], capture_output=True, text=True, check=False
+        )
+        return result.returncode == 0 and "終了" in result.stdout
     return True
 
 
@@ -114,23 +139,32 @@ class Tray:
         self._stopped = threading.Event()
 
     def run(self) -> None:
-        """アイコンを出して、止めるまで戻らない（Windows では別のスレッドで呼んでよい）"""
+        """アイコンを出して、止めるまで戻らない
+
+        Windows では別のスレッドで呼んでよい。Mac はメインスレッドで（must_run_on_main_thread）
+        """
         import pystray
 
         state = tray_state(self.status())
-        self._icon = pystray.Icon(
-            APP_NAME,
-            icon=icon_image(state.color),
-            title=state.tooltip,
-            menu=pystray.Menu(
-                # default は左クリックで実行する項目
-                pystray.MenuItem(MENU_OPEN, self._open, default=True),
-                pystray.MenuItem(MENU_LOGS, self._open_logs),
-                pystray.Menu.SEPARATOR,
-                pystray.MenuItem(MENU_QUIT, self._quit),
-            ),
-        )
+        # メニューの状態の行は、作るときにもこれを読む
         self._shown = state
+        items = [
+            # default は左クリックで実行する項目
+            pystray.MenuItem(MENU_OPEN, self._open, default=True),
+            pystray.MenuItem(MENU_LOGS, self._open_logs),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem(MENU_QUIT, self._quit),
+        ]
+        if shows_status_line():
+            # 押せない行として、今の状態を出す（変わったら update_menu で書き直す）
+            status_line = pystray.MenuItem(self._status_text, None, enabled=False)
+            items = [status_line, pystray.Menu.SEPARATOR, *items]
+        self._icon = pystray.Icon(
+            APP_NAME, icon=icon_image(state.color), title=state.tooltip, menu=pystray.Menu(*items)
+        )
+        # 作っている間にサーバーが止まった（ポートが使われていたなど）なら、出さずに戻る
+        if self._stopped.is_set():
+            return
         self._icon.run(setup=self._setup)
 
     def stop(self) -> None:
@@ -140,8 +174,31 @@ class Tray:
                 self._icon.stop()
 
     def _setup(self, icon: Any) -> None:
+        # run() の直前に止められて、その stop() が空振りしていたら、ここで止める
+        # （止めないと icon.run() が戻らず、プロセスが終わらない）
+        if self._stopped.is_set():
+            icon.stop()
+            return
         icon.visible = True
         threading.Thread(target=self._refresh, name="tray-refresh", daemon=True).start()
+        if sys.platform == "darwin":
+            threading.Thread(target=self._catch_signals, name="tray-signals", daemon=True).start()
+
+    def _catch_signals(self) -> None:
+        """Mac: Ctrl+C・kill で、サーバーの後片付けを経てから止める
+
+        pystray は Ctrl+C を受けると NSApp.terminate_ でプロセスごと終わらせる（後片付けを
+        しない）。メインスレッドは AppKit が持っていて Python のシグナルハンドラーが動かないので、
+        pystray と同じ MachSignals で、pystray が入れたものを差し替える
+        """
+        import signal
+
+        from PyObjCTools import MachSignals
+
+        # pystray が run の中で SIGINT のハンドラーを入れ終えるのを待つ
+        time.sleep(0.5)
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            MachSignals.signal(sig, lambda *_: self.on_quit())
 
     def _refresh(self) -> None:
         while not self._stopped.wait(REFRESH_SEC):
@@ -158,6 +215,11 @@ class Tray:
             self._icon.icon = icon_image(state.color)
         self._icon.title = state.tooltip
         self._shown = state
+        if shows_status_line():
+            self._icon.update_menu()
+
+    def _status_text(self, *_: Any) -> str:
+        return self._shown.text if self._shown is not None else ""
 
     def _open(self, *_: Any) -> None:
         webbrowser.open(self.url)
