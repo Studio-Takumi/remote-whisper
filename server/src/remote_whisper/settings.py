@@ -184,9 +184,7 @@ class SettingsStore:
     def get(self) -> Settings:
         return self._settings
 
-    def update(
-        self, patch: dict[str, Any], locked: tuple[tuple[str, str], ...] = ()
-    ) -> Settings:
+    def update(self, patch: dict[str, Any], locked: tuple[tuple[str, str], ...] = ()) -> Settings:
         """部分更新。検証に通らなければ pydantic.ValidationError を投げ、ファイルは変えない
 
         locked の項目（録音中は RECORDING_LOCKED）の値が変わるなら SettingsLockedError を投げる。

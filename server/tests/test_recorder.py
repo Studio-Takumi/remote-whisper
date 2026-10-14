@@ -87,7 +87,8 @@ def test_records_audio_to_wav(client, project, keep_wav):
             assert receive_until(ws, of_type("ack"))[-1]["seq"] == seq
 
         # 録音中は文字起こしのモデルを変えられない（ほかの項目は変えられる。#133）
-        assert client.patch("/api/settings", json={"whisper": {"model": "small"}}).status_code == 409
+        res = client.patch("/api/settings", json={"whisper": {"model": "small"}})
+        assert res.status_code == 409
         wav_path = d / ".tmp" / sid / "audio.wav"
         # 書くたびにヘッダーも直しているので、録音中でも読める（落ちても、そこまでの音声が残る）
         with wave.open(str(wav_path)) as w:

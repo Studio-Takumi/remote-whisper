@@ -121,7 +121,8 @@ def test_recording_flow(mock_client):
 
 def test_picks_terms_after_live_summary(mock_client):
     # 全体設定の pickTerms がオンなら、途中の要約の後に台本に出てきた語を terms で送る
-    assert mock_client.patch("/api/settings", json={"ollama": {"pickTerms": True}}).status_code == 200
+    res = mock_client.patch("/api/settings", json={"ollama": {"pickTerms": True}})
+    assert res.status_code == 200
     with mock_client.websocket_connect("/ws") as ws:
         ws.receive_json()
         sid = start(ws)

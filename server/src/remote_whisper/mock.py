@@ -202,7 +202,7 @@ class MockSession:
             await self._pick_terms()
 
     async def _pick_terms(self) -> None:
-        """録音中に用語を拾うのをまねる（全体設定の ollama.pickTerms がオンのとき。ファイルには書かない）"""
+        """録音中に用語を拾うのをまねる（ollama.pickTerms がオンのとき）。ファイルには書かない"""
         settings = self.recorder.settings
         if settings is None or not settings.get().ollama.pick_terms:
             return
