@@ -1,7 +1,6 @@
 import { PlusIcon, SettingsIcon } from 'lucide-react';
 
 import { ProjectList } from '@/components/ProjectList';
-import { RecordingLock } from '@/components/RecordingLock';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import {
     Sidebar,
@@ -17,8 +16,9 @@ import {
 } from '@/components/ui/sidebar';
 import { useAppStore, visibleProjects } from '@/store';
 
+// 録音中でも、新規プロジェクトの作成・ほかのセッションを開く・設定を開くことはできる（#133）。
+// 録音中のセッションには、マイクのボタン（「録音中のセッションに戻る」）か左メニューの赤い点から戻れる
 export function AppSidebar() {
-    const recording = useAppStore((s) => s.recordingState !== 'idle');
     const projects = useAppStore(visibleProjects);
     const selection = useAppStore((s) => s.selection);
     const showMeta = useAppStore((s) => s.settings.display.sessionMeta);
@@ -37,66 +37,60 @@ export function AppSidebar() {
             </SidebarHeader>
             <SidebarContent>
                 <SidebarGroup>
-                    <RecordingLock locked={recording} message='録音中はプロジェクトを作成できません'>
-                        <SidebarMenu>
-                            <SidebarMenuItem>
-                                <SidebarMenuButton
-                                    tooltip='新規プロジェクト作成'
-                                    onClick={() => {
-                                        setOpenMobile(false);
-                                        setNewProjectOpen(true);
-                                    }}
-                                >
-                                    <PlusIcon />
-                                    <span>新規プロジェクト作成</span>
-                                </SidebarMenuButton>
-                            </SidebarMenuItem>
-                        </SidebarMenu>
-                    </RecordingLock>
+                    <SidebarMenu>
+                        <SidebarMenuItem>
+                            <SidebarMenuButton
+                                tooltip='新規プロジェクト作成'
+                                onClick={() => {
+                                    setOpenMobile(false);
+                                    setNewProjectOpen(true);
+                                }}
+                            >
+                                <PlusIcon />
+                                <span>新規プロジェクト作成</span>
+                            </SidebarMenuButton>
+                        </SidebarMenuItem>
+                    </SidebarMenu>
                 </SidebarGroup>
                 <SidebarGroup className='group-data-[collapsible=icon]:hidden'>
-                    {/* 録音中に別のセッションを開くと、録音中の画面に戻れなくなるのでロックする */}
-                    <RecordingLock locked={recording} message='録音中は他のセッションを開けません'>
-                        <ProjectList
-                            projects={projects}
-                            activeProject={selection.projectId}
-                            activeSession={selection.sessionId}
-                            showMeta={showMeta}
-                            onSelectSession={(projectId, sessionId) => {
-                                selectSession(projectId, sessionId);
-                                setOpenMobile(false);
-                            }}
-                            onNewSession={(projectId) => {
-                                newSession(projectId);
-                                setOpenMobile(false);
-                            }}
-                        />
-                    </RecordingLock>
+                    <ProjectList
+                        projects={projects}
+                        activeProject={selection.projectId}
+                        activeSession={selection.sessionId}
+                        showMeta={showMeta}
+                        onSelectSession={(projectId, sessionId) => {
+                            selectSession(projectId, sessionId);
+                            setOpenMobile(false);
+                        }}
+                        onNewSession={(projectId) => {
+                            newSession(projectId);
+                            setOpenMobile(false);
+                        }}
+                    />
                 </SidebarGroup>
             </SidebarContent>
             <SidebarFooter>
-                {/* テーマは録音中でも切り替えられる（全体設定ではなく、この端末の見た目なので） */}
+                {/* テーマは全体設定ではなく、この端末の見た目 */}
                 <SidebarMenu>
                     <SidebarMenuItem>
                         <ThemeToggle />
                     </SidebarMenuItem>
                 </SidebarMenu>
-                <RecordingLock locked={recording}>
-                    <SidebarMenu>
-                        <SidebarMenuItem>
-                            <SidebarMenuButton
-                                tooltip='設定'
-                                onClick={() => {
-                                    setOpenMobile(false);
-                                    setSettingsOpen(true);
-                                }}
-                            >
-                                <SettingsIcon />
-                                <span>設定</span>
-                            </SidebarMenuButton>
-                        </SidebarMenuItem>
-                    </SidebarMenu>
-                </RecordingLock>
+                {/* 録音中に変えられない項目は、設定画面の中で項目ごとに押せなくする */}
+                <SidebarMenu>
+                    <SidebarMenuItem>
+                        <SidebarMenuButton
+                            tooltip='設定'
+                            onClick={() => {
+                                setOpenMobile(false);
+                                setSettingsOpen(true);
+                            }}
+                        >
+                            <SettingsIcon />
+                            <span>設定</span>
+                        </SidebarMenuButton>
+                    </SidebarMenuItem>
+                </SidebarMenu>
             </SidebarFooter>
         </Sidebar>
     );

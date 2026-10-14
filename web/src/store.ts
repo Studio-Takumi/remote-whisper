@@ -19,7 +19,7 @@ import {
 import { demoProjects, fallbackOptions, initialContextSets } from '@/mock';
 import { fetchOptions } from '@/options';
 import type { ServerMessage, SettingsOptions } from '@/protocol';
-import type { RecordingState } from '@/recording';
+import { type RecordingState, recordingLocks } from '@/recording';
 import { type Settings, defaultSettings } from '@/settings';
 import { type ServerStatus, initialServerStatus } from '@/status';
 import { formatClock, formatDateTime, newId } from '@/time';
@@ -75,6 +75,8 @@ type AppState = {
     createProject: (path: string) => Promise<void>;
     selectSession: (projectId: string, sessionId: string) => void;
     newSession: (projectId: string) => void;
+    // 録音中に別のセッションを開いていたら、録音中のセッションに戻る（#133）
+    showRecordingSession: () => void;
     startRecording: () => Promise<void>;
     // 途中で終わったセッションの続きを、同じセッションのまま録音する（#101）
     continueRecording: (sessionId: string) => Promise<void>;
@@ -780,6 +782,13 @@ export const useAppStore = create<AppState>()((set, get) => {
             }
         },
         newSession: (projectId) => set({ selection: { projectId, sessionId: null } }),
+        showRecordingSession: () => {
+            const sessionId = get().recordingSessionId;
+            const project = get().projects.find((p) => p.sessions.some((x) => x.id === sessionId));
+            if (sessionId && project) {
+                get().selectSession(project.id, sessionId);
+            }
+        },
 
         startRecording: async () => {
             const s = get();
@@ -1192,16 +1201,25 @@ export const useAppStore = create<AppState>()((set, get) => {
             const before = get().settings.ollama.finalSummaryModel;
             try {
                 set({ settings: await api.patch<Settings>('/api/settings', next) });
-                // 最終の要約のモデルを変えたら、開いているセッションにそのモデルの要約がなければ作り直す（spec 6.5）
+                // 最終の要約のモデルを変えたら、開いているセッションにそのモデルの要約がなければ作り直す（spec 6.5）。
+                // 録音中は作り直さない（録音中の文字起こしが止まるため。#133）
                 const model = get().settings.ollama.finalSummaryModel;
                 const session = currentSession(get());
-                if (model !== before && session && needsSummaryFor(session, model) && !get().generating) {
+                if (
+                    model !== before &&
+                    session &&
+                    needsSummaryFor(session, model) &&
+                    !get().generating &&
+                    get().recordingState === 'idle'
+                ) {
                     void get().regenerateSummary(session.id);
                 }
                 return true;
             } catch (e) {
                 if (e instanceof ApiError && e.status === 409) {
-                    toast.error('録音中は設定を変えられません（ほかの端末で録音しているかもしれません）');
+                    toast.error(
+                        '録音中は、文字起こしのモデル・区切り・マイクの処理は変えられません（ほかの端末で録音しているかもしれません）',
+                    );
                 } else {
                     toast.error(`設定を保存できません: ${(e as Error).message}`);
                 }
@@ -1212,6 +1230,10 @@ export const useAppStore = create<AppState>()((set, get) => {
         regenerateFinalTranscript: async (sessionId) => {
             if (isDemo) {
                 toast.info('デモでは文字起こしを作り直せません');
+                return;
+            }
+            if (get().recordingState !== 'idle') {
+                toast.warning(recordingLocks.regenerate);
                 return;
             }
             const project = get().projects.find((p) => p.sessions.some((x) => x.id === sessionId));
@@ -1253,6 +1275,10 @@ export const useAppStore = create<AppState>()((set, get) => {
         regenerateSummary: async (sessionId) => {
             if (isDemo) {
                 toast.info('デモでは要約を作り直せません');
+                return;
+            }
+            if (get().recordingState !== 'idle') {
+                toast.warning(recordingLocks.regenerate);
                 return;
             }
             const project = get().projects.find((p) => p.sessions.some((x) => x.id === sessionId));

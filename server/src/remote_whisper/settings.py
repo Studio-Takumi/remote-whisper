@@ -18,6 +18,31 @@ class SettingsError(Exception):
     """setting.json が壊れていて読み込めない"""
 
 
+class SettingsLockedError(Exception):
+    """録音中は変えられない項目を変えようとした（spec 5.3）。fields は変えようとした項目"""
+
+    def __init__(self, fields: list[str]):
+        super().__init__(", ".join(fields))
+        self.fields = fields
+
+
+# 録音中は変えられない項目（setting.json のキー。spec 5.3）。
+# 文字起こしのモデルは変えると読み込み直しになり、その間の文字起こしが止まる。
+# 区切りの設定は録音を始めたときに決まるので、今の録音には効かない。
+# マイクの処理は、ブラウザが録音を始めるときにマイクに設定する
+RECORDING_LOCKED: tuple[tuple[str, str], ...] = (
+    ("whisper", "model"),
+    ("whisper", "computeType"),
+    ("whisper", "silenceMs"),
+    ("whisper", "maxSegmentSec"),
+    ("whisper", "speechThreshold"),
+    ("whisper", "speechDbfs"),
+    ("recording", "noiseSuppression"),
+    ("recording", "autoGainControl"),
+    ("recording", "echoCancellation"),
+)
+
+
 def default_home() -> Path:
     """データのルート。既定は ~/.remote-whisper、環境変数 REMOTE_WHISPER_HOME で変えられる"""
     env = os.environ.get("REMOTE_WHISPER_HOME")
@@ -159,12 +184,25 @@ class SettingsStore:
     def get(self) -> Settings:
         return self._settings
 
-    def update(self, patch: dict[str, Any]) -> Settings:
-        """部分更新。検証に通らなければ pydantic.ValidationError を投げ、ファイルは変えない"""
+    def update(self, patch: dict[str, Any], locked: tuple[tuple[str, str], ...] = ()) -> Settings:
+        """部分更新。検証に通らなければ pydantic.ValidationError を投げ、ファイルは変えない
+
+        locked の項目（録音中は RECORDING_LOCKED）の値が変わるなら SettingsLockedError を投げる。
+        同じ値を送るのはかまわない（画面は設定をまるごと送るため）
+        """
         with self._lock:
-            merged = deep_merge(self._settings.to_json(), patch)
+            before = self._settings.to_json()
+            merged = deep_merge(before, patch)
             merged["version"] = SETTINGS_VERSION
             settings = Settings.model_validate(merged)
+            after = settings.to_json()
+            changed = [
+                f"{section}.{key}"
+                for section, key in locked
+                if before[section][key] != after[section][key]
+            ]
+            if changed:
+                raise SettingsLockedError(changed)
             atomic_write_json(self.path, settings.to_json())
             self._settings = settings
             return settings

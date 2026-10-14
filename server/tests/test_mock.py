@@ -88,8 +88,8 @@ def test_recording_flow(mock_client):
         assert final["segment"] == 0
         assert 0 <= final["start"] <= final["end"]
 
-        # 録音中は設定を変えられない
-        res = mock_client.patch("/api/settings", json={"whisper": {"beamSize": 3}})
+        # 録音中は区切りの設定を変えられない（#133）
+        res = mock_client.patch("/api/settings", json={"whisper": {"silenceMs": 900}})
         assert res.status_code == 409
 
         # 途中の要約と仮のタイトル
@@ -117,6 +117,21 @@ def test_recording_flow(mock_client):
         assert any(of_type("status", recordings=0)(m) for m in seen)
 
     assert mock_client.patch("/api/settings", json={"whisper": {"beamSize": 3}}).status_code == 200
+
+
+def test_picks_terms_after_live_summary(mock_client):
+    # 全体設定の pickTerms がオンなら、途中の要約の後に台本に出てきた語を terms で送る
+    res = mock_client.patch("/api/settings", json={"ollama": {"pickTerms": True}})
+    assert res.status_code == 200
+    with mock_client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        sid = start(ws)
+        seen = receive_until(ws, of_type("terms"))
+        terms = seen[-1]
+        said = "".join(m["text"] for m in seen if m["type"] == "final")
+        assert terms["session"] == sid
+        assert terms["terms"] and all(t in said for t in terms["terms"])
+        ws.send_json({"type": "stop"})
 
 
 def test_ack_handles_duplicates_and_gaps(mock_client):
