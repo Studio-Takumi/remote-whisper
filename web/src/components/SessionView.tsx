@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { pickFinalTranscript } from '@/data';
+import { recordingLocks } from '@/recording';
 import { isScrolledToBottom, scrollToBottom } from '@/scroll';
 import { makingFinalTranscript, summaryStatus, transcriptStatus } from '@/status';
 import { currentProject, currentSession, useAppStore, visibleProjects } from '@/store';
@@ -66,7 +67,12 @@ export function SessionView() {
         return <EmptyState hasProjects={hasProjects} />;
     }
 
-    const live = summaryStatus(recordingState, server, liveIntervalMin);
+    // 録音中に別のセッションを開いていても、文字起こしなどはそのセッションに届き続ける（#133）。
+    // 録音の状態（文字起こし中・途中の要約）は、録音中のセッションの画面でだけ出す
+    const viewingRecording = session !== undefined && session.id === recordingSessionId;
+    const viewState = viewingRecording ? recordingState : 'idle';
+    const recordingElsewhere = recordingState !== 'idle' && !viewingRecording;
+    const live = summaryStatus(viewState, server, liveIntervalMin);
     // 録音を終えていて、録音ファイルが残っているセッションだけ再生できる（消えた・変換前なら出さない）
     const url =
         session && session.status !== 'recording' && session.files?.recording
@@ -126,16 +132,21 @@ export function SessionView() {
                         {/* 途中で終わったセッションは、同じセッションのまま続きを録音できる（#101）。
                             録音ファイルがまだ mp3 になっていない（WAV のまま）こともあるので、ファイルの有無では隠さない
                             （残っていなければ、サーバーが断る） */}
-                        {session.status === 'interrupted' && recordingState === 'idle' && (
-                            <Button
-                                variant='outline'
-                                size='sm'
-                                className='mt-2'
-                                onClick={() => void continueRecording(session.id)}
-                            >
-                                <MicIcon />
-                                続きから録音
-                            </Button>
+                        {session.status === 'interrupted' && (
+                            <div className='mt-2 flex flex-col items-start gap-1'>
+                                <Button
+                                    variant='outline'
+                                    size='sm'
+                                    disabled={recordingState !== 'idle'}
+                                    onClick={() => void continueRecording(session.id)}
+                                >
+                                    <MicIcon />
+                                    続きから録音
+                                </Button>
+                                {recordingState !== 'idle' && (
+                                    <p className='text-xs text-muted-foreground'>{recordingLocks.continueRecording}</p>
+                                )}
+                            </div>
                         )}
                     </div>
                 ) : (
@@ -179,7 +190,12 @@ export function SessionView() {
                     {!session && recordingState === 'idle' && (
                         <p className='text-sm text-muted-foreground'>マイクボタンを押すと録音が始まります。</p>
                     )}
-                    <StatusIndicator status={transcriptStatus(recordingState, server, recordingSessionId)} />
+                    {!session && recordingElsewhere && (
+                        <p className='text-sm text-muted-foreground'>
+                            ほかのセッションで録音中です。録音を終えると、ここから新しく録音できます。
+                        </p>
+                    )}
+                    <StatusIndicator status={transcriptStatus(viewState, server, recordingSessionId)} />
                 </TabsContent>
 
                 <TabsContent value='summary' className='flex flex-col gap-4'>
@@ -264,6 +280,8 @@ function FinalTranscriptBar({
     const available = useAppStore((s) => s.options.whisper.finalTranscript === true);
     const regenerate = useAppStore((s) => s.regenerateFinalTranscript);
     const pick = useAppStore((s) => s.showFinalTranscript);
+    // 録音中は作り直せない（GPU を長く使い、録音中の文字起こしが止まるため。#133）
+    const recording = useAppStore((s) => s.recordingState !== 'idle');
     const final = session.finalTranscript;
     const generations = session.finalTranscripts ?? [];
     // 手で選んだ世代。セッションを替えたときと、世代が増えた（作り直した）ときは既定に戻す（要約と同じ）
@@ -281,10 +299,20 @@ function FinalTranscriptBar({
     // 作り直せるのは、録音を終えていて録音ファイルが残っているセッション（作っている間は押せない）。#124
     const done = session.status !== 'recording' && session.loaded === true;
     const regenerateButton = available && done && session.files?.recording && !making && (
-        <Button variant='outline' size='sm' className='h-7' onClick={() => void regenerate(session.id)}>
+        <Button
+            variant='outline'
+            size='sm'
+            className='h-7'
+            disabled={recording}
+            title={recording ? recordingLocks.regenerate : undefined}
+            onClick={() => void regenerate(session.id)}
+        >
             <RefreshCwIcon />
             {whisperModel} で{final ? '作り直す' : '最終の文字起こしを作る'}
         </Button>
+    );
+    const locked = regenerateButton && recording && (
+        <p className='text-xs text-muted-foreground'>{recordingLocks.regenerate}</p>
     );
     const status = making && (
         <StatusIndicator
@@ -305,7 +333,14 @@ function FinalTranscriptBar({
             return status;
         }
         // 最終の文字起こしがまだない（作らない設定だった・作れなかった・機能を入れる前のセッション）
-        return regenerateButton ? <div>{regenerateButton}</div> : noRecording || null;
+        return regenerateButton ? (
+            <div className='flex flex-col items-start gap-1'>
+                {regenerateButton}
+                {locked}
+            </div>
+        ) : (
+            noRecording || null
+        );
     }
     const label = (g: FinalTranscriptInfo) =>
         [g.model, g.diarization === 'done' ? `話者 ${g.speakers} 人` : null, g.generatedAt].filter(Boolean).join('・');
@@ -371,6 +406,7 @@ function FinalTranscriptBar({
                 </p>
             )}
             {showFinal && noRecording}
+            {showFinal && locked}
             {status}
         </div>
     );
@@ -391,6 +427,8 @@ function SummaryPanel({
 }) {
     const regenerate = useAppStore((s) => s.regenerateSummary);
     const ollama = useAppStore((s) => s.server.ollama);
+    // 録音中は作り直せない（GPU を長く使い、録音中の文字起こしが止まるため。#133）
+    const recording = useAppStore((s) => s.recordingState !== 'idle');
     // 手で選んだ世代。セッションを替えたときと、要約が増えた（作り直した）ときは既定に戻す
     const [picked, setPicked] = useState<{ sessionId: string; count: number; generationId: string } | null>(null);
 
@@ -445,10 +483,19 @@ function SummaryPanel({
         session.transcript.length > 0 &&
         generating === null;
     const regenerateButton = canRegenerate && (
-        <Button variant='outline' size='sm' onClick={() => void regenerate(session.id)}>
-            <RefreshCwIcon />
-            {finalModel} で{summary ? '作り直す' : '要約を作る'}
-        </Button>
+        <div className='flex flex-col items-start gap-1'>
+            <Button
+                variant='outline'
+                size='sm'
+                disabled={recording}
+                title={recording ? recordingLocks.regenerate : undefined}
+                onClick={() => void regenerate(session.id)}
+            >
+                <RefreshCwIcon />
+                {finalModel} で{summary ? '作り直す' : '要約を作る'}
+            </Button>
+            {recording && <p className='text-xs text-muted-foreground'>{recordingLocks.regenerate}</p>}
+        </div>
     );
 
     // 最終の要約を作れなかったこと（spec 6.7）。Ollama が戻っていれば、作り直しを勧める

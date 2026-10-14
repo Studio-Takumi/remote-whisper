@@ -1,4 +1,4 @@
-import { MicIcon, MicOffIcon, PauseIcon, PlayIcon, PlusIcon, SquareIcon } from 'lucide-react';
+import { MicIcon, MicOffIcon, PauseIcon, PlayIcon, PlusIcon, SquareIcon, Undo2Icon } from 'lucide-react';
 
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { currentProject, currentSession, useAppStore } from '@/store';
@@ -26,59 +26,76 @@ export function MicButton() {
     const onResume = useAppStore((s) => s.resumeRecording);
     const level = useAppStore((s) => s.micLevel);
     const micDenied = useAppStore((s) => s.server.microphone === 'denied');
+    // 録音中に別のセッション（または新しいセッションの画面）を開いているか（#133）
+    const elsewhere = useAppStore(
+        (s) => s.recordingSessionId !== null && s.selection.sessionId !== s.recordingSessionId,
+    );
+    const recordingTitle = useAppStore(
+        (s) => s.projects.flatMap((p) => p.sessions).find((x) => x.id === s.recordingSessionId)?.title,
+    );
+    const onBack = useAppStore((s) => s.showRecordingSession);
 
     const target: MicTarget =
         projectName === undefined ? { kind: 'none' } : hasSession ? { kind: 'session', projectName } : { kind: 'new' };
 
-    const main =
-        state === 'recording'
+    // 録音中に別のセッションを開いているときは、録音を始めずに録音中のセッションに戻るボタンにする。
+    // 一時停止・終了は、録音中のセッションの画面でだけ出す
+    const main = elsewhere
+        ? {
+              onClick: onBack,
+              label: `「${recordingTitle ?? '新しいセッション'}」で${state === 'paused' ? '一時停止中' : '録音中'}です。クリックで戻ります`,
+              hint: '',
+              color: state === 'paused' ? 'bg-amber-500' : 'bg-red-500',
+              icon: <Undo2Icon className={smallIcon} />,
+          }
+        : state === 'recording'
+          ? {
+                onClick: onPause,
+                label: 'クリックして一時停止',
+                hint: '',
+                color: 'bg-red-500',
+                icon: <PauseIcon className={smallIcon} fill='currentColor' />,
+            }
+          : state === 'paused'
             ? {
-                  onClick: onPause,
-                  label: 'クリックして一時停止',
+                  onClick: onResume,
+                  label: 'クリックして録音再開',
                   hint: '',
-                  color: 'bg-red-500',
-                  icon: <PauseIcon className={smallIcon} fill='currentColor' />,
+                  color: 'bg-amber-500',
+                  icon: <PlayIcon className={smallIcon} fill='currentColor' />,
               }
-            : state === 'paused'
+            : target.kind === 'session'
               ? {
-                    onClick: onResume,
-                    label: 'クリックして録音再開',
-                    hint: '',
-                    color: 'bg-amber-500',
-                    icon: <PlayIcon className={smallIcon} fill='currentColor' />,
+                    onClick: onStart,
+                    label: `クリックして「${target.projectName}」に新しいセッションを作成`,
+                    hint: '押すと新しいセッション',
+                    color: 'bg-neutral-500',
+                    icon: <PlusIcon className={largeIcon} />,
                 }
-              : target.kind === 'session'
+              : target.kind === 'new' && micDenied
                 ? {
+                      // 押すともう一度マイクの許可を求める（ブラウザの設定で許可し直した場合のため）
                       onClick: onStart,
-                      label: `クリックして「${target.projectName}」に新しいセッションを作成`,
-                      hint: '押すと新しいセッション',
-                      color: 'bg-neutral-500',
-                      icon: <PlusIcon className={largeIcon} />,
+                      label: 'マイクが許可されていません。ブラウザの設定でマイクを許可してください',
+                      hint: 'マイクが許可されていません',
+                      color: 'bg-blue-500 opacity-50',
+                      icon: <MicOffIcon className={largeIcon} />,
                   }
-                : target.kind === 'new' && micDenied
+                : target.kind === 'new'
                   ? {
-                        // 押すともう一度マイクの許可を求める（ブラウザの設定で許可し直した場合のため）
                         onClick: onStart,
-                        label: 'マイクが許可されていません。ブラウザの設定でマイクを許可してください',
-                        hint: 'マイクが許可されていません',
-                        color: 'bg-blue-500 opacity-50',
-                        icon: <MicOffIcon className={largeIcon} />,
+                        label: 'クリックして録音開始',
+                        hint: '押すと録音開始',
+                        color: 'bg-blue-500',
+                        icon: <MicIcon className={largeIcon} />,
                     }
-                  : target.kind === 'new'
-                    ? {
-                          onClick: onStart,
-                          label: 'クリックして録音開始',
-                          hint: '押すと録音開始',
-                          color: 'bg-blue-500',
-                          icon: <MicIcon className={largeIcon} />,
-                      }
-                    : {
-                          onClick: onStart,
-                          label: '録音するプロジェクトをメニューから選んでください',
-                          hint: 'プロジェクトを選んでください',
-                          color: 'cursor-not-allowed bg-blue-500 opacity-50',
-                          icon: <MicIcon className={largeIcon} />,
-                      };
+                  : {
+                        onClick: onStart,
+                        label: '録音するプロジェクトをメニューから選んでください',
+                        hint: 'プロジェクトを選んでください',
+                        color: 'cursor-not-allowed bg-blue-500 opacity-50',
+                        icon: <MicIcon className={largeIcon} />,
+                    };
 
     // 録音中は上に経過時間を出すので、Tooltip は左右に出して被らないようにする
     const recording = state !== 'idle';
@@ -101,7 +118,7 @@ export function MicButton() {
             )}
 
             {/* 録音中は、マイクの音量に合わせて後ろの輪を広げる。最大で 16px はみ出すので、経過時間と終了ボタンはその外に置く */}
-            {state === 'recording' && (
+            {state === 'recording' && !elsewhere && (
                 <span
                     aria-hidden
                     className='absolute inset-0 rounded-full bg-red-500/30 transition-transform duration-100'
@@ -121,7 +138,7 @@ export function MicButton() {
                 <TooltipContent side={recording ? 'left' : 'top'}>{main.label}</TooltipContent>
             </Tooltip>
 
-            {recording && (
+            {recording && !elsewhere && (
                 <Tooltip>
                     <TooltipTrigger asChild>
                         <button

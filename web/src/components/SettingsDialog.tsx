@@ -4,6 +4,7 @@ import {
     FileTextIcon,
     FolderIcon,
     HardDriveIcon,
+    LockIcon,
     MicIcon,
     MonitorIcon,
     PlusIcon,
@@ -31,6 +32,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ollamaModelNames, thinkingNote, withCurrent } from '@/options';
 import type { SettingsOptions } from '@/protocol';
+import { recordingLocks } from '@/recording';
 import type { Settings } from '@/settings';
 
 // 全体設定のモーダル。左にカテゴリ、右に項目を並べる
@@ -39,12 +41,14 @@ export function SettingsDialog({
     onOpenChange,
     settings,
     options,
+    recording,
     onSave,
 }: {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     settings: Settings;
     options: SettingsOptions;
+    recording: boolean;
     onSave: (settings: Settings) => void;
 }) {
     return (
@@ -52,12 +56,17 @@ export function SettingsDialog({
             <DialogContent className='flex h-[min(640px,85vh)] flex-col sm:max-w-3xl'>
                 <DialogHeader>
                     <DialogTitle>設定</DialogTitle>
-                    <DialogDescription>録音中は変更できません。</DialogDescription>
+                    <DialogDescription>
+                        {recording
+                            ? '録音中は、文字起こしのモデル・区切り・マイクの処理だけ変えられません。'
+                            : '全体設定です。どの端末から開いても同じ設定を使います。'}
+                    </DialogDescription>
                 </DialogHeader>
                 {/* DialogContent は閉じると消えるので、開くたびに今の設定から下書きを作り直せる */}
                 <SettingsForm
                     settings={settings}
                     options={options}
+                    recording={recording}
                     onSave={(s) => {
                         onSave(s);
                         onOpenChange(false);
@@ -68,16 +77,33 @@ export function SettingsDialog({
     );
 }
 
+// 録音中に変えられない項目（#133・spec 5.3）は、今の設定の値に戻す。
+// 開いている間に録音が始まっても、変えた値を送って断られないように
+function keepLocked(draft: Settings, current: Settings): Settings {
+    const { model, computeType, silenceMs, maxSegmentSec, speechThreshold, speechDbfs } = current.whisper;
+    const { noiseSuppression, autoGainControl, echoCancellation } = current.recording;
+    return {
+        ...draft,
+        whisper: { ...draft.whisper, model, computeType, silenceMs, maxSegmentSec, speechThreshold, speechDbfs },
+        recording: { ...draft.recording, noiseSuppression, autoGainControl, echoCancellation },
+    };
+}
+
 function SettingsForm({
     settings,
     options,
+    recording,
     onSave,
 }: {
     settings: Settings;
     options: SettingsOptions;
+    recording: boolean;
     onSave: (settings: Settings) => void;
 }) {
-    const [draft, setDraft] = useState(settings);
+    const [edited, setDraft] = useState(settings);
+    const draft = recording ? keepLocked(edited, settings) : edited;
+    // 録音中に変えられない項目の理由。録音していなければ undefined（変えられる）
+    const lock = (reason: string) => (recording ? reason : undefined);
     const isMobile = useIsMobile();
     const ollamaModels = withCurrent(
         ollamaModelNames(options),
@@ -139,7 +165,7 @@ function SettingsForm({
 
                 <TabsContent value='whisper' className='min-h-0 overflow-y-auto pr-2'>
                     <Section>
-                        <Row id='whisper-model' label='モデル'>
+                        <Row id='whisper-model' label='モデル' locked={lock(recordingLocks.whisperModel)}>
                             <OptionSelect
                                 id='whisper-model'
                                 value={draft.whisper.model}
@@ -150,6 +176,7 @@ function SettingsForm({
                         <Row
                             id='compute-type'
                             label='計算の精度'
+                            locked={lock(recordingLocks.whisperModel)}
                             description='int8 にすると VRAM が減るが、精度が少し落ちる'
                         >
                             <OptionSelect
@@ -184,6 +211,7 @@ function SettingsForm({
                         <Row
                             id='silence-ms'
                             label='区切りとみなす無音'
+                            locked={lock(recordingLocks.segmentation)}
                             description='この長さだけ無音が続いたら区間を確定する'
                         >
                             <NumberInput
@@ -198,6 +226,7 @@ function SettingsForm({
                         <Row
                             id='max-segment'
                             label='区間の最大の長さ'
+                            locked={lock(recordingLocks.segmentation)}
                             description='無音がなくても、この長さで区間を確定する'
                         >
                             <NumberInput
@@ -211,6 +240,7 @@ function SettingsForm({
                         <Row
                             id='speech-threshold'
                             label='話し声の判定'
+                            locked={lock(recordingLocks.segmentation)}
                             description='自動は、音の大きさをそろえてから声らしさで判定する（離れた小さい声も拾う）。うまくいかないときは手動にして、音量で判定する'
                         >
                             <Select
@@ -234,6 +264,7 @@ function SettingsForm({
                             <Row
                                 id='speech-dbfs'
                                 label='手動のときの音量'
+                                locked={lock(recordingLocks.segmentation)}
                                 description='この音量より大きい音を話し声とみなす。小さくするほど小さい声を拾うが、雑音も拾う（-70〜-10）'
                             >
                                 <NumberInput
@@ -426,6 +457,7 @@ function SettingsForm({
                         <Row
                             id='noise-suppression'
                             label='ブラウザの雑音抑制'
+                            locked={lock(recordingLocks.microphone)}
                             description='ブラウザがマイクの雑音を抑える。次に録音を始めたときから効く'
                         >
                             <Switch
@@ -437,6 +469,7 @@ function SettingsForm({
                         <Row
                             id='auto-gain-control'
                             label='ブラウザの自動音量調整'
+                            locked={lock(recordingLocks.microphone)}
                             description='ブラウザがマイクの音量を自動で上げ下げする。次に録音を始めたときから効く'
                         >
                             <Switch
@@ -448,6 +481,7 @@ function SettingsForm({
                         <Row
                             id='echo-cancellation'
                             label='ブラウザのエコー除去'
+                            locked={lock(recordingLocks.microphone)}
                             description='スピーカーの音がマイクに回り込むのを消す。文字起こしが止まるときは切ってみる。次に録音を始めたときから効く'
                         >
                             <Switch
@@ -603,16 +637,18 @@ function Section({
     );
 }
 
-// 左に項目名と説明、右に入力欄
+// 左に項目名と説明、右に入力欄。locked（録音中に変えられない理由）があれば、入力欄を押せなくして理由を出す
 function Row({
     id,
     label,
     description,
+    locked,
     children,
 }: {
     id: string;
     label: string;
     description?: string;
+    locked?: string;
     children: React.ReactNode;
 }) {
     return (
@@ -621,8 +657,17 @@ function Row({
             <div className='flex flex-col gap-1'>
                 <Label htmlFor={id}>{label}</Label>
                 {description && <p className='text-xs text-muted-foreground'>{description}</p>}
+                {locked && (
+                    <p className='flex items-center gap-1 text-xs text-amber-700 dark:text-amber-400'>
+                        <LockIcon className='size-3 shrink-0' />
+                        {locked}
+                    </p>
+                )}
             </div>
-            {children}
+            {/* fieldset を disabled にすると、中の入力欄・ボタン（Select・Switch）をまとめて押せなくできる */}
+            <fieldset disabled={locked !== undefined} className='shrink-0 disabled:opacity-50'>
+                {children}
+            </fieldset>
         </div>
     );
 }

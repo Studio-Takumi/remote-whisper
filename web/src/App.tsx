@@ -24,6 +24,7 @@ function App() {
     const setNewProjectOpen = useAppStore((s) => s.setNewProjectOpen);
     const loadOptions = useAppStore((s) => s.loadOptions);
     const options = useAppStore((s) => s.options);
+    const recording = useAppStore((s) => s.recordingState !== 'idle');
 
     const watchMicrophone = useAppStore((s) => s.watchMicrophone);
     const connectServer = useAppStore((s) => s.connectServer);
@@ -55,6 +56,7 @@ function App() {
                 onOpenChange={setSettingsOpen}
                 settings={settings}
                 options={options}
+                recording={recording}
                 onSave={async (s) => {
                     if (await changeSettings(s)) {
                         toast.success('設定を保存しました');
