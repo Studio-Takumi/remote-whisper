@@ -78,10 +78,11 @@ class OllamaClient:
             await self._ok()
         else:
             # 見張り（15 秒ごと）でも失敗するので、つながらなくなったときだけ書く（#134）
+            # タイムアウトなどは str(e) が空なので、型の名前を書く
             log.log(
                 logging.DEBUG if self.hub.status.ollama == "error" else logging.WARNING,
                 "ollama unavailable: %s",
-                e,
+                str(e) or type(e).__name__,
             )
             await self.hub.set_status(ollama="error")
         return OllamaUnavailable(str(e) or type(e).__name__)

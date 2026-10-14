@@ -27,7 +27,7 @@ JOB_NAMES = {
     "liveSummary": "途中の要約",
     "finalSummary": "最終の要約",
     "contextSet": "参考資料セットの作成",
-    "terms": "用語の抽出",
+    "terms": "文字起こしからの用語の抽出",
     "finalTranscript": "最終の文字起こし",
 }
 

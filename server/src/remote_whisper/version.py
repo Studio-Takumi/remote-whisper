@@ -25,6 +25,8 @@ def _git(*args: str, cwd: Path) -> str:
         text=True,
         check=True,
         timeout=5,
+        # コンソールのない pythonw（remote-whisper-gui）から起こしても、git の窓を出さない（#135）
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     ).stdout.strip()
 
 

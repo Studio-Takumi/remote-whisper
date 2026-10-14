@@ -60,6 +60,8 @@ def main() -> None:
         # Windows: サーバーはメインスレッドで動かし（Ctrl+C で止められるように）、
         # トレイは別のスレッドで出す。Mac はその逆（AppKit はメインスレッドでしか動かない）
         host = "127.0.0.1" if args.host in ("0.0.0.0", "::") else args.host
+        if ":" in host:
+            host = f"[{host}]"  # IPv6 のアドレスは URL では [] で囲む
         icon = tray.Tray(
             status=lambda: app.state.ctx.hub.status,
             url=f"http://{host}:{args.port}/",

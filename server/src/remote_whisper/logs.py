@@ -64,6 +64,14 @@ def setup(home: Path, console: bool = True) -> Path:
         for handler in handlers:
             logger.addHandler(handler)
         logger.propagate = False
+    # ほかのライブラリ（asyncio の「Task exception was never retrieved」や httpx など）は、
+    # 警告から上だけ同じところに書く（コンソールのない pythonw でも残るように）
+    root = logging.getLogger()
+    root.setLevel(logging.WARNING)
+    for old in list(root.handlers):
+        root.removeHandler(old)
+    for handler in handlers:
+        root.addHandler(handler)
     _start_child_listener()
     return path
 
