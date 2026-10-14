@@ -1,4 +1,5 @@
 import asyncio
+import logging
 
 import pytest
 from fastapi.testclient import TestClient
@@ -8,6 +9,27 @@ from remote_whisper.gpu_queue import GpuQueue, Priority
 
 def run(coro):
     return asyncio.run(coro)
+
+
+def test_logs_jobs_except_transcription(caplog):
+    # 文字起こし（partial と final）は数が多いので 1 件ずつは書かない（#134）
+    caplog.set_level(logging.INFO, logger="remote_whisper.gpu_queue")
+
+    async def main():
+        queue = GpuQueue()
+
+        async def job():
+            return 1
+
+        await queue.run(Priority.TRANSCRIBE, job, session="s1")
+        await queue.run(Priority.LIVE_SUMMARY, job, session="s1")
+        await queue.stop()
+
+    run(main())
+    messages = [r.getMessage() for r in caplog.records]
+    assert not any("transcribe" in m for m in messages)
+    assert messages[0].startswith("gpu job liveSummary of s1 started after waiting")
+    assert messages[1].startswith("gpu job liveSummary of s1 finished in")
 
 
 def test_jobs_run_in_priority_order():

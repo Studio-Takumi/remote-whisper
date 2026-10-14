@@ -112,6 +112,16 @@ def _transcribe(backend: str, model: Any, pcm: bytes, options: dict) -> list[dic
 def _child_main(conn: Connection, backend: str, log_queue: Any = None) -> None:
     # ログは親に渡して、親が書く（#134）
     logs.setup_child(log_queue, "remote_whisper.whisper_worker.child")
+    try:
+        _serve(conn, backend)
+    except BaseException:
+        # 捕まえていない例外の Traceback は、multiprocessing がキューを閉じた後で stderr に
+        # 書くので親に届かない。先にログとして親に渡しておく
+        logging.getLogger("remote_whisper.whisper_worker.child").exception("whisper worker failed")
+        raise
+
+
+def _serve(conn: Connection, backend: str) -> None:
     model = None
     while True:
         try:

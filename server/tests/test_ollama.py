@@ -1,4 +1,5 @@
 import asyncio
+import logging
 
 import httpx
 import pytest
@@ -49,6 +50,29 @@ def test_unreachable_sets_status_error_and_recovers(ollama, fake):
     fake.up = True
     run(ollama.models())
     assert ollama.hub.status.ollama == "ready"
+
+
+def test_unreachable_is_logged_only_when_it_changes(ollama, fake, caplog):
+    # 見張りは 15 秒ごとに失敗するので、ログに書くのはつながらなくなったときと戻ったときだけ（#134）
+    caplog.set_level(logging.DEBUG, logger="remote_whisper.ollama")
+    fake.up = False
+    for _ in range(3):
+        with pytest.raises(OllamaUnavailable):
+            run(ollama.models())
+    fake.up = True
+    run(ollama.models())
+    run(ollama.models())
+    levels = [
+        (r.levelname, r.getMessage().split(":")[0])
+        for r in caplog.records
+        if r.name == "remote_whisper.ollama"
+    ]
+    assert levels == [
+        ("WARNING", "ollama unavailable"),
+        ("DEBUG", "ollama unavailable"),
+        ("DEBUG", "ollama unavailable"),
+        ("INFO", "ollama is reachable again"),
+    ]
 
 
 def test_monitor_updates_the_status(ollama, fake):
