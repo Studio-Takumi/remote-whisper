@@ -1,4 +1,5 @@
 import asyncio
+import json
 import sys
 import time
 
@@ -23,6 +24,7 @@ job = json.load(sys.stdin)
 count = Path(sys.argv[1])
 n = int(count.read_text()) + 1 if count.exists() else 1
 count.write_text(str(n))
+count.with_name("job.json").write_text(json.dumps(job, ensure_ascii=False), encoding="utf-8")
 if sys.argv[2] == "slow" and n == 1:
     time.sleep(30)
 if sys.argv[2] == "missing":
@@ -33,7 +35,10 @@ chars = [{"word": c, "start": i * 0.1, "end": i * 0.1 + 0.1, "speaker": "SPEAKER
          for i, c in enumerate("最終です。")]
 chars += [{"word": c, "start": 1.0 + i * 0.1, "end": 1.1 + i * 0.1, "speaker": "SPEAKER_00"}
           for i, c in enumerate("はい。")]
+turns = [{"start": 0.0, "end": 0.5, "speaker": "SPEAKER_01"},
+         {"start": 1.0, "end": 1.3, "speaker": "SPEAKER_00"}]
 result = {"segments": [{"start": 0.0, "end": 1.3, "text": "最終です。はい。", "words": chars}],
+          "turns": turns if job["diarize"] else [],
           "diarization": "done" if job["diarize"] else "off", "diarizationError": None,
           "alignModel": "fake-align", "device": "cpu", "job": job}
 if sys.argv[2] == "unavailable":
@@ -83,6 +88,9 @@ def test_final_transcript_is_made_before_the_summary(client, project, fake_ollam
     assert body == "[00:00:00] 話者 1: 最終です。\n[00:00:01] 話者 2: はい。\n"
     assert (meta.diarization, meta.speakers, meta.align_model) == ("done", 2, "fake-align")
     assert meta.recording == f"recording-{sid}.mp3"
+    # 「。」を打たせる句読点つきの例文を渡す（#141）
+    job = json.loads(fake_worker.count.with_name("job.json").read_text(encoding="utf-8"))
+    assert "。" in job["initialPrompt"]
     # できたことを全員に知らせる。最終の要約より先
     kinds = [m["type"] for m in seen]
     assert "finalTranscript" in kinds

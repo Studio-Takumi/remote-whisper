@@ -42,6 +42,13 @@ worker_log = logging.getLogger("remote_whisper.final_transcribe_worker")
 # 話者分けのモデル。pyannote.audio 4 は 3.1 を使うときにもこのモデルのファイルを読むので、これにする
 DIARIZATION_MODEL = "pyannote/speaker-diarization-community-1"
 BATCH_SIZE = 8
+# Whisper に渡す句読点つきの例文（#141）。large-v3-turbo は日本語で「。」をあまり打たず、
+# 行を文ごとに分けにくい。例文があると打つようになる（認識の精度は変わらなかった）
+INITIAL_PROMPT = {
+    "ja": (
+        "こんにちは。今日は、言葉の話をしましょう。えっと、そうですね。はい、よろしくお願いします。"
+    )
+}
 # 録音が始まって止めたら、録音が終わってから作り直す。何度も止められたらあきらめる
 MAX_TRIES = 3
 # 子プロセスを打ち切るまでの時間（秒）: TIMEOUT_BASE_SEC + 録音の長さ × TIMEOUT_PER_SEC。
@@ -237,6 +244,7 @@ class FinalTranscriber:
             "diarizationModel": DIARIZATION_MODEL,
             "batchSize": BATCH_SIZE,
             "hotwords": _hotwords(files, meta),
+            "initialPrompt": INITIAL_PROMPT.get(meta.language),
         }
         if self._preempted:
             raise _Preempted
@@ -309,7 +317,14 @@ class FinalTranscriber:
         if result.get("diarizationError"):
             log.warning("diarization of %s skipped: %s", files.id, result["diarizationError"])
         diarized = result.get("diarization") == "done"
-        body, speakers = render(sentences(result.get("segments") or []), diarized)
+        # 形態素解析と話者の割り当てで 1 時間の録音なら数秒かかるので、別のスレッドで
+        lines = await asyncio.to_thread(
+            sentences,
+            result.get("segments") or [],
+            result.get("turns") if diarized else None,
+            meta.language,
+        )
+        body, speakers = render(lines, diarized)
         gid = _save(files, meta, model, started, result, body, speakers, audio)
         log.info(
             "final transcript of %s saved as %s in %.0fs (diarization %s, %d speakers)",

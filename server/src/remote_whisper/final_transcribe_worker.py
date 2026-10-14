@@ -8,10 +8,10 @@ torch と CTranslate2 が使った VRAM は最後に必ず空く。
 標準入力で JSON の指示を受け取り、結果を JSON で `out` に書く。
 
 - 指示: `audio`・`out`・`model`・`computeType`・`language`・`diarize`・`diarizationModel`・
-  `batchSize`・`hotwords`（なくてもよい）
+  `batchSize`・`hotwords`・`initialPrompt`（この 2 つはなくてもよい）
 - 結果: `segments`（`start`・`end`・`text`・`speaker`・
-  `words`（`word`・`start`・`end`・`speaker`））、`diarization`（`done` / `off` / `unavailable`）、
-  `diarizationError`、`alignModel`、`device`
+  `words`（`word`・`start`・`end`・`speaker`））、`turns`（話者分けの区間。`start`・`end`・`speaker`）、
+  `diarization`（`done` / `off` / `unavailable`）、`diarizationError`、`alignModel`、`device`
 - 終了コード: 0 は成功、3 は WhisperX が入っていない、1 はそのほかの失敗
 
 モデルは HuggingFace のキャッシュ（`HF_HOME`）に置く。話者分けのモデルは、HuggingFace の
@@ -52,9 +52,18 @@ def run(job: dict[str, Any]) -> dict[str, Any]:
     audio = whisperx.load_audio(job["audio"])
 
     t = time.monotonic()
-    asr_options = {"hotwords": job["hotwords"]} if job.get("hotwords") else None
+    asr_options = {}
+    if job.get("hotwords"):
+        asr_options["hotwords"] = job["hotwords"]
+    if job.get("initialPrompt"):
+        # 句読点つきの例文。large-v3-turbo は日本語で「。」をあまり打たないので、促す（#141）
+        asr_options["initial_prompt"] = job["initialPrompt"]
     model = whisperx.load_model(
-        job["model"], device, compute_type=compute_type, language=language, asr_options=asr_options
+        job["model"],
+        device,
+        compute_type=compute_type,
+        language=language,
+        asr_options=asr_options or None,
     )
     result = model.transcribe(audio, batch_size=int(job.get("batchSize", 8)), language=language)
     del model
@@ -73,13 +82,20 @@ def run(job: dict[str, Any]) -> dict[str, Any]:
 
     diarization = "off"
     error = None
+    turns: list[dict[str, Any]] = []
     if job.get("diarize"):
         t = time.monotonic()
         try:
             from whisperx.diarize import DiarizationPipeline
 
             pipeline = DiarizationPipeline(model_name=job.get("diarizationModel"), device=device)
-            result = whisperx.assign_word_speakers(pipeline(audio), result)
+            segments = pipeline(audio)
+            # 行を分けるときに話者の替わり目を見るので、区間もそのまま返す（#141）
+            turns = [
+                {"start": float(r.start), "end": float(r.end), "speaker": str(r.speaker)}
+                for r in segments.itertuples()
+            ]
+            result = whisperx.assign_word_speakers(segments, result)
             del pipeline
             diarization = "done"
             log.info("diarized in %.0fs", time.monotonic() - t)
@@ -108,6 +124,7 @@ def run(job: dict[str, Any]) -> dict[str, Any]:
             }
             for s in result["segments"]
         ],
+        "turns": turns,
         "diarization": diarization,
         "diarizationError": error,
         "alignModel": align_name,
