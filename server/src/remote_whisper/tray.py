@@ -18,6 +18,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 import webbrowser
 from collections.abc import Callable
 from pathlib import Path
@@ -172,6 +173,24 @@ class Tray:
     def _setup(self, icon: Any) -> None:
         icon.visible = True
         threading.Thread(target=self._refresh, name="tray-refresh", daemon=True).start()
+        if sys.platform == "darwin":
+            threading.Thread(target=self._catch_signals, name="tray-signals", daemon=True).start()
+
+    def _catch_signals(self) -> None:
+        """Mac: Ctrl+C・kill で、サーバーの後片付けを経てから止める
+
+        pystray は Ctrl+C を受けると NSApp.terminate_ でプロセスごと終わらせる（後片付けを
+        しない）。メインスレッドは AppKit が持っていて Python のシグナルハンドラーが動かないので、
+        pystray と同じ MachSignals で、pystray が入れたものを差し替える
+        """
+        import signal
+
+        from PyObjCTools import MachSignals
+
+        # pystray が run の中で SIGINT のハンドラーを入れ終えるのを待つ
+        time.sleep(0.5)
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            MachSignals.signal(sig, lambda *_: self.on_quit())
 
     def _refresh(self) -> None:
         while not self._stopped.wait(REFRESH_SEC):
