@@ -319,7 +319,10 @@ class FinalTranscriber:
         diarized = result.get("diarization") == "done"
         # 形態素解析と話者の割り当てで 1 時間の録音なら数秒かかるので、別のスレッドで
         lines = await asyncio.to_thread(
-            sentences, result.get("segments") or [], result.get("turns") if diarized else None
+            sentences,
+            result.get("segments") or [],
+            result.get("turns") if diarized else None,
+            meta.language,
         )
         body, speakers = render(lines, diarized)
         gid = _save(files, meta, model, started, result, body, speakers, audio)

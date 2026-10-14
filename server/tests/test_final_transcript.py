@@ -79,6 +79,21 @@ def test_splits_at_a_sentence_final_word_after_a_short_pause():
 
 
 @needs_morphology
+def test_does_not_split_before_a_particle_after_a_final_form():
+    # 「だ」「ます」の後に「と」「けど」が続くなら、文はまだ終わっていない
+    words = chars("そうだ", 0.0, held=0.7) + chars("と思います", 0.9)
+    assert [s.text for s in sentences([seg(words)])] == ["そうだと思います"]
+    words = chars("行きます", 0.0) + chars("けど大丈夫", 0.75)
+    assert [s.text for s in sentences([seg(words)])] == ["行きますけど大丈夫"]
+
+
+def test_morphology_is_used_only_for_japanese():
+    # 日本語以外では、今まで通り文字の境目で区切る
+    words = chars("思", 0.0, held=1.2) + chars("ってます", 1.2)
+    assert [s.text for s in sentences([seg(words)], language="en")] == ["思", "ってます"]
+
+
+@needs_morphology
 def test_does_not_split_inside_a_word():
     # 「思」が伸びていても、「思って」の途中では区切らない
     words = chars("思", 0.0, held=1.2) + chars("ってます", 1.2)
@@ -136,6 +151,43 @@ def test_a_short_backchannel_does_not_split_a_sentence():
     assert texts(sentences([seg(words)], turns)) == [
         (0.0, "それで昨日の会議の話なんですけど", "SPEAKER_00")
     ]
+
+
+@needs_morphology
+def test_a_sentence_with_three_speakers_is_split_twice():
+    words = (
+        chars("今日は晴れです", 0.0, step=0.2)
+        + chars("明日は雨です", 1.4, step=0.2)
+        + chars("明後日は曇りです", 2.6, step=0.2)
+    )
+    turns = [turn(0.0, 1.4, "A"), turn(1.4, 2.6, "B"), turn(2.6, 4.2, "C")]
+    assert texts(sentences([seg(words)], turns)) == [
+        (0.0, "今日は晴れです", "A"),
+        (1.4, "明日は雨です", "B"),
+        (2.6, "明後日は曇りです", "C"),
+    ]
+
+
+def test_a_sentence_outside_the_turns_keeps_the_previous_speaker():
+    # 話者分けの区間にかからない文は、前の行の話者にする。最初の文なら話者なし
+    words = chars("えー", 0.0, held=1.0) + chars("はい", 2.0, held=1.0) + chars("どうも", 4.0)
+    turns = [turn(2.0, 3.0, "A")]
+    assert texts(sentences([seg(words)], turns)) == [
+        (0.0, "えー", None),
+        (2.0, "はい", "A"),
+        (4.0, "どうも", "A"),
+    ]
+
+
+@needs_morphology
+def test_a_turn_change_far_from_any_word_boundary_does_not_split():
+    # 替わり目から 0.6 秒以内に語の境目がなければ分けない（多数決にする）
+    # 語の境目は 2.5 秒（ありがとう｜ござい）と 4.0 秒（ござい｜まし）。
+    # どちらも替わり目の 3.25 秒から 0.75 秒離れている
+    words = chars("ありがとうございました", 0.0, step=0.5)
+    turns = [turn(0.0, 3.25, "A"), turn(3.25, 5.5, "B")]
+    [item] = sentences([seg(words)], turns)
+    assert (item.text, item.speaker) == ("ありがとうございました", "A")
 
 
 def test_uses_word_speakers_without_turns():

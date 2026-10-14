@@ -116,14 +116,14 @@ def _morphology(text: str) -> tuple[set[int], set[int]] | None:
         pos = at + len(t.surface)
         boundaries.update((at, pos))
         f = t.feature
-        # 「ますね」の「ます」の後ろではなく、「ね」の後ろを文末にする
-        if k + 1 < len(tokens) and tokens[k + 1].feature.pos2 == "終助詞":
+        # 次が助詞・助動詞なら文はまだ続く（「だと思う」「ですけど」）。
+        # 「ますね」のように終助詞が続くときは、その後ろを文末にする
+        if k + 1 < len(tokens) and tokens[k + 1].feature.pos1 in ("助詞", "助動詞"):
             continue
+        # UniDic では「ます」「です」「た」「だ」「ん」も終止形になる
         form = f.cForm or ""
-        if (
-            f.pos2 == "終助詞"
-            or (f.pos1 in ("助動詞", "動詞", "形容詞") and form.startswith("終止形"))
-            or (f.pos1 == "助動詞" and t.surface in ("ます", "です", "た", "だ", "ん"))
+        if f.pos2 == "終助詞" or (
+            f.pos1 in ("助動詞", "動詞", "形容詞") and form.startswith("終止形")
         ):
             finals.add(pos)
     return boundaries, finals
@@ -261,11 +261,14 @@ def _assign_speakers(
 
 
 def sentences(
-    segments: list[dict[str, Any]], turns: list[dict[str, Any]] | None = None
+    segments: list[dict[str, Any]],
+    turns: list[dict[str, Any]] | None = None,
+    language: str = "ja",
 ) -> list[Sentence]:
     """文ごとに分ける
 
-    turns は話者分けの区間（`start`・`end`・`speaker`）。なければ単語に付いた話者を使う
+    turns は話者分けの区間（`start`・`end`・`speaker`）。なければ単語に付いた話者を使う。
+    形態素解析（辞書は日本語）は、日本語のときだけ使う
     """
     words = _words(segments)
     if not words:
@@ -281,7 +284,7 @@ def sentences(
     for w in words:
         pos += len(w["word"])
         ends.append(pos)
-    morph = _morphology("".join(w["word"] for w in words))
+    morph = _morphology("".join(w["word"] for w in words)) if language == "ja" else None
     boundaries = morph[0] if morph is not None else None
 
     out: list[Sentence] = []
