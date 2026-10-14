@@ -114,6 +114,29 @@ def test_tray_updates_only_when_the_state_changes(monkeypatch):
     assert t._icon.title == "remote-whisper: 実行中: 最終の要約"
 
 
+def test_status_line_is_rewritten_on_mac(monkeypatch):
+    # Mac ではメニューの一番上の状態の行を、状態が変わったら書き直す（#136）
+    pytest.importorskip("PIL")
+    from remote_whisper import tray
+
+    monkeypatch.setattr(tray, "shows_status_line", lambda: True)
+
+    class FakeIcon:
+        icon = None
+        title = None
+        menus = 0
+
+        def update_menu(self):
+            self.menus += 1
+
+    t = tray.Tray(status=ServerStatus, url="", log_dir=None, on_quit=None)
+    t._icon = FakeIcon()
+    t.update(tray_state(status(recordings=1)))
+    assert t._status_text() == "録音中 1件" and t._icon.menus == 1
+    t.update(tray_state(status(recordings=1)))
+    assert t._icon.menus == 1
+
+
 def test_quit_asks_while_recording(monkeypatch):
     from remote_whisper import tray
 
