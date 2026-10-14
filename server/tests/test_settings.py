@@ -190,8 +190,39 @@ def test_summary_density(client):
         assert res.status_code == 422
 
 
-def test_patch_settings_while_recording(client, app):
+def test_patch_settings_while_recording(client, app, home):
+    # 録音中に変えられないのは、文字起こしのモデル・区切り・マイクの処理だけ（#133）
     app.state.ctx.recordings = 1
-    res = client.patch("/api/settings", json={"whisper": {"beamSize": 3}})
-    assert res.status_code == 409
-    assert client.get("/api/settings").json()["whisper"]["beamSize"] == 5
+    locked = [
+        {"whisper": {"model": "small"}},
+        {"whisper": {"computeType": "int8"}},
+        {"whisper": {"silenceMs": 800}},
+        {"whisper": {"maxSegmentSec": 20}},
+        {"whisper": {"speechThreshold": "manual"}},
+        {"whisper": {"speechDbfs": -50}},
+        {"recording": {"noiseSuppression": False}},
+        {"recording": {"autoGainControl": False}},
+        {"recording": {"echoCancellation": False}},
+    ]
+    before = (home / "setting.json").read_text(encoding="utf-8")
+    for patch in locked:
+        res = client.patch("/api/settings", json=patch)
+        assert res.status_code == 409, patch
+        section, values = next(iter(patch.items()))
+        assert f"{section}.{next(iter(values))}" in res.json()["detail"]
+    assert (home / "setting.json").read_text(encoding="utf-8") == before
+
+    # ほかの項目は変えられる。画面は設定をまるごと送るので、変えられない項目が同じ値なら通す
+    whole = client.get("/api/settings").json()
+    whole["whisper"]["beamSize"] = 3
+    whole["ollama"]["finalSummaryModel"] = "other:7b"
+    whole["retentionDays"]["recording"] = 3
+    whole["display"]["sessionMeta"] = True
+    res = client.patch("/api/settings", json=whole)
+    assert res.status_code == 200
+    assert res.json()["whisper"]["beamSize"] == 3
+    assert res.json()["ollama"]["finalSummaryModel"] == "other:7b"
+
+    # 録音していなければ、どれも変えられる
+    app.state.ctx.recordings = 0
+    assert client.patch("/api/settings", json={"whisper": {"model": "small"}}).status_code == 200

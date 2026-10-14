@@ -88,8 +88,8 @@ def test_recording_flow(mock_client):
         assert final["segment"] == 0
         assert 0 <= final["start"] <= final["end"]
 
-        # 録音中は設定を変えられない
-        res = mock_client.patch("/api/settings", json={"whisper": {"beamSize": 3}})
+        # 録音中は区切りの設定を変えられない（#133）
+        res = mock_client.patch("/api/settings", json={"whisper": {"silenceMs": 900}})
         assert res.status_code == 409
 
         # 途中の要約と仮のタイトル
