@@ -8,6 +8,7 @@
 
 import argparse
 import logging
+import signal
 import threading
 
 import uvicorn
@@ -91,6 +92,13 @@ def _serve_with_tray_on_main_thread(server: uvicorn.Server, icon: "tray.Tray") -
             # サーバーが止まったら（ポートが使われていたなど）、メニューバーも消して終える
             icon.stop()
 
+    # Ctrl+C（と kill）では、メニューバーごと落ちずに、サーバーの後片付けを経てから止める。
+    # サーバーが止まると serve() がメニューバーを消し、下の icon.run() が戻る
+    def stop(*_: object) -> None:
+        server.should_exit = True
+
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(sig, stop)
     thread = threading.Thread(target=serve, name="server")
     thread.start()
     try:
