@@ -14,12 +14,15 @@ import contextlib
 import importlib.util
 import json
 import logging
+import os
 import sys
+import time
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from remote_whisper import logs
 from remote_whisper.documents import FinalTranscriptMeta, TranscriptMeta, write_doc
 from remote_whisper.final_transcribe_worker import EXIT_NOT_INSTALLED
 from remote_whisper.final_transcript import render, sentences
@@ -33,6 +36,8 @@ from remote_whisper.timeutil import iso, make_id, now
 from remote_whisper.version import app_version
 
 log = logging.getLogger(__name__)
+# 子プロセス（final_transcribe_worker）が書いたもの
+worker_log = logging.getLogger("remote_whisper.final_transcribe_worker")
 
 # 話者分けのモデル。pyannote.audio 4 は 3.1 を使うときにもこのモデルのファイルを読むので、これにする
 DIARIZATION_MODEL = "pyannote/speaker-diarization-community-1"
@@ -238,18 +243,35 @@ class FinalTranscriber:
         # 固まっても GPU キューを止めたままにしないよう、録音の長さに応じた時間で打ち切る
         timeout = TIMEOUT_BASE_SEC + TIMEOUT_PER_SEC * (meta.duration_sec or 3600)
         timed_out = False
+        clock = time.monotonic()
+        log.info(
+            "final transcript of %s started with %s (diarize=%s, %.0fs of audio)",
+            files.id,
+            model,
+            diarize,
+            meta.duration_sec or 0,
+        )
+        output: asyncio.Task | None = None
         try:
+            # 子の出力（ログ）は親が受け取って、サーバーのログに書く（#134）
             self._proc = await asyncio.create_subprocess_exec(
-                *self.command, stdin=asyncio.subprocess.PIPE
+                *self.command,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                env={**os.environ, "PYTHONIOENCODING": "utf-8"},
             )
+            assert self._proc.stdin is not None and self._proc.stdout is not None
+            output = asyncio.create_task(logs.forward_output(self._proc.stdout, worker_log))
             if self._preempted:
                 # 起こしている間に録音が始まった
                 self._kill("a recording started")
             try:
-                await asyncio.wait_for(
-                    self._proc.communicate(json.dumps(job, ensure_ascii=False).encode("utf-8")),
-                    timeout,
-                )
+                with contextlib.suppress(BrokenPipeError, ConnectionResetError):
+                    self._proc.stdin.write(json.dumps(job, ensure_ascii=False).encode("utf-8"))
+                    await self._proc.stdin.drain()
+                    self._proc.stdin.close()
+                await asyncio.wait_for(self._proc.wait(), timeout)
             except TimeoutError:
                 timed_out = True
                 self._kill(f"no result in {timeout:.0f}s")
@@ -261,6 +283,10 @@ class FinalTranscriber:
             raise
         finally:
             self._proc = None
+            if output is not None:
+                # 子が終われば出力も閉じるので、残りを書き終えるのを待つ
+                with contextlib.suppress(Exception):
+                    await asyncio.wait_for(output, 5)
         if self._preempted:
             out.unlink(missing_ok=True)
             raise _Preempted
@@ -285,7 +311,14 @@ class FinalTranscriber:
         diarized = result.get("diarization") == "done"
         body, speakers = render(sentences(result.get("segments") or []), diarized)
         gid = _save(files, meta, model, started, result, body, speakers, audio)
-        log.info("final transcript of %s saved as %s", files.id, gid)
+        log.info(
+            "final transcript of %s saved as %s in %.0fs (diarization %s, %d speakers)",
+            files.id,
+            gid,
+            time.monotonic() - clock,
+            result.get("diarization") or "off",
+            speakers,
+        )
         await self.hub.broadcast(
             {"type": "finalTranscript", "session": files.id, "generationId": gid}
         )
