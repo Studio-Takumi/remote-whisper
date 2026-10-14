@@ -14,13 +14,18 @@ from remote_whisper import logs
 @pytest.fixture
 def logging_setup(home):
     """ログをファイルに出し、終わったら元に戻す（ほかのテストの caplog を壊さないように）"""
+    names = [*logs.LOGGERS, ""]  # "" はルートロガー
     saved = {
-        name: (logging.getLogger(name).handlers[:], logging.getLogger(name).propagate)
-        for name in logs.LOGGERS
+        name: (
+            logging.getLogger(name).handlers[:],
+            logging.getLogger(name).propagate,
+            logging.getLogger(name).level,
+        )
+        for name in names
     }
     path = logs.setup(home, console=False)
     yield path
-    for name, (handlers, propagate) in saved.items():
+    for name, (handlers, propagate, level) in saved.items():
         logger = logging.getLogger(name)
         for handler in logger.handlers[:]:
             handler.close()
@@ -28,6 +33,7 @@ def logging_setup(home):
         for handler in handlers:
             logger.addHandler(handler)
         logger.propagate = propagate
+        logger.setLevel(level)
     logs.shutdown()
 
 
@@ -56,6 +62,50 @@ def _child(queue, ready, done):
     import sys
 
     sys.stderr.write("Traceback (most recent call last):\n  boom\n")
+
+
+class _CrashingConn:
+    """子プロセスで受け取ると、捕まえていない例外（BaseException）になる接続"""
+
+    def recv(self):
+        raise SystemExit(5)
+
+
+def test_whisper_child_crash_reaches_the_log(logging_setup):
+    # 捕まえていない例外の Traceback も親のログに残る（stderr は親に届く前に閉じられるので）
+    from remote_whisper.whisper_worker import _child_main
+
+    mp = multiprocessing.get_context("spawn")
+    child = mp.Process(target=_child_main, args=(_CrashingConn(), "fake", logs.child_queue()))
+    child.start()
+    child.join(30)
+    assert child.exitcode == 5
+    _wait_for(logging_setup, "SystemExit: 5")
+    assert "whisper worker failed" in logging_setup.read_text(encoding="utf-8")
+
+
+def test_other_libraries_write_warnings(logging_setup):
+    # asyncio や httpx などは、警告から上だけ同じファイルに書く
+    logging.getLogger("asyncio").warning("task exception was never retrieved")
+    logging.getLogger("httpx").info("not written")
+    _file_handler().flush()
+    text = logging_setup.read_text(encoding="utf-8")
+    assert "WARNING asyncio: task exception was never retrieved" in text
+    assert "not written" not in text
+
+
+def test_logs_api_requests_and_websockets(client, caplog):
+    caplog.set_level(logging.INFO, logger="remote_whisper")
+    assert client.get("/api/health").status_code == 200
+    client.get("/favicon.svg")
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+    messages = [r.getMessage() for r in caplog.records]
+    assert any(m.startswith("GET /api/health 200 ") for m in messages)
+    # 画面の静的ファイルは書かない
+    assert not any("favicon" in m for m in messages)
+    assert any(m.startswith("websocket connected from ") for m in messages)
+    assert any(m.startswith("websocket disconnected from ") for m in messages)
 
 
 def test_writes_to_the_log_file(logging_setup, home):
