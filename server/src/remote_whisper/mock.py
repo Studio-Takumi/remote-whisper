@@ -31,6 +31,9 @@ SCRIPT = [
     "リリース日は再来週の月曜を目標にして、金曜に最終判断しましょう。",
 ]
 
+# 録音中に拾う語（台本に出てきたものだけ拾う）
+MOCK_TERMS = ["ステージング環境", "負荷試験", "リリースノート"]
+
 LIVE_TITLE = "リリース計画の打ち合わせ"
 FINAL_TITLE = "リリース計画の確認"
 
@@ -196,6 +199,17 @@ class MockSession:
                 self.writer.save_live_summary(text)
                 self.writer.set_title(LIVE_TITLE)
             await self.send({"type": "title", "title": LIVE_TITLE, "provisional": True})
+            await self._pick_terms()
+
+    async def _pick_terms(self) -> None:
+        """録音中に用語を拾うのをまねる（全体設定の ollama.pickTerms がオンのとき。ファイルには書かない）"""
+        settings = self.recorder.settings
+        if settings is None or not settings.get().ollama.pick_terms:
+            return
+        said = "".join(self.finals)
+        picked = [t for t in MOCK_TERMS if t in said]
+        if picked:
+            await self.send({"type": "terms", "terms": picked, "rejected": []})
 
     async def _stream(self, kind: str, text: str) -> None:
         if kind == "live":
