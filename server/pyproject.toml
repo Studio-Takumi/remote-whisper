@@ -15,6 +15,9 @@ dependencies = [
     "nvidia-cudnn-cu12==9.*; sys_platform == 'win32' or sys_platform == 'linux'",
     "pypdf[crypto]>=5",
     "nvidia-ml-py>=13.615.71",
+    # タスクトレイ（#135）。Windows だけ
+    "pystray>=0.19; sys_platform == 'win32'",
+    "pillow>=10; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]
@@ -30,6 +33,10 @@ final = [
 
 [project.scripts]
 remote-whisper = "remote_whisper.__main__:main"
+
+# コンソールを出さずに起動する（Windows では pythonw。状態はタスクトレイで見る。#135）
+[project.gui-scripts]
+remote-whisper-gui = "remote_whisper.__main__:main"
 
 [dependency-groups]
 dev = [
