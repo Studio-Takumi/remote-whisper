@@ -64,6 +64,8 @@ class OllamaClient:
         return httpx.AsyncClient(base_url=self.host, timeout=timeout, transport=self._transport)
 
     async def _ok(self) -> None:
+        if self.hub.status.ollama == "error":
+            log.info("ollama is reachable again")
         await self.hub.set_status(ollama="ready")
 
     async def _failed(self, e: Exception) -> OllamaUnavailable:
@@ -75,7 +77,12 @@ class OllamaClient:
             log.warning("ollama rejected the request: %s", e)
             await self._ok()
         else:
-            log.warning("ollama unavailable: %s", e)
+            # 見張り（15 秒ごと）でも失敗するので、つながらなくなったときだけ書く（#134）
+            log.log(
+                logging.DEBUG if self.hub.status.ollama == "error" else logging.WARNING,
+                "ollama unavailable: %s",
+                e,
+            )
             await self.hub.set_status(ollama="error")
         return OllamaUnavailable(str(e) or type(e).__name__)
 
@@ -184,6 +191,10 @@ class OllamaClient:
                     if content:
                         yield content
                     if chunk.get("done"):
+                        # モデルを読み込んだ（VRAM になかった）なら、かかった時間を書く（ナノ秒）
+                        load_sec = (chunk.get("load_duration") or 0) / 1e9
+                        if load_sec >= 1:
+                            log.info("ollama loaded %s in %.1fs", model, load_sec)
                         if chunk.get("done_reason") == "length":
                             # num_ctx を使い切って、本文が途中で切れた（思考が長いと起きる）
                             log.warning("the reply of %s was cut off at num_ctx", model)
@@ -208,6 +219,7 @@ class OllamaClient:
                     await self._request(
                         "POST", "/api/generate", json={"model": name, "keep_alive": 0}
                     )
+                    log.info("ollama unloaded %s", name)
                     self._pinned.discard(name)
 
     async def recording_ended(self) -> None:

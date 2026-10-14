@@ -1,11 +1,14 @@
 """FastAPI のアプリ"""
 
 import asyncio
+import contextlib
+import logging
 import os
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 
 from remote_whisper.context import AppContext
@@ -14,6 +17,7 @@ from remote_whisper.final_summary import FinalSummarizer
 from remote_whisper.final_transcriber import FinalTranscriber, installed
 from remote_whisper.gpu_stats import GpuStats
 from remote_whisper.janitor import Janitor
+from remote_whisper.logs import traffic
 from remote_whisper.mock import (
     MockContextGenerator,
     MockFinalSummarizer,
@@ -39,6 +43,8 @@ from remote_whisper.whisper_worker import WhisperWorker
 # server/src/remote_whisper/app.py から見たリポジトリの web/dist。
 # リポジトリから動かす（uv run）前提。wheel で入れた場合は REMOTE_WHISPER_WEB_DIST で指定する
 DEFAULT_WEB_DIST = Path(__file__).resolve().parents[3] / "web" / "dist"
+
+log = logging.getLogger(__name__)
 
 
 def web_dist_dir() -> Path:
@@ -88,7 +94,14 @@ def create_app(
         # 偽の Whisper（テスト）では何もしない）
         if not mock and os.environ.get("REMOTE_WHISPER_WHISPER_BACKEND") != "fake":
             gpu_stats.start()
+        # 音声の受信量と送ったメッセージの数を、1 分ごとにまとめてログに書く（#134）
+        traffic_task = asyncio.create_task(traffic.run())
+        log.info("server started (version %s, data in %s)", app_version(), home)
         yield
+        log.info("server stopping")
+        traffic_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await traffic_task
         await gpu_stats.close()
         await janitor.close()
         # 止めるときは、録音中の WAV を閉じて録音を終えたあとの処理を止め、GPU のジョブキューを止め
@@ -179,6 +192,27 @@ def create_app(
                 OllamaGenerator(ctx.ollama, ctx.settings),
                 on_ready=ctx.recorder.context_set_ready,
             )
+
+    @app.middleware("http")
+    async def log_requests(request: Request, call_next):
+        """API のリクエストをログに書く（メソッド・パス・ステータス・かかった時間。#134）。
+        画面の静的ファイルは書かない"""
+        if not request.url.path.startswith("/api/"):
+            return await call_next(request)
+        started = time.monotonic()
+        try:
+            response = await call_next(request)
+        except Exception:
+            log.exception("%s %s failed", request.method, request.url.path)
+            raise
+        log.info(
+            "%s %s %d %.0fms",
+            request.method,
+            request.url.path,
+            response.status_code,
+            (time.monotonic() - started) * 1000,
+        )
+        return response
 
     @app.get("/api/health")
     def health() -> dict:

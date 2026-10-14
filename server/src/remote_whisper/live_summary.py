@@ -17,6 +17,7 @@
 import asyncio
 import contextlib
 import logging
+import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -153,6 +154,13 @@ class LiveSummarizer:
         model = self.settings.get().ollama.live_summary_model
         # 要約度は区間ごとの要約に効かせる（概要は短いまま。#100）
         density = self.settings.get().ollama.live_summary_density
+        started = time.monotonic()
+        log.info(
+            "live summary of %s started with %s (%d new lines)",
+            self.writer.id,
+            model,
+            upto - self._done,
+        )
         try:
             # 閉じた区間（最後の1つより前）の要約を確定させる。以後は書き直さない
             for i, chunk in enumerate(chunks[:-1]):
@@ -211,6 +219,13 @@ class LiveSummarizer:
             self.writer.save_live_summary(text)
         except OSError:
             log.exception("failed to save the live summary of %s", self.writer.id)
+        log.info(
+            "live summary of %s done in %.1fs (%d chars)",
+            self.writer.id,
+            time.monotonic() - started,
+            len(text),
+        )
+        started = time.monotonic()
         try:
             # 区間が分かれていれば、ここまでの概要から作る
             title = await make_title(self.ollama, model, overview or current)
@@ -220,6 +235,9 @@ class LiveSummarizer:
             return
         if title is None:
             return
+        log.info(
+            "provisional title of %s done in %.1fs", self.writer.id, time.monotonic() - started
+        )
         try:
             self.writer.set_title(title)
         except OSError:

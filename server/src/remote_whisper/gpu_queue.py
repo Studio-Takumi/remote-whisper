@@ -223,9 +223,20 @@ class GpuQueue:
             entry.started_at = time.monotonic()
             self._current = entry
             self._changed()
+            # 文字起こし（partial と final）は数が多いので 1 件ずつは書かない（#134）
+            logged = entry.kind != "transcribe"
+            if logged:
+                log.info(
+                    "gpu job %s of %s started after waiting %.1fs",
+                    entry.kind,
+                    entry.session or "-",
+                    entry.started_at - entry.queued_at,
+                )
+            outcome = "finished"
             try:
                 result = await entry.run()
             except asyncio.CancelledError:
+                outcome = "cancelled"
                 if not future.done():
                     future.cancel()
                 # stop() で止められたときだけワーカーを終える。ジョブ自身の cancel なら続ける
@@ -233,12 +244,21 @@ class GpuQueue:
                 if current is not None and current.cancelling():
                     raise
             except Exception as e:  # noqa: BLE001 ジョブの失敗でワーカーを止めない
-                log.exception("GPU job failed")
+                outcome = "failed"
+                log.exception("GPU job %s of %s failed", entry.kind, entry.session or "-")
                 if not future.done():
                     future.set_exception(e)
             else:
                 if not future.done():
                     future.set_result(result)
             finally:
+                if logged:
+                    log.info(
+                        "gpu job %s of %s %s in %.1fs",
+                        entry.kind,
+                        entry.session or "-",
+                        outcome,
+                        time.monotonic() - entry.started_at,
+                    )
                 self._current = None
                 self._changed()

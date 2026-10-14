@@ -9,6 +9,8 @@ from typing import Any, Literal
 
 from fastapi import WebSocket
 
+from remote_whisper.logs import traffic
+
 log = logging.getLogger(__name__)
 
 WhisperState = Literal["unloaded", "loading", "ready", "error"]
@@ -122,6 +124,8 @@ async def send(ws: WebSocket, message: dict[str, Any]) -> bool:
     """送れなかったら False（切れた接続への送信で例外を出さない）"""
     try:
         await ws.send_json(message)
+        # 送ったメッセージは、種類ごとの数だけ 1 分ごとにまとめてログに書く（#134）
+        traffic.message(str(message.get("type")))
         return True
     except Exception as e:  # noqa: BLE001 切断のしかたで例外の型がまちまちなため
         log.debug("send failed: %s", e)

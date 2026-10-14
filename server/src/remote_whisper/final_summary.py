@@ -16,6 +16,7 @@ Ollama につながらなければ ollama_unavailable を送り、途中の要�
 """
 
 import logging
+import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
@@ -177,6 +178,8 @@ class FinalSummarizer:
         # 要約度（#100）。作り始めた時点の全体設定のものを使い、フロントマターに残す
         ollama_settings = self.settings.get().ollama
         density = Density(ollama_settings.overview_density, ollama_settings.detail_density)
+        clock = time.monotonic()
+        log.info("final summary of %s started with %s (%d lines)", writer.id, model, len(lines))
         try:
             think = await self.ollama.supports_thinking(model)
             text, gist = await self._summarize(model, lines, context, send, density)
@@ -189,9 +192,18 @@ class FinalSummarizer:
             await send(ollama_error("最終の要約"))
             return None
         await send({"type": "summary.done", "kind": "final"})
+        log.info(
+            "final summary of %s done in %.1fs (%d chars)",
+            writer.id,
+            time.monotonic() - clock,
+            len(text),
+        )
 
+        clock = time.monotonic()
         try:
             title = await make_title(self.ollama, model, gist)
+            if title:
+                log.info("title of %s done in %.1fs", writer.id, time.monotonic() - clock)
         except OllamaUnavailable as e:
             log.warning("title of %s failed: %s", writer.id, e)
             title = None
@@ -232,6 +244,7 @@ class FinalSummarizer:
             # コピーできなくても、データのルートには保存できている
             log.warning("failed to copy the summary of %s: %s", writer.id, e)
         _mark_failed(writer, False)
+        log.info("final summary of %s saved as %s", writer.id, gid)
         await send({"type": "title", "title": writer.meta.title or "", "provisional": False})
         return gid
 
