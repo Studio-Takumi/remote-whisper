@@ -14,6 +14,7 @@ import asyncio
 import contextlib
 import logging
 import re
+import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -152,6 +153,8 @@ class TermPicker:
         while len(lines) > 1 and sum(len(x) for x in lines) > CHUNK_CHARS:
             lines.pop(0)
         model = self.settings.get().ollama.live_summary_model
+        started = time.monotonic()
+        log.info("terms of %s started with %s (%d lines)", self.writer.id, model, len(lines))
         try:
             reply = await self.ollama.chat(
                 model,
@@ -170,9 +173,16 @@ class TermPicker:
         picked = await asyncio.to_thread(self.select, candidates)
         # 選んでいる間に画面で消された語は除く
         picked = [w for w in picked if w not in self.rejected]
+        added = [w for w in picked if w not in self.picked]
+        # 語そのものは書かない（文字起こしの中身なので。セッションのフロントマターに残っている）
+        log.info(
+            "terms of %s done in %.1fs (%d added, %d in all)",
+            self.writer.id,
+            time.monotonic() - started,
+            len(added),
+            len(picked),
+        )
         if picked != self.picked:
-            added = [w for w in picked if w not in self.picked]
-            log.info("session %s picked terms: %s", self.writer.id, added)
             await self._update(picked)
 
     def select(self, candidates: list[str]) -> list[str]:

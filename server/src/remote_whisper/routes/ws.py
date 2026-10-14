@@ -8,6 +8,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from remote_whisper.context import AppContext
 from remote_whisper.hub import send
+from remote_whisper.logs import traffic
 from remote_whisper.recording import RecordingError
 
 log = logging.getLogger(__name__)
@@ -19,6 +20,8 @@ router = APIRouter()
 async def websocket(ws: WebSocket) -> None:
     ctx: AppContext = ws.app.state.ctx
     await ws.accept()
+    peer = _peer(ws)
+    log.info("websocket connected from %s", peer)
     await ctx.hub.add(ws)
     # この接続で録音しているセッション。1つの接続で同時に録音できるのは1つだけ
     session = None
@@ -31,15 +34,28 @@ async def websocket(ws: WebSocket) -> None:
                 if msg.get("bytes") is not None:
                     await _audio(ws, session, msg["bytes"])
                 elif msg.get("text") is not None:
-                    session = await _control(ctx, ws, session, msg["text"])
+                    session = await _control(ctx, ws, session, msg["text"], peer)
             except RecordingError as e:
+                log.warning("recording request from %s refused: %s", peer, e.code)
                 await send(ws, e.to_message())
     except WebSocketDisconnect:
         pass
     finally:
         ctx.hub.remove(ws)
-        if session is not None and session.ws is ws:
+        recording = session is not None and session.ws is ws
+        log.info(
+            "websocket disconnected from %s%s",
+            peer,
+            f" while recording {session.id}" if recording else "",
+        )
+        if recording:
             session.detach()
+
+
+def _peer(ws: WebSocket) -> str:
+    """どの端末からの接続か（Tailscale 越しなら、その端末のアドレス）"""
+    client = ws.client
+    return f"{client.host}:{client.port}" if client else "unknown"
 
 
 def _owns(ws: WebSocket, session: Any) -> bool:
@@ -53,11 +69,24 @@ async def _audio(ws: WebSocket, session: Any, data: bytes) -> None:
         raise RecordingError("not_recording", "録音していません")
     if len(data) < 4:
         raise RecordingError("bad_message", "音声のチャンクが短すぎます")
+    # 受け取った量は 1 分ごとにまとめてログに書く（#134）
+    traffic.audio(len(data) - 4)
     await session.audio(int.from_bytes(data[:4], "little"), data[4:])
 
 
-async def _control(ctx: AppContext, ws: WebSocket, session: Any, text: str) -> Any:
-    """制御メッセージを処理して、この接続のセッションを返す"""
+async def _control(ctx: AppContext, ws: WebSocket, session: Any, text: str, peer: str) -> Any:
+    """制御メッセージを処理して、この接続のセッションを返す。録音の操作はログに書く（#134）"""
+    before = session
+    result = await _handle_control(ctx, ws, session, text)
+    kind = json.loads(text)["type"]
+    if kind in ("start", "continue", "resume"):
+        log.info("recording %s from %s: %s", kind, peer, result.id)
+    elif kind in ("stop", "pause", "unpause"):
+        log.info("recording %s from %s: %s", kind, peer, before.id)
+    return result
+
+
+async def _handle_control(ctx: AppContext, ws: WebSocket, session: Any, text: str) -> Any:
     try:
         message = json.loads(text)
         kind = message["type"]

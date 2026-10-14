@@ -116,7 +116,10 @@ def run(job: dict[str, Any]) -> dict[str, Any]:
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    # 出力は親（サーバー）が受け取って、サーバーのログに書く（#134）。名前と時刻は親が付ける
+    # ライブラリ（whisperx・pyannote など）は警告から上だけ書く
+    logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(message)s")
+    log.setLevel(logging.INFO)
     job = json.load(sys.stdin)
     try:
         import whisperx  # noqa: F401

@@ -4,11 +4,14 @@
 """
 
 import argparse
+import logging
 
 import uvicorn
 
+from remote_whisper import logs
 from remote_whisper.app import create_app
 from remote_whisper.mock import MockTiming
+from remote_whisper.settings import default_home
 
 
 def main() -> None:
@@ -29,8 +32,16 @@ def main() -> None:
     args = parser.parse_args()
 
     timing = MockTiming(live_summary=args.mock_live_summary_sec)
-    app = create_app(mock=args.mock, mock_timing=timing)
-    uvicorn.run(app, host=args.host, port=args.port)
+    home = default_home()
+    # ログは <データのルート>/log/server.log にも書く（#134）。uvicorn のログもそこに入れ、
+    # アクセスログは自前（API のリクエストだけ。app.py）で書く
+    path = logs.setup(home)
+    logging.getLogger("remote_whisper").info("writing logs to %s", path)
+    try:
+        app = create_app(home, mock=args.mock, mock_timing=timing)
+        uvicorn.run(app, host=args.host, port=args.port, log_config=None, access_log=False)
+    finally:
+        logs.shutdown()
 
 
 if __name__ == "__main__":

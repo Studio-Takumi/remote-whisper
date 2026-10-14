@@ -17,6 +17,7 @@ from multiprocessing.connection import Connection
 from pathlib import Path
 from typing import Any
 
+from remote_whisper import logs
 from remote_whisper.hub import Hub
 from remote_whisper.settings import SettingsStore
 
@@ -108,7 +109,19 @@ def _transcribe(backend: str, model: Any, pcm: bytes, options: dict) -> list[dic
     ]
 
 
-def _child_main(conn: Connection, backend: str) -> None:
+def _child_main(conn: Connection, backend: str, log_queue: Any = None) -> None:
+    # ログは親に渡して、親が書く（#134）
+    logs.setup_child(log_queue, "remote_whisper.whisper_worker.child")
+    try:
+        _serve(conn, backend)
+    except BaseException:
+        # 捕まえていない例外の Traceback は、multiprocessing がキューを閉じた後で stderr に
+        # 書くので親に届かない。先にログとして親に渡しておく
+        logging.getLogger("remote_whisper.whisper_worker.child").exception("whisper worker failed")
+        raise
+
+
+def _serve(conn: Connection, backend: str) -> None:
     model = None
     while True:
         try:
@@ -184,13 +197,14 @@ class WhisperWorker:
             return
         async with self._lock:
             if self._loaded is not None and not self._alive():
-                log.error("whisper worker died")
+                code = self._process.exitcode if self._process is not None else None
+                log.error("whisper worker died (exit code %s)", code)
                 await self._crashed()
                 return
             idle_min = (time.monotonic() - self._last_used) / 60
             limit = self.settings.get().whisper.unload_after_min
             if self.ready and limit > 0 and idle_min >= limit:
-                log.info("unloading whisper after %.1f min idle", idle_min)
+                log.info("whisper idle for %.1f min", idle_min)
                 await self._unload_locked()
 
     async def _crashed(self) -> None:
@@ -215,22 +229,26 @@ class WhisperWorker:
         await self._close_process()
         self._loaded = None
         await self._set_status("loading")
+        started = time.monotonic()
+        log.info("loading whisper %s (%s)", spec.model, spec.compute_type)
         parent, child = self._mp.Pipe()
         self._process = self._mp.Process(
-            target=_child_main, args=(child, self.backend), daemon=True
+            target=_child_main, args=(child, self.backend, logs.child_queue()), daemon=True
         )
         self._process.start()
         child.close()
         self._conn = parent
         try:
             await self._call(("load", spec))
-        except WhisperUnavailable:
+        except WhisperUnavailable as e:
+            log.error("failed to load whisper %s: %s", spec.model, e)
             self._load_failed = (spec, time.monotonic())
             await self._crashed()
             raise
         self._load_failed = None
         self._loaded = spec
         self._last_used = time.monotonic()
+        log.info("loaded whisper %s in %.1fs", spec.model, time.monotonic() - started)
         await self._set_status("ready")
 
     async def transcribe(self, pcm: bytes, **options: Any) -> list[dict]:
@@ -240,8 +258,9 @@ class WhisperWorker:
             await self._ensure_loaded_locked()
             try:
                 result = await self._call(("transcribe", pcm, options))
-            except _ChildDied:
+            except _ChildDied as e:
                 # パイプが切れた直後は、まだ is_alive() が True のことがある。止めて作り直させる
+                log.error("whisper worker died while transcribing: %s", e)
                 await self._crashed()
                 raise
             self._last_used = time.monotonic()
@@ -255,6 +274,7 @@ class WhisperWorker:
     async def _unload_locked(self) -> None:
         if self._process is None:
             return
+        log.info("unloading whisper")
         await self._close_process()
         self._loaded = None
         await self._set_status("unloaded")

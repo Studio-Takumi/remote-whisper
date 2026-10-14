@@ -11,6 +11,7 @@
 import asyncio
 import contextlib
 import logging
+import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
@@ -21,7 +22,7 @@ from remote_whisper.hallucination import drop_reason
 from remote_whisper.segmenter import LocalAgreement, Segment, Segmenter
 from remote_whisper.settings import WhisperSettings
 from remote_whisper.vad_segmenter import Probabilities, VadSegmenter
-from remote_whisper.whisper_worker import WhisperUnavailable, WhisperWorker
+from remote_whisper.whisper_worker import SAMPLE_RATE, WhisperUnavailable, WhisperWorker
 
 log = logging.getLogger(__name__)
 
@@ -133,13 +134,23 @@ class LiveTranscriber:
         self._finals = [f for f in self._finals if not f.done()] + [future]
 
     async def _final(self, segment: Segment) -> None:
+        started = time.monotonic()
         try:
             result = await self.whisper.transcribe(segment.pcm, **self._options())
         except WhisperUnavailable as e:
-            log.warning("final of segment %d skipped: %s", segment.index, e)
+            log.warning("final of segment %d of %s skipped: %s", segment.index, self.session, e)
             await self._send_final(segment, "")
             return
         text = _join(_drop_hallucinations(result, segment, "final"))
+        # 区間ごとの実行時間（本文は書かない。文字起こしのファイルに残っている）
+        log.info(
+            "final of segment %d of %s: %.1fs of audio in %.2fs, %d chars",
+            segment.index,
+            self.session,
+            len(segment.pcm) / 2 / SAMPLE_RATE,
+            time.monotonic() - started,
+            len(text),
+        )
         if not text:
             # 文字にならなかった区間も、空の final で partial を消してもらう（#89）
             await self._send_final(segment, "")
@@ -213,7 +224,8 @@ class LiveTranscriber:
         try:
             result = await self.whisper.transcribe(segment.pcm, **self._options())
         except WhisperUnavailable as e:
-            log.warning("partial skipped: %s", e)
+            # partial は 1 秒ほどおきに作るので、毎回は書かない（使えないことは final で書く）
+            log.debug("partial skipped: %s", e)
             return
         if self.segmenter.index != segment.index:
             return
