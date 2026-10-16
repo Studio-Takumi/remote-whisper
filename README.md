@@ -1,5 +1,7 @@
 # remote-whisper
 
+[![CI](https://github.com/Studio-Takumi/remote-whisper/actions/workflows/ci.yml/badge.svg)](https://github.com/Studio-Takumi/remote-whisper/actions/workflows/ci.yml)
+
 **三行まとめ**
 
 文字起こしサービスは制限あるし有料プランに誘導される！
@@ -111,6 +113,8 @@ uv run ruff format --check
 uv run pytest
 ```
 
+PR と main への push では、GitHub Actions（`.github/workflows/ci.yml`）が同じチェックを回します（server は ubuntu と windows、web は ubuntu）。GPU・Ollama・HuggingFace のトークンは使わず、要るテストは skip になります。
+
 ### Ollama（要約・用語リスト）
 
 [公式サイト](https://ollama.com/download)から GPU マシンにインストールし、モデルを取得します。
@@ -131,6 +135,15 @@ npm run dev
 ```
 
 開発中は、Vite の dev server が `/api` と `/ws` をサーバー（既定は `http://localhost:8000`）へ転送します。転送先は環境変数 `REMOTE_WHISPER_SERVER` で変えられます。
+
+CI と同じチェックは次のとおりです。
+
+```bash
+npm run lint
+npm run format:check
+npm run build   # 型チェックとビルド
+npm test        # Vitest
+```
 
 ### GPU のない環境で開発する（モックサーバー）
 
