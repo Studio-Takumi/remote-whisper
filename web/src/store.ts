@@ -20,7 +20,8 @@ import { demoProjects, fallbackOptions, initialContextSets } from '@/mock';
 import { fetchOptions } from '@/options';
 import type { ServerMessage, SettingsOptions } from '@/protocol';
 import { type RecordingState, recordingLocks } from '@/recording';
-import { type Settings, defaultSettings } from '@/settings';
+import { replaceUrlNext } from '@/router';
+import { SETTINGS_PAGES, type Settings, defaultSettings } from '@/settings';
 import { type ServerStatus, initialServerStatus } from '@/status';
 import { formatClock, formatDateTime, newId } from '@/time';
 import type { ContextSelection, ContextSet, Generating, Project, Session } from '@/types';
@@ -63,7 +64,13 @@ type AppState = {
     contextSelections: Record<string, ContextSelection>;
     generating: Generating | null;
     settingsOpen: boolean;
+    // 設定モーダルで開いているページ（URL の /settings/<ページ>。#177）
+    settingsPage: string;
     newProjectOpen: boolean;
+    // プロジェクトの一覧を一度でも読み込めたか（URL から開くセッションを探せるか。#177）
+    projectsLoaded: boolean;
+    // URL のセッション・プロジェクトが見つからない（消えた・保存期間を過ぎた。#177）
+    notFound: boolean;
     // 開発用パネルで、プロジェクトが 0 件の状態を確かめるためのもの
     noProjects: boolean;
 
@@ -107,6 +114,7 @@ type AppState = {
     createContextSet: (materials: string[]) => Promise<void>;
     setServer: (server: ServerStatus) => void;
     setSettingsOpen: (open: boolean) => void;
+    setSettingsPage: (page: string) => void;
     setNewProjectOpen: (open: boolean) => void;
     setNoProjects: (noProjects: boolean) => void;
 };
@@ -407,6 +415,7 @@ export const useAppStore = create<AppState>()((set, get) => {
         // セッションは録音を始めたときに作る。ID はサーバーが決めた、録音を始めた時刻（spec 5.2）
         const created: Session = {
             id: reply.session,
+            uuid: reply.sessionUuid ?? undefined,
             title: '新しいセッション',
             startedAt: formatDateTime(),
             status: 'recording',
@@ -418,6 +427,8 @@ export const useAppStore = create<AppState>()((set, get) => {
         if (sender) {
             persistUnsent(sender, created.id, projectId);
         }
+        // 新規セッション画面の URL を、このセッションの URL に置き換える（履歴は増やさない。#177）
+        replaceUrlNext();
         set((s) => ({
             // 先に一覧の取り直しでサーバーのものが入っていることがあるので、同じ ID のものは置き換える
             projects: s.projects.map((p) =>
@@ -701,7 +712,11 @@ export const useAppStore = create<AppState>()((set, get) => {
         contextSelections: {},
         generating: null,
         settingsOpen: false,
+        settingsPage: SETTINGS_PAGES[0],
         newProjectOpen: false,
+        // デモはダミーの一覧を最初から持っている
+        projectsLoaded: isDemo,
+        notFound: false,
         noProjects: false,
 
         loadOptions: async () => {
@@ -746,6 +761,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                     return {
                         projects: mergeProjects(s.projects, projects, keep),
                         contextSets: { ...s.contextSets, ...sets },
+                        projectsLoaded: true,
                     };
                 });
             } catch (e) {
@@ -1412,6 +1428,7 @@ export const useAppStore = create<AppState>()((set, get) => {
 
         setServer: (server) => set({ server }),
         setSettingsOpen: (settingsOpen) => set({ settingsOpen }),
+        setSettingsPage: (settingsPage) => set({ settingsPage }),
         setNewProjectOpen: (newProjectOpen) => set({ newProjectOpen }),
         setNoProjects: (noProjects) => set({ noProjects }),
     };

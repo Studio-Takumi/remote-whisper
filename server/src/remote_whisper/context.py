@@ -2,13 +2,13 @@
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import HTTPException, Request
+from fastapi import Depends, HTTPException, Request
 
 from remote_whisper.gpu_queue import GpuQueue
 from remote_whisper.hub import Hub
-from remote_whisper.projects import ProjectStore
+from remote_whisper.projects import ProjectError, ProjectStore
 from remote_whisper.settings import SettingsStore
 
 
@@ -58,3 +58,15 @@ class AppContext:
 
 def get_ctx(request: Request) -> AppContext:
     return request.app.state.ctx
+
+
+def resolve_pid(pid: str, request: Request) -> str:
+    """URL の {pid}。プロジェクト ID のほか、プロジェクトの UUID でも呼べる（#177）"""
+    try:
+        return get_ctx(request).projects.resolve(pid)
+    except ProjectError as e:
+        raise HTTPException(status_code=e.status, detail=e.message) from e
+
+
+# ルートの引数に使う。プロジェクトの UUID ならプロジェクト ID に直して渡す
+Pid = Annotated[str, Depends(resolve_pid)]

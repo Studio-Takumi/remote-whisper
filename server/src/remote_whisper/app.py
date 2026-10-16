@@ -4,12 +4,16 @@ import asyncio
 import contextlib
 import logging
 import os
+import re
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.responses import Response
+from starlette.types import Scope
 
 from remote_whisper.context import AppContext
 from remote_whisper.context_sets import ContextSetService, OllamaGenerator
@@ -45,6 +49,22 @@ from remote_whisper.whisper_worker import WhisperWorker
 DEFAULT_WEB_DIST = Path(__file__).resolve().parents[3] / "web" / "dist"
 
 log = logging.getLogger(__name__)
+
+
+class SpaStaticFiles(StaticFiles):
+    """画面の配信。画面の URL（/s/<UUID> など。#177）にはファイルがないので、index.html を返す
+
+    /api・/ws と、拡張子のあるもの（なくなった JS など）は 404 のままにする
+    """
+
+    async def get_response(self, path: str, scope: Scope) -> Response:
+        try:
+            return await super().get_response(path, scope)
+        except StarletteHTTPException as e:
+            parts = re.split(r"[\\/]", path)
+            if e.status_code != 404 or parts[0] in ("api", "ws") or "." in parts[-1]:
+                raise
+            return await super().get_response("index.html", scope)
 
 
 def web_dist_dir() -> Path:
@@ -222,6 +242,7 @@ def create_app(
     app.include_router(options_routes.router)
     app.include_router(projects_routes.router)
     app.include_router(sessions_routes.router)
+    app.include_router(sessions_routes.lookup)
     app.include_router(fs_routes.router)
     app.include_router(ws_routes.router)
     app.include_router(version_routes.router)
@@ -231,6 +252,6 @@ def create_app(
     # API より後にマウントする。ビルドしていなければ配信しない（開発中は Vite から開く）
     dist = web_dist_dir()
     if (dist / "index.html").is_file():
-        app.mount("/", StaticFiles(directory=dist, html=True), name="web")
+        app.mount("/", SpaStaticFiles(directory=dist, html=True), name="web")
 
     return app

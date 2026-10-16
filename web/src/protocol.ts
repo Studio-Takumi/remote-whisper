@@ -40,7 +40,15 @@ export type ContextSetStatus = 'generating' | 'ready' | 'failed';
 export type ServerMessage =
     // resumed は再接続（resume）で続きから録音するとき
     // continued・offsetSec は続きを録音するとき（offsetSec は前の録音の長さ。時刻はここから続く）
-    | { type: 'started'; session: string; resumed?: boolean; continued?: boolean; offsetSec?: number }
+    // sessionUuid は新しく始めたセッションの、画面の URL に出す ID（#177。古いサーバーにはない）
+    | {
+          type: 'started';
+          session: string;
+          sessionUuid?: string | null;
+          resumed?: boolean;
+          continued?: boolean;
+          offsetSec?: number;
+      }
     // ここまでの音声を手元のバッファから消してよい
     | { type: 'ack'; session: string; seq: number }
     | { type: 'partial'; session: string; segment: number; committed: string; tentative: string }

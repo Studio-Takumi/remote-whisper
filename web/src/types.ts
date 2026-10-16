@@ -31,6 +31,8 @@ export type FinalTranscriptInfo = Omit<FinalTranscript, 'lines'>;
 
 export type Session = {
     id: string;
+    // 画面の URL に出す ID（#177）。古いサーバー・デモのダミーデータにはない（代わりに id を使う）
+    uuid?: string;
     title: string;
     startedAt: string;
     // 録音を終えた日時。録音中はない
@@ -61,6 +63,8 @@ export type Session = {
 
 export type Project = {
     id: string;
+    // 画面の URL に出す ID（#177）。ないときは id を使う
+    uuid?: string;
     name: string;
     path: string;
     sessions: Session[];

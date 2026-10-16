@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict
 from pydantic.alias_generators import to_camel
 
-from remote_whisper.context import AppContext, get_ctx
+from remote_whisper.context import AppContext, Pid, get_ctx
 from remote_whisper.context_sets import ContextSetError, ContextSetService
 from remote_whisper.projects import ProjectError, ProjectFile, display_name
 
@@ -20,6 +20,7 @@ class RegisterBody(BaseModel):
 def project_json(pid: str, project: ProjectFile) -> dict[str, Any]:
     return {
         "id": pid,
+        "uuid": project.uuid,
         "name": display_name(project.path),
         "path": project.path,
         "selection": project.effective_selection().model_dump(by_alias=True),
@@ -54,7 +55,7 @@ def _service(ctx: AppContext) -> ContextSetService:
 
 @router.get("/{pid}/context-sets")
 def list_context_sets(
-    pid: str, ctx: Annotated[AppContext, Depends(get_ctx)]
+    pid: Pid, ctx: Annotated[AppContext, Depends(get_ctx)]
 ) -> list[dict[str, Any]]:
     try:
         return _service(ctx).entries(pid)
@@ -64,7 +65,7 @@ def list_context_sets(
 
 @router.post("/{pid}/context-sets", status_code=202)
 async def create_context_set(
-    pid: str, body: ContextSetBody, ctx: Annotated[AppContext, Depends(get_ctx)]
+    pid: Pid, body: ContextSetBody, ctx: Annotated[AppContext, Depends(get_ctx)]
 ) -> dict[str, Any]:
     """作成を始める（できたら contextSet で知らせる）。同じ資料のセットがあれば、それを返す"""
     try:
@@ -75,7 +76,7 @@ async def create_context_set(
 
 @router.patch("/{pid}/selection")
 def change_selection(
-    pid: str, body: SelectionBody, ctx: Annotated[AppContext, Depends(get_ctx)]
+    pid: Pid, body: SelectionBody, ctx: Annotated[AppContext, Depends(get_ctx)]
 ) -> dict[str, Any]:
     """使うセットと、用語リスト・コンテキストそれぞれを使うか。録音中は 409（spec 5.3・8）"""
     ctx.ensure_not_recording()

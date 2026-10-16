@@ -643,6 +643,68 @@ def test_continue_twice_adds_up(client, project):
     assert abs(audio_seconds(d / f"recording-{sid}.mp3") - 3.0) < 0.3
 
 
+def _session_uuid(client, pid, sid):
+    sessions = client.get(f"/api/projects/{pid}/sessions").json()
+    return next(s["uuid"] for s in sessions if s["id"] == sid)
+
+
+def test_started_has_the_session_uuid_and_resume_accepts_it(client, project):
+    # 録音を始めたら、画面の URL に使う UUID を返す。resume は UUID でもできる（#177）
+    pid, _ = project
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        ws.send_json({"type": "start", "project": pid})
+        started = receive_until(ws, of_type("started"))[-1]
+        sid = started["session"]
+        assert started["sessionUuid"] == _session_uuid(client, pid, sid)
+        ws.send_bytes(chunk(0, samples=100))
+        receive_until(ws, of_type("ack", seq=0))
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        ws.send_json({"type": "resume", "session": started["sessionUuid"], "nextSeq": 1})
+        resumed = receive_until(ws, of_type("started"))[-1]
+        assert (resumed["session"], resumed["resumed"]) == (sid, True)
+        ws.send_json({"type": "stop"})
+    finished(client, sid)
+
+
+def test_continue_accepts_uuids(client, project):
+    # continue は、プロジェクトとセッションの UUID でもできる（#177）
+    pid, _ = project
+    sid = interrupted_session(client, pid, seconds=1)
+    project_uuid = next(p["uuid"] for p in client.get("/api/projects").json() if p["id"] == pid)
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        ws.send_json(
+            {
+                "type": "continue",
+                "project": project_uuid,
+                "session": _session_uuid(client, pid, sid),
+            }
+        )
+        started = receive_until(ws, of_type("started"))[-1]
+        assert (started["session"], started["continued"]) == (sid, True)
+        ws.send_json({"type": "stop"})
+    finished(client, sid)
+
+
+@pytest.mark.parametrize("kind", ["continue", "resume"])
+def test_unknown_session_uuid_is_session_not_found(client, project, kind):
+    pid, _ = project
+    unknown = "00000000-0000-4000-8000-000000000000"
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        ws.send_json({"type": kind, "project": pid, "session": unknown, "nextSeq": 0})
+        assert receive_until(ws, of_type("error"))[-1]["code"] == "session_not_found"
+
+
+def test_unknown_project_uuid_is_project_not_found(client, project):
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        ws.send_json({"type": "start", "project": "00000000-0000-4000-8000-000000000000"})
+        assert receive_until(ws, of_type("error"))[-1]["code"] == "project_not_found"
+
+
 def test_continue_replaces_an_m4a_with_the_new_recording(client, project, monkeypatch):
     # 前の録音が m4a（mp3 のエンコーダーがない配布版）で、続きを mp3 にしたら、古い m4a は消す
     pid, d = project

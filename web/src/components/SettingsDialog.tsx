@@ -33,12 +33,14 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { ollamaModelNames, thinkingNote, withCurrent } from '@/options';
 import type { SettingsOptions } from '@/protocol';
 import { recordingLocks } from '@/recording';
-import type { Settings } from '@/settings';
+import { SETTINGS_PAGES, type Settings } from '@/settings';
 
 // 全体設定のモーダル。左にカテゴリ、右に項目を並べる
 export function SettingsDialog({
     open,
     onOpenChange,
+    page,
+    onPageChange,
     settings,
     options,
     recording,
@@ -46,6 +48,9 @@ export function SettingsDialog({
 }: {
     open: boolean;
     onOpenChange: (open: boolean) => void;
+    // 開いているページ（URL の /settings/<ページ>。#177）。知らないページなら最初のページ
+    page: string;
+    onPageChange: (page: string) => void;
     settings: Settings;
     options: SettingsOptions;
     recording: boolean;
@@ -64,6 +69,8 @@ export function SettingsDialog({
                 </DialogHeader>
                 {/* DialogContent は閉じると消えるので、開くたびに今の設定から下書きを作り直せる */}
                 <SettingsForm
+                    page={SETTINGS_PAGES.includes(page) ? page : SETTINGS_PAGES[0]}
+                    onPageChange={onPageChange}
                     settings={settings}
                     options={options}
                     recording={recording}
@@ -90,11 +97,15 @@ function keepLocked(draft: Settings, current: Settings): Settings {
 }
 
 function SettingsForm({
+    page,
+    onPageChange,
     settings,
     options,
     recording,
     onSave,
 }: {
+    page: string;
+    onPageChange: (page: string) => void;
     settings: Settings;
     options: SettingsOptions;
     recording: boolean;
@@ -130,7 +141,8 @@ function SettingsForm({
         <>
             {/* スマホの幅では、カテゴリを上に横並びにする */}
             <Tabs
-                defaultValue='whisper'
+                value={page}
+                onValueChange={onPageChange}
                 orientation={isMobile ? 'horizontal' : 'vertical'}
                 className='min-h-0 flex-1 gap-4 md:gap-6'
             >

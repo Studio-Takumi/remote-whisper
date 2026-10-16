@@ -11,7 +11,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 
-from remote_whisper.context import AppContext, get_ctx
+from remote_whisper.context import AppContext, Pid, get_ctx
 from remote_whisper.documents import FinalTranscriptMeta, SummaryMeta, TranscriptMeta, read_doc
 from remote_whisper.gpu_queue import Priority
 from remote_whisper.projects import ProjectError, ProjectFile, SessionEntry
@@ -65,7 +65,7 @@ def _summary_json(meta: SummaryMeta) -> dict[str, Any]:
 
 
 @router.get("")
-def list_sessions(pid: str, ctx: Ctx) -> list[dict[str, Any]]:
+def list_sessions(pid: Pid, ctx: Ctx) -> list[dict[str, Any]]:
     """サイドバー用。新しいものから並べる"""
     project = _project(ctx, pid)
     d = ctx.projects.dir(pid)
@@ -73,7 +73,7 @@ def list_sessions(pid: str, ctx: Ctx) -> list[dict[str, Any]]:
 
 
 @router.get("/{sid}")
-def get_session(pid: str, sid: str, ctx: Ctx) -> dict[str, Any]:
+def get_session(pid: Pid, sid: str, ctx: Ctx) -> dict[str, Any]:
     entry, files = _session(ctx, pid, sid)
     result = _session_json(entry, files)
     # 文字起こしが残っていれば、録音に使った設定などもフロントマターから返す
@@ -86,8 +86,22 @@ def get_session(pid: str, sid: str, ctx: Ctx) -> dict[str, Any]:
     return result
 
 
+# セッションの UUID から引く（#177）。URL にプロジェクトを入れないので、これでプロジェクトを知る
+lookup = APIRouter(prefix="/api/sessions")
+
+
+@lookup.get("/{session_uuid}")
+def find_session(session_uuid: str, ctx: Ctx) -> dict[str, Any]:
+    try:
+        pid, project, entry = ctx.projects.find_session(session_uuid)
+    except ProjectError as e:
+        raise HTTPException(status_code=e.status, detail=e.message) from e
+    files = SessionFiles(ctx.projects.dir(pid), entry.id)
+    return {"projectId": pid, "projectUuid": project.uuid, **_session_json(entry, files)}
+
+
 @router.get("/{sid}/transcript")
-def get_transcript(pid: str, sid: str, ctx: Ctx) -> dict[str, Any]:
+def get_transcript(pid: Pid, sid: str, ctx: Ctx) -> dict[str, Any]:
     _, files = _session(ctx, pid, sid)
     if not files.transcript.is_file():
         raise _gone("文字起こし")
@@ -99,14 +113,14 @@ def get_transcript(pid: str, sid: str, ctx: Ctx) -> dict[str, Any]:
 
 
 @router.get("/{sid}/final-transcripts")
-def list_final_transcripts(pid: str, sid: str, ctx: Ctx) -> list[dict[str, Any]]:
+def list_final_transcripts(pid: Pid, sid: str, ctx: Ctx) -> list[dict[str, Any]]:
     """最終の文字起こし（#121）の世代。古いものから"""
     _, files = _session(ctx, pid, sid)
     return [m.to_json() for m in files.final_transcripts()]
 
 
 @router.get("/{sid}/final-transcripts/{gid}")
-def get_final_transcript(pid: str, sid: str, gid: str, ctx: Ctx) -> dict[str, Any]:
+def get_final_transcript(pid: Pid, sid: str, gid: str, ctx: Ctx) -> dict[str, Any]:
     """`latest` はいちばん新しい世代"""
     _, files = _session(ctx, pid, sid)
     finals = files.final_transcripts()
@@ -128,7 +142,7 @@ def get_final_transcript(pid: str, sid: str, gid: str, ctx: Ctx) -> dict[str, An
 
 
 @router.post("/{sid}/final-transcripts", status_code=202)
-async def regenerate_final_transcript(pid: str, sid: str, ctx: Ctx) -> dict[str, Any]:
+async def regenerate_final_transcript(pid: Pid, sid: str, ctx: Ctx) -> dict[str, Any]:
     """最終の文字起こしを作り直す（#124）
 
     今の全体設定の Whisper のモデル（と話者分けのオン・オフ）で作る。
@@ -170,7 +184,7 @@ async def regenerate_final_transcript(pid: str, sid: str, ctx: Ctx) -> dict[str,
 
 
 @router.delete("/{sid}/terms/{term}")
-async def reject_term(pid: str, sid: str, term: str, ctx: Ctx) -> dict[str, Any]:
+async def reject_term(pid: Pid, sid: str, term: str, ctx: Ctx) -> dict[str, Any]:
     """録音中に拾った語を消す（誤った語）。消した語は、以後そのセッションでは足さない（#103）
 
     録音中なら、録音中の用語リストからもすぐ外す（次の区間から効く）
@@ -207,7 +221,7 @@ _AUDIO_TYPES = {".mp3": "audio/mpeg", ".m4a": "audio/mp4"}
 
 
 @router.get("/{sid}/recording")
-def get_recording(pid: str, sid: str, ctx: Ctx) -> FileResponse:
+def get_recording(pid: Pid, sid: str, ctx: Ctx) -> FileResponse:
     """録音ファイル（mp3）。ブラウザで再生する
 
     好きな位置から聞けるよう、Range リクエストに対応する（FileResponse が返す）。
@@ -221,14 +235,14 @@ def get_recording(pid: str, sid: str, ctx: Ctx) -> FileResponse:
 
 
 @router.get("/{sid}/summaries")
-def list_summaries(pid: str, sid: str, ctx: Ctx) -> list[dict[str, Any]]:
+def list_summaries(pid: Pid, sid: str, ctx: Ctx) -> list[dict[str, Any]]:
     """最終の要約の一覧（古いものから）"""
     _, files = _session(ctx, pid, sid)
     return [_summary_json(s) for s in files.summaries()]
 
 
 @router.post("/{sid}/summaries", status_code=202)
-async def regenerate_summary(pid: str, sid: str, ctx: Ctx) -> dict[str, Any]:
+async def regenerate_summary(pid: Pid, sid: str, ctx: Ctx) -> dict[str, Any]:
     """今の全体設定で最終の要約を作り直す（spec 6.5）。GPU キュー（優先度 3）に積んで、すぐ返す
 
     結果は WebSocket で全員に送る（`summary.delta`（final）・`summary.done`・`title`、失敗なら
@@ -287,7 +301,7 @@ def _log_failure(future: asyncio.Future) -> None:
 
 
 @router.get("/{sid}/summaries/{gid}")
-def get_summary(pid: str, sid: str, gid: str, ctx: Ctx) -> dict[str, Any]:
+def get_summary(pid: Pid, sid: str, gid: str, ctx: Ctx) -> dict[str, Any]:
     """`latest` は表示する要約（spec 6.5）。最終の要約がまだなければ、途中の要約を返す"""
     _, files = _session(ctx, pid, sid)
     if gid == "latest":
