@@ -32,6 +32,7 @@ function toSession(json: SessionJson): Session {
         id: json.id,
         uuid: json.uuid,
         title: json.title ?? '新しいセッション',
+        uploaded: json.source === 'upload',
         startedAt: displayTime(json.startedAt) ?? '',
         endedAt: displayTime(json.endedAt),
         durationSec: json.durationSec ?? undefined,

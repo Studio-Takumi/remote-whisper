@@ -27,6 +27,7 @@ from remote_whisper.mock import (
     MockFinalSummarizer,
     MockRecorder,
     MockTiming,
+    mock_script_lines,
 )
 from remote_whisper.ollama import OllamaClient
 from remote_whisper.projects import ProjectStore
@@ -41,6 +42,7 @@ from remote_whisper.routes import settings as settings_routes
 from remote_whisper.routes import version as version_routes
 from remote_whisper.routes import ws as ws_routes
 from remote_whisper.settings import SettingsStore, default_home
+from remote_whisper.uploads import UploadService
 from remote_whisper.version import app_version
 from remote_whisper.whisper_worker import WhisperWorker
 
@@ -124,6 +126,7 @@ def create_app(
             await traffic_task
         await gpu_stats.close()
         await janitor.close()
+        await ctx.uploads.close()
         # 止めるときは、録音中の WAV を閉じて録音を終えたあとの処理を止め、GPU のジョブキューを止め
         # （待っているジョブは cancel）、Whisper を下ろす。録音の側を先に止めるのは、止めたキューに
         # 最終の要約などのジョブが積まれて、ワーカーが作り直されないようにするため
@@ -212,6 +215,19 @@ def create_app(
                 OllamaGenerator(ctx.ollama, ctx.settings),
                 on_ready=ctx.recorder.context_set_ready,
             )
+
+    # 音声ファイルのアップロード（#180）。モックでは Whisper の代わりに台本を文字起こしにする
+    ctx.uploads = UploadService(
+        ctx.projects,
+        ctx.settings,
+        ctx.hub,
+        ctx.gpu,
+        whisper=ctx.whisper,
+        final_transcriber=ctx.final_transcriber,
+        summarizer=ctx.summarizer,
+        recording=lambda: ctx.is_recording,
+        fallback_lines=mock_script_lines if mock else None,
+    )
 
     @app.middleware("http")
     async def log_requests(request: Request, call_next):

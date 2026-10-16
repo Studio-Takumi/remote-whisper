@@ -97,6 +97,9 @@ class SessionEntry(_Model):
     context_set: str | None = None
     # 最終の要約を作れなかった（文字起こしのフロントマターと同じ。UI で失敗と作り直しを出す: #17）
     summary_failed: bool = False
+    # 音声ファイルをアップロードして作ったセッション（#180。文字起こしのフロントマターと同じ）
+    source: Literal["upload"] | None = None
+    uploaded_at: str | None = None
 
 
 class ProjectFile(_Model):
@@ -159,6 +162,8 @@ def rebuild_project_file(project_dir: Path) -> ProjectFile | None:
                     duration_sec=t.duration_sec,
                     context_set=t.context_set,
                     summary_failed=t.summary_failed,
+                    source=t.source,
+                    uploaded_at=t.uploaded_at,
                 )
             elif SUMMARY_RE.fullmatch(f.name):
                 s, _ = read_doc(f, SummaryMeta)

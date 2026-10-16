@@ -320,6 +320,12 @@ MOCK_OLLAMA_MODELS = [
 ]
 
 
+def mock_script_lines(duration_sec: float) -> list[tuple[float, str]]:
+    """アップロードしたセッション（#180）の文字起こしのダミー。台本を長さに合わせて並べる"""
+    step = max(duration_sec, 1.0) / len(SCRIPT)
+    return [(i * step, line) for i, line in enumerate(SCRIPT)]
+
+
 def mock_thinking(model: str) -> bool:
     return any(m["name"] == model and m["thinking"] for m in MOCK_OLLAMA_MODELS)
 

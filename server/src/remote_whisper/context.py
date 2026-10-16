@@ -34,6 +34,8 @@ class AppContext:
     final_transcriber: Any = None
     # 参考資料セットの作成（ContextSetService）
     context_sets: Any = None
+    # 音声ファイルのアップロード（UploadService。#180）
+    uploads: Any = None
     # GPU を使う処理（Whisper・Ollama）を順番に実行するキュー。
     # 待っている数は status の queue、ジョブの一覧は jobs で送る
     gpu: GpuQueue = field(init=False)

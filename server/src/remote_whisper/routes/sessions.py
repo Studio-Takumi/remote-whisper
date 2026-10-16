@@ -8,8 +8,9 @@ import asyncio
 import logging
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
+from starlette.requests import ClientDisconnect
 
 from remote_whisper.context import AppContext, Pid, get_ctx
 from remote_whisper.documents import FinalTranscriptMeta, SummaryMeta, TranscriptMeta, read_doc
@@ -23,6 +24,7 @@ from remote_whisper.sessions import (
     pick_latest,
     read_transcript,
 )
+from remote_whisper.uploads import UploadError
 
 log = logging.getLogger(__name__)
 
@@ -64,6 +66,35 @@ def _summary_json(meta: SummaryMeta) -> dict[str, Any]:
         "generatedAt": meta.generated_at,
         "title": meta.title,
     }
+
+
+@router.post("/upload", status_code=202)
+async def upload(
+    pid: Pid,
+    request: Request,
+    ctx: Ctx,
+    name: Annotated[str, Query(min_length=1, max_length=255)],
+    last_modified: Annotated[float | None, Query(alias="lastModified")] = None,
+) -> dict[str, Any]:
+    """音声ファイルをアップロードして、新しいセッションを作る（#180。spec 6.11）
+
+    本文はファイルそのもの（`curl --data-binary @a.m4a`）。name は元のファイル名、
+    lastModified はファイルの更新日時（ミリ秒）。作ったセッションをすぐ返し、最終の文字起こしと
+    最終の要約は後ろで作る（status の transcribing・summarizing と jobs で進み具合が分かる）
+    """
+    if ctx.uploads is None:
+        raise HTTPException(status_code=503, detail="このサーバーではアップロードできません")
+    try:
+        uploaded = await ctx.uploads.receive(pid, name, last_modified, request.stream())
+    except ProjectError as e:
+        raise HTTPException(status_code=e.status, detail=e.message) from e
+    except UploadError as e:
+        raise HTTPException(status_code=e.status, detail=e.message) from e
+    except ClientDisconnect as e:
+        raise HTTPException(status_code=400, detail="アップロードが途中で切れました") from e
+    writer = uploaded.writer
+    entry = next(s for s in _project(ctx, pid).sessions if s.id == writer.id)
+    return {**_session_json(entry, writer.files), "projectId": pid}
 
 
 @router.get("")

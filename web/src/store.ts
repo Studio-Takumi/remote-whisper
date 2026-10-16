@@ -32,6 +32,7 @@ import {
 import { type ServerStatus, initialServerStatus } from '@/status';
 import { formatClock, formatDateTime, newId } from '@/time';
 import type { ContextSelection, ContextSet, Generating, Project, Session } from '@/types';
+import { uploadAudio } from '@/upload';
 import type { VersionJson } from '@/version';
 
 // 画面の状態をまとめて持つストア。プロジェクト・セッション・設定はサーバーの API から取る（spec 7.1）
@@ -78,6 +79,10 @@ type AppState = {
     projectsLoaded: boolean;
     // URL のセッション・プロジェクトが見つからない（消えた・保存期間を過ぎた。#177）
     notFound: boolean;
+    // アップロード中の音声ファイル（#180）。percent は 0〜100
+    uploading: { projectId: string; name: string; percent: number } | null;
+    // 音声ファイルから新しいセッションを作る。終わったら、そのセッションを開く
+    uploadAudio: (projectId: string, file: File) => Promise<void>;
     // 開発用パネルで、プロジェクトが 0 件の状態を確かめるためのもの
     noProjects: boolean;
 
@@ -724,6 +729,42 @@ export const useAppStore = create<AppState>()((set, get) => {
         // デモはダミーの一覧を最初から持っている
         projectsLoaded: isDemo,
         notFound: false,
+        uploading: null,
+
+        uploadAudio: async (projectId, file) => {
+            if (isDemo) {
+                toast.info('デモでは音声ファイルを使えません');
+                return;
+            }
+            if (get().uploading) {
+                toast.info('ほかのファイルをアップロードしています。終わってからもう一度選んでください');
+                return;
+            }
+            set({ uploading: { projectId, name: file.name, percent: 0 } });
+            try {
+                const created = await uploadAudio(projectId, file, (percent) =>
+                    set({ uploading: { projectId, name: file.name, percent } }),
+                );
+                await get().loadProjects();
+                get().selectSession(projectId, created.id);
+                // 最終の文字起こしと最終の要約は、サーバーが後ろで作る。要約が届くまでは「作成中」と出す
+                // （作り終えたら、status の summarizing から外れたことで取り直す）
+                if (!get().generating) {
+                    set((s) => ({
+                        generating: {
+                            sessionId: created.id,
+                            model: finalModelLabel(s.settings.ollama.models),
+                            text: '',
+                        },
+                    }));
+                }
+                toast.success(`${file.name} から作ります。文字起こしと要約ができるまで、しばらくかかります`);
+            } catch (e) {
+                toast.error(`${file.name} をアップロードできません: ${(e as Error).message}`);
+            } finally {
+                set({ uploading: null });
+            }
+        },
         noProjects: false,
 
         loadOptions: async () => {
