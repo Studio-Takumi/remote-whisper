@@ -19,6 +19,7 @@ from remote_whisper.documents import (
     write_doc,
 )
 from remote_whisper.fsutil import atomic_write_text
+from remote_whisper.material_toc import MaterialRange
 from remote_whisper.projects import ProjectFile, ProjectStore, SessionEntry
 from remote_whisper.sessions import SessionFiles
 from remote_whisper.settings import Settings
@@ -213,6 +214,15 @@ class SessionWriter:
             self.meta.recording = name
             self._rewrite_meta()
 
+    def use_range_set(self, set_id: str, base: str, ranges: list[MaterialRange]) -> None:
+        """範囲で作り直したセッション専用の参考資料セットを使う（#182）。元のセットは base に残す"""
+        with self._lock:
+            self.meta.context_set = set_id
+            self.meta.base_context_set = base
+            self.meta.material_range = list(ranges)
+            self._rewrite_meta()
+        self._update_entry(context_set=set_id)
+
     def set_summary_failed(self, failed: bool) -> None:
         """最終の要約を作れなかった（作れた）ことを、フロントマターと project.json に記録する"""
         if self.meta.summary_failed == failed:
@@ -276,6 +286,7 @@ class SessionWriter:
             app_version=app_version(),
             overview_density=overview_density,
             detail_density=detail_density,
+            material_range=self.meta.material_range,
         )
         write_doc(self.files.summary(gid), meta, text)
         self.files.live_summary.unlink(missing_ok=True)

@@ -51,32 +51,67 @@ class TocEntry(BaseModel):
     chars: int
 
 
+TocKind = Literal["pages", "headings", "chunks"]
+
+
 class MaterialToc(BaseModel):
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
     path: str
     # pages: PDF のページ、headings: 見出し、chunks: 約 2000 文字ずつの区切り
-    kind: Literal["pages", "headings", "chunks"]
+    kind: TocKind
     chars: int
     # 資料が大きい（区切りが2つ以上あり、文字数が LARGE_CHARS を超える）。#182 が範囲を選ぶ対象
     large: bool = False
     entries: list[TocEntry] = Field(default_factory=list)
 
 
+class MaterialRange(BaseModel):
+    """録音のあとに判断した、今回扱った資料の範囲（#182）。始まり〜終わりの index（両端を含む）"""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    file: str
+    path: str
+    # 範囲の型の都合で from は使えないので start・end にし、書き出すときは from・to にする
+    start: int = Field(alias="from")
+    end: int = Field(alias="to")
+
+
 def build_toc(path: Path) -> MaterialToc:
     """資料の目次。取り出せなければ ExtractError"""
-    ext = path.suffix.lower()
-    if ext == ".pdf":
-        kind, entries = _pdf_entries(path)
-    elif ext in (".html", ".htm"):
-        text = tidy(html_to_text(read_text(path), mark_headings=True))
-        kind, entries = _heading_entries(_html_sections(text), text)
-    else:
-        text = tidy(read_text(path))
-        kind, entries = _heading_entries(_md_sections(text) if ext == ".md" else [], text)
+    kind, entries, _ = _read_sections(path)
     chars = sum(e.chars for e in entries)
     large = chars > LARGE_CHARS and len(entries) >= LARGE_MIN_SECTIONS
     return MaterialToc(path=str(path), kind=kind, chars=chars, large=large, entries=entries)
+
+
+def section_texts(path: Path) -> list[str]:
+    """目次の区切り（index は 1 から）ごとの本文。範囲で作り直すとき（#182）に使う。
+    取り出せなければ ExtractError"""
+    return _read_sections(path)[2]
+
+
+def range_text(path: Path, ranges: list[tuple[int, int]]) -> str:
+    """資料のうち、範囲（始まり〜終わりの index。両端を含む）の本文をつないだもの（#182）"""
+    texts = section_texts(path)
+    picked = [
+        texts[i - 1]
+        for i in range(1, len(texts) + 1)
+        if any(start <= i <= end for start, end in ranges)
+    ]
+    return "\n\n".join(t for t in picked if t)
+
+
+def _read_sections(path: Path) -> tuple[TocKind, list[TocEntry], list[str]]:
+    ext = path.suffix.lower()
+    if ext == ".pdf":
+        return _pdf_entries(path)
+    if ext in (".html", ".htm"):
+        text = tidy(html_to_text(read_text(path), mark_headings=True))
+        return _heading_entries(_html_sections(text), text)
+    text = tidy(read_text(path))
+    return _heading_entries(_md_sections(text) if ext == ".md" else [], text)
 
 
 def _title_of(text: str) -> str:
@@ -87,16 +122,18 @@ def _title_of(text: str) -> str:
     return ""
 
 
-def _pdf_entries(path: Path) -> tuple[Literal["pages"], list[TocEntry]]:
+def _pdf_entries(path: Path) -> tuple[TocKind, list[TocEntry], list[str]]:
     pages, outline = pdf_pages(path)
     # しおりは出てくる順。ページごとに「そのページ以前で、いちばん後ろのしおり」を取る
     entries: list[TocEntry] = []
+    texts: list[str] = []
     for i, raw in enumerate(pages):
         text = tidy(raw)
         marks = [o for o in outline if o[2] <= i]
         title, level = (marks[-1][0], marks[-1][1]) if marks else (_title_of(text), None)
         entries.append(TocEntry(index=i + 1, title=title, level=level, chars=len(text)))
-    return "pages", entries
+        texts.append(text)
+    return "pages", entries, texts
 
 
 Section = tuple[str, int | None, str]  # 見出し, 階層, 本文（見出しの行を含む）
@@ -151,7 +188,7 @@ def _html_sections(text: str) -> list[Section]:
 
 def _heading_entries(
     sections: list[Section], text: str
-) -> tuple[Literal["headings", "chunks"], list[TocEntry]]:
+) -> tuple[TocKind, list[TocEntry], list[str]]:
     """見出しがあれば見出しごと、なければ約 2000 文字ずつ"""
     if any(level is not None for _, level, _ in sections):
         entries = [
@@ -164,11 +201,13 @@ def _heading_entries(
             )
             for i, (title, level, body) in enumerate(sections, 1)
         ]
-        return "headings", entries
-    return "chunks", [
+        return "headings", entries, [body for _, _, body in sections]
+    chunks = _chunks(text)
+    entries = [
         TocEntry(index=i, title=_title_of(chunk), chars=len(chunk))
-        for i, chunk in enumerate(_chunks(text), 1)
+        for i, chunk in enumerate(chunks, 1)
     ]
+    return "chunks", entries, chunks
 
 
 def _chunks(text: str, size: int = CHUNK_CHARS) -> list[str]:

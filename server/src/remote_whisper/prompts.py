@@ -308,3 +308,80 @@ def parse_terms(reply: str) -> list[str]:
             if word and word not in out:
                 out.append(word)
     return out
+
+
+# 録音のあとに、今回扱った資料の範囲を判断する（#182）。JSON Schema で範囲の一覧を返させる
+SCOPE_FORMAT: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "rebuild": {"type": "boolean"},
+        "ranges": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "material": {"type": "integer"},
+                    "from": {"type": "integer"},
+                    "to": {"type": "integer"},
+                },
+                "required": ["material", "from", "to"],
+            },
+        },
+    },
+    "required": ["rebuild", "ranges"],
+}
+# 目次の 1 行に出す見出しの長さと、1 つの資料で出す行の数
+SCOPE_TITLE_CHARS = 30
+SCOPE_MAX_ENTRIES = 400
+
+
+def scope_messages(excerpt: str, tocs: list[tuple[str, str, list[tuple[int, str]]]]) -> list[dict]:
+    """文字起こしの抜粋と資料の目次から、今回扱った範囲を判断する（#182）
+
+    tocs は資料ごとの（ファイル名, 区切りの種類, [(番号, 見出し)]）。資料の番号は 1 から
+    """
+    blocks = []
+    for i, (name, kind, entries) in enumerate(tocs, 1):
+        unit = {"pages": "ページ", "headings": "見出し", "chunks": "区切り"}.get(kind, "区切り")
+        rows = [f"{n}: {title[:SCOPE_TITLE_CHARS]}" for n, title in entries[:SCOPE_MAX_ENTRIES]]
+        blocks.append(f"### 資料 {i}: {name}（{unit}ごと）\n" + "\n".join(rows))
+    user = (
+        "## 参考資料の目次\n"
+        + "\n\n".join(blocks)
+        + "\n\n## 今回の録音の文字起こし（頭・中ほど・終わりの抜粋。誤認識を含むことがある）\n"
+        + excerpt
+        + "\n\nこの録音で扱った資料の範囲を、目次の番号で答えてください。"
+        + "1 つの章とは限りません。複数の章にまたがる・章の途中から始まる・章の途中で終わる、"
+        + "のどれでも、範囲を必要なだけ並べてください（material は資料の番号、from・to は"
+        + "目次の番号で、両端を含みます）。"
+        + "資料のほぼ全体を扱っていた、または範囲が分からないときは、"
+        + "rebuild を false にしてください。"
+    )
+    return [
+        {
+            "role": "system",
+            "content": "あなたは、講義や会議の録音が参考資料のどの部分を扱ったかを見分ける係です。",
+        },
+        {"role": "user", "content": user},
+    ]
+
+
+def parse_scope(reply: str) -> tuple[bool, list[tuple[int, int, int]]] | None:
+    """`{"rebuild": ..., "ranges": [...]}` を（作り直すか, [(資料, 始まり, 終わり)]）にする。
+    形が合わなければ None"""
+    try:
+        data = json.loads(reply)
+        rebuild = data["rebuild"]
+        ranges = data["ranges"]
+    except (ValueError, KeyError, TypeError):
+        log.warning("could not parse the material range: %r", reply[:200])
+        return None
+    if not isinstance(rebuild, bool) or not isinstance(ranges, list):
+        return None
+    out: list[tuple[int, int, int]] = []
+    for r in ranges:
+        try:
+            out.append((int(r["material"]), int(r["from"]), int(r["to"])))
+        except (KeyError, TypeError, ValueError):
+            return None
+    return rebuild, out

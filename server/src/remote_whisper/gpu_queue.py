@@ -43,6 +43,8 @@ JobKind = Literal[
     "contextSet",
     "terms",
     "finalTranscript",
+    # 録音のあとに、今回扱った資料の範囲を判断して参考資料を作り直す（#182）
+    "materialRange",
     "other",
 ]
 

@@ -322,7 +322,16 @@ class RecordingSession:
         finally:
             self.converting = False
         if status == "done":
+            # 大きい資料なら、今回扱った範囲を判断して用語リストを作り直してから浄書し、
+            # 浄書の後にコンテキストを作り直す（#182）
+            material_range = self.manager.material_range
+            plan = None
+            if material_range is not None:
+                lines = [text for _, text in self.writer.final_lines()]
+                plan = await material_range.before_final_transcript(self.writer, lines)
             await self.manager.make_final_transcript(self)
+            if material_range is not None:
+                await material_range.after_final_transcript(self.writer, plan)
             self.manager.submit_final_summary(self)
 
     async def _complete_taken_back(self, status: str) -> None:
@@ -405,6 +414,8 @@ class RecordingManager:
         self.final_summary: Callable[[RecordingSession], Awaitable[None]] | None = None
         # 録音を終えたあと、最終の要約の前に作る最終の文字起こし（FinalTranscriber。#121）
         self.final_transcript: Any = None
+        # 録音を終えたあと、今回扱った資料の範囲で参考資料を作り直す（RangeService。#182）
+        self.material_range: Any = None
         # 録音中のセッションの数が変わったときに呼ぶ（設定のロックに使う）
         self.on_count = on_count or (lambda n: None)
         # 接続が切れてから resume を待つ秒数。None なら全体設定（recording.resumeTimeoutMin）

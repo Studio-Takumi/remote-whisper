@@ -81,6 +81,8 @@ class ContextSetEntry(_Model):
     id: str
     status: Literal["generating", "ready", "failed"]
     materials: list[str] = Field(default_factory=list)
+    # セッション専用のセット（#182）のセッション ID。画面の一覧と、使い回しには出さない
+    session: str | None = None
 
 
 class SessionEntry(_Model):
@@ -125,7 +127,8 @@ class ProjectFile(_Model):
         """selection がまだ保存されていなければ、ready のセットのうち最初に作ったものを選ぶ"""
         if self.selection is not None:
             return self.selection
-        ready = sorted(s.id for s in self.context_sets if s.status == "ready")
+        # セッション専用のセット（#182）は選ばない
+        ready = sorted(s.id for s in self.context_sets if s.status == "ready" and s.session is None)
         return Selection(context_set=ready[0] if ready else None)
 
     def to_json(self) -> dict:
@@ -173,7 +176,10 @@ def rebuild_project_file(project_dir: Path) -> ProjectFile | None:
                 c, _ = read_doc(f, ContextSetMeta)
                 candidates.append(c.project or "")
                 sets[c.id] = ContextSetEntry(
-                    id=c.id, status="ready", materials=[m.path for m in c.materials]
+                    id=c.id,
+                    status="ready",
+                    materials=[m.path for m in c.materials],
+                    session=c.session,
                 )
         except (OSError, ValueError) as e:
             log.warning("%s を読み込めません: %s", f, e)

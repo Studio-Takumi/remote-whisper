@@ -102,14 +102,21 @@ class OllamaGenerator:
 
     async def generate(self, materials: str) -> tuple[list[str], str]:
         # 用語リスト（資料抽出）とコンテキストは、処理ごとのモデルで作る（#178）
-        models = self.settings.get().ollama.models
-        words_model = await self.ollama.resolve(models.material_terms)
-        model = await self.ollama.resolve(models.context)
+        words = await self.terms(materials)
+        context = await self.context(materials)
+        return words, context
+
+    async def terms(self, materials: str) -> list[str]:
+        """用語リスト（資料抽出）。範囲で作り直すとき（#182）は、これだけを浄書の前に作る"""
+        model = await self.ollama.resolve(self.settings.get().ollama.models.material_terms)
+        return parse_hotwords(await self._ask(model, hotwords_messages(materials)))
+
+    async def context(self, materials: str) -> str:
+        """コンテキスト。範囲で作り直すとき（#182）は、これだけを浄書の後に作る"""
+        model = await self.ollama.resolve(self.settings.get().ollama.models.context)
         think = await self.ollama.supports_thinking(model)
         self._used = (model, think)
-        words = parse_hotwords(await self._ask(words_model, hotwords_messages(materials)))
-        context = (await self._ask(model, context_messages(materials))).strip()
-        return words, context
+        return (await self._ask(model, context_messages(materials))).strip()
 
     async def _ask(self, model: str, messages: list[dict[str, str]]) -> str:
         """思考オンで頼む。思考が長すぎて本文が空になったら、思考オフでもう一度頼む"""
@@ -182,8 +189,13 @@ class ContextSetService:
                 log.exception("failed to recover the context sets of %s", pid)
 
     def entries(self, pid: str) -> list[dict[str, Any]]:
+        """画面に出すセット。セッション専用のセット（#182）は出さない"""
         project = self._load(pid)
-        return [s.model_dump(by_alias=True) for s in project.context_sets]
+        return [
+            s.model_dump(by_alias=True, exclude={"session"})
+            for s in project.context_sets
+            if s.session is None
+        ]
 
     def _load(self, pid: str) -> ProjectFile:
         try:
@@ -228,7 +240,10 @@ class ContextSetService:
         def add(project: ProjectFile) -> None:
             nonlocal reused, created, started
             for entry in project.context_sets:
-                if entry.status == "generating":
+                if entry.session is not None:
+                    # セッション専用のセット（#182）は範囲で作り直したものなので、使い回さない
+                    same = False
+                elif entry.status == "generating":
                     # 作っている途中のものは、このサーバーで作っているものだけを
                     # 内容のハッシュで比べる
                     same = self._pending.get(entry.id) == want

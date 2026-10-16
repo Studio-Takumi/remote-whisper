@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
 from remote_whisper.fsutil import atomic_write_text
-from remote_whisper.material_toc import MaterialToc
+from remote_whisper.material_toc import MaterialRange, MaterialToc
 
 # --- ファイル名 ---
 
@@ -113,6 +113,10 @@ class ContextSetMeta(_Meta):
     model: str
     think: bool
     materials: list[MaterialRef] = Field(default_factory=list)
+    # セッション専用のセット（#182。録音のあとに範囲を判断して作り直したもの）。
+    # そのセッションの ID と、使った範囲。資料全体のセットにはない
+    session: str | None = None
+    material_range: list[MaterialRange] | None = None
 
 
 class ContextMeta(ContextSetMeta):
@@ -160,6 +164,10 @@ class TranscriptMeta(_Meta):
     # アップロードした元のファイル名と、アップロードした日時（保存期間はここから数える）
     original_name: str | None = None
     uploaded_at: str | None = None
+    # 録音のあとに今回扱った範囲を判断して、参考資料を作り直したとき（#182）。
+    # context_set はそのセッション専用のセットになり、base_context_set に元のセットを残す
+    material_range: list[MaterialRange] | None = None
+    base_context_set: str | None = None
 
 
 class SummaryMeta(_Meta):
@@ -185,6 +193,8 @@ class SummaryMeta(_Meta):
     # 使った要約度（1〜5。#100）。概要と、部分ごとの要約（詳細）。以前のファイルにはない
     overview_density: int | None = None
     detail_density: int | None = None
+    # 参考資料を範囲で作り直したとき（#182）、使った範囲（文字起こしと同じ）
+    material_range: list[MaterialRange] | None = None
 
 
 class FinalTranscriptMeta(_Meta):
