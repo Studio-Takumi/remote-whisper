@@ -9,6 +9,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from remote_whisper.context import AppContext
 from remote_whisper.hub import send
 from remote_whisper.logs import traffic
+from remote_whisper.projects import UUID_RE, ProjectError
 from remote_whisper.recording import RecordingError
 
 log = logging.getLogger(__name__)
@@ -58,6 +59,26 @@ def _peer(ws: WebSocket) -> str:
     return f"{client.host}:{client.port}" if client else "unknown"
 
 
+def _project_id(ctx: AppContext, key: str) -> str:
+    """プロジェクトの UUID ならプロジェクト ID に直す（#177。今の ID のままでも呼べる）"""
+    if not UUID_RE.fullmatch(key):
+        return key
+    try:
+        return ctx.projects.resolve(key)
+    except ProjectError as e:
+        raise RecordingError("project_not_found", "プロジェクトがありません") from e
+
+
+def _session_id(ctx: AppContext, key: str) -> str:
+    """セッションの UUID ならセッション ID に直す（#177）"""
+    if not UUID_RE.fullmatch(key):
+        return key
+    try:
+        return ctx.projects.find_session(key)[2].id
+    except ProjectError as e:
+        raise RecordingError("session_not_found", "セッションがありません") from e
+
+
 def _owns(ws: WebSocket, session: Any) -> bool:
     """この接続がセッションを録音しているか。resume でほかの接続に引き継がれたら False"""
     return session is not None and not session.ended and session.ws is ws
@@ -104,7 +125,7 @@ async def _handle_control(ctx: AppContext, ws: WebSocket, session: Any, text: st
         if not isinstance(project, str) or not project:
             raise RecordingError("bad_message", "project を指定してください")
         max_concurrent = ctx.settings.get().recording.max_concurrent
-        return await recorder.start(ws, project, max_concurrent)
+        return await recorder.start(ws, _project_id(ctx, project), max_concurrent)
     if kind == "continue":
         # 途中で終わったセッションの続きを録音する（#101）
         if active:
@@ -115,14 +136,16 @@ async def _handle_control(ctx: AppContext, ws: WebSocket, session: Any, text: st
         if not hasattr(recorder, "continue_session"):
             raise RecordingError("not_available", "このサーバーでは続きを録音できません")
         max_concurrent = ctx.settings.get().recording.max_concurrent
-        return await recorder.continue_session(ws, project, sid, max_concurrent)
+        return await recorder.continue_session(
+            ws, _project_id(ctx, project), _session_id(ctx, sid), max_concurrent
+        )
     if kind == "resume":
         sid, next_seq = message.get("session"), message.get("nextSeq")
         if not isinstance(sid, str) or not isinstance(next_seq, int):
             raise RecordingError("bad_message", "session と nextSeq を指定してください")
         if active:
             raise RecordingError("already_recording", "すでに録音しています")
-        return await recorder.resume(ws, sid)
+        return await recorder.resume(ws, _session_id(ctx, sid))
     if kind in ("stop", "pause", "unpause"):
         if not active:
             raise RecordingError("not_recording", "録音していません")

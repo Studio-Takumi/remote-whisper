@@ -57,6 +57,8 @@ class SessionWriter:
         # 続きの録音に引き継がれた（#101）。フロントマターと project.json は続きの方が書くので、
         # こちらは書かない（古い状態やタイトルを書き戻さないように）。文字起こしの行は足す
         self.detached = False
+        # 画面の URL に出す ID（#177）。start で project.json に足したときに決まる
+        self.uuid: str | None = None
         project = store.load(pid)
         selection = project.effective_selection()
         # そのセッションで使った設定値は、フロントマターに記録する（spec 6.2）
@@ -98,6 +100,7 @@ class SessionWriter:
         writer.files = SessionFiles(store.dir(pid), sid)
         writer._lock = _lock_for(writer.files.transcript)
         writer.detached = False
+        writer.uuid = next((s.uuid for s in store.load(pid).sessions if s.id == sid), None)
         writer.meta = read_doc(writer.files.transcript, TranscriptMeta)[0]
         writer.started = datetime.fromisoformat(writer.meta.started_at)
         selection = store.load(pid).effective_selection()
@@ -122,7 +125,9 @@ class SessionWriter:
             )
             project.sessions.sort(key=lambda s: s.id)
 
-        self.store.update(self.pid, add)
+        project = self.store.update(self.pid, add)
+        # 画面の URL に出す ID（#177）。保存するときに振られる
+        self.uuid = next(s.uuid for s in project.sessions if s.id == self.id)
 
     def reopen(self) -> None:
         """途中で終わったセッションの続きを録音する。状態を recording に戻す（#101）

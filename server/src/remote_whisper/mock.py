@@ -411,10 +411,11 @@ class MockRecorder:
         while sid in self.sessions:
             await asyncio.sleep(0.2)
             sid = make_id(now())
-        session = MockSession(self, sid, project, ws, self._writer(project, sid))
+        writer = self._writer(project, sid)
+        session = MockSession(self, sid, project, ws, writer)
         self.sessions[sid] = session
         await self._count_changed()
-        await session.send({"type": "started"})
+        await session.send({"type": "started", "sessionUuid": writer.uuid if writer else None})
         session.begin()
         if self.hub.status.whisper in ("unloaded", "error"):
             # 参照を持っておかないと、タスクが途中でガベージコレクションされることがある

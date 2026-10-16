@@ -440,7 +440,7 @@ class RecordingManager:
         writer.start()
         self.sessions[sid] = session
         await self._count_changed()
-        await session.send({"type": "started"})
+        await session.send({"type": "started", "sessionUuid": writer.uuid})
         self._begin(session)
         return session
 

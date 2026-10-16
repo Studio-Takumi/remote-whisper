@@ -5,11 +5,12 @@ import json
 import logging
 import re
 import threading
+import uuid
 from collections.abc import Callable
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from pydantic.alias_generators import to_camel
 
 from remote_whisper.documents import (
@@ -30,6 +31,22 @@ log = logging.getLogger(__name__)
 
 PROJECT_VERSION = 1
 _PID_RE = re.compile(r"[A-Za-z0-9-]+")
+UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+
+
+# URL に出す ID（#177）の名前空間。この値を変えると、すべての UUID が変わる
+_UUID_NS = uuid.UUID("5d0c7f4e-3b1a-4c55-9a3e-7f2b8c1d9e60")
+
+
+def project_uuid(path: str) -> str:
+    """プロジェクトの UUID。パスから決める（project.json を作り直しても同じになるように）"""
+    return str(uuid.uuid5(_UUID_NS, f"project\n{path}"))
+
+
+def session_uuid(project_path: str, sid: str) -> str:
+    """セッションの UUID。振ったときのプロジェクトのパスとセッション ID から決める。
+    一度振ったら project.json に残し、セッションを別のプロジェクトへ移しても（#172）変えない"""
+    return str(uuid.uuid5(_UUID_NS, f"session\n{project_path}\n{sid}"))
 
 
 def project_id(path: str) -> str:
@@ -68,6 +85,9 @@ class ContextSetEntry(_Model):
 
 class SessionEntry(_Model):
     id: str
+    # URL に出す ID（#177）。ファイル名は今の ID（YYYYMMDD-HHMMSS）のまま。
+    # ないもの（#177 より前のもの・足したばかりのもの）は ProjectFile が振る
+    uuid: str | None = None
     title: str | None = None
     status: Literal["recording", "done", "interrupted"]
     started_at: str
@@ -83,10 +103,20 @@ class ProjectFile(_Model):
     """project.json の中身"""
 
     version: int = PROJECT_VERSION
+    # URL に出す ID（#177）。プロジェクト ID にはパスが入っていて、URL に出すと読めてしまうため
+    uuid: str | None = None
     path: str
     selection: Selection | None = None
     context_sets: list[ContextSetEntry] = Field(default_factory=list)
     sessions: list[SessionEntry] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def fill_uuids(self) -> "ProjectFile":
+        """UUID のないプロジェクトとセッションに振る。読んだときと保存するときに呼ぶ"""
+        self.uuid = self.uuid or project_uuid(self.path)
+        for s in self.sessions:
+            s.uuid = s.uuid or session_uuid(self.path, s.id)
+        return self
 
     def effective_selection(self) -> Selection:
         """selection がまだ保存されていなければ、ready のセットのうち最初に作ったものを選ぶ"""
@@ -96,6 +126,8 @@ class ProjectFile(_Model):
         return Selection(context_set=ready[0] if ready else None)
 
     def to_json(self) -> dict:
+        # 読んだ後に足したセッションにも振ってから書く
+        self.fill_uuids()
         return self.model_dump(by_alias=True)
 
 
@@ -202,8 +234,12 @@ class ProjectStore:
             p.name for p in self.root.iterdir() if p.is_dir() and _PID_RE.fullmatch(p.name)
         )
 
-    def _read(self, pid: str) -> ProjectFile:
-        """project.json を読む。ない・壊れているときは _Unreadable を投げる"""
+    def _read(self, pid: str) -> tuple[ProjectFile, bool]:
+        """project.json を読む。ない・壊れているときは _Unreadable を投げる
+
+        2 つ目は、UUID のないプロジェクトかセッションがあったか（#177 より前に作ったもの）。
+        読んだ中身には振ってあるので、保存すれば書き足される
+        """
         path = self._file(pid)
         if not path.is_file():
             raise _Unreadable(404, f"プロジェクト {pid} はありません")
@@ -219,22 +255,33 @@ class ProjectStore:
                 500, f"{path} の version {version} はこのサーバーより新しいため読み込めません"
             )
         try:
-            return ProjectFile.model_validate(data)
+            project = ProjectFile.model_validate(data)
         except ValidationError as e:
             raise _Unreadable(500, f"{path} を読み込めません: {e}") from e
+        lacks_uuid = not data.get("uuid") or any(
+            isinstance(s, dict) and not s.get("uuid") for s in data.get("sessions") or []
+        )
+        return project, lacks_uuid
 
     def load(self, pid: str) -> ProjectFile:
-        """project.json を読む。ない・壊れているときは、フロントマターから作り直して保存する"""
+        """project.json を読む。ない・壊れているときは、フロントマターから作り直して保存する。
+        UUID のないプロジェクトかセッションがあれば、振って書き足す（#177。ファイル名は変えない）"""
         try:
-            return self._read(pid)
+            project, lacks_uuid = self._read(pid)
+            if not lacks_uuid:
+                return project
         except _Unreadable:
             pass
         with self._lock:
-            # ロックを待っている間に、ほかのスレッドが作り直しているかもしれない
+            # ロックを待っている間に、ほかのスレッドが作り直したり UUID を振ったりしたかもしれない
             try:
-                return self._read(pid)
+                project, lacks_uuid = self._read(pid)
             except _Unreadable as e:
                 return self._rebuild(pid, e)
+            if lacks_uuid:
+                log.info("%s のプロジェクトとセッションに UUID を振ります", pid)
+                self.save(pid, project)
+            return project
 
     def _rebuild(self, pid: str, reason: "_Unreadable") -> ProjectFile:
         project = rebuild_project_file(self.dir(pid))
@@ -274,6 +321,25 @@ class ProjectStore:
                 if e.status != 404:
                     log.warning("%s", e.message)
         return result
+
+    def resolve(self, key: str) -> str:
+        """プロジェクト ID か UUID から、プロジェクト ID を引く（#177）。見つからなければ 404"""
+        if UUID_RE.fullmatch(key):
+            for pid, project in self.all():
+                if project.uuid == key:
+                    return pid
+            raise ProjectError(404, f"プロジェクト {key} はありません")
+        self.dir(key)
+        return key
+
+    def find_session(self, session_uuid: str) -> tuple[str, ProjectFile, SessionEntry]:
+        """セッションの UUID から、プロジェクト ID・project.json・セッションを引く（#177）"""
+        if UUID_RE.fullmatch(session_uuid):
+            for pid, project in self.all():
+                for s in project.sessions:
+                    if s.uuid == session_uuid:
+                        return pid, project, s
+        raise ProjectError(404, f"セッション {session_uuid} はありません")
 
     def register(self, path: str, roots: list[str]) -> tuple[str, ProjectFile]:
         """ディレクトリをプロジェクトとして登録する。すでにあればそれを返す"""
