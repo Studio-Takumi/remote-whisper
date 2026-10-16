@@ -109,7 +109,7 @@ class SessionWriter:
         return writer
 
     def start(self) -> None:
-        """文字起こしのファイル（status: recording）を作り、project.json にセッションを足す"""
+        """文字起こしのファイル（録音なら status: recording）を作り、project.json に足す"""
         with self._lock:
             write_doc(self.files.transcript, self.meta, "")
 
@@ -118,9 +118,13 @@ class SessionWriter:
             project.sessions.append(
                 SessionEntry(
                     id=self.id,
-                    status="recording",
+                    status=self.meta.status,
                     started_at=self.meta.started_at,
+                    ended_at=self.meta.ended_at,
+                    duration_sec=self.meta.duration_sec,
                     context_set=self.meta.context_set,
+                    source=self.meta.source,
+                    uploaded_at=self.meta.uploaded_at,
                 )
             )
             project.sessions.sort(key=lambda s: s.id)
@@ -128,6 +132,19 @@ class SessionWriter:
         project = self.store.update(self.pid, add)
         # 画面の URL に出す ID（#177）。保存するときに振られる
         self.uuid = next(s.uuid for s in project.sessions if s.id == self.id)
+
+    def start_upload(self, duration_sec: float, original_name: str, uploaded: datetime) -> None:
+        """音声ファイルをアップロードして作るセッション（#180）。録音は終わっているので done で作る
+
+        開始日時（started）は、ファイルの更新日時から長さを引いたもの（呼ぶ側で決める）
+        """
+        self.meta.status = "done"
+        self.meta.ended_at = iso(self.started + timedelta(seconds=duration_sec))
+        self.meta.duration_sec = int(duration_sec)
+        self.meta.source = "upload"
+        self.meta.original_name = original_name
+        self.meta.uploaded_at = iso(uploaded)
+        self.start()
 
     def reopen(self) -> None:
         """途中で終わったセッションの続きを録音する。状態を recording に戻す（#101）

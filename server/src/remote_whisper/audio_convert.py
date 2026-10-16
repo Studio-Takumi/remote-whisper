@@ -7,6 +7,7 @@ m4a（AAC）にする（#36 で確かめる）。CPU で動くので、GPU キ�
 import contextlib
 import logging
 from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
 
 import av
@@ -48,6 +49,74 @@ def decode_pcm(path: Path) -> Iterator[bytes]:
                 yield bytes(out.planes[0])[: out.samples * 2]
         for out in resampler.resample(None):
             yield bytes(out.planes[0])[: out.samples * 2]
+
+
+@dataclass(frozen=True)
+class AudioInfo:
+    """アップロードされた音声ファイル（#180）を開いて分かったこと"""
+
+    duration_sec: float
+    # 音声のコーデック（mp3・aac・pcm_s16le など）とビットレート（分からなければ 0）
+    codec: str
+    bit_rate: int
+    # 動画が入っているか（入っていれば音声だけを使う）
+    has_video: bool
+
+
+def probe(path: Path) -> AudioInfo:
+    """音声ファイルを開いて、長さ・コーデック・ビットレートを調べる。
+    PyAV で開けない・音声がなければ ValueError"""
+    try:
+        with av.open(str(path)) as src:
+            if not src.streams.audio:
+                raise ValueError("音声が入っていません")
+            stream = src.streams.audio[0]
+            if src.duration is not None:
+                duration = src.duration / av.time_base
+            elif stream.duration is not None and stream.time_base is not None:
+                duration = float(stream.duration * stream.time_base)
+            else:
+                # 長さが書かれていないもの（一部の webm など）は、最後まで読んで数える
+                duration = sum(f.samples / f.sample_rate for f in src.decode(audio=0))
+            return AudioInfo(
+                duration_sec=float(duration),
+                codec=stream.codec_context.name,
+                bit_rate=int(stream.bit_rate or src.bit_rate or 0),
+                has_video=bool(src.streams.video),
+            )
+    except av.FFmpegError as e:
+        raise ValueError(f"音声ファイルとして読めません: {e}") from e
+
+
+def convert_audio(src_path: Path, out_dir: Path, sid: str) -> Path:
+    """どんな音声ファイル（動画なら音声だけ）でも、録音したときと同じ形式
+    （16kHz・モノラル・64kbps の mp3、なければ m4a）にする（#180）。
+    途中で失敗したら、書きかけのファイルは消して例外を投げる"""
+    ext, container, encoder = pick_format()
+    dst = out_dir / recording_name(sid, ext)
+    tmp = dst.with_name(dst.name + ".tmp")
+    try:
+        with av.open(str(src_path)) as src, av.open(str(tmp), "w", format=container) as out:
+            stream = out.add_stream(encoder, rate=16000, layout="mono")
+            stream.bit_rate = BIT_RATE
+            resampler = av.AudioResampler(format=stream.format.name, layout="mono", rate=16000)
+            for frame in src.decode(audio=0):
+                for converted in resampler.resample(frame):
+                    converted.pts = None
+                    for packet in stream.encode(converted):
+                        out.mux(packet)
+            for converted in resampler.resample(None):
+                converted.pts = None
+                for packet in stream.encode(converted):
+                    out.mux(packet)
+            for packet in stream.encode(None):
+                out.mux(packet)
+        tmp.replace(dst)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            tmp.unlink()
+        raise
+    return dst
 
 
 def convert_wav(wav: Path, out_dir: Path, sid: str) -> Path:

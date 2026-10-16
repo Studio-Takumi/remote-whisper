@@ -105,7 +105,9 @@ def clean_project(
         # ID は形を確かめてからパスにする（手で直した project.json などで、外を指さないように）
         if s.status == "recording" or not ID_RE.fullmatch(s.id):
             continue
-        ended = s.ended_at or s.started_at
+        # アップロードしたセッション（#180）は、アップロードした日時から数える
+        # （古い録音を上げると、終了日時から数えるとすぐ消えてしまうため）
+        ended = s.uploaded_at or s.ended_at or s.started_at
         files = SessionFiles(project_dir, s.id)
         tmp = project_dir / ".tmp" / s.id
         if expired(ended, days.recording, at):

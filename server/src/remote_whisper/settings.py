@@ -214,6 +214,8 @@ class RecordingSettings(_Model):
     auto_gain_control: bool = True
     # 切り替えると直ることがあるように（#120）。既定はオンのまま
     echo_cancellation: bool = True
+    # アップロードできる音声ファイルの大きさの上限（MB。#180）
+    upload_max_mb: int = Field(2048, ge=1)
 
 
 class RetentionDays(_Model):

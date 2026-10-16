@@ -155,6 +155,11 @@ class TranscriptMeta(_Meta):
     # 録音中に文字起こしから拾って、用語リストに足した語と、画面で消された語（#103）
     picked_terms: list[str] = Field(default_factory=list)
     rejected_terms: list[str] = Field(default_factory=list)
+    # 音声ファイルをアップロードして作ったセッション（#180）は upload。録音したものにはない
+    source: Literal["upload"] | None = None
+    # アップロードした元のファイル名と、アップロードした日時（保存期間はここから数える）
+    original_name: str | None = None
+    uploaded_at: str | None = None
 
 
 class SummaryMeta(_Meta):
