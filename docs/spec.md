@@ -153,9 +153,9 @@ erDiagram
       "materialTerms": "qwen3.5:2b",
       "context": "qwen3.5:4b",
       "scope": "qwen3.5:2b",
-      "transcriptTerms": "qwen3.5:0.8b",
+      "transcriptTerms": "qwen3.5:2b",
       "liveSummary": "qwen3.5:2b",
-      "liveTitle": "qwen3.5:0.8b",
+      "liveTitle": "qwen3.5:2b",
       "overview": "qwen3.5:4b",
       "detail": "qwen3.5:4b",
       "finalTitle": "qwen3.5:0.8b"
@@ -202,13 +202,14 @@ erDiagram
   | 参考資料 | 用語リスト（資料抽出） | `materialTerms` | `qwen3.5:2b` |
   | | コンテキスト | `context` | `qwen3.5:4b` |
   | | 範囲の判断（#182） | `scope` | `qwen3.5:2b` |
-  | リアルタイム文字起こし | 用語リスト（文字起こし抽出） | `transcriptTerms` | `qwen3.5:0.8b` |
+  | リアルタイム文字起こし | 用語リスト（文字起こし抽出） | `transcriptTerms` | `qwen3.5:2b` |
   | リアルタイム要約 | 要約 | `liveSummary` | `qwen3.5:2b` |
-  | | タイトル | `liveTitle` | `qwen3.5:0.8b` |
+  | | タイトル | `liveTitle` | `qwen3.5:2b` |
   | 最終要約 | 全体概要 | `overview` | `qwen3.5:4b` |
   | | 要約詳細 | `detail` | `qwen3.5:4b` |
   | | タイトル | `finalTitle` | `qwen3.5:0.8b` |
 
+  - 録音中に使う 3 つ（`transcriptTerms`・`liveSummary`・`liveTitle`）のおすすめは同じモデルにそろえている。録音中は Ollama のモデルを 1 つしか載せない（6.3 節）ので、別々だと区切りごとに読み込み直しになるため。`qwen3.5:0.8b` は、用語の抽出で語ではなく文をそのまま返すなど品質が足りなかった（#178 で比べた）。
   - **入っていないモデル**: 選んだモデルが Ollama に入っていなければ、要約詳細のモデル → 全体概要のモデル → 入っているうち名前の順で最初のもの、の順に代わりを選んで動かす（動かなくならないように）。ログに残し（モデルごとに 1 回）、`/api/settings/options` の `ollama.missing` に入っていない処理のキーを返す（画面は「入っていません」と出す。#179）。フロントマターには、実際に使ったモデルを残す。
   - **前の設定からの移行**: #178 より前の `liveSummaryModel` は `liveSummary` に、`finalSummaryModel` は `overview`・`detail` に、`contextModel` は `context`・`materialTerms` に移す。新しい軽い処理（`scope`・`transcriptTerms`・`liveTitle`・`finalTitle`）は、おすすめのモデルが入っていればそれ、なければ移行元（`scope` は `contextModel`、`transcriptTerms`・`liveTitle` は `liveSummaryModel`、`finalTitle` は `finalSummaryModel`）と同じモデルにする。入っているかは、読み込んだときに Ollama に聞く（つながらなければ移行元と同じ）。古いキーは受け付けるが書き出さない（`PATCH` で送られても無視する）。
 - 思考モードは処理ごとに固定する。参考資料セットの作成と最終の要約はオン、途中の要約はオフ。思考モードに対応していないモデルが選ばれた場合は、オフで実行する（9.3 節）。

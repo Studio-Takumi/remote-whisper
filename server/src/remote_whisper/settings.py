@@ -80,14 +80,17 @@ class WhisperSettings(_Model):
 
 
 # 処理ごとのおすすめのモデル（#178）。軽い処理は小さいモデルにする。入っていなければ、
-# 動かすときに入っているモデルで代わりに動かす（OllamaClient.resolve）
+# 動かすときに入っているモデルで代わりに動かす（OllamaClient.resolve）。
+# 録音中の 3 つ（要約・タイトル・用語）は同じモデルにそろえる。録音中は Ollama のモデルを 1 つしか
+# 載せないので、別々だと区切りごとに読み込み直しになる。0.8b は用語の抽出で文をそのまま返すなど
+# 品質が足りなかったので、録音中は 2b にした
 RECOMMENDED_MODELS = {
     "materialTerms": "qwen3.5:2b",
     "context": "qwen3.5:4b",
     "scope": "qwen3.5:2b",
-    "transcriptTerms": "qwen3.5:0.8b",
+    "transcriptTerms": "qwen3.5:2b",
     "liveSummary": "qwen3.5:2b",
-    "liveTitle": "qwen3.5:0.8b",
+    "liveTitle": "qwen3.5:2b",
     "overview": "qwen3.5:4b",
     "detail": "qwen3.5:4b",
     "finalTitle": "qwen3.5:0.8b",
