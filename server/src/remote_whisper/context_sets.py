@@ -266,7 +266,7 @@ class ContextSetService:
 
         self.projects.update(pid, add)
         if reused is not None:
-            return {**reused.model_dump(by_alias=True), "reused": True}
+            return {**reused.model_dump(by_alias=True, exclude={"session"}), "reused": True}
         assert created is not None
         entry = created
         await self._send(pid, entry.id, "generating")
@@ -276,7 +276,7 @@ class ContextSetService:
             kind="contextSet",
         )
         job.add_done_callback(_log_failure)
-        return {**entry.model_dump(by_alias=True), "reused": False}
+        return {**entry.model_dump(by_alias=True, exclude={"session"}), "reused": False}
 
     async def _send(self, pid: str, set_id: str, status: str) -> None:
         await self.hub.broadcast(

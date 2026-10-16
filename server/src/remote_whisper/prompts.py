@@ -310,52 +310,61 @@ def parse_terms(reply: str) -> list[str]:
     return out
 
 
-# 録音のあとに、今回扱った資料の範囲を判断する（#182）。JSON Schema で範囲の一覧を返させる
+# 録音のあとに、今回扱った資料の範囲を判断する（#182）。JSON Schema で範囲の一覧を返させる。
+# 小さいモデルは「資料の番号」と「章の番号」を取り違えたので、目次の番号は資料をまたいだ
+# 通し番号にし、範囲は話題ごとに from・to で答えさせる（話題を先に書かせると、話題と章を
+# 結び付けて選ぶ）。
+# 「作り直すか」も答えさせたが、範囲と食い違う答えが多かったので、範囲が資料のほぼ全体かどうかで
+# こちらが決める（material_range.normalize_ranges）
 SCOPE_FORMAT: dict[str, Any] = {
     "type": "object",
     "properties": {
-        "rebuild": {"type": "boolean"},
         "ranges": {
             "type": "array",
+            "maxItems": 10,
             "items": {
                 "type": "object",
                 "properties": {
-                    "material": {"type": "integer"},
+                    "topic": {"type": "string"},
                     "from": {"type": "integer"},
                     "to": {"type": "integer"},
                 },
-                "required": ["material", "from", "to"],
+                "required": ["topic", "from", "to"],
             },
         },
     },
-    "required": ["rebuild", "ranges"],
+    "required": ["ranges"],
 }
-# 目次の 1 行に出す見出しの長さと、1 つの資料で出す行の数
+# 目次の 1 行に出す見出しの長さと、出す行の数
 SCOPE_TITLE_CHARS = 30
-SCOPE_MAX_ENTRIES = 400
+SCOPE_MAX_ENTRIES = 600
 
 
-def scope_messages(excerpt: str, tocs: list[tuple[str, str, list[tuple[int, str]]]]) -> list[dict]:
+def scope_messages(excerpt: str, tocs: list[tuple[str, str, list[str]]]) -> list[dict]:
     """文字起こしの抜粋と資料の目次から、今回扱った範囲を判断する（#182）
 
-    tocs は資料ごとの（ファイル名, 区切りの種類, [(番号, 見出し)]）。資料の番号は 1 から
+    tocs は資料ごとの（ファイル名, 区切りの種類, [見出し]）。目次の番号は、資料をまたいで 1 から
     """
     blocks = []
-    for i, (name, kind, entries) in enumerate(tocs, 1):
+    number = 0
+    for name, kind, titles in tocs:
         unit = {"pages": "ページ", "headings": "見出し", "chunks": "区切り"}.get(kind, "区切り")
-        rows = [f"{n}: {title[:SCOPE_TITLE_CHARS]}" for n, title in entries[:SCOPE_MAX_ENTRIES]]
-        blocks.append(f"### 資料 {i}: {name}（{unit}ごと）\n" + "\n".join(rows))
+        rows = []
+        for title in titles:
+            number += 1
+            if number <= SCOPE_MAX_ENTRIES:
+                rows.append(f"{number}: {title[:SCOPE_TITLE_CHARS]}")
+        blocks.append(f"### {name}（{unit}ごと）\n" + "\n".join(rows))
     user = (
-        "## 参考資料の目次\n"
+        "## 参考資料の目次（左の数字が目次の番号）\n"
         + "\n\n".join(blocks)
         + "\n\n## 今回の録音の文字起こし（頭・中ほど・終わりの抜粋。誤認識を含むことがある）\n"
         + excerpt
-        + "\n\nこの録音で扱った資料の範囲を、目次の番号で答えてください。"
-        + "1 つの章とは限りません。複数の章にまたがる・章の途中から始まる・章の途中で終わる、"
-        + "のどれでも、範囲を必要なだけ並べてください（material は資料の番号、from・to は"
-        + "目次の番号で、両端を含みます）。"
-        + "資料のほぼ全体を扱っていた、または範囲が分からないときは、"
-        + "rebuild を false にしてください。"
+        + "\n\nこの録音で話された話題ごとに、その話題を扱っている目次の範囲を、"
+        + "目次の番号（左の数字）で答えてください（topic は話題、from・to は両端を含みます）。"
+        + "話題が複数の章にまたがるときや、章の途中から始まる・章の途中で終わるときは、"
+        + "その範囲をそのまま書いてください。録音で話されていない章は含めないでください。"
+        + "どの章にも当てはまらない話題は書かないでください。"
     )
     return [
         {
@@ -366,22 +375,20 @@ def scope_messages(excerpt: str, tocs: list[tuple[str, str, list[tuple[int, str]
     ]
 
 
-def parse_scope(reply: str) -> tuple[bool, list[tuple[int, int, int]]] | None:
-    """`{"rebuild": ..., "ranges": [...]}` を（作り直すか, [(資料, 始まり, 終わり)]）にする。
-    形が合わなければ None"""
+def parse_scope(reply: str) -> list[tuple[int, int]] | None:
+    """`{"ranges": [{"topic", "from", "to"}]}` を [(始まり, 終わり)] にする。
+    番号は目次の通し番号。形が合わなければ None"""
     try:
-        data = json.loads(reply)
-        rebuild = data["rebuild"]
-        ranges = data["ranges"]
+        ranges = json.loads(reply)["ranges"]
     except (ValueError, KeyError, TypeError):
         log.warning("could not parse the material range: %r", reply[:200])
         return None
-    if not isinstance(rebuild, bool) or not isinstance(ranges, list):
+    if not isinstance(ranges, list):
         return None
-    out: list[tuple[int, int, int]] = []
+    out: list[tuple[int, int]] = []
     for r in ranges:
         try:
-            out.append((int(r["material"]), int(r["from"]), int(r["to"])))
+            out.append((int(r["from"]), int(r["to"])))
         except (KeyError, TypeError, ValueError):
             return None
-    return rebuild, out
+    return out

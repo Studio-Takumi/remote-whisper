@@ -42,28 +42,38 @@ def _toc(chars_each: int = 1000, n: int = CHAPTERS) -> MaterialToc:
 
 
 def test_ranges_get_a_margin_and_are_merged():
-    ranges = normalize_ranges([(1, 3, 4), (1, 6, 6)], [_toc()])
+    ranges = normalize_ranges([(3, 4), (6, 6)], [_toc()])
     # 前後に 1 つずつ足すと 2〜5 と 5〜7 になり、つながる
     assert [(r.file, r.start, r.end) for r in ranges] == [("slides.md", 2, 7)]
 
 
 def test_ranges_are_clamped_and_reversed_ones_are_fixed():
-    ranges = normalize_ranges([(1, 2, 1)], [_toc()])
+    ranges = normalize_ranges([(2, 1)], [_toc()])
     assert [(r.start, r.end) for r in ranges] == [(1, 3)]
-    assert normalize_ranges([(1, 9, 30)], [_toc()])[0].end == CHAPTERS
+    assert normalize_ranges([(9, 30)], [_toc()])[0].end == CHAPTERS
 
 
 def test_separate_ranges_stay_separate():
-    ranges = normalize_ranges([(1, 2, 2), (1, 8, 8)], [_toc()])
+    ranges = normalize_ranges([(2, 2), (8, 8)], [_toc()])
     assert [(r.start, r.end) for r in ranges] == [(1, 3), (7, 9)]
+
+
+def test_numbers_run_across_materials():
+    # 目次の番号は資料をまたいだ通し番号。2 つ目の資料の 2 番目は 12
+    second = _toc().model_copy(update={"path": "D:\\work\\notes.md"})
+    ranges = normalize_ranges([(12, 12)], [_toc(), second])
+    assert [(r.file, r.start, r.end) for r in ranges] == [("notes.md", 1, 3)]
+    # 資料の境目をまたぐ範囲は、資料ごとに分ける
+    ranges = normalize_ranges([(10, 11)], [_toc(), second])
+    assert [(r.file, r.start, r.end) for r in ranges] == [("slides.md", 9, 10), ("notes.md", 1, 2)]
 
 
 def test_almost_the_whole_material_is_not_rebuilt():
     # 前後の余白を足すと 8 割以上になる
-    assert normalize_ranges([(1, 2, 8)], [_toc()]) is None
-    # 範囲がない・知らない資料だけ
+    assert normalize_ranges([(2, 8)], [_toc()]) is None
+    # 範囲がない・目次にない番号だけ
     assert normalize_ranges([], [_toc()]) is None
-    assert normalize_ranges([(2, 1, 3)], [_toc()]) is None
+    assert normalize_ranges([(50, 60)], [_toc()]) is None
 
 
 def test_excerpt_takes_the_head_middle_and_tail():
@@ -131,7 +141,7 @@ def replies(fake_ollama, scope=None):
     def reply_for(body):
         content = body["messages"][-1]["content"]
         props = (body.get("format") or {}).get("properties", {})
-        if "rebuild" in props:
+        if "ranges" in props:
             asked["scope"].append(content)
             return scope if isinstance(scope, str) else json.dumps(scope, ensure_ascii=False)
         if "1行に1語" in content:
@@ -177,7 +187,7 @@ def test_recording_rebuilds_terms_before_and_context_after_the_final_transcript(
     client, setup, fake_ollama
 ):
     pid, d, base = setup
-    asked = replies(fake_ollama, {"rebuild": True, "ranges": [{"material": 1, "from": 3, "to": 4}]})
+    asked = replies(fake_ollama, {"ranges": [{"topic": "第3章と第4章", "from": 3, "to": 4}]})
     final = _use_final(client)
 
     sid, _ = record(client, pid)
@@ -214,8 +224,8 @@ def test_recording_rebuilds_terms_before_and_context_after_the_final_transcript(
 @pytest.mark.parametrize(
     "scope",
     [
-        {"rebuild": True, "ranges": [{"material": 1, "from": 1, "to": 9}]},  # ほぼ全体
-        {"rebuild": False, "ranges": []},
+        {"ranges": [{"topic": "全部", "from": 1, "to": 9}]},  # ほぼ全体
+        {"ranges": []},  # 当てはまる章がない
         "形の合わない答え",
     ],
 )
@@ -239,7 +249,7 @@ def test_small_material_is_not_judged(client, tmp_path, fake_ollama):
     pid = client.post("/api/projects", json={"path": str(root / "meetings")}).json()["id"]
     fake_ollama.reply = ["語"]
     create_and_wait(client, pid, [str(_material(root, chapters=2))])
-    asked = replies(fake_ollama, {"rebuild": True, "ranges": []})
+    asked = replies(fake_ollama, {"ranges": []})
     record(client, pid)
     assert asked["scope"] == []
 
@@ -248,7 +258,7 @@ def test_upload_judges_after_the_final_transcript_and_rebuilds_only_the_context(
     client, setup, fake_ollama, tmp_path
 ):
     pid, d, base = setup
-    asked = replies(fake_ollama, {"rebuild": True, "ranges": [{"material": 1, "from": 7, "to": 7}]})
+    asked = replies(fake_ollama, {"ranges": [{"topic": "第7章", "from": 7, "to": 7}]})
     final = _use_final(client)
     wav = write_audio(tmp_path / "a.wav", "pcm_s16le", fmt="wav")
     sid = upload(client, pid, wav).json()["id"]

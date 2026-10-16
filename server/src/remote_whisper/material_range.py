@@ -92,27 +92,24 @@ def excerpt(lines: list[str], limit: int = EXCERPT_CHARS) -> str:
 
 
 def normalize_ranges(
-    raw: list[tuple[int, int, int]], tocs: list[MaterialToc]
+    raw: list[tuple[int, int]], tocs: list[MaterialToc]
 ) -> list[MaterialRange] | None:
     """答えの範囲を整える。前後に MARGIN ずつ足し、重なりをまとめる。
     範囲がない・大きい資料のほぼ全体（WHOLE_RATIO 以上）なら None（作り直さない）
 
-    raw の資料の番号は tocs（大きい資料だけ）の 1 から
+    raw の番号は、tocs（大きい資料だけ）の目次を資料をまたいで 1 から数えた通し番号
+    （プロンプトの目次と同じ）。資料ごとの index に直す
     """
+    slots = [(m, e.index) for m, toc in enumerate(tocs, 1) for e in toc.entries]
     picked: dict[int, set[int]] = {}
-    for material, start, end in raw:
-        if not 1 <= material <= len(tocs):
-            continue
-        toc = tocs[material - 1]
-        if not toc.entries:
-            continue
-        last = len(toc.entries)
+    for start, end in raw:
         start, end = sorted((start, end))
-        start = max(1, start - MARGIN)
-        end = min(last, end + MARGIN)
-        if start > last or end < 1:
-            continue
-        picked.setdefault(material, set()).update(range(start, end + 1))
+        start, end = max(1, start), min(len(slots), end)
+        for material, index in slots[start - 1 : end] if start <= end else []:
+            last = len(tocs[material - 1].entries)
+            picked.setdefault(material, set()).update(
+                range(max(1, index - MARGIN), min(last, index + MARGIN) + 1)
+            )
     if not picked:
         return None
     total = sum(toc.chars for toc in tocs) or 1
@@ -209,7 +206,7 @@ class RangeService:
 
     async def _judge(self, text: str, large: list[MaterialToc]) -> list[MaterialRange] | None:
         model = self.settings.get().ollama.models.scope
-        tocs = [(Path(t.path).name, t.kind, [(e.index, e.title) for e in t.entries]) for t in large]
+        tocs = [(Path(t.path).name, t.kind, [e.title for e in t.entries]) for t in large]
         reply = await self.ollama.chat(
             model,
             scope_messages(text, tocs),
@@ -217,11 +214,11 @@ class RangeService:
             format=SCOPE_FORMAT,
             options={"num_ctx": NUM_CTX},
         )
-        parsed = parse_scope(reply)
-        if parsed is None:
+        raw = parse_scope(reply)
+        if raw is None:
             raise OllamaUnavailable("範囲の答えの形が合いませんでした")
-        rebuild, raw = parsed
-        return normalize_ranges(raw, large) if rebuild else None
+        # 作り直すかは、範囲が資料のほぼ全体かどうかで決める（モデルには聞かない）
+        return normalize_ranges(raw, large)
 
     async def make_set(self, writer: SessionWriter, plan: RangePlan, terms: bool) -> None:
         """セッション専用のセットを作って、セッションをそれに切り替える
