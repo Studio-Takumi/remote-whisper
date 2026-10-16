@@ -12,6 +12,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTr
 import { SidebarTrigger } from '@/components/ui/sidebar';
 import { ollamaModelNames, withCurrent } from '@/options';
 import { recordingLocks } from '@/recording';
+import type { OllamaModels } from '@/settings';
 import { useAppStore } from '@/store';
 
 // メイン画面の右上の簡易設定。全体設定をそのまま書き換える
@@ -21,11 +22,11 @@ export function TopBar() {
     const options = useAppStore((s) => s.options);
     const onChangeSettings = useAppStore((s) => s.changeSettings);
     const whisperModels = withCurrent(options.whisper.models, settings.whisper.model);
-    const ollamaModels = withCurrent(
-        ollamaModelNames(options),
-        settings.ollama.liveSummaryModel,
-        settings.ollama.finalSummaryModel,
-    );
+    const models = settings.ollama.models;
+    const ollamaModels = withCurrent(ollamaModelNames(options), models.liveSummary, models.detail);
+    // 処理ごとのモデル（#178）。ここでは、要約(最終)で全体概要と要約詳細をまとめて変える（簡易設定の見直しは #179）
+    const changeModels = (patch: Partial<OllamaModels>) =>
+        onChangeSettings({ ...settings, ollama: { ...settings.ollama, models: { ...models, ...patch } } });
 
     const ref = useRef<HTMLDivElement>(null);
     useLayoutEffect(() => {
@@ -57,20 +58,16 @@ export function TopBar() {
             <ModelSelect
                 icon={SparklesIcon}
                 label='要約(リアルタイム)'
-                value={settings.ollama.liveSummaryModel}
+                value={models.liveSummary}
                 options={ollamaModels}
-                onChange={(liveSummaryModel) =>
-                    onChangeSettings({ ...settings, ollama: { ...settings.ollama, liveSummaryModel } })
-                }
+                onChange={(liveSummary) => changeModels({ liveSummary })}
             />
             <ModelSelect
                 icon={SparklesIcon}
                 label='要約(最終)'
-                value={settings.ollama.finalSummaryModel}
+                value={models.detail}
                 options={ollamaModels}
-                onChange={(finalSummaryModel) =>
-                    onChangeSettings({ ...settings, ollama: { ...settings.ollama, finalSummaryModel } })
-                }
+                onChange={(model) => changeModels({ overview: model, detail: model })}
             />
             <DensityQuickSetting settings={settings} onChange={onChangeSettings} />
         </>

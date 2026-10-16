@@ -21,7 +21,14 @@ import { fetchOptions } from '@/options';
 import type { ServerMessage, SettingsOptions } from '@/protocol';
 import { type RecordingState, recordingLocks } from '@/recording';
 import { replaceUrlNext } from '@/router';
-import { SETTINGS_PAGES, type Settings, defaultSettings } from '@/settings';
+import {
+    type OllamaModels,
+    SETTINGS_PAGES,
+    type Settings,
+    defaultSettings,
+    finalModelLabel,
+    isCurrentFinalSummary,
+} from '@/settings';
 import { type ServerStatus, initialServerStatus } from '@/status';
 import { formatClock, formatDateTime, newId } from '@/time';
 import type { ContextSelection, ContextSet, Generating, Project, Session } from '@/types';
@@ -105,7 +112,7 @@ type AppState = {
     // サーバーにつなぎ、状態の通知を受け取り始める
     connectServer: () => void;
     changeSettings: (settings: Settings) => Promise<boolean>;
-    // 今の全体設定（finalSummaryModel）で、最終の要約を作り直す（POST .../summaries）
+    // 今の全体設定（全体概要と要約詳細のモデル）で、最終の要約を作り直す（POST .../summaries）
     regenerateSummary: (sessionId: string) => Promise<void>;
     // 最終の文字起こしを今の全体設定で作り直す・表示する世代を選ぶ（#124）
     regenerateFinalTranscript: (sessionId: string) => Promise<void>;
@@ -128,13 +135,13 @@ export const currentProject = (s: AppState) => visibleProjects(s).find((p) => p.
 export const currentSession = (s: AppState) => currentProject(s)?.sessions.find((x) => x.id === s.selection.sessionId);
 
 // 録音を終えていて文字起こしがあるのに、そのモデルの最終の要約がまだないか（作り直すかどうか）
-export function needsSummaryFor(session: Session, model: string) {
+export function needsSummaryFor(session: Session, models: OllamaModels) {
     return (
         session.loaded === true &&
         session.status !== 'recording' &&
         session.files?.transcript !== false &&
         session.transcript.length > 0 &&
-        !session.summaries.some((x) => x.model === model)
+        !session.summaries.some((x) => isCurrentFinalSummary(x, models))
     );
 }
 export const currentContextSets = (s: AppState) => {
@@ -1018,7 +1025,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                     : s.projects,
                 // 最終の要約はサーバーが作り、summary.delta（final）で届く。届くまでは「作成中」と出す
                 generating: sessionId
-                    ? { sessionId, model: s.settings.ollama.finalSummaryModel, text: '' }
+                    ? { sessionId, model: finalModelLabel(s.settings.ollama.models), text: '' }
                     : s.generating,
             }));
         },
@@ -1127,7 +1134,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                             model:
                                 s.generating?.sessionId === m.session
                                     ? s.generating.model
-                                    : s.settings.ollama.finalSummaryModel,
+                                    : finalModelLabel(s.settings.ollama.models),
                             text: (s.generating?.sessionId === m.session ? s.generating.text : '') + m.text,
                         },
                     }));
@@ -1214,17 +1221,17 @@ export const useAppStore = create<AppState>()((set, get) => {
                 set({ settings: next });
                 return true;
             }
-            const before = get().settings.ollama.finalSummaryModel;
+            const before = finalModelLabel(get().settings.ollama.models);
             try {
                 set({ settings: await api.patch<Settings>('/api/settings', next) });
-                // 最終の要約のモデルを変えたら、開いているセッションにそのモデルの要約がなければ作り直す（spec 6.5）。
-                // 録音中は作り直さない（録音中の文字起こしが止まるため。#133）
-                const model = get().settings.ollama.finalSummaryModel;
+                // 最終の要約のモデル（全体概要か要約詳細。#178）を変えたら、開いているセッションにその組の要約が
+                // なければ作り直す（spec 6.5）。録音中は作り直さない（録音中の文字起こしが止まるため。#133）
+                const models = get().settings.ollama.models;
                 const session = currentSession(get());
                 if (
-                    model !== before &&
+                    finalModelLabel(models) !== before &&
                     session &&
-                    needsSummaryFor(session, model) &&
+                    needsSummaryFor(session, models) &&
                     !get().generating &&
                     get().recordingState === 'idle'
                 ) {
@@ -1303,9 +1310,15 @@ export const useAppStore = create<AppState>()((set, get) => {
             }
             finishedSummaries.delete(sessionId);
             try {
-                const { model } = await api.post<{ model: string }>(
+                const reply = await api.post<{ model: string; overviewModel?: string }>(
                     `/api/projects/${project.id}/sessions/${sessionId}/summaries`,
                 );
+                // 全体概要と要約詳細のモデル（#178。古いサーバーは model だけ）
+                const model = finalModelLabel({
+                    ...get().settings.ollama.models,
+                    detail: reply.model,
+                    overview: reply.overviewModel ?? reply.model,
+                });
                 if (finishedSummaries.has(sessionId)) {
                     // 返事より先に作り終えていた（「作成中」にすると、消すきっかけがもう来ない）
                     void reloadAfterFinalSummary(sessionId);

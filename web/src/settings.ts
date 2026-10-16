@@ -1,3 +1,26 @@
+// Ollama を使う処理ごとのモデル（#178。spec 5.3）
+export type OllamaModels = {
+    materialTerms: string;
+    context: string;
+    scope: string;
+    transcriptTerms: string;
+    liveSummary: string;
+    liveTitle: string;
+    overview: string;
+    detail: string;
+    finalTitle: string;
+};
+
+// 最終の要約は、全体概要と要約詳細のモデルの組で見る（#178。表示する版の選び方・作り直すか）
+export function isCurrentFinalSummary(summary: { model: string; overviewModel?: string }, models: OllamaModels) {
+    return summary.model === models.detail && (summary.overviewModel ?? summary.model) === models.overview;
+}
+
+// 画面に出す最終の要約のモデル。全体概要と要約詳細が同じなら 1 つだけ
+export function finalModelLabel(models: OllamaModels) {
+    return models.overview === models.detail ? models.detail : `${models.overview} / ${models.detail}`;
+}
+
 // setting.json の中身（docs/spec.md 5.3 節）。後で GET /api/settings から取り、PATCH /api/settings で保存する
 export type Settings = {
     version: 1;
@@ -18,9 +41,8 @@ export type Settings = {
     };
     ollama: {
         host: string;
-        liveSummaryModel: string;
-        finalSummaryModel: string;
-        contextModel: string;
+        // 処理ごとのモデル（#178）
+        models: OllamaModels;
         liveSummaryIntervalMin: number;
         keepAliveMin: number;
         // 要約度（要約の細かさ。1〜5、既定は 3）。途中の要約・最終の要約の概要・最終の要約の詳細
@@ -72,9 +94,17 @@ export const defaultSettings: Settings = {
     },
     ollama: {
         host: 'http://localhost:11434',
-        liveSummaryModel: 'qwen3.5:4b',
-        finalSummaryModel: 'qwen3.5:4b',
-        contextModel: 'qwen3.5:4b',
+        models: {
+            materialTerms: 'qwen3.5:2b',
+            context: 'qwen3.5:4b',
+            scope: 'qwen3.5:2b',
+            transcriptTerms: 'qwen3.5:0.8b',
+            liveSummary: 'qwen3.5:2b',
+            liveTitle: 'qwen3.5:0.8b',
+            overview: 'qwen3.5:4b',
+            detail: 'qwen3.5:4b',
+            finalTitle: 'qwen3.5:0.8b',
+        },
         liveSummaryIntervalMin: 5,
         keepAliveMin: 10,
         liveSummaryDensity: 3,

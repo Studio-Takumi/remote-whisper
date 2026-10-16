@@ -104,7 +104,9 @@ export type TermsJson = { pickedTerms: string[]; rejectedTerms: string[] };
 
 export type SummaryInfoJson = {
     generationId: string;
+    // 要約詳細のモデル。overviewModel は全体概要のモデル（#178。古いサーバーにはない）
     model: string;
+    overviewModel?: string;
     think: boolean;
     generatedAt: string;
     title: string | null;

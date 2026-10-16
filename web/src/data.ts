@@ -164,6 +164,7 @@ export async function fetchSessionDetail(projectId: string, session: Session, wh
             return {
                 generationId: info.generationId,
                 model: info.model,
+                overviewModel: info.overviewModel ?? info.model,
                 generatedAt: displayTime(info.generatedAt) ?? '',
                 text: json.text,
             };
