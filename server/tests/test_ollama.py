@@ -197,3 +197,20 @@ def test_keep_alive_while_recording(ollama, fake, state):
     assert fake.bodies("/api/generate") == [{"model": "qwen3.5:4b", "keep_alive": "300s"}]
     run(ollama.recording_ended())
     assert len(fake.bodies("/api/generate")) == 1
+
+
+def test_only_one_model_stays_loaded_while_recording(ollama, fake, state):
+    # 録音中に別のモデルを使うときは、録音中に載せたほかのモデルを先に下ろす（#178。VRAM のため）
+    state["recording"] = True
+    run(ollama.chat("qwen3.5:4b", []))
+    run(ollama.chat("qwen3.5:4b", []))
+    assert fake.bodies("/api/generate") == []
+    run(ollama.chat("llama3.2:latest", []))
+    assert fake.bodies("/api/generate") == [{"model": "qwen3.5:4b", "keep_alive": 0}]
+    order = [path for path, _ in fake.requests if path in ("/api/generate", "/api/chat")]
+    assert order == ["/api/chat", "/api/chat", "/api/generate", "/api/chat"]
+    # 録音が終わったら、最後に載せたものだけを keepAliveMin 分に戻す
+    state["recording"] = False
+    run(ollama.recording_ended())
+    assert fake.bodies("/api/generate")[-1] == {"model": "llama3.2:latest", "keep_alive": "600s"}
+    assert len(fake.bodies("/api/generate")) == 2

@@ -191,6 +191,8 @@ class OllamaClient:
         think は、モデルが思考モードに対応していなければオフにする。
         モデルが入っていなければ、代わりのモデルで動かす（resolve。#178）"""
         model = await self.resolve(model)
+        if self.recording():
+            await self._unload_other_pinned(model)
         body: dict[str, Any] = {
             "model": model,
             "messages": messages,
@@ -235,6 +237,20 @@ class OllamaClient:
                         return
         except (httpx.HTTPError, httpx.InvalidURL, ValueError) as e:
             raise await self._failed(e) from e
+
+    async def _unload_other_pinned(self, model: str) -> None:
+        """録音中は、Ollama のモデルを 1 つだけ載せておく（#178）
+
+        処理ごとにモデルを分けると、録音中に途中の要約・タイトル・用語の抽出で別々のモデルを使う。
+        どれも keep_alive: -1 で載せたままにすると、Whisper と合わせて VRAM（6GB）が溢れ、
+        読み込みに 1 分以上かかって文字起こしも止まった。別のモデルを使う前に、録音中に載せた
+        ほかのモデルを下ろす（下ろせなくても生成は試す）
+        """
+        for other in sorted(self._pinned - {model}):
+            with contextlib.suppress(OllamaUnavailable):
+                await self._request("POST", "/api/generate", json={"model": other, "keep_alive": 0})
+                log.info("ollama unloaded %s to load %s while recording", other, model)
+            self._pinned.discard(other)
 
     async def chat(self, model: str, messages: list[dict[str, str]], **kwargs: Any) -> str:
         """本文をまとめて返す"""
