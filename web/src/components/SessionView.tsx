@@ -22,6 +22,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { pickFinalTranscript } from '@/data';
+import { describeMaterialRange } from '@/materialRange';
 import { recordingLocks } from '@/recording';
 import { isScrolledToBottom, scrollToBottom } from '@/scroll';
 import { type OllamaModels, finalModelLabel, isCurrentFinalSummary } from '@/settings';
@@ -189,6 +190,9 @@ export function SessionView() {
 
                 <TabsContent value='transcript' className='flex flex-col gap-2'>
                     {session && <PickedTerms session={session} />}
+                    {session?.materialRange && session.materialRange.length > 0 && (
+                        <p className='text-xs text-muted-foreground'>{describeMaterialRange(session.materialRange)}</p>
+                    )}
                     {session && !session.loaded && <p className='text-sm text-muted-foreground'>読み込んでいます…</p>}
                     {session && expired(session, 'transcript') && (
                         <p className='text-sm text-muted-foreground'>

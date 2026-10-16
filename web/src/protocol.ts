@@ -24,6 +24,8 @@ export type GpuJobKind =
     | 'terms'
     // 録音後に録音全体から作る最終の文字起こし（#121）
     | 'finalTranscript'
+    // 録音のあとに、今回扱った資料の範囲で参考資料を作り直す（#182）
+    | 'materialRange'
     | 'other';
 export type GpuJobs = {
     running: { kind: GpuJobKind; session: string | null; runningSec: number } | null;
