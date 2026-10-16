@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
-import { AudioLinesIcon, FolderPlusIcon, MicIcon, RefreshCwIcon, TriangleAlertIcon } from 'lucide-react';
+import { AudioLinesIcon, FolderPlusIcon, MicIcon, RefreshCwIcon, SearchXIcon, TriangleAlertIcon } from 'lucide-react';
 
 import { LiveSummary } from '@/components/LiveSummary';
 import { Markdown } from '@/components/Markdown';
@@ -23,6 +23,7 @@ import type { FinalTranscriptInfo, Generating, Session, Summary } from '@/types'
 // メイン画面の中身。何も選んでいない・新しいセッション・既存のセッションの3つを出し分ける
 export function SessionView() {
     const hasProjects = useAppStore((s) => visibleProjects(s).length > 0);
+    const notFound = useAppStore((s) => s.notFound);
     const project = useAppStore(currentProject);
     const session = useAppStore(currentSession);
     const recordingState = useAppStore((s) => s.recordingState);
@@ -64,7 +65,7 @@ export function SessionView() {
     }, []);
 
     if (!project) {
-        return <EmptyState hasProjects={hasProjects} />;
+        return notFound ? <NotFoundState /> : <EmptyState hasProjects={hasProjects} />;
     }
 
     // 録音中に別のセッションを開いていても、文字起こしなどはそのセッションに届き続ける（#133）。
@@ -618,6 +619,19 @@ function expired(session: Session, what: 'transcript' | 'summary') {
         return !files.transcript;
     }
     return !files.transcript && files.summaries === 0 && !files.liveSummary;
+}
+
+// URL のセッション・プロジェクトがないとき（#177）
+function NotFoundState() {
+    return (
+        <div className='flex flex-1 flex-col items-center justify-center gap-3 text-center text-muted-foreground'>
+            <SearchXIcon className='size-10' />
+            <p className='text-lg font-semibold text-foreground'>見つかりません</p>
+            <p className='max-w-md text-sm'>
+                このセッションかプロジェクトは、消えたか保存期間を過ぎています。メニューからほかのセッションを開いてください。
+            </p>
+        </div>
+    );
 }
 
 // 何も選んでいないとき

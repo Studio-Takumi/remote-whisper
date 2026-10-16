@@ -30,6 +30,7 @@ function displayTime(iso: string | null | undefined) {
 function toSession(json: SessionJson): Session {
     return {
         id: json.id,
+        uuid: json.uuid,
         title: json.title ?? '新しいセッション',
         startedAt: displayTime(json.startedAt) ?? '',
         endedAt: displayTime(json.endedAt),
@@ -50,6 +51,7 @@ export async function fetchProjects(): Promise<Project[]> {
             const sessions = await api.get<SessionJson[]>(`/api/projects/${p.id}/sessions`);
             return {
                 id: p.id,
+                uuid: p.uuid,
                 name: p.name,
                 path: p.path,
                 sessions: sessions.map(toSession),

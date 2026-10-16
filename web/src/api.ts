@@ -47,6 +47,8 @@ export const api = {
 
 export type ProjectJson = {
     id: string;
+    // 画面の URL に出す ID（#177。古いサーバーにはない）
+    uuid?: string;
     name: string;
     path: string;
     // pickTerms は前のサーバーにはない
@@ -65,6 +67,8 @@ export type SessionFiles = {
 
 export type SessionJson = {
     id: string;
+    // 画面の URL に出す ID（#177。古いサーバーにはない）
+    uuid?: string;
     title: string | null;
     status: 'recording' | 'done' | 'interrupted';
     startedAt: string;

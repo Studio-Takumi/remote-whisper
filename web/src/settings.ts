@@ -103,3 +103,6 @@ export const defaultSettings: Settings = {
         sessionMeta: false,
     },
 };
+
+// 設定モーダルのページ（URL の /settings/<ページ>。#177）。最初のものが既定
+export const SETTINGS_PAGES = ['whisper', 'ollama', 'storage', 'materials', 'display'];
