@@ -269,12 +269,8 @@ def test_light_tasks_use_the_recommended_models_if_installed(home):
     _old_settings(home, liveSummaryModel="qwen3.5:4b", finalSummaryModel="qwen3.5:4b")
     installed = {"qwen3.5:4b", "qwen3.5:0.8b", "qwen3.5:2b"}
     models = SettingsStore(home, installed_models=lambda host: installed).get().ollama.models
-    assert (models.live_title, models.transcript_terms, models.scope) == (
-        "qwen3.5:2b",
-        "qwen3.5:2b",
-        "qwen3.5:2b",
-    )
-    assert models.final_title == "qwen3.5:0.8b"
+    assert (models.live_title, models.transcript_terms) == ("qwen3.5:2b", "qwen3.5:2b")
+    assert (models.final_title, models.scope) == ("qwen3.5:0.8b", "qwen3.5:4b")
     # 重い処理は、今使っているモデルのまま
     assert (models.live_summary, models.detail) == ("qwen3.5:4b", "qwen3.5:4b")
 

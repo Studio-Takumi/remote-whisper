@@ -87,7 +87,9 @@ class WhisperSettings(_Model):
 RECOMMENDED_MODELS = {
     "materialTerms": "qwen3.5:2b",
     "context": "qwen3.5:4b",
-    "scope": "qwen3.5:2b",
+    # 範囲の判断（#182）は、2b だと答えが回ごとにばらつき、温度 0 では目次を全部写すだけだった。
+    # 4b は毎回同じ答えになった。浄書の後は VRAM が空いていて、続くコンテキスト・要約も 4b
+    "scope": "qwen3.5:4b",
     "transcriptTerms": "qwen3.5:2b",
     "liveSummary": "qwen3.5:2b",
     "liveTitle": "qwen3.5:2b",

@@ -212,7 +212,8 @@ class RangeService:
             scope_messages(text, tocs),
             think=False,
             format=SCOPE_FORMAT,
-            options={"num_ctx": NUM_CTX},
+            # 同じ材料なら同じ範囲になるように（温度があると、2b は回ごとに全く違う答えを返した）
+            options={"num_ctx": NUM_CTX, "temperature": 0},
         )
         raw = parse_scope(reply)
         if raw is None:
