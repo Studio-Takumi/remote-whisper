@@ -280,7 +280,12 @@ class ProjectStore:
                 return self._rebuild(pid, e)
             if lacks_uuid:
                 log.info("%s のプロジェクトとセッションに UUID を振ります", pid)
-                self.save(pid, project)
+                try:
+                    self.save(pid, project)
+                except OSError as e:
+                    # 書けなくても読み込みは止めない。UUID はパスと ID から決まるので、
+                    # 次に読んだときも同じ値になり、書けたときに書き足される
+                    log.warning("%s に UUID を書き足せません: %s", pid, e)
             return project
 
     def _rebuild(self, pid: str, reason: "_Unreadable") -> ProjectFile:

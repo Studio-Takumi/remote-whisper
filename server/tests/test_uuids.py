@@ -85,6 +85,25 @@ def test_rebuilt_project_json_has_the_same_uuids(home):
     assert [s.uuid for s in rebuilt.sessions] == [s.uuid for s in project.sessions]
 
 
+def test_loading_works_even_if_the_uuids_cannot_be_written(home, monkeypatch):
+    """書き足せなくても（ディスクが一杯・ロックされている）、読み込みは止めない"""
+    pid, _ = _old_home(home, "D:\\work\\meetings")
+    store = ProjectStore(home)
+
+    def fail(*args, **kwargs):
+        raise PermissionError("locked")
+
+    monkeypatch.setattr(store, "save", fail)
+    project = store.load(pid)
+    assert UUID_RE.fullmatch(project.uuid)
+    assert [p for p, _ in store.all()] == [pid]
+    # 書けるようになったら、同じ値が書き足される
+    monkeypatch.undo()
+    assert ProjectStore(home).load(pid).uuid == project.uuid
+    saved = json.loads((home / "projects" / pid / "project.json").read_text(encoding="utf-8"))
+    assert saved["uuid"] == project.uuid
+
+
 def test_added_session_gets_uuid_when_saved(home):
     store = ProjectStore(home)
     pid = project_id("D:\\work\\meetings")
