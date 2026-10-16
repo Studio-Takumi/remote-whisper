@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from remote_whisper.documents import (
+    ContextMeta,
     ContextSetMeta,
     MaterialRef,
     context_name,
@@ -30,6 +31,7 @@ from remote_whisper.documents import (
 from remote_whisper.fsaccess import is_within_roots, real_path
 from remote_whisper.gpu_queue import GpuQueue, Priority
 from remote_whisper.hub import Hub
+from remote_whisper.material_toc import LARGE_CHARS, MaterialToc, build_toc
 from remote_whisper.materials import ExtractError, extract_text
 from remote_whisper.ollama import OllamaClient, OllamaUnavailable
 from remote_whisper.projects import ContextSetEntry, ProjectError, ProjectFile, ProjectStore
@@ -39,8 +41,9 @@ from remote_whisper.timeutil import iso, make_id, now
 
 log = logging.getLogger(__name__)
 
-# Ollama に渡す資料のテキストの長さ（文字）。長い資料は、それぞれの頭から按分して切る
-MATERIALS_CHARS = 6000
+# Ollama に渡す資料のテキストの長さ（文字）。長い資料は、それぞれの頭から按分して切る。
+# これを超える資料は「大きい資料」（目次の large。#181）
+MATERIALS_CHARS = LARGE_CHARS
 NUM_CTX = 8192
 # Whisper のプロンプトの上限（hotwords と initial_prompt で約 224 トークン）に収める長さ（文字）。
 # 日本語は1文字が1〜2トークンになるので、余裕を見て文字数で数える（実測で見直す: #39）
@@ -302,6 +305,7 @@ class ContextSetService:
         texts = await asyncio.to_thread(
             lambda: [(Path(r.path).name, extract_text(Path(r.path))) for r in refs]
         )
+        toc = await asyncio.to_thread(lambda: _toc_of([Path(r.path) for r in refs]))
         if not any(t.strip() for _, t in texts):
             raise ExtractError("資料から文字を取り出せませんでした")
         words, context = await self.generator.generate(join_materials(texts))
@@ -321,7 +325,44 @@ class ContextSetService:
         )
         project_dir = self.projects.dir(pid)
         write_doc(project_dir / hotwords_name(set_id), meta, "\n".join(words) + "\n")
-        write_doc(project_dir / context_name(set_id), meta, context + "\n")
+        # 目次を取れなかった資料があれば書かず、使うとき（ensure_toc）にもう一度取り出す
+        complete = len(toc) == len(refs)
+        write_doc(
+            project_dir / context_name(set_id),
+            ContextMeta(**meta.model_dump(), toc=toc if complete else None),
+            context + "\n",
+        )
+
+    async def ensure_toc(self, pid: str, set_id: str) -> list[MaterialToc]:
+        """セットの資料の目次。以前に作ったセットには目次がないので、そのとき取り出して書き足す。
+
+        資料が消えている・読めないときは、取り出せた分だけを返し、書き足さない（次に使うとき、
+        資料が戻っていればもう一度取り出す）。セットがなければ ContextSetError。
+        """
+        path = self.projects.dir(pid) / context_name(set_id)
+        try:
+            meta, body = read_doc(path, ContextMeta)
+        except (OSError, ValueError) as e:
+            raise ContextSetError(404, f"コンテキストがありません: {set_id}") from e
+        if meta.toc is not None:
+            return meta.toc
+        paths = [Path(m.path) for m in meta.materials]
+        toc = await asyncio.to_thread(lambda: _toc_of(paths))
+        if len(toc) == len(paths):
+            meta.toc = toc
+            await asyncio.to_thread(write_doc, path, meta, body)
+        return toc
+
+
+def _toc_of(paths: list[Path]) -> list[MaterialToc]:
+    """資料ごとの目次。目次は付け足しなので、取り出せない資料は飛ばす"""
+    toc: list[MaterialToc] = []
+    for path in paths:
+        try:
+            toc.append(build_toc(path))
+        except (ExtractError, OSError) as e:
+            log.warning("failed to make the contents of %s: %s", path, e)
+    return toc
 
 
 def _ready_hashes(project_dir: Path, set_id: str) -> list[str] | None:

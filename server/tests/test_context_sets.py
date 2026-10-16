@@ -1,13 +1,22 @@
+import asyncio
+
 import pytest
 from fastapi.testclient import TestClient
 from test_recorder import of_type, receive_until, start
 
 from remote_whisper.app import create_app
-from remote_whisper.context_sets import join_materials, limit_hotwords, parse_hotwords
+from remote_whisper.context_sets import (
+    ContextSetError,
+    join_materials,
+    limit_hotwords,
+    parse_hotwords,
+)
 from remote_whisper.documents import (
+    ContextMeta,
     ContextSetMeta,
     context_name,
     hotwords_name,
+    parse,
     read_doc,
     write_doc,
 )
@@ -77,12 +86,57 @@ def test_create_a_context_set(client, project, root, fake_ollama):
     assert [m.path for m in meta.materials] == materials(root)
     assert all(len(m.sha1) == 40 for m in meta.materials)
     assert (meta.model, meta.think, meta.project) == ("qwen3.5:4b", True, str(root / "meetings"))
+    # 資料ごとの目次をコンテキストに残す（用語リストには残さない）
+    ctx_meta, _ = read_doc(d / context_name(sid), ContextMeta)
+    assert ctx_meta.toc is not None
+    assert [(t.path, t.kind, t.large) for t in ctx_meta.toc] == [
+        (materials(root)[0], "headings", False),
+        (materials(root)[1], "chunks", False),
+    ]
+    assert "toc" not in parse((d / hotwords_name(sid)).read_text(encoding="utf-8"))[0]
     chats = fake_ollama.bodies("/api/chat")
     assert len(chats) == 2 and all(c["think"] for c in chats)
     assert "リリース計画について" in chats[0]["messages"][-1]["content"]
 
     sets = client.get(f"/api/projects/{pid}/context-sets").json()
     assert sets == [{"id": sid, "status": "ready", "materials": materials(root)}]
+
+
+def test_existing_sets_get_their_contents_when_used(client, project, root, fake_ollama):
+    pid, d = project
+    body, _ = create_and_wait(client, pid, materials(root))
+    sid = body["id"]
+    service = client.app.state.ctx.context_sets
+    # 目次ができる前に作ったセット（toc がない）にする
+    path = d / context_name(sid)
+    meta, text = read_doc(path, ContextMeta)
+    meta.toc = None
+    write_doc(path, meta, text)
+    toc = asyncio.run(service.ensure_toc(pid, sid))
+    assert [t.kind for t in toc] == ["headings", "chunks"]
+    # 書き足されて、本文は変わらない
+    again, text_again = read_doc(path, ContextMeta)
+    assert again.toc == toc and text_again == text
+    # 二度目は資料を読まずに、書き足した目次を返す
+    (root / "docs" / "agenda.md").unlink()
+    assert asyncio.run(service.ensure_toc(pid, sid)) == toc
+
+
+def test_contents_are_not_saved_while_a_material_is_missing(client, project, root, fake_ollama):
+    pid, d = project
+    body, _ = create_and_wait(client, pid, materials(root))
+    sid = body["id"]
+    service = client.app.state.ctx.context_sets
+    path = d / context_name(sid)
+    meta, text = read_doc(path, ContextMeta)
+    meta.toc = None
+    write_doc(path, meta, text)
+    (root / "docs" / "notes.txt").unlink()
+    toc = asyncio.run(service.ensure_toc(pid, sid))
+    assert [t.kind for t in toc] == ["headings"]
+    assert read_doc(path, ContextMeta)[0].toc is None
+    with pytest.raises(ContextSetError):
+        asyncio.run(service.ensure_toc(pid, "20200101-000000"))
 
 
 def test_empty_reply_with_thinking_is_retried_without_it(client, project, root, fake_ollama):
