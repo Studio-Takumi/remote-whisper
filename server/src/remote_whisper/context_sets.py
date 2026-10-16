@@ -91,19 +91,20 @@ class OllamaGenerator:
     def __init__(self, ollama: OllamaClient, settings: SettingsStore):
         self.ollama = ollama
         self.settings = settings
-        self._used: tuple[str, bool] = (self._model(), True)
-
-    def _model(self) -> str:
-        return self.settings.get().ollama.context_model
+        self._used: tuple[str, bool] = (self.settings.get().ollama.models.context, True)
 
     def describe(self) -> tuple[str, bool]:
+        """フロントマターに残すモデル（コンテキストのモデル）と思考モード"""
         return self._used
 
     async def generate(self, materials: str) -> tuple[list[str], str]:
-        model = self._model()
+        # 用語リスト（資料抽出）とコンテキストは、処理ごとのモデルで作る（#178）
+        models = self.settings.get().ollama.models
+        words_model = await self.ollama.resolve(models.material_terms)
+        model = await self.ollama.resolve(models.context)
         think = await self.ollama.supports_thinking(model)
         self._used = (model, think)
-        words = parse_hotwords(await self._ask(model, hotwords_messages(materials)))
+        words = parse_hotwords(await self._ask(words_model, hotwords_messages(materials)))
         context = (await self._ask(model, context_messages(materials))).strip()
         return words, context
 

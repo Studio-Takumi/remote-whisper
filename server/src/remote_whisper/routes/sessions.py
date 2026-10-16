@@ -58,6 +58,8 @@ def _summary_json(meta: SummaryMeta) -> dict[str, Any]:
     return {
         "generationId": meta.generation_id,
         "model": meta.model,
+        # 全体概要のモデル（#178）。記録する前の要約は要約詳細と同じ
+        "overviewModel": meta.overview_model or meta.model,
         "think": meta.think,
         "generatedAt": meta.generated_at,
         "title": meta.title,
@@ -266,13 +268,13 @@ async def regenerate_summary(pid: Pid, sid: str, ctx: Ctx) -> dict[str, Any]:
 
     summarizer = ctx.summarizer
     # 頼んだ時点のモデルで作る（キューで待っている間に設定が変わっても、返したモデルと合うように）
-    model = ctx.settings.get().ollama.final_summary_model
+    models = ctx.settings.get().ollama.models.final()
     # 作り終えるまで status の summarizing に入れる（結果を取りこぼしたブラウザのため。#118）
     end = ctx.hub.begin_summary(sid)
     try:
         job = ctx.gpu.submit(
             Priority.BACKGROUND,
-            lambda: summarizer.run(writer, send, model),
+            lambda: summarizer.run(writer, send, models),
             kind="finalSummary",
             session=sid,
         )
@@ -281,7 +283,8 @@ async def regenerate_summary(pid: Pid, sid: str, ctx: Ctx) -> dict[str, Any]:
         raise
     job.add_done_callback(_log_failure)
     job.add_done_callback(lambda _: end())
-    return {"model": model}
+    # model は要約詳細のモデル（要約のフロントマターの model と同じ）
+    return {"model": models.detail, "overviewModel": models.overview}
 
 
 def _still_finishing(ctx: AppContext, sid: str) -> bool:
@@ -305,7 +308,8 @@ def get_summary(pid: Pid, sid: str, gid: str, ctx: Ctx) -> dict[str, Any]:
     """`latest` は表示する要約（spec 6.5）。最終の要約がまだなければ、途中の要約を返す"""
     _, files = _session(ctx, pid, sid)
     if gid == "latest":
-        latest = pick_latest(files.summaries(), ctx.settings.get().ollama.final_summary_model)
+        models = ctx.settings.get().ollama.models
+        latest = pick_latest(files.summaries(), models.overview, models.detail)
         if latest is None:
             return _live_summary(files)
         gid = latest.generation_id

@@ -228,11 +228,13 @@ class SessionWriter:
         generated: datetime | None = None,
         overview_density: int | None = None,
         detail_density: int | None = None,
+        overview_model: str | None = None,
     ) -> str:
         """最終の要約を新しい生成 ID のファイルに保存して、途中の要約を消す。生成 ID を返す
 
         generated は生成を始めた時刻（生成 ID になる。spec 5.2）。省略すると今。
-        overview_density・detail_density は使った要約度（#100）
+        overview_density・detail_density は使った要約度（#100）。
+        model は要約詳細のモデル、overview_model は全体概要のモデル（#178。省くと model と同じ）
         """
         generated = generated or now()
         gid = make_id(generated)
@@ -248,6 +250,7 @@ class SessionWriter:
             started_at=self.meta.started_at,
             ended_at=self.meta.ended_at,
             model=model,
+            overview_model=overview_model or model,
             think=think,
             transcript=transcript_name(self.id),
             context_set=self.meta.context_set,

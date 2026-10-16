@@ -68,6 +68,11 @@ def fake_ollama(monkeypatch):
         return OllamaClient(*args, transport=fake.transport(), **kwargs)
 
     monkeypatch.setattr("remote_whisper.app.OllamaClient", client)
+    # 古い設定を移すときに見る、入っているモデルの一覧も偽の Ollama のものにする（#178）
+    monkeypatch.setattr(
+        "remote_whisper.settings.installed_ollama_models",
+        lambda host: set(fake.models) if fake.up else None,
+    )
     return fake
 
 

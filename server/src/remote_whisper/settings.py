@@ -3,9 +3,12 @@
 import json
 import os
 import threading
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from pydantic.alias_generators import to_camel
 
@@ -76,11 +79,113 @@ class WhisperSettings(_Model):
     diarize: bool = True
 
 
+# 処理ごとのおすすめのモデル（#178）。軽い処理は小さいモデルにする。入っていなければ、
+# 動かすときに入っているモデルで代わりに動かす（OllamaClient.resolve）
+RECOMMENDED_MODELS = {
+    "materialTerms": "qwen3.5:2b",
+    "context": "qwen3.5:4b",
+    "scope": "qwen3.5:2b",
+    "transcriptTerms": "qwen3.5:0.8b",
+    "liveSummary": "qwen3.5:2b",
+    "liveTitle": "qwen3.5:0.8b",
+    "overview": "qwen3.5:4b",
+    "detail": "qwen3.5:4b",
+    "finalTitle": "qwen3.5:0.8b",
+}
+
+
+class OllamaModels(_Model):
+    """Ollama を使う処理ごとのモデル（#178。spec 5.3）"""
+
+    # 参考資料: 用語リスト（資料抽出）・コンテキスト・範囲の判断（#182）
+    material_terms: str = RECOMMENDED_MODELS["materialTerms"]
+    context: str = RECOMMENDED_MODELS["context"]
+    scope: str = RECOMMENDED_MODELS["scope"]
+    # リアルタイム文字起こし: 用語リスト（文字起こし抽出。#103）
+    transcript_terms: str = RECOMMENDED_MODELS["transcriptTerms"]
+    # リアルタイム要約: 要約・タイトル
+    live_summary: str = RECOMMENDED_MODELS["liveSummary"]
+    live_title: str = RECOMMENDED_MODELS["liveTitle"]
+    # 最終要約: 全体概要・要約詳細・タイトル。表示する版は、全体概要と要約詳細の組で選ぶ
+    overview: str = RECOMMENDED_MODELS["overview"]
+    detail: str = RECOMMENDED_MODELS["detail"]
+    final_title: str = RECOMMENDED_MODELS["finalTitle"]
+
+    def final(self) -> "FinalModels":
+        return FinalModels(self.overview, self.detail, self.final_title)
+
+
+@dataclass(frozen=True)
+class FinalModels:
+    """最終の要約で使うモデル。作り直しは、頼んだ時点のものを渡す"""
+
+    overview: str
+    detail: str
+    title: str
+
+
+# #178 より前のキー（1 つのモデルを複数の処理で使っていた）→ 移す先の処理。
+# 読み込んだときに移す（migrate_models）。古いキーは受け付けるが、書き出さない
+LEGACY_MODEL_KEYS = {
+    "liveSummaryModel": ("liveSummary",),
+    "finalSummaryModel": ("overview", "detail"),
+    "contextModel": ("context", "materialTerms"),
+}
+# 新しい軽い処理 → 移行元のキー。おすすめのモデルが入っていなければ、移行元と同じモデルにする
+LEGACY_LIGHT_SOURCES = {
+    "scope": "contextModel",
+    "transcriptTerms": "liveSummaryModel",
+    "liveTitle": "liveSummaryModel",
+    "finalTitle": "finalSummaryModel",
+}
+
+
+def migrate_models(ollama: dict[str, Any], installed: set[str] | None) -> bool:
+    """古いキーしかない ollama の設定に、処理ごとのモデル（models）を足す。足したら True
+
+    installed は Ollama に入っているモデル（分からなければ None。そのときは移行元と同じモデル）
+    """
+    if "models" in ollama or not any(key in ollama for key in LEGACY_MODEL_KEYS):
+        return False
+    models: dict[str, str] = {}
+    for key, targets in LEGACY_MODEL_KEYS.items():
+        value = ollama.get(key)
+        if isinstance(value, str) and value:
+            for target in targets:
+                models[target] = value
+    for target, source in LEGACY_LIGHT_SOURCES.items():
+        recommended = RECOMMENDED_MODELS[target]
+        value = ollama.get(source)
+        if installed is not None and has_model(installed, recommended):
+            models[target] = recommended
+        elif isinstance(value, str) and value:
+            models[target] = value
+    ollama["models"] = models
+    return True
+
+
+def has_model(installed: set[str], model: str) -> bool:
+    """Ollama に入っているか。タグを省いた名前は :latest とみなす（Ollama と同じ）"""
+    return model in installed or (":" not in model and f"{model}:latest" in installed)
+
+
+def installed_ollama_models(host: str) -> set[str] | None:
+    """Ollama に入っているモデル（設定の移行に使う）。つながらなければ None"""
+    try:
+        res = httpx.get(f"{host.rstrip('/')}/api/tags", timeout=3)
+        res.raise_for_status()
+        return {m["name"] for m in res.json().get("models", []) if m.get("name")}
+    except (httpx.HTTPError, httpx.InvalidURL, ValueError, KeyError, TypeError):
+        return None
+
+
 class OllamaSettings(_Model):
     host: str = "http://localhost:11434"
-    live_summary_model: str = "qwen3.5:4b"
-    final_summary_model: str = "qwen3.5:4b"
-    context_model: str = "qwen3.5:4b"
+    models: OllamaModels = Field(default_factory=OllamaModels)
+    # #178 より前のキー。読み込めるようにだけしておき、書き出さない（移すのは migrate_models）
+    live_summary_model: str | None = Field(None, exclude=True)
+    final_summary_model: str | None = Field(None, exclude=True)
+    context_model: str | None = Field(None, exclude=True)
     # 途中の要約を作っている間は GPU が要約に使われ、文字起こしが待たされる。
     # 間隔を広めにする（#119）
     live_summary_interval_min: float = Field(5, gt=0)
@@ -153,16 +258,32 @@ def deep_merge(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
 class SettingsStore:
     """setting.json の読み書き。ファイルがなければ既定値で作る"""
 
-    def __init__(self, home: Path):
+    def __init__(
+        self,
+        home: Path,
+        installed_models: Callable[[str], set[str] | None] | None = None,
+    ):
         self.home = home
         self.path = home / "setting.json"
         self._lock = threading.Lock()
+        # 古い設定を移すときに、Ollama に入っているモデルを調べる（テストでは差し替える）
+        self._installed_models = installed_models or installed_ollama_models
         self._settings = self._load()
+
+    def _migrate(self, data: Any) -> None:
+        """古い形の設定を、今の形に直す（検証の前に）"""
+        ollama = data.get("ollama") if isinstance(data, dict) else None
+        if isinstance(ollama, dict) and "models" not in ollama:
+            if any(key in ollama for key in LEGACY_MODEL_KEYS):
+                host = ollama.get("host") or OllamaSettings().host
+                migrate_models(ollama, self._installed_models(str(host)))
 
     def _load(self) -> Settings:
         if self.path.is_file():
             try:
                 data = json.loads(self.path.read_text(encoding="utf-8"))
+                original = json.loads(json.dumps(data))
+                self._migrate(data)
                 settings = Settings.model_validate(data)
             # ValueError は JSON の構文エラーと UTF-8 として読めないもの
             except (OSError, ValueError, ValidationError) as e:
@@ -173,8 +294,8 @@ class SettingsStore:
                     f"{self.path} の version {settings.version} はこのサーバーより新しいため"
                     f"読み込めません（対応しているのは {SETTINGS_VERSION} まで）"
                 )
-            # 足りないキーは既定値で埋まるので、書き戻して揃えておく
-            if settings.to_json() != data:
+            # 足りないキーは既定値で埋まり、古いキーは移して消えるので、書き戻して揃えておく
+            if settings.to_json() != original:
                 atomic_write_json(self.path, settings.to_json())
             return settings
         settings = Settings()

@@ -16,7 +16,7 @@ from typing import Any
 import httpx
 
 from remote_whisper.hub import Hub
-from remote_whisper.settings import SettingsStore
+from remote_whisper.settings import SettingsStore, has_model
 
 log = logging.getLogger(__name__)
 
@@ -54,6 +54,8 @@ class OllamaClient:
         self._thinking: dict[str, bool] = {}
         # 録音中に keep_alive: -1 で使ったモデル。録音が終わったら keepAliveMin に戻す
         self._pinned: set[str] = set()
+        # 入っていなかったモデル（ログに書いたもの）
+        self._missing: set[str] = set()
         self._monitor: asyncio.Task | None = None
 
     @property
@@ -126,6 +128,35 @@ class OllamaClient:
         names = sorted(m["name"] for m in data.get("models", []) if m.get("name"))
         return [{"name": name, "thinking": await self.supports_thinking(name)} for name in names]
 
+    async def installed(self) -> set[str]:
+        """入っているモデルの名前。つながらなければ OllamaUnavailable"""
+        data = await self._request("GET", "/api/tags")
+        return {m["name"] for m in data.get("models", []) if m.get("name")}
+
+    async def resolve(self, model: str) -> str:
+        """動かすモデル。入っていなければ、要約詳細のモデル → 全体概要のモデル →
+        入っているうち最初のもの、の順に代わりを選ぶ（#178。動かなくならないように）
+
+        一覧を取れない（つながらない）・何も入っていないときは、そのまま返す（呼んだ先で失敗する）
+        """
+        try:
+            installed = await self.installed()
+        except OllamaUnavailable:
+            return model
+        if not installed or has_model(installed, model):
+            return model
+        models = self.settings.get().ollama.models
+        alternative = next(
+            m
+            for m in (models.detail, models.overview, *sorted(installed))
+            if has_model(installed, m)
+        )
+        if model not in self._missing:
+            # 処理のたびに書かないよう、モデルごとに 1 回だけ
+            log.warning("ollama model %s is not installed; using %s instead", model, alternative)
+            self._missing.add(model)
+        return alternative
+
     async def supports_thinking(self, model: str) -> bool:
         """`ollama show` の capabilities に thinking が含まれるか（spec 9.3）
 
@@ -157,7 +188,9 @@ class OllamaClient:
     ) -> AsyncIterator[str]:
         """本文を少しずつ返す（思考の部分は返さない）
 
-        think は、モデルが思考モードに対応していなければオフにする"""
+        think は、モデルが思考モードに対応していなければオフにする。
+        モデルが入っていなければ、代わりのモデルで動かす（resolve。#178）"""
+        model = await self.resolve(model)
         body: dict[str, Any] = {
             "model": model,
             "messages": messages,

@@ -65,10 +65,10 @@ def test_newer_version_is_rejected(home):
 
 def test_update_is_partial_and_persisted(home):
     store = SettingsStore(home)
-    store.update({"ollama": {"finalSummaryModel": "gemma3:4b"}})
-    assert store.get().ollama.final_summary_model == "gemma3:4b"
-    assert store.get().ollama.live_summary_model == "qwen3.5:4b"
-    assert SettingsStore(home).get().ollama.final_summary_model == "gemma3:4b"
+    store.update({"ollama": {"models": {"detail": "gemma3:4b"}}})
+    assert store.get().ollama.models.detail == "gemma3:4b"
+    assert store.get().ollama.models.overview == "qwen3.5:4b"
+    assert SettingsStore(home).get().ollama.models.detail == "gemma3:4b"
 
 
 def test_update_rejects_invalid_values(home):
@@ -215,14 +215,81 @@ def test_patch_settings_while_recording(client, app, home):
     # ほかの項目は変えられる。画面は設定をまるごと送るので、変えられない項目が同じ値なら通す
     whole = client.get("/api/settings").json()
     whole["whisper"]["beamSize"] = 3
-    whole["ollama"]["finalSummaryModel"] = "other:7b"
+    whole["ollama"]["models"]["detail"] = "other:7b"
     whole["retentionDays"]["recording"] = 3
     whole["display"]["sessionMeta"] = True
     res = client.patch("/api/settings", json=whole)
     assert res.status_code == 200
     assert res.json()["whisper"]["beamSize"] == 3
-    assert res.json()["ollama"]["finalSummaryModel"] == "other:7b"
+    assert res.json()["ollama"]["models"]["detail"] == "other:7b"
 
     # 録音していなければ、どれも変えられる
     app.state.ctx.recordings = 0
     assert client.patch("/api/settings", json={"whisper": {"model": "small"}}).status_code == 200
+
+
+# --- 処理ごとのモデル（#178） ---
+
+
+def _old_settings(home, **ollama):
+    home.mkdir()
+    old = {"host": "http://localhost:11434", "keepAliveMin": 10, **ollama}
+    (home / "setting.json").write_text(json.dumps({"version": 1, "ollama": old}), encoding="utf-8")
+
+
+def test_old_keys_are_moved_to_the_models(home):
+    _old_settings(
+        home,
+        liveSummaryModel="live:4b",
+        finalSummaryModel="final:7b",
+        contextModel="context:4b",
+    )
+    # おすすめの小さいモデルは入っていない
+    store = SettingsStore(home, installed_models=lambda host: {"live:4b", "final:7b"})
+
+    models = store.get().ollama.models
+    assert (models.live_summary, models.overview, models.detail) == (
+        "live:4b",
+        "final:7b",
+        "final:7b",
+    )
+    assert (models.context, models.material_terms) == ("context:4b", "context:4b")
+    # 新しい軽い処理は、移行元と同じモデル
+    assert (models.live_title, models.transcript_terms) == ("live:4b", "live:4b")
+    assert (models.final_title, models.scope) == ("final:7b", "context:4b")
+    # 古いキーは書き出さず、移したものが残る。ほかの値はそのまま
+    data = json.loads((home / "setting.json").read_text(encoding="utf-8"))
+    assert "liveSummaryModel" not in data["ollama"]
+    assert data["ollama"]["models"]["overview"] == "final:7b"
+    assert data["ollama"]["keepAliveMin"] == 10
+    assert SettingsStore(home).get().ollama.models == models
+
+
+def test_light_tasks_use_the_recommended_models_if_installed(home):
+    _old_settings(home, liveSummaryModel="qwen3.5:4b", finalSummaryModel="qwen3.5:4b")
+    installed = {"qwen3.5:4b", "qwen3.5:0.8b", "qwen3.5:2b"}
+    models = SettingsStore(home, installed_models=lambda host: installed).get().ollama.models
+    assert (models.live_title, models.final_title, models.transcript_terms) == (
+        "qwen3.5:0.8b",
+        "qwen3.5:0.8b",
+        "qwen3.5:0.8b",
+    )
+    assert models.scope == "qwen3.5:2b"
+    # 重い処理は、今使っているモデルのまま
+    assert (models.live_summary, models.detail) == ("qwen3.5:4b", "qwen3.5:4b")
+
+
+def test_migration_without_ollama_keeps_the_old_models(home):
+    _old_settings(home, liveSummaryModel="qwen3.5:4b")
+    models = SettingsStore(home, installed_models=lambda host: None).get().ollama.models
+    assert (models.live_summary, models.live_title) == ("qwen3.5:4b", "qwen3.5:4b")
+    # 古い設定になかった処理は、おすすめ（入っていなければ、動かすときに代わりを使う）
+    assert models.detail == "qwen3.5:4b"
+
+
+def test_old_keys_in_a_patch_are_accepted_and_ignored(client):
+    # 古い画面（ブラウザに残った前の版）が送ってきても 422 にしない
+    res = client.patch("/api/settings", json={"ollama": {"finalSummaryModel": "gemma3:4b"}})
+    assert res.status_code == 200
+    assert "finalSummaryModel" not in res.json()["ollama"]
+    assert res.json()["ollama"]["models"]["detail"] == "qwen3.5:4b"
