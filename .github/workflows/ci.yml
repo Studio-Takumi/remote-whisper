@@ -1,0 +1,63 @@
+# lint・format・テスト（#169）。GPU・Ollama・HuggingFace のトークンは使わない（要るテストは skip になる）
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# 同じブランチに続けて push したら、古い方の実行は止める
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  server:
+    # Windows だけのテスト（パスの扱い・タスクトレイ）があるので、windows でも回す
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: server/uv.lock
+      # CUDA のライブラリ（合わせて 1GB ほど）はテストに要らないので入れない。WhisperX などの extra も入れない
+      - name: Install
+        run: uv sync --locked --no-install-package nvidia-cublas-cu12 --no-install-package nvidia-cudnn-cu12
+      - name: Lint
+        run: uv run --no-sync ruff check
+      - name: Format
+        run: uv run --no-sync ruff format --check
+      - name: Test
+        run: uv run --no-sync pytest
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Format
+        run: npm run format:check
+      # 型チェック（tsc -b）とビルド
+      - name: Build
+        run: npm run build
+      - name: Test
+        run: npm test
