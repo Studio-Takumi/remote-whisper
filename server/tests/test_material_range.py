@@ -1,6 +1,7 @@
 """録音のあとに、今回扱った資料の範囲で参考資料を作り直す（#182）"""
 
 import json
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -30,7 +31,8 @@ CHAPTERS = 10
 def _toc(chars_each: int = 1000, n: int = CHAPTERS) -> MaterialToc:
     entries = [TocEntry(index=i, title=f"第{i}章", chars=chars_each) for i in range(1, n + 1)]
     return MaterialToc(
-        path="D:\\work\\slides.md",
+        # パスの書き方は OS に合わせる（CI の ubuntu では D:\ の形からファイル名を取れない）
+        path=str(Path("work") / "slides.md"),
         kind="headings",
         chars=chars_each * n,
         large=True,
@@ -60,7 +62,7 @@ def test_separate_ranges_stay_separate():
 
 def test_numbers_run_across_materials():
     # 目次の番号は資料をまたいだ通し番号。2 つ目の資料の 2 番目は 12
-    second = _toc().model_copy(update={"path": "D:\\work\\notes.md"})
+    second = _toc().model_copy(update={"path": str(Path("work") / "notes.md")})
     ranges = normalize_ranges([(12, 12)], [_toc(), second])
     assert [(r.file, r.start, r.end) for r in ranges] == [("notes.md", 1, 3)]
     # 資料の境目をまたぐ範囲は、資料ごとに分ける
