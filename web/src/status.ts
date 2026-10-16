@@ -36,6 +36,7 @@ export const jobKindLabel: Record<GpuJobKind, string> = {
     contextSet: '参考資料セットの作成',
     terms: '文字起こしからの用語の抽出',
     finalTranscript: '最終の文字起こし',
+    materialRange: '扱った範囲での参考資料の作り直し',
     other: 'その他',
 };
 
@@ -46,6 +47,7 @@ const blockingReason: Partial<Record<GpuJobKind, string>> = {
     contextSet: '参考資料セットの作成中',
     terms: '用語の抽出中',
     finalTranscript: '最終の文字起こしの作成中',
+    materialRange: '参考資料の作り直し中',
 };
 
 // このセッションの最終の文字起こし（#121）を作っている・作るのを待っているか

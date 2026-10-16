@@ -150,6 +150,7 @@ export async function fetchSessionDetail(projectId: string, session: Session, wh
     const transcriptJson = files?.transcript ? await api.get<TranscriptJson>(`${base}/transcript`) : null;
     const transcript = transcriptJson?.lines ?? [];
     const pickedTerms = transcriptJson?.meta?.pickedTerms ?? [];
+    const materialRange = transcriptJson?.meta?.materialRange ?? undefined;
     // 取れなくても（消えた直後など）、録音中の文字起こしと要約は出す
     const finalTranscripts = files?.finalTranscripts
         ? await fetchFinalTranscripts(projectId, session.id).catch(() => undefined)
@@ -177,5 +178,14 @@ export async function fetchSessionDetail(projectId: string, session: Session, wh
         const json = await api.get<SummaryJson>(`${base}/summaries/latest`);
         liveSummary = json.kind === 'live' ? json.text : undefined;
     }
-    return { files, transcript, finalTranscript, finalTranscripts, summaries, liveSummary, pickedTerms };
+    return {
+        files,
+        transcript,
+        finalTranscript,
+        finalTranscripts,
+        summaries,
+        liveSummary,
+        pickedTerms,
+        materialRange,
+    };
 }

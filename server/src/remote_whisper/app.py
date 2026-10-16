@@ -22,6 +22,7 @@ from remote_whisper.final_transcriber import FinalTranscriber, installed
 from remote_whisper.gpu_stats import GpuStats
 from remote_whisper.janitor import Janitor
 from remote_whisper.logs import traffic
+from remote_whisper.material_range import RangeService
 from remote_whisper.mock import (
     MockContextGenerator,
     MockFinalSummarizer,
@@ -169,6 +170,8 @@ def create_app(
             background.add(task)
             task.add_done_callback(background.discard)
 
+    # 今回扱った資料の範囲で参考資料を作り直す（#182）。Ollama がなければ（モック）作り直さない
+    material_range: RangeService | None = None
     if mock:
         ctx.recorder = MockRecorder(ctx.hub, mock_timing, on_count, ctx.projects, ctx.settings)
         ctx.summarizer = MockFinalSummarizer(ctx.hub, ctx.settings, mock_timing)
@@ -207,14 +210,20 @@ def create_app(
             )
             ctx.recorder.final_summary = ctx.summarizer
             # 参考資料セットを作る。できたら、そのセットを選んで録音中のセッションに使わせる
+            generator = OllamaGenerator(ctx.ollama, ctx.settings)
             ctx.context_sets = ContextSetService(
                 ctx.projects,
                 ctx.settings,
                 ctx.hub,
                 ctx.gpu,
-                OllamaGenerator(ctx.ollama, ctx.settings),
+                generator,
                 on_ready=ctx.recorder.context_set_ready,
             )
+            # 録音のあとに、今回扱った資料の範囲で参考資料を作り直す（#182）
+            material_range = RangeService(
+                ctx.projects, ctx.settings, ctx.ollama, ctx.gpu, ctx.context_sets, generator
+            )
+            ctx.recorder.material_range = material_range
 
     # 音声ファイルのアップロード（#180）。モックでは Whisper の代わりに台本を文字起こしにする
     ctx.uploads = UploadService(
@@ -228,6 +237,7 @@ def create_app(
         recording=lambda: ctx.is_recording,
         fallback_lines=mock_script_lines if mock else None,
     )
+    ctx.uploads.material_range = material_range
 
     @app.middleware("http")
     async def log_requests(request: Request, call_next):

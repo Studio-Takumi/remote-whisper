@@ -84,9 +84,13 @@ export type SessionJson = {
 };
 
 // meta は文字起こしのフロントマター（使うところだけ）
+// 今回扱った資料の範囲（#182）。from・to は目次の番号（PDF はページ）で、両端を含む
+export type MaterialRange = { file: string; path: string; from: number; to: number };
+
 export type TranscriptJson = {
     lines: { time: string; text: string }[];
-    meta?: { pickedTerms?: string[] };
+    // materialRange は、録音のあとに今回扱った範囲で参考資料を作り直したとき（#182）
+    meta?: { pickedTerms?: string[]; materialRange?: MaterialRange[] | null };
 };
 
 // 最終の文字起こし（#121）。meta はフロントマター（使うところだけ）

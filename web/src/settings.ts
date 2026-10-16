@@ -97,7 +97,7 @@ export const defaultSettings: Settings = {
         models: {
             materialTerms: 'qwen3.5:2b',
             context: 'qwen3.5:4b',
-            scope: 'qwen3.5:2b',
+            scope: 'qwen3.5:4b',
             transcriptTerms: 'qwen3.5:2b',
             liveSummary: 'qwen3.5:2b',
             liveTitle: 'qwen3.5:2b',

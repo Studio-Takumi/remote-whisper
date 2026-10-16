@@ -308,3 +308,87 @@ def parse_terms(reply: str) -> list[str]:
             if word and word not in out:
                 out.append(word)
     return out
+
+
+# 録音のあとに、今回扱った資料の範囲を判断する（#182）。JSON Schema で範囲の一覧を返させる。
+# 小さいモデルは「資料の番号」と「章の番号」を取り違えたので、目次の番号は資料をまたいだ
+# 通し番号にし、範囲は話題ごとに from・to で答えさせる（話題を先に書かせると、話題と章を
+# 結び付けて選ぶ）。
+# 「作り直すか」も答えさせたが、範囲と食い違う答えが多かったので、範囲が資料のほぼ全体かどうかで
+# こちらが決める（material_range.normalize_ranges）
+SCOPE_FORMAT: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "ranges": {
+            "type": "array",
+            "maxItems": 10,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "topic": {"type": "string"},
+                    "from": {"type": "integer"},
+                    "to": {"type": "integer"},
+                },
+                "required": ["topic", "from", "to"],
+            },
+        },
+    },
+    "required": ["ranges"],
+}
+# 目次の 1 行に出す見出しの長さと、出す行の数
+SCOPE_TITLE_CHARS = 30
+SCOPE_MAX_ENTRIES = 600
+
+
+def scope_messages(excerpt: str, tocs: list[tuple[str, str, list[str]]]) -> list[dict]:
+    """文字起こしの抜粋と資料の目次から、今回扱った範囲を判断する（#182）
+
+    tocs は資料ごとの（ファイル名, 区切りの種類, [見出し]）。目次の番号は、資料をまたいで 1 から
+    """
+    blocks = []
+    number = 0
+    for name, kind, titles in tocs:
+        unit = {"pages": "ページ", "headings": "見出し", "chunks": "区切り"}.get(kind, "区切り")
+        rows = []
+        for title in titles:
+            number += 1
+            if number <= SCOPE_MAX_ENTRIES:
+                rows.append(f"{number}: {title[:SCOPE_TITLE_CHARS]}")
+        blocks.append(f"### {name}（{unit}ごと）\n" + "\n".join(rows))
+    user = (
+        "## 参考資料の目次（左の数字が目次の番号）\n"
+        + "\n\n".join(blocks)
+        + "\n\n## 今回の録音の文字起こし（頭・中ほど・終わりの抜粋。誤認識を含むことがある）\n"
+        + excerpt
+        + "\n\nこの録音で話された話題ごとに、その話題を扱っている目次の範囲を、"
+        + "目次の番号（左の数字）で答えてください（topic は話題、from・to は両端を含みます）。"
+        + "話題が複数の章にまたがるときや、章の途中から始まる・章の途中で終わるときは、"
+        + "その範囲をそのまま書いてください。録音で話されていない章は含めないでください。"
+        + "どの章にも当てはまらない話題は書かないでください。"
+    )
+    return [
+        {
+            "role": "system",
+            "content": "あなたは、講義や会議の録音が参考資料のどの部分を扱ったかを見分ける係です。",
+        },
+        {"role": "user", "content": user},
+    ]
+
+
+def parse_scope(reply: str) -> list[tuple[int, int]] | None:
+    """`{"ranges": [{"topic", "from", "to"}]}` を [(始まり, 終わり)] にする。
+    番号は目次の通し番号。形が合わなければ None"""
+    try:
+        ranges = json.loads(reply)["ranges"]
+    except (ValueError, KeyError, TypeError):
+        log.warning("could not parse the material range: %r", reply[:200])
+        return None
+    if not isinstance(ranges, list):
+        return None
+    out: list[tuple[int, int]] = []
+    for r in ranges:
+        try:
+            out.append((int(r["from"]), int(r["to"])))
+        except (KeyError, TypeError, ValueError):
+            return None
+    return out

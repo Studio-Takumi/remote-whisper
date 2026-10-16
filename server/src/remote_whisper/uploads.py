@@ -24,13 +24,14 @@ from pathlib import Path
 from typing import Any
 
 from remote_whisper.audio_convert import AudioInfo, convert_audio, decode_pcm, probe
-from remote_whisper.documents import recording_name, transcript_name
+from remote_whisper.documents import parse, recording_name, transcript_name
 from remote_whisper.gpu_queue import GpuQueue, Priority
 from remote_whisper.hallucination import drop_reason
 from remote_whisper.hub import Hub
 from remote_whisper.live_transcriber import load_hotwords
 from remote_whisper.projects import ProjectStore
 from remote_whisper.session_writer import SessionWriter
+from remote_whisper.sessions import summary_source
 from remote_whisper.settings import SettingsStore
 from remote_whisper.term_picker import combine_hotwords
 from remote_whisper.timeutil import make_id, now
@@ -93,6 +94,15 @@ def start_time(last_modified_ms: float | None, duration_sec: float, uploaded: da
     return min(modified, uploaded) - timedelta(seconds=duration_sec)
 
 
+def _transcript_lines(writer: SessionWriter) -> list[str]:
+    """最終の要約を作る元の文字起こし（浄書済みがあればそちら）の本文の行"""
+    try:
+        _, body = parse(summary_source(writer.files).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    return [line for line in body.splitlines() if line.strip()]
+
+
 class UploadService:
     def __init__(
         self,
@@ -116,6 +126,8 @@ class UploadService:
         self.summarizer = summarizer
         self.recording = recording
         self.fallback_lines = fallback_lines
+        # 今回扱った資料の範囲で参考資料を作り直す（RangeService。#182）
+        self.material_range: Any = None
         # 同じ ID を 2 つのアップロードが取らないように（取ってからセッションを作るまでの ID）
         self._lock = asyncio.Lock()
         self._reserved: set[str] = set()
@@ -237,6 +249,12 @@ class UploadService:
                     log.exception("failed to make the final transcript of %s", writer.id)
             if gid is None:
                 await self._transcribe(writer)
+            if self.material_range is not None:
+                # 録音中の文字起こしがないので、浄書の後に浄書済みの文字起こしで範囲を判断し、
+                # コンテキストだけを作り直す（用語リストは浄書に間に合わない。#182）
+                lines = await asyncio.to_thread(_transcript_lines, writer)
+                plan = await self.material_range.before_final_transcript(writer, lines, terms=False)
+                await self.material_range.after_final_transcript(writer, plan)
             await self._summarize(writer)
         except Exception:
             log.exception("processing the uploaded session %s failed", writer.id)
