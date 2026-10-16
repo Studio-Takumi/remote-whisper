@@ -36,6 +36,8 @@ export type Session = {
     // 画面の URL に出す ID（#177）。古いサーバー・デモのダミーデータにはない（代わりに id を使う）
     uuid?: string;
     title: string;
+    // 音声ファイルをアップロードして作ったセッション（#180）
+    uploaded?: boolean;
     startedAt: string;
     // 録音を終えた日時。録音中はない
     endedAt?: string;

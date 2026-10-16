@@ -1,5 +1,6 @@
-import { PlusIcon } from 'lucide-react';
+import { FileAudioIcon, PlusIcon } from 'lucide-react';
 
+import { AudioUploadButton } from '@/components/AudioUpload';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { formatElapsed, formatShortDateTime, sessionDuration } from '@/time';
@@ -45,8 +46,12 @@ export function ProjectList({
                         <AccordionTrigger className='flex-none justify-start gap-1 py-1.5 text-xs text-sidebar-foreground/70 hover:no-underline **:data-[slot=accordion-trigger-icon]:ml-0'>
                             {project.name}
                         </AccordionTrigger>
+                        {/* 音声ファイルから作る（#180） */}
+                        <span className='ml-auto'>
+                            <AudioUploadButton projectId={project.id} compact />
+                        </span>
                         <button
-                            className={`ml-auto flex size-6 items-center justify-center rounded-md text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground ${activeProject === project.id && activeSession === null ? 'bg-sidebar-accent text-sidebar-accent-foreground' : ''}`}
+                            className={`flex size-6 items-center justify-center rounded-md text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground ${activeProject === project.id && activeSession === null ? 'bg-sidebar-accent text-sidebar-accent-foreground' : ''}`}
                             aria-label={`${project.name}で新しく録音`}
                             onClick={() => onNewSession(project.id)}
                         >
@@ -74,6 +79,13 @@ export function ProjectList({
                                             </span>
                                         ) : (
                                             <span className='truncate'>{session.title}</span>
+                                        )}
+                                        {/* 音声ファイルから作ったセッションには、録音したものと見分けられる印を付ける */}
+                                        {session.uploaded && (
+                                            <FileAudioIcon
+                                                className='ml-auto size-3.5 shrink-0 text-muted-foreground'
+                                                aria-label='音声ファイルから作成'
+                                            />
                                         )}
                                         {/* 録音中（ほかの端末のものも含む）のセッションには赤い点を付ける */}
                                         {session.status === 'recording' && (

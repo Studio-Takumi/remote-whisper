@@ -1,7 +1,16 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
-import { AudioLinesIcon, FolderPlusIcon, MicIcon, RefreshCwIcon, SearchXIcon, TriangleAlertIcon } from 'lucide-react';
+import {
+    AudioLinesIcon,
+    FileAudioIcon,
+    FolderPlusIcon,
+    MicIcon,
+    RefreshCwIcon,
+    SearchXIcon,
+    TriangleAlertIcon,
+} from 'lucide-react';
 
+import { AudioDropZone, AudioUploadButton, UploadProgress } from '@/components/AudioUpload';
 import { LiveSummary } from '@/components/LiveSummary';
 import { Markdown } from '@/components/Markdown';
 import { MicAlert } from '@/components/MicAlert';
@@ -130,6 +139,12 @@ export function SessionView() {
                             {session.status === 'recording' &&
                                 (session.id === recordingSessionId ? '・録音中' : '・ほかの端末で録音中')}
                             {session.status === 'interrupted' && '・途中で中断'}
+                            {session.uploaded && (
+                                <span className='ml-2 inline-flex items-center gap-1 align-middle'>
+                                    <FileAudioIcon className='size-3' />
+                                    音声ファイルから作成
+                                </span>
+                            )}
                         </p>
                         {/* 途中で終わったセッションは、同じセッションのまま続きを録音できる（#101）。
                             録音ファイルがまだ mp3 になっていない（WAV のまま）こともあるので、ファイルの有無では隠さない
@@ -152,12 +167,24 @@ export function SessionView() {
                         )}
                     </div>
                 ) : (
-                    <div>
-                        <h1 className='text-lg font-semibold'>新しいセッション</h1>
-                        <p className='text-xs text-muted-foreground'>
-                            {project.name}（{project.path}）に録音します
-                        </p>
-                    </div>
+                    // 録音のほかに、音声ファイル（選ぶ・ドロップする）からも作れる（#180）
+                    <AudioDropZone projectId={project.id}>
+                        <div className='flex flex-col gap-2'>
+                            <div>
+                                <h1 className='text-lg font-semibold'>新しいセッション</h1>
+                                <p className='text-xs text-muted-foreground'>
+                                    {project.name}（{project.path}）に録音します
+                                </p>
+                            </div>
+                            <div className='flex flex-wrap items-center gap-2'>
+                                <AudioUploadButton projectId={project.id} />
+                                <p className='text-xs text-muted-foreground'>
+                                    ほかのアプリで録った音声（wav・mp3・m4a など）をここにドロップしても作れます
+                                </p>
+                            </div>
+                            <UploadProgress />
+                        </div>
+                    </AudioDropZone>
                 )}
 
                 <TabsContent value='transcript' className='flex flex-col gap-2'>

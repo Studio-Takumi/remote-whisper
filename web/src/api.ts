@@ -78,6 +78,8 @@ export type SessionJson = {
     contextSet: string | null;
     // 最終の要約を作れなかった（spec 6.7）。作り直して作れたら false に戻る
     summaryFailed?: boolean;
+    // 音声ファイルをアップロードして作ったセッション（#180）は upload
+    source?: 'upload' | null;
     files: SessionFiles;
 };
 
