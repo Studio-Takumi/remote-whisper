@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from remote_whisper.audio_convert import AudioInfo, convert_audio, decode_pcm, probe
-from remote_whisper.documents import recording_name
+from remote_whisper.documents import recording_name, transcript_name
 from remote_whisper.gpu_queue import GpuQueue, Priority
 from remote_whisper.hallucination import drop_reason
 from remote_whisper.hub import Hub
@@ -116,8 +116,9 @@ class UploadService:
         self.summarizer = summarizer
         self.recording = recording
         self.fallback_lines = fallback_lines
-        # 同じ ID を 2 つのアップロードが取らないように
+        # 同じ ID を 2 つのアップロードが取らないように（取ってからセッションを作るまでの ID）
         self._lock = asyncio.Lock()
+        self._reserved: set[str] = set()
         self._tasks: set[asyncio.Task] = set()
 
     async def receive(
@@ -144,13 +145,24 @@ class UploadService:
                 raise UploadError(415, f"音声ファイルとして読めません（{name}）") from e
             if info.duration_sec <= 0:
                 raise UploadError(415, f"音声の長さが 0 です（{name}）")
-            writer = await self._create(pid, name, last_modified_ms, info)
+            # 先に ID を取って録音ファイルを置き、置けてからセッションを作る
+            # （変換に失敗したときに、録音のないセッションを残さないように）
+            uploaded = now()
+            started, sid = await self._reserve(pid, last_modified_ms, info, uploaded)
+            recording: Path | None = None
             try:
-                recording = await asyncio.to_thread(self._place, path, info, project_dir, writer.id)
-                writer.set_recording(recording.name)
-            except Exception:
-                log.exception("failed to place the uploaded recording of %s", writer.id)
-                raise
+                recording = await asyncio.to_thread(self._place, path, info, project_dir, sid)
+                writer = SessionWriter(self.projects, pid, sid, started, self.settings.get())
+                writer.meta.recording = recording.name
+                writer.start_upload(info.duration_sec, Path(name).name, uploaded)
+            except Exception as e:
+                log.exception("failed to make a session from the uploaded %s", name)
+                if recording is not None:
+                    recording.unlink(missing_ok=True)
+                (project_dir / transcript_name(sid)).unlink(missing_ok=True)
+                raise UploadError(500, f"録音ファイルを置けませんでした（{name}）") from e
+            finally:
+                self._reserved.discard(sid)
         finally:
             shutil.rmtree(work, ignore_errors=True)
         log.info(
@@ -180,21 +192,20 @@ class UploadService:
         if size == 0:
             raise UploadError(400, "ファイルが空です")
 
-    async def _create(
-        self, pid: str, name: str, last_modified_ms: float | None, info: AudioInfo
-    ) -> SessionWriter:
-        uploaded = now()
+    async def _reserve(
+        self, pid: str, last_modified_ms: float | None, info: AudioInfo, uploaded: datetime
+    ) -> tuple[datetime, str]:
+        """開始日時とセッション ID を決めて取っておく（ほかのアップロードと重ならないように）"""
         started = start_time(last_modified_ms, info.duration_sec, uploaded)
         async with self._lock:
-            taken = {s.id for s in self.projects.load(pid).sessions}
+            taken = {s.id for s in self.projects.load(pid).sessions} | self._reserved
             sid = make_id(started)
             # 同じ時刻の録音（同じファイルを 2 回上げたなど）は、1 秒ずつずらす
             while sid in taken:
                 started += timedelta(seconds=1)
                 sid = make_id(started)
-            writer = SessionWriter(self.projects, pid, sid, started, self.settings.get())
-            writer.start_upload(info.duration_sec, Path(name).name, uploaded)
-        return writer
+            self._reserved.add(sid)
+        return started, sid
 
     @staticmethod
     def _place(path: Path, info: AudioInfo, project_dir: Path, sid: str) -> Path:

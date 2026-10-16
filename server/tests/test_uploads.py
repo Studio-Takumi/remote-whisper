@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
+from remote_whisper import uploads
 from remote_whisper.app import create_app
 from remote_whisper.audio_convert import probe
 from remote_whisper.documents import TranscriptMeta, read_doc
@@ -172,6 +173,47 @@ def test_final_transcript_is_used_when_available(client, project, tmp_path):
     assert calls == [sid]
     _, transcript = read_doc(d / f"transcript-{sid}.md", TranscriptMeta)
     assert "fake" not in transcript
+
+
+def test_failed_conversion_leaves_nothing(client, project, tmp_path, monkeypatch):
+    # 変換に失敗したら、セッションも録音ファイルも一時ファイルも残さない
+    pid, d = project
+
+    def broken(*args):
+        raise RuntimeError("エンコーダーが壊れている")
+
+    monkeypatch.setattr(uploads, "convert_audio", broken)
+    wav = write_audio(tmp_path / "a.wav", "pcm_s16le", fmt="wav")
+    res = upload(client, pid, wav)
+    assert res.status_code == 500
+    assert "録音ファイルを置けませんでした" in res.json()["detail"]
+    assert client.get(f"/api/projects/{pid}/sessions").json() == []
+    assert not list(d.glob("recording-*")) and not list(d.glob("transcript-*"))
+    assert not any(p.name.startswith("upload-") for p in (d / ".tmp").iterdir())
+
+
+def test_whisper_transcription_waits_for_recordings_and_keeps_the_offsets(
+    client, project, tmp_path, monkeypatch
+):
+    # 録音中は終わるまで待ってから、30 秒ずつ（ここでは 1 秒ずつ）文字起こしして時刻をつなぐ
+    monkeypatch.setattr(uploads, "CHUNK_SEC", 1)
+    monkeypatch.setattr(uploads, "RECORDING_POLL_SEC", 0.05)
+    pid, d = project
+    ctx = client.app.state.ctx
+    ctx.recordings = 1
+    wav = write_audio(tmp_path / "a.wav", "pcm_s16le", seconds=2.5, fmt="wav")
+    sid = upload(client, pid, wav).json()["id"]
+    time.sleep(0.3)
+    # 録音中は文字起こしを始めない（文字起こしのファイルは空のまま）
+    assert read_doc(d / f"transcript-{sid}.md", TranscriptMeta)[1] == ""
+    ctx.recordings = 0
+    wait_done(client)
+    _, transcript = read_doc(d / f"transcript-{sid}.md", TranscriptMeta)
+    assert transcript.splitlines() == [
+        "[00:00:00] fake 1.0s",
+        "[00:00:01] fake 1.0s",
+        "[00:00:02] fake 0.5s",
+    ]
 
 
 def test_too_large_file_is_refused(client, project, tmp_path):
