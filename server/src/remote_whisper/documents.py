@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
 from remote_whisper.fsutil import atomic_write_text
+from remote_whisper.material_toc import MaterialToc
 
 # --- ファイル名 ---
 
@@ -112,6 +113,15 @@ class ContextSetMeta(_Meta):
     model: str
     think: bool
     materials: list[MaterialRef] = Field(default_factory=list)
+
+
+class ContextMeta(ContextSetMeta):
+    """コンテキスト `context-<ID>.md` のフロントマター。用語リストの分に、資料の目次が加わる（#181）
+
+    toc が None のものは、目次を取り出す前のセット（以前に作ったもの）。
+    """
+
+    toc: list[MaterialToc] | None = None
 
 
 class WhisperUsed(_Meta):
