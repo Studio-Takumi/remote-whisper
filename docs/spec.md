@@ -149,9 +149,17 @@ erDiagram
   },
   "ollama": {
     "host": "http://localhost:11434",
-    "liveSummaryModel": "qwen3.5:4b",
-    "finalSummaryModel": "qwen3.5:4b",
-    "contextModel": "qwen3.5:4b",
+    "models": {
+      "materialTerms": "qwen3.5:2b",
+      "context": "qwen3.5:4b",
+      "scope": "qwen3.5:2b",
+      "transcriptTerms": "qwen3.5:0.8b",
+      "liveSummary": "qwen3.5:2b",
+      "liveTitle": "qwen3.5:0.8b",
+      "overview": "qwen3.5:4b",
+      "detail": "qwen3.5:4b",
+      "finalTitle": "qwen3.5:0.8b"
+    },
     "liveSummaryIntervalMin": 5,
     "keepAliveMin": 10,
     "liveSummaryDensity": 3,
@@ -187,6 +195,22 @@ erDiagram
 - ファイルがなければ既定値で作る。足りないキーは既定値で埋めて書き戻す。知らないキーや範囲外の値は受け付けない（`PATCH /api/settings` は `422`）。
 - `recording.maxConcurrent` は、サーバー全体で同時に録音できるセッションの数。1つのクライアント（ブラウザのタブ）が同時に録音できるのは1つだけなので、2以上にするのは複数の端末から同時に録音する場合。
 - `recording.resumeTimeoutMin` は、ブラウザとの接続が切れてから、つながり直すのを待つ時間（分、既定 10。0 より大きい数で、小数も書ける。設定画面からは 1 分以上）。過ぎたら `interrupted` にする（続きから録音できる。6.7 節）。
+- `ollama.models` は、Ollama を使う処理ごとのモデル（#178）。既定はおすすめのモデルで、軽い処理は小さいモデルにしている。おすすめはあくまで目安で、設定で自由に変えられる。
+
+  | 大きな段階 | 処理 | キー | おすすめ（既定） |
+  |---|---|---|---|
+  | 参考資料 | 用語リスト（資料抽出） | `materialTerms` | `qwen3.5:2b` |
+  | | コンテキスト | `context` | `qwen3.5:4b` |
+  | | 範囲の判断（#182） | `scope` | `qwen3.5:2b` |
+  | リアルタイム文字起こし | 用語リスト（文字起こし抽出） | `transcriptTerms` | `qwen3.5:0.8b` |
+  | リアルタイム要約 | 要約 | `liveSummary` | `qwen3.5:2b` |
+  | | タイトル | `liveTitle` | `qwen3.5:0.8b` |
+  | 最終要約 | 全体概要 | `overview` | `qwen3.5:4b` |
+  | | 要約詳細 | `detail` | `qwen3.5:4b` |
+  | | タイトル | `finalTitle` | `qwen3.5:0.8b` |
+
+  - **入っていないモデル**: 選んだモデルが Ollama に入っていなければ、要約詳細のモデル → 全体概要のモデル → 入っているうち名前の順で最初のもの、の順に代わりを選んで動かす（動かなくならないように）。ログに残し（モデルごとに 1 回）、`/api/settings/options` の `ollama.missing` に入っていない処理のキーを返す（画面は「入っていません」と出す。#179）。フロントマターには、実際に使ったモデルを残す。
+  - **前の設定からの移行**: #178 より前の `liveSummaryModel` は `liveSummary` に、`finalSummaryModel` は `overview`・`detail` に、`contextModel` は `context`・`materialTerms` に移す。新しい軽い処理（`scope`・`transcriptTerms`・`liveTitle`・`finalTitle`）は、おすすめのモデルが入っていればそれ、なければ移行元（`scope` は `contextModel`、`transcriptTerms`・`liveTitle` は `liveSummaryModel`、`finalTitle` は `finalSummaryModel`）と同じモデルにする。入っているかは、読み込んだときに Ollama に聞く（つながらなければ移行元と同じ）。古いキーは受け付けるが書き出さない（`PATCH` で送られても無視する）。
 - 思考モードは処理ごとに固定する。参考資料セットの作成と最終の要約はオン、途中の要約はオフ。思考モードに対応していないモデルが選ばれた場合は、オフで実行する（9.3 節）。
 - `whisper.speechThreshold` は、話しているかの判定のしかた（6.2 節）。`auto`（既定）は、音の大きさをそろえてから Silero VAD で声らしさを判定する。`manual` は `whisper.speechDbfs`（dBFS、-70〜-10）より大きい音を話し声とみなす。自動の結果が悪いときのために手動を残している。
 - `whisper.finalTranscript` は、録音を終えたら最終の文字起こしを作るか（6.9 節、既定はオン）。サーバーに WhisperX が入っていないとき（`uv sync --extra final` していないとき）は、オンでも作らない。`whisper.diarize` は、最終の文字起こしで話者を分けるか（既定はオン）。話者分けのモデルを使えない（HuggingFace のトークンがない・利用条件に同意していない）ときは、分けずに作る。どちらも作り始める時点の値を使う。
@@ -322,7 +346,8 @@ project: D:\work\meetings
 title: 新機能のリリース計画
 startedAt: 2026-10-09T14:30:12+09:00
 endedAt: 2026-10-09T15:59:40+09:00
-model: qwen3.5:4b
+model: qwen3.5:4b             # 要約詳細のモデル（6.5 節）
+overviewModel: qwen3.5:4b     # 全体概要のモデル（#178）。項目のない古いファイルは model と同じとみなす
 think: true
 transcript: transcript-20261009-143012.md
 contextSet: 20261009-090501
@@ -499,8 +524,9 @@ GPU を使う処理は、1つのキューを通して順番に実行する。
 - 保存先は `summary-<ID>-<生成 ID>.md` と、選んだディレクトリへのコピー（5.1 節）。
 - **作り直し**: 過去のセッションについて、今の全体設定で最終の要約を作り直せる。既存の要約は上書きせず、新しい生成 ID で別のファイルとして保存する（別のモデルの結果と見比べられるようにするため）。選んだディレクトリにも、新しいコピーを置く。
 - 最終の要約の本文が届き始めるまで（モデルの読み込み・思考・区間ごとの要約の間）、UI は途中の要約を出しておき、本文が届き始めたら差し替える。作り直しのときは、今表示している要約を出しておく。失敗したときは途中の要約を残したまま、失敗を表示する（6.7）。
-- UI では、今の全体設定の最終の要約モデル（`finalSummaryModel`）で作った要約のうち、いちばん新しいものを表示する。そのモデルの要約がなければ、モデルを問わずいちばん新しい要約を表示する。
-- 最終の要約のモデルを変えたとき、開いているセッションにそのモデルの要約がなければ、自動で作り直しを始める。簡易設定と設定モーダルのどちらで変えた場合も同じ。
+- 区間ごとの要約（一度に収まるときはその要約）は要約詳細のモデル（`ollama.models.detail`）、全体の概要（とその前のまとめ）は全体概要のモデル（`overview`）、タイトルは最終要約のタイトルのモデル（`finalTitle`）で作る（#178）。フロントマターの `model` は要約詳細のモデル、`overviewModel` は全体概要のモデル。
+- UI では、今の全体設定の全体概要と要約詳細のモデルの組で作った要約のうち、いちばん新しいものを表示する。その組の要約がなければ、モデルを問わずいちばん新しい要約を表示する。`overviewModel` のない前の要約は、`model` と同じモデルで作ったものとみなす。
+- 全体概要か要約詳細のモデルを変えたとき、開いているセッションにその組の要約がなければ、自動で作り直しを始める。簡易設定と設定モーダルのどちらで変えた場合も同じ。
 
 ### 6.6 参考資料セットの作成
 
@@ -584,7 +610,7 @@ GPU を使う処理は、1つのキューを通して順番に実行する。
 |---|---|---|
 | GET | `/api/settings` | 全体設定を返す |
 | PATCH | `/api/settings` | 全体設定を部分的に更新する。録音中に、録音中は変えられない項目（5.3 節）の値を変えようとすると `409` |
-| GET | `/api/settings/options` | 選べる値を返す（Whisper のモデル、Ollama のモデルと、それぞれが思考モードに対応しているか） |
+| GET | `/api/settings/options` | 選べる値を返す（Whisper のモデル、Ollama のモデルと、それぞれが思考モードに対応しているか。処理ごとのモデルのうち Ollama に入っていないもののキー `ollama.missing`。5.3 節） |
 | GET | `/api/projects` | プロジェクトの一覧 |
 | POST | `/api/projects` | ディレクトリをプロジェクトとして登録する（すでにあればそれを返す） |
 | GET | `/api/sessions/{uuid}` | セッションの UUID から、セッションのメタ情報と `projectId`・`projectUuid` を返す（#177）。なければ `404` |
@@ -741,6 +767,7 @@ GPU を使う処理は、1つのキューを通して順番に実行する。
 ### 9.3 Ollama
 
 - 思考モードに対応しているかは、`ollama show` の `capabilities` に `thinking` が含まれるかで判定する。
+- モデルは処理ごとに選ぶ（5.3 節の `ollama.models`、#178）。軽い処理（タイトル・用語の抽出・範囲の判断）は小さいモデル（`qwen3.5:0.8b`・`qwen3.5:2b`）をおすすめにしている。入っていなければ、入っているモデルで代わりに動かす。
 - 思考モードと JSON Schema（`format`）を同時に使えるかは**要検証**。
 
 ### 9.4 開発の順番（案）
