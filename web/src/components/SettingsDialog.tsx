@@ -33,7 +33,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { ollamaModelNames, thinkingNote, withCurrent } from '@/options';
 import type { SettingsOptions } from '@/protocol';
 import { recordingLocks } from '@/recording';
-import { SETTINGS_PAGES, type Settings } from '@/settings';
+import { type OllamaModels, SETTINGS_PAGES, type Settings } from '@/settings';
 
 // 全体設定のモーダル。左にカテゴリ、右に項目を並べる
 export function SettingsDialog({
@@ -116,12 +116,12 @@ function SettingsForm({
     // 録音中に変えられない項目の理由。録音していなければ undefined（変えられる）
     const lock = (reason: string) => (recording ? reason : undefined);
     const isMobile = useIsMobile();
-    const ollamaModels = withCurrent(
-        ollamaModelNames(options),
-        draft.ollama.liveSummaryModel,
-        draft.ollama.finalSummaryModel,
-        draft.ollama.contextModel,
-    );
+    const models = draft.ollama.models;
+    const ollamaModels = withCurrent(ollamaModelNames(options), models.liveSummary, models.detail, models.context);
+    // 処理ごとのモデル（#178）。ここでは今までの 3 つの欄で、同じ段階の重い処理をまとめて変える
+    // （処理ごとに選ぶ画面は #179）
+    const updateModels = (patch: Partial<OllamaModels>) =>
+        update('ollama', { models: { ...draft.ollama.models, ...patch } });
 
     function update<K extends Exclude<keyof Settings, 'version'>>(section: K, patch: Partial<Settings[K]>) {
         setDraft((d) => ({ ...d, [section]: { ...d[section], ...patch } }));
@@ -345,33 +345,33 @@ function SettingsForm({
                         >
                             <OptionSelect
                                 id='live-model'
-                                value={draft.ollama.liveSummaryModel}
+                                value={models.liveSummary}
                                 options={ollamaModels}
-                                onChange={(liveSummaryModel) => update('ollama', { liveSummaryModel })}
+                                onChange={(liveSummary) => updateModels({ liveSummary })}
                             />
                         </Row>
                         <Row
                             id='final-model'
                             label='最終の要約のモデル'
-                            description={`録音が終わった後に作る。${thinkingNote(options, draft.ollama.finalSummaryModel)}`}
+                            description={`録音が終わった後に作る（全体概要と要約詳細）。${thinkingNote(options, models.detail)}`}
                         >
                             <OptionSelect
                                 id='final-model'
-                                value={draft.ollama.finalSummaryModel}
+                                value={models.detail}
                                 options={ollamaModels}
-                                onChange={(finalSummaryModel) => update('ollama', { finalSummaryModel })}
+                                onChange={(model) => updateModels({ overview: model, detail: model })}
                             />
                         </Row>
                         <Row
                             id='context-model'
                             label='参考資料セットのモデル'
-                            description={`用語リストとコンテキストを作る。${thinkingNote(options, draft.ollama.contextModel)}`}
+                            description={`用語リストとコンテキストを作る。${thinkingNote(options, models.context)}`}
                         >
                             <OptionSelect
                                 id='context-model'
-                                value={draft.ollama.contextModel}
+                                value={models.context}
                                 options={ollamaModels}
-                                onChange={(contextModel) => update('ollama', { contextModel })}
+                                onChange={(model) => updateModels({ context: model, materialTerms: model })}
                             />
                         </Row>
                         <Row

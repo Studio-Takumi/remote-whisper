@@ -170,6 +170,8 @@ export const fallbackOptions: SettingsOptions = {
     },
     ollama: {
         models: [
+            { name: 'qwen3.5:0.8b', thinking: true },
+            { name: 'qwen3.5:2b', thinking: true },
             { name: 'qwen3.5:4b', thinking: true },
             { name: 'gemma3:4b', thinking: false },
             { name: 'llama3.2:3b', thinking: false },

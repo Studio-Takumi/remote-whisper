@@ -26,11 +26,26 @@ def test_pick_latest_prefers_the_current_model():
         summary("20261009-170000", "qwen3.5:4b"),
         summary("20261009-180000", "gemma3:4b"),
     ]
-    assert pick_latest(items, "qwen3.5:4b").generation_id == "20261009-170000"
-    assert pick_latest(items, "gemma3:4b").generation_id == "20261009-180000"
+    assert pick_latest(items, "qwen3.5:4b", "qwen3.5:4b").generation_id == "20261009-170000"
+    assert pick_latest(items, "gemma3:4b", "gemma3:4b").generation_id == "20261009-180000"
     # そのモデルの要約がなければ、モデルを問わずいちばん新しいもの
-    assert pick_latest(items, "llama3.2:3b").generation_id == "20261009-180000"
-    assert pick_latest([], "qwen3.5:4b") is None
+    assert pick_latest(items, "llama3.2:3b", "llama3.2:3b").generation_id == "20261009-180000"
+    assert pick_latest([], "qwen3.5:4b", "qwen3.5:4b") is None
+
+
+def test_pick_latest_matches_the_pair_of_overview_and_detail_models():
+    # 全体概要と要約詳細のモデルの組で選ぶ（#178）。記録する前の要約は、両方とも model とみなす
+    items = [
+        summary("20261009-160000", "qwen3.5:4b"),
+        summary("20261009-170000", "qwen3.5:4b").model_copy(
+            update={"overview_model": "qwen3.5:2b"}
+        ),
+        summary("20261009-180000", "gemma3:4b"),
+    ]
+    assert pick_latest(items, "qwen3.5:2b", "qwen3.5:4b").generation_id == "20261009-170000"
+    assert pick_latest(items, "qwen3.5:4b", "qwen3.5:4b").generation_id == "20261009-160000"
+    # 詳細だけ合っても組が違えば、いちばん新しいもの
+    assert pick_latest(items, "gemma3:4b", "qwen3.5:4b").generation_id == "20261009-180000"
 
 
 def test_parse_transcript_lines():
@@ -152,16 +167,20 @@ def test_list_summaries(client, project):
 def test_latest_summary_follows_the_final_summary_model(client, project):
     pid, _ = project
     url = f"{base(pid)}/{SID}/summaries/latest"
-    # 既定の finalSummaryModel は qwen3.5:4b。gemma3:4b のほうが新しくても qwen を返す
+    # 既定の全体概要・要約詳細は qwen3.5:4b。gemma3:4b のほうが新しくても qwen を返す
     body = client.get(url).json()
     assert (body["kind"], body["generationId"]) == ("final", "20261009-160203")
     assert body["text"] == "## qwen3.5:4b の要約\n"
 
-    client.patch("/api/settings", json={"ollama": {"finalSummaryModel": "gemma3:4b"}})
+    def use(model):
+        models = {"overview": model, "detail": model}
+        client.patch("/api/settings", json={"ollama": {"models": models}})
+
+    use("gemma3:4b")
     assert client.get(url).json()["generationId"] == "20261009-170000"
 
     # そのモデルの要約がなければ、いちばん新しいもの
-    client.patch("/api/settings", json={"ollama": {"finalSummaryModel": "llama3.2:3b"}})
+    use("llama3.2:3b")
     assert client.get(url).json()["generationId"] == "20261009-170000"
 
 

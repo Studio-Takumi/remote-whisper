@@ -152,7 +152,7 @@ class TermPicker:
         # 長すぎるときは新しい方を渡す（拾った語は、文字起こし全体で数え直す）
         while len(lines) > 1 and sum(len(x) for x in lines) > CHUNK_CHARS:
             lines.pop(0)
-        model = self.settings.get().ollama.live_summary_model
+        model = self.settings.get().ollama.models.transcript_terms
         started = time.monotonic()
         log.info("terms of %s started with %s (%d lines)", self.writer.id, model, len(lines))
         try:

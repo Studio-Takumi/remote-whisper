@@ -9,7 +9,9 @@ export type TranscriptLine = {
 // 最終の要約。作り直すたびに増えていく（spec 6.5 節）
 export type Summary = {
     generationId: string;
+    // 要約詳細のモデルと、全体概要のモデル（#178。ないものは model と同じ）
     model: string;
+    overviewModel?: string;
     generatedAt: string;
     // 本文。まだ取ってきていなければない
     text?: string;

@@ -166,7 +166,10 @@ class SummaryMeta(_Meta):
     title: str | None = None
     started_at: str
     ended_at: str | None = None
+    # 要約詳細（部分ごとの要約。一度に収まるときはその要約）のモデル
     model: str
+    # 全体概要のモデル（#178）。表示する版は model との組で選ぶ。以前のものにはない（model と同じ）
+    overview_model: str | None = None
     think: bool
     transcript: str | None = None
     context_set: str | None = None

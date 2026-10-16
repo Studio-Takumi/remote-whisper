@@ -16,7 +16,7 @@ from remote_whisper.ollama import OllamaUnavailable, ollama_error
 from remote_whisper.projects import ProjectError, ProjectStore
 from remote_whisper.recording import RecordingError
 from remote_whisper.session_writer import SessionWriter
-from remote_whisper.settings import SettingsStore
+from remote_whisper.settings import FinalModels, OllamaModels, SettingsStore
 from remote_whisper.timeutil import make_id, now
 
 log = logging.getLogger(__name__)
@@ -268,9 +268,14 @@ class MockSession:
         await self._stream("final", FINAL_SUMMARY)
         if self.writer:
             # 最終の要約のモデルは、今の全体設定のもの（思考モードはモデルが対応していればオン）
-            model = self.recorder.final_summary_model()
+            models = self.recorder.final_models()
             self.writer.set_title(FINAL_TITLE)
-            self.writer.save_final_summary(model, mock_thinking(model), FINAL_SUMMARY)
+            self.writer.save_final_summary(
+                models.detail,
+                mock_thinking(models.detail),
+                FINAL_SUMMARY,
+                overview_model=models.overview,
+            )
         await self.send({"type": "title", "title": FINAL_TITLE, "provisional": False})
 
     def detach(self) -> None:
@@ -307,6 +312,8 @@ class MockSession:
 
 # モックで返す Ollama のモデル。思考モードに対応するもの・しないものを両方入れる
 MOCK_OLLAMA_MODELS = [
+    {"name": "qwen3.5:0.8b", "thinking": True},
+    {"name": "qwen3.5:2b", "thinking": True},
     {"name": "qwen3.5:4b", "thinking": True},
     {"name": "gemma3:4b", "thinking": False},
     {"name": "llama3.2:3b", "thinking": False},
@@ -333,7 +340,7 @@ class MockContextGenerator:
         self.timing = timing or MockTiming()
 
     def describe(self) -> tuple[str, bool]:
-        model = self.settings.get().ollama.context_model
+        model = self.settings.get().ollama.models.context
         return model, mock_thinking(model)
 
     async def generate(self, materials: str) -> tuple[list[str], str]:
@@ -351,18 +358,25 @@ class MockFinalSummarizer:
         self.settings = settings
         self.timing = timing or MockTiming()
 
-    async def run(self, writer: SessionWriter, send, model: str | None = None) -> str | None:
+    async def run(
+        self, writer: SessionWriter, send, models: FinalModels | None = None
+    ) -> str | None:
         if self.hub.status.ollama != "ready":
             writer.set_summary_failed(True)
             await send(ollama_error("最終の要約"))
             return None
-        model = model or self.settings.get().ollama.final_summary_model
+        models = models or self.settings.get().ollama.models.final()
         for i in range(0, len(FINAL_SUMMARY), 6):
             await send({"type": "summary.delta", "kind": "final", "text": FINAL_SUMMARY[i : i + 6]})
             await asyncio.sleep(self.timing.stream)
         await send({"type": "summary.done", "kind": "final"})
         writer.set_title(FINAL_TITLE)
-        gid = writer.save_final_summary(model, mock_thinking(model), FINAL_SUMMARY)
+        gid = writer.save_final_summary(
+            models.detail,
+            mock_thinking(models.detail),
+            FINAL_SUMMARY,
+            overview_model=models.overview,
+        )
         writer.set_summary_failed(False)
         await send({"type": "title", "title": FINAL_TITLE, "provisional": False})
         return gid
@@ -386,8 +400,8 @@ class MockRecorder:
         self.projects = projects
         self.settings = settings
 
-    def final_summary_model(self) -> str:
-        return self.settings.get().ollama.final_summary_model if self.settings else "qwen3.5:4b"
+    def final_models(self) -> FinalModels:
+        return (self.settings.get().ollama.models if self.settings else OllamaModels()).final()
 
     def _writer(self, project: str, sid: str) -> SessionWriter | None:
         """登録されたプロジェクトなら、ファイルを書く SessionWriter を作る。知らなければ None"""

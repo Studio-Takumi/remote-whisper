@@ -96,10 +96,16 @@ def summary_source(files: SessionFiles) -> Path:
     return files.final_transcript(finals[-1].generation_id) if finals else files.transcript
 
 
-def pick_latest(summaries: list[SummaryMeta], final_model: str) -> SummaryMeta | None:
-    """表示する最終の要約。今の最終の要約のモデルで作ったうちいちばん新しいもの。
-    そのモデルのものがなければ、モデルを問わずいちばん新しいもの（spec 6.5）"""
-    same = [s for s in summaries if s.model == final_model]
+def same_models(summary: SummaryMeta, overview: str, detail: str) -> bool:
+    """今の全体概要と要約詳細のモデルの組で作った要約か（#178）。
+    全体概要のモデルを記録する前の要約は、要約詳細と同じモデルで作ったものとみなす"""
+    return summary.model == detail and (summary.overview_model or summary.model) == overview
+
+
+def pick_latest(summaries: list[SummaryMeta], overview: str, detail: str) -> SummaryMeta | None:
+    """表示する最終の要約。今の全体概要と要約詳細のモデルの組で作ったうちいちばん新しいもの。
+    その組のものがなければ、モデルを問わずいちばん新しいもの（spec 6.5）"""
+    same = [s for s in summaries if same_models(s, overview, detail)]
     pool = same or summaries
     return max(pool, key=lambda s: s.generation_id) if pool else None
 

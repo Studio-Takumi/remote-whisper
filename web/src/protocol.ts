@@ -103,5 +103,6 @@ export type ErrorCode =
 export type SettingsOptions = {
     // finalTranscript は、最終の文字起こし（WhisperX）を作れるサーバーか（#124。古いサーバーにはない）
     whisper: { models: string[]; computeTypes: string[]; finalTranscript?: boolean };
-    ollama: { models: { name: string; thinking: boolean }[] };
+    // missing は、処理ごとのモデル（#178）のうち Ollama に入っていないもの（ollama.models のキー）
+    ollama: { models: { name: string; thinking: boolean }[]; missing?: string[] };
 };

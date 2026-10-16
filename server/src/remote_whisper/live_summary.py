@@ -151,7 +151,8 @@ class LiveSummarizer:
             return
         lines = [f"[{fmt_clock(start)}] {text}" for start, text in self.finals[self._base : upto]]
         chunks = split_lines(lines, CHUNK_CHARS)
-        model = self.settings.get().ollama.live_summary_model
+        models = self.settings.get().ollama.models
+        model = models.live_summary
         # 要約度は区間ごとの要約に効かせる（概要は短いまま。#100）
         density = self.settings.get().ollama.live_summary_density
         started = time.monotonic()
@@ -228,7 +229,7 @@ class LiveSummarizer:
         started = time.monotonic()
         try:
             # 区間が分かれていれば、ここまでの概要から作る
-            title = await make_title(self.ollama, model, overview or current)
+            title = await make_title(self.ollama, models.live_title, overview or current)
         except OllamaUnavailable as e:
             # 仮のタイトルは次の回に作り直す（要約はできているので、エラーは送らない）
             log.warning("provisional title of %s failed: %s", self.writer.id, e)

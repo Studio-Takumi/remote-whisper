@@ -121,11 +121,49 @@ def test_format_and_options_are_passed(ollama, fake):
     assert (body["format"], body["options"]) == (schema, {"num_ctx": 8192})
 
 
-def test_chat_with_unknown_model_fails(ollama):
+def test_chat_with_unknown_model_fails(ollama, fake):
+    # 一覧には出るのに呼ぶと断られる（代わりを選べない）ときは失敗する
+    original = fake.handle
+
+    def handle(request):
+        if request.url.path == "/api/chat":
+            return httpx.Response(404, json={"error": "model not found"})
+        return original(request)
+
+    ollama._transport = httpx.MockTransport(handle)
     with pytest.raises(OllamaUnavailable):
         run(ollama.chat("nope", []))
     # Ollama 自体は動いているので、status は error にしない
     assert ollama.hub.status.ollama == "ready"
+
+
+def test_missing_model_falls_back_to_the_detail_model(ollama, fake, caplog):
+    # 入っていないモデルは、要約詳細のモデル（既定は qwen3.5:4b）で代わりに動かす（#178）
+    with caplog.at_level(logging.WARNING):
+        assert run(ollama.chat("qwen3.5:0.8b", [])) == "要約です"
+        run(ollama.chat("qwen3.5:0.8b", []))
+    assert [b["model"] for b in fake.bodies("/api/chat")] == ["qwen3.5:4b", "qwen3.5:4b"]
+    # ログはモデルごとに 1 回だけ
+    assert sum("qwen3.5:0.8b is not installed" in r.message for r in caplog.records) == 1
+
+
+def test_fallback_order_is_detail_overview_then_the_first_installed(ollama, fake):
+    ollama.settings.update(
+        {"ollama": {"models": {"detail": "big:70b", "overview": "llama3.2:latest"}}}
+    )
+    assert run(ollama.resolve("nope")) == "llama3.2:latest"
+    ollama.settings.update({"ollama": {"models": {"overview": "big:70b"}}})
+    assert run(ollama.resolve("nope")) == "llama3.2:latest"  # 名前の順で最初のもの
+    fake.models = {"zeta:1b": [], "alpha:1b": []}
+    assert run(ollama.resolve("nope")) == "alpha:1b"
+    # 入っていれば、そのまま。タグを省いた名前は :latest とみなす
+    fake.models = {"llama3.2:latest": []}
+    assert run(ollama.resolve("llama3.2")) == "llama3.2"
+
+
+def test_resolve_keeps_the_model_when_ollama_is_down(ollama, fake):
+    fake.up = False
+    assert run(ollama.resolve("qwen3.5:0.8b")) == "qwen3.5:0.8b"
 
 
 def test_server_error_sets_status_error(ollama, fake, monkeypatch):
@@ -159,3 +197,20 @@ def test_keep_alive_while_recording(ollama, fake, state):
     assert fake.bodies("/api/generate") == [{"model": "qwen3.5:4b", "keep_alive": "300s"}]
     run(ollama.recording_ended())
     assert len(fake.bodies("/api/generate")) == 1
+
+
+def test_only_one_model_stays_loaded_while_recording(ollama, fake, state):
+    # 録音中に別のモデルを使うときは、録音中に載せたほかのモデルを先に下ろす（#178。VRAM のため）
+    state["recording"] = True
+    run(ollama.chat("qwen3.5:4b", []))
+    run(ollama.chat("qwen3.5:4b", []))
+    assert fake.bodies("/api/generate") == []
+    run(ollama.chat("llama3.2:latest", []))
+    assert fake.bodies("/api/generate") == [{"model": "qwen3.5:4b", "keep_alive": 0}]
+    order = [path for path, _ in fake.requests if path in ("/api/generate", "/api/chat")]
+    assert order == ["/api/chat", "/api/chat", "/api/generate", "/api/chat"]
+    # 録音が終わったら、最後に載せたものだけを keepAliveMin 分に戻す
+    state["recording"] = False
+    run(ollama.recording_ended())
+    assert fake.bodies("/api/generate")[-1] == {"model": "llama3.2:latest", "keep_alive": "600s"}
+    assert len(fake.bodies("/api/generate")) == 2

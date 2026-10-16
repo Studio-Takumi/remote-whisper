@@ -35,7 +35,7 @@ from remote_whisper.prompts import (
 )
 from remote_whisper.session_writer import SessionWriter
 from remote_whisper.sessions import summary_source
-from remote_whisper.settings import SettingsStore
+from remote_whisper.settings import FinalModels, SettingsStore
 from remote_whisper.summary_parts import (
     CHUNK_CHARS,
     NUM_CTX,
@@ -110,18 +110,18 @@ class FinalSummarizer:
         self,
         writer: SessionWriter,
         send: Callable[[dict[str, Any]], Awaitable[None]],
-        model: str | None = None,
+        models: FinalModels | None = None,
     ) -> str | None:
         """最終の要約を作って保存する。生成 ID を返す（作れなければ None）
 
-        model を省くと、動き始めた時点の finalSummaryModel を使う
+        models を省くと、動き始めた時点の全体設定のモデル（全体概要・要約詳細・タイトル）を使う
         （作り直しは、頼んだ時点のものを渡す）
 
         思わぬ例外で止まっても、`title` か `error` のどちらかは必ず送る
         （送らないと、ブラウザが「作成中」のままになる。#118）
         """
         try:
-            return await self._run(writer, send, model)
+            return await self._run(writer, send, models)
         except Exception:
             log.exception("final summary of %s failed", writer.id)
             _mark_failed(writer, True)
@@ -138,7 +138,7 @@ class FinalSummarizer:
         self,
         writer: SessionWriter,
         send: Callable[[dict[str, Any]], Awaitable[None]],
-        model: str | None,
+        models: FinalModels | None,
     ) -> str | None:
         # 生成 ID は、生成を始めた時刻（spec 5.2）
         started = now()
@@ -171,7 +171,14 @@ class FinalSummarizer:
                 }
             )
             return None
-        model = model or self.settings.get().ollama.final_summary_model
+        models = models or self.settings.get().ollama.models.final()
+        # 入っていないモデルは代わりのもので作り、フロントマターには実際に使ったモデルを残す（#178）
+        models = FinalModels(
+            overview=await self.ollama.resolve(models.overview),
+            detail=await self.ollama.resolve(models.detail),
+            title=await self.ollama.resolve(models.title),
+        )
+        model = models.detail
         context = (
             load_context(writer.files.dir, writer.meta.context_set) if writer.use_context else None
         )
@@ -179,10 +186,16 @@ class FinalSummarizer:
         ollama_settings = self.settings.get().ollama
         density = Density(ollama_settings.overview_density, ollama_settings.detail_density)
         clock = time.monotonic()
-        log.info("final summary of %s started with %s (%d lines)", writer.id, model, len(lines))
+        log.info(
+            "final summary of %s started with %s / %s (%d lines)",
+            writer.id,
+            models.overview,
+            models.detail,
+            len(lines),
+        )
         try:
             think = await self.ollama.supports_thinking(model)
-            text, gist = await self._summarize(model, lines, context, send, density)
+            text, gist = await self._summarize(models, lines, context, send, density)
             if not gist:
                 raise OllamaUnavailable("要約が空でした")
         except OllamaUnavailable as e:
@@ -201,7 +214,7 @@ class FinalSummarizer:
 
         clock = time.monotonic()
         try:
-            title = await make_title(self.ollama, model, gist)
+            title = await make_title(self.ollama, models.title, gist)
             if title:
                 log.info("title of %s done in %.1fs", writer.id, time.monotonic() - clock)
         except OllamaUnavailable as e:
@@ -226,6 +239,7 @@ class FinalSummarizer:
                     density.overview if len(split_lines(lines, CHUNK_CHARS)) > 1 else None
                 ),
                 detail_density=density.detail,
+                overview_model=models.overview,
             )
         except OSError:
             log.exception("failed to save the final summary of %s", writer.id)
@@ -250,7 +264,7 @@ class FinalSummarizer:
 
     async def _summarize(
         self,
-        model: str,
+        models: FinalModels,
         lines: list[str],
         context: str | None,
         send: Callable[[dict[str, Any]], Awaitable[None]],
@@ -258,9 +272,11 @@ class FinalSummarizer:
     ) -> tuple[str, str]:
         """要約の本文と、タイトルを作る元（長いときは全体の概要）を返す。どちらも空なら作れなかった
 
-        一度に収まるときは、詳細の要約度で作る（概要は作らない）
+        一度に収まるときは、詳細の要約度で作る（概要は作らない）。
+        部分ごとの要約（と一度に収まるときの要約）は要約詳細のモデル、まとめと概要は全体概要のモデル
         """
         density = density or Density()
+        model = models.detail
         options = {"num_ctx": NUM_CTX}
         chunks = split_lines(lines, CHUNK_CHARS)
         if len(chunks) == 1:
@@ -300,7 +316,7 @@ class FinalSummarizer:
             digest = [
                 (
                     await self.ollama.chat(
-                        model,
+                        models.overview,
                         reduce_summary_messages(group, context),
                         think=True,
                         options=options,
@@ -311,7 +327,7 @@ class FinalSummarizer:
         # 全体の概要を流してから、部分ごとの要約を時間の順に続ける
         head = f"## {OVERVIEW_HEADING}\n\n"
         stream = self.ollama.chat_stream(
-            model,
+            models.overview,
             overview_messages(digest, context, density.overview),
             think=True,
             options=options,

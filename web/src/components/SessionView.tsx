@@ -15,6 +15,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { pickFinalTranscript } from '@/data';
 import { recordingLocks } from '@/recording';
 import { isScrolledToBottom, scrollToBottom } from '@/scroll';
+import { type OllamaModels, finalModelLabel, isCurrentFinalSummary } from '@/settings';
 import { makingFinalTranscript, summaryStatus, transcriptStatus } from '@/status';
 import { currentProject, currentSession, useAppStore, visibleProjects } from '@/store';
 import { clockToSeconds } from '@/time';
@@ -29,7 +30,7 @@ export function SessionView() {
     const recordingState = useAppStore((s) => s.recordingState);
     const server = useAppStore((s) => s.server);
     const liveIntervalMin = useAppStore((s) => s.settings.ollama.liveSummaryIntervalMin);
-    const finalModel = useAppStore((s) => s.settings.ollama.finalSummaryModel);
+    const models = useAppStore((s) => s.settings.ollama.models);
     const generating = useAppStore((s) => s.generating);
     const partial = useAppStore((s) => s.partial);
     const liveDraft = useAppStore((s) => s.liveDraft);
@@ -201,12 +202,7 @@ export function SessionView() {
 
                 <TabsContent value='summary' className='flex flex-col gap-4'>
                     {session ? (
-                        <SummaryPanel
-                            session={session}
-                            finalModel={finalModel}
-                            generating={generating}
-                            liveDraft={liveDraft}
-                        />
+                        <SummaryPanel session={session} models={models} generating={generating} liveDraft={liveDraft} />
                     ) : (
                         recordingState === 'idle' && (
                             <p className='text-sm text-muted-foreground'>
@@ -417,12 +413,13 @@ function FinalTranscriptBar({
 // 世代が複数あれば切り替えられる（spec 6.5）
 function SummaryPanel({
     session,
-    finalModel,
+    models,
     generating,
     liveDraft,
 }: {
     session: Session;
-    finalModel: string;
+    // 今の全体設定の処理ごとのモデル（最終の要約は、全体概要と要約詳細の組で見る。#178）
+    models: OllamaModels;
     generating: Generating | null;
     liveDraft: { sessionId: string; text: string } | null;
 }) {
@@ -433,8 +430,9 @@ function SummaryPanel({
     // 手で選んだ世代。セッションを替えたときと、要約が増えた（作り直した）ときは既定に戻す
     const [picked, setPicked] = useState<{ sessionId: string; count: number; generationId: string } | null>(null);
 
+    const finalModel = finalModelLabel(models);
     const fallback: Summary | undefined =
-        session.summaries.findLast((s) => s.model === finalModel) ?? session.summaries.at(-1);
+        session.summaries.findLast((s) => isCurrentFinalSummary(s, models)) ?? session.summaries.at(-1);
     const summary =
         picked?.sessionId === session.id && picked.count === session.summaries.length
             ? (session.summaries.find((s) => s.generationId === picked.generationId) ?? fallback)
@@ -557,7 +555,9 @@ function SummaryPanel({
         );
     }
 
-    const label = (s: Summary) => `${s.model} で生成・${s.generatedAt}`;
+    // 全体概要のモデルが要約詳細と違えば、両方出す（#178）
+    const label = (s: Summary) =>
+        `${finalModelLabel({ ...models, overview: s.overviewModel ?? s.model, detail: s.model })} で生成・${s.generatedAt}`;
     return (
         <>
             {failure}
@@ -585,7 +585,7 @@ function SummaryPanel({
                 )}
                 {regenerateButton}
             </div>
-            {summary.model !== finalModel && (
+            {!isCurrentFinalSummary(summary, models) && (
                 <p className='text-xs text-muted-foreground'>{finalModel} の要約はまだありません。</p>
             )}
             <Markdown>{summary.text ?? ''}</Markdown>
