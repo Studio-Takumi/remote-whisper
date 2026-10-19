@@ -11,6 +11,7 @@ from typing import Any
 
 from fastapi import WebSocket
 
+from remote_whisper.corrections import Correction, apply_all, replace
 from remote_whisper.hub import Hub, send
 from remote_whisper.ollama import OllamaUnavailable, ollama_error
 from remote_whisper.projects import ProjectError, ProjectStore
@@ -109,6 +110,11 @@ class MockSession:
         self._expire: asyncio.Task | None = None
         self.summary_task: asyncio.Task | None = None
 
+    def apply_correction(self, correction: Correction) -> None:
+        """置き換え（#176）。モックの途中の要約は台本を流すだけなので、持っている文に当てるだけ"""
+        if correction.line is None:
+            self.finals = [replace(t, correction.wrong, correction.right) for t in self.finals]
+
     async def send(self, message: dict[str, Any]) -> None:
         if self.ws is not None:
             await send(self.ws, {**message, "session": self.id})
@@ -168,6 +174,9 @@ class MockSession:
 
     async def _final(self, text: str, start: float) -> None:
         self.current = None
+        if self.writer:
+            # 画面で足した置き換え（#176）を当てる
+            text = apply_all(text, self.writer.meta.corrections)
         self.finals.append(text)
         if self.writer:
             self.writer.append_final(start, text)

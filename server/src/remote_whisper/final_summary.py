@@ -21,7 +21,6 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
-from remote_whisper.documents import parse
 from remote_whisper.live_summary import load_context
 from remote_whisper.ollama import OllamaClient, OllamaUnavailable, ollama_error
 from remote_whisper.prompts import (
@@ -34,7 +33,7 @@ from remote_whisper.prompts import (
     reduce_summary_messages,
 )
 from remote_whisper.session_writer import SessionWriter
-from remote_whisper.sessions import summary_source
+from remote_whisper.sessions import summary_body
 from remote_whisper.settings import FinalModels, SettingsStore
 from remote_whisper.summary_parts import (
     CHUNK_CHARS,
@@ -149,8 +148,9 @@ class FinalSummarizer:
             except Exception:  # noqa: BLE001
                 log.exception("failed to unload whisper before the summary")
         try:
-            # 最終の文字起こし（#121）があれば、そちらから作る（文ごとの行で、取りこぼしも少ない）
-            _, body = parse(summary_source(writer.files).read_text(encoding="utf-8"))
+            # 最終の文字起こし（#121）があれば、そちらから作る（文ごとの行で、取りこぼしも少ない）。
+            # 画面で足した置き換え（#176）を当てたもの
+            body = summary_body(writer.files, writer.meta.corrections)
         except (OSError, ValueError) as e:
             log.warning("could not read the transcript of %s: %s", writer.id, e)
             await send(

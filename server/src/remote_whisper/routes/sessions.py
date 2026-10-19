@@ -10,10 +10,11 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 from starlette.requests import ClientDisconnect
 
 from remote_whisper.context import AppContext, Pid, get_ctx
+from remote_whisper.corrections import Correction, CorrectionLine
 from remote_whisper.documents import FinalTranscriptMeta, SummaryMeta, TranscriptMeta, read_doc
 from remote_whisper.gpu_queue import Priority
 from remote_whisper.projects import ProjectError, ProjectFile, SessionEntry
@@ -21,12 +22,17 @@ from remote_whisper.session_writer import SessionWriter
 from remote_whisper.sessions import (
     ID_RE,
     SessionFiles,
+    correct_final_body,
     parse_transcript_lines,
     pick_latest,
     read_transcript,
+    session_corrections,
 )
 from remote_whisper.term_picker import MANUAL_MAX_CHARS, manual_terms_fit, terms_message
 from remote_whisper.uploads import UploadError
+
+# 置き換えの直す文字列（選んだ文字列）の長さの上限（#176）
+CORRECTION_MAX_CHARS = 80
 
 log = logging.getLogger(__name__)
 
@@ -173,6 +179,8 @@ def get_final_transcript(pid: Pid, sid: str, gid: str, ctx: Ctx) -> dict[str, An
     except (OSError, ValueError) as e:
         raise HTTPException(status_code=500, detail=f"文字起こしを読み込めません: {e}") from e
     meta = meta.model_copy(update={"id": sid, "generation_id": gid})
+    # 画面で足した置き換え（#176）は、版の中身は書き換えず、ここで当てる（作り直した版にも当たる）
+    body = correct_final_body(body, session_corrections(files), gid)
     return {"meta": meta.to_json(), "lines": parse_transcript_lines(body)}
 
 
@@ -246,12 +254,22 @@ async def add_term(pid: Pid, sid: str, body: TermBody, ctx: Ctx) -> dict[str, An
     手で足した語は、そのセッションだけに持つ（参考資料の用語リストには足さない）。
     前に × で外した語を足したら、外した語の記録から消す
     """
-    term = body.term.strip()
+    return await _add_manual_term(ctx, pid, sid, body.term)
+
+
+def _check_term(term: str) -> str:
+    term = term.strip()
     if not term or len(term) > MANUAL_MAX_CHARS or any(c in term for c in "、/\n\r"):
         raise HTTPException(
             status_code=400,
             detail=f"用語は 1〜{MANUAL_MAX_CHARS} 文字で、「、」「/」と改行は使えません",
         )
+    return term
+
+
+async def _add_manual_term(ctx: AppContext, pid: str, sid: str, term: str) -> dict[str, Any]:
+    """手で足した語に term を足す（#175）。置き換え（#176）の正しい語にも使う"""
+    term = _check_term(term)
     session, writer = _terms_writer(ctx, pid, sid)
     manual = list(writer.meta.manual_terms)
     if term not in manual:
@@ -311,6 +329,74 @@ async def reject_term(pid: Pid, sid: str, term: str, ctx: Ctx) -> dict[str, Any]
         # 拾うのがオフでも、続きの録音では前に拾った語が用語リストに入っている（#116）
         session.apply_hotwords()
     return _terms_json(picked, rejected, manual)
+
+
+class CorrectionBody(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    wrong: str = Field(alias="from")
+    right: str = Field(alias="to")
+    # 「この行だけ」に当てるときの行。省くと全部
+    line: CorrectionLine | None = None
+
+
+def _corrections_json(writer: SessionWriter, terms: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **terms,
+        "corrections": [c.model_dump(by_alias=True) for c in writer.meta.corrections],
+    }
+
+
+@router.post("/{sid}/corrections")
+async def add_correction(pid: Pid, sid: str, body: CorrectionBody, ctx: Ctx) -> dict[str, Any]:
+    """文字起こしの「間違った文字列 → 正しい語」の置き換えを足す（#176。spec 6.13）
+
+    正しい語は手で足した用語（#175）にも足す。録音中の文字起こしは、ファイルの中身を直し、以後に出る
+    行にも当てる。最終の文字起こしは、表示するときと要約の入力にするときに当てる。
+    ほかの端末にも、置き換えたことを知らせる（`corrections`）
+    """
+    wrong = body.wrong.strip()
+    if not wrong or "\n" in wrong or len(wrong) > CORRECTION_MAX_CHARS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"直す文字列は 1〜{CORRECTION_MAX_CHARS} 文字で、改行は使えません",
+        )
+    right = _check_term(body.right)
+    if wrong == right:
+        raise HTTPException(status_code=400, detail="直す文字列と正しい語が同じです")
+    if body.line is not None and body.line.transcript == "final" and not body.line.generation:
+        raise HTTPException(status_code=400, detail="最終の文字起こしの版を指定してください")
+    terms = await _add_manual_term(ctx, pid, sid, right)
+    session, writer = _terms_writer(ctx, pid, sid)
+    correction = Correction(wrong=wrong, right=right, line=body.line)
+    corrections = [c for c in writer.meta.corrections if c != correction] + [correction]
+    writer.set_corrections(corrections, correction)
+    if session is not None:
+        session.apply_correction(correction)
+    await ctx.hub.broadcast({"type": "corrections", "session": sid})
+    return _corrections_json(writer, terms)
+
+
+@router.delete("/{sid}/corrections")
+async def remove_correction(
+    pid: Pid,
+    sid: str,
+    ctx: Ctx,
+    wrong: Annotated[str, Query(alias="from")],
+    right: Annotated[str, Query(alias="to")],
+) -> dict[str, Any]:
+    """置き換えを外す（#176）。以後は当たらない（もう直した録音中の文字起こしの行は戻さない）。
+    最終の文字起こしと要約の入力には当たらなくなる。正しい語は手で足した用語に残す"""
+    session, writer = _terms_writer(ctx, pid, sid)
+    corrections = [
+        c for c in writer.meta.corrections if not (c.wrong == wrong and c.right == right)
+    ]
+    writer.set_corrections(corrections, None)
+    await ctx.hub.broadcast({"type": "corrections", "session": sid})
+    picker = getattr(session, "picker", None)
+    picked = picker.picked if picker is not None else writer.meta.picked_terms
+    rejected = sorted(picker.rejected) if picker is not None else writer.meta.rejected_terms
+    return _corrections_json(writer, _terms_json(picked, rejected, writer.meta.manual_terms))
 
 
 _AUDIO_TYPES = {".mp3": "audio/mpeg", ".m4a": "audio/mp4"}
