@@ -76,6 +76,14 @@ def fake_ollama(monkeypatch):
     return fake
 
 
+@pytest.fixture(autouse=True)
+def _convert_right_away(monkeypatch):
+    """普通に録音を終えたあと、続きを録音できる時間（#174）を置かずに、すぐ mp3 に変換する。
+    録音を終えてすぐの録音ファイルを確かめるテストのため。続きを確かめるテストは、録音マネージャの
+    continue_window を自分で決める"""
+    monkeypatch.setattr("remote_whisper.recorder.RecordingManager.default_continue_window", 0.0)
+
+
 @pytest.fixture
 def home(_isolated_home):
     return _isolated_home
