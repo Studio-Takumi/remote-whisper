@@ -115,6 +115,9 @@ class MockSession:
         if correction.line is None:
             self.finals = [replace(t, correction.wrong, correction.right) for t in self.finals]
 
+    def apply_hotwords(self) -> None:
+        """手で足した語（#175）。モックは Whisper を使わないので、用語リストはない"""
+
     async def send(self, message: dict[str, Any]) -> None:
         if self.ws is not None:
             await send(self.ws, {**message, "session": self.id})

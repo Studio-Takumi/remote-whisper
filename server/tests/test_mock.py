@@ -347,6 +347,32 @@ def test_recording_into_a_registered_project_is_saved(mock_client, tmp_path):
     ]
 
 
+def test_terms_and_corrections_while_recording(mock_client, tmp_path):
+    # 録音中に用語を足す（#175）・置き換える（#176）と、モックでも当たる
+    root = tmp_path / "work"
+    (root / "meetings").mkdir(parents=True)
+    mock_client.patch("/api/settings", json={"materials": {"roots": [str(root)]}})
+    pid = mock_client.post("/api/projects", json={"path": str(root / "meetings")}).json()["id"]
+    base = f"/api/projects/{pid}/sessions"
+
+    with mock_client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        sid = start(ws, project=pid)
+        receive_until(ws, of_type("final"))
+        assert mock_client.post(f"{base}/{sid}/terms", json={"term": "計画"}).status_code == 200
+        res = mock_client.post(f"{base}/{sid}/corrections", json={"from": "リリース", "to": "出荷"})
+        assert res.status_code == 200
+        assert "出荷" in res.json()["manualTerms"]
+        # 以後に出る行にも当たる
+        later = receive_until(ws, lambda m: m["type"] == "final" and "出荷" in m["text"])[-1]
+        assert "リリース" not in later["text"]
+        ws.send_json({"type": "stop"})
+        receive_until(ws, of_type("title", provisional=False))
+
+    lines = mock_client.get(f"{base}/{sid}/transcript").json()["lines"]
+    assert lines[0]["text"] == SCRIPT[0].replace("リリース", "出荷")
+
+
 def test_options(mock_client, client):
     models = mock_client.get("/api/settings/options").json()["ollama"]["models"]
     assert {m["thinking"] for m in models} == {True, False}
