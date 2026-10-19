@@ -191,6 +191,10 @@ class GpuQueue:
         """ジョブを積んで、終わるまで待つ"""
         return await self.submit(priority, job, kind, session)
 
+    def is_waiting(self, future: asyncio.Future) -> bool:
+        """submit で積んだジョブが、まだ始まっていないか（cancel すれば実行しない）"""
+        return future in self._waiting
+
     def _on_waiting_done(self, future: asyncio.Future) -> None:
         if future in self._waiting:
             del self._waiting[future]

@@ -9,23 +9,25 @@ GPU に依存させない（Whisper や Ollama が止まっていても、音声
 import asyncio
 import contextlib
 import logging
+import struct
+import time
 import wave
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 
 from fastapi import WebSocket
 
 from remote_whisper.audio_convert import convert_wav, decode_pcm
 from remote_whisper.corrections import Correction, apply_all, replace
-from remote_whisper.documents import recording_name
+from remote_whisper.documents import TranscriptMeta, recording_name
 from remote_whisper.gpu_queue import GpuQueue, Priority
 from remote_whisper.hub import Hub, send
 from remote_whisper.live_summary import LiveSummarizer, load_context
 from remote_whisper.live_transcriber import LiveTranscriber, load_hotwords
 from remote_whisper.ollama import OllamaClient
 from remote_whisper.projects import ProjectError, ProjectStore
-from remote_whisper.recording import RecordingError
+from remote_whisper.recording import RecordingError, check_continuable
 from remote_whisper.session_writer import SessionWriter
 from remote_whisper.settings import Settings, SettingsStore
 from remote_whisper.term_picker import TermPicker, combine_hotwords
@@ -42,13 +44,24 @@ class WavAppender:
     """`.tmp/<ID>/audio.wav` に追記する。書くたびにヘッダーの長さも直すので、落ちても読める
 
     restore を渡すと、その音声（前の WAV か、変換済みの mp3・m4a）を頭に書いてから続ける
-    （途中で終わったセッションの続きを録音するとき。#101）
+    （途中で終わったセッションの続きを録音するとき。#101）。前の WAV が同じファイルなら、
+    名前を変えずにその後ろに書き足す（#174。再生や浄書がそのファイルを読んでいる最中でも、
+    Windows で続きを始められるように。開いているファイルは名前を変えられないため）
     """
 
     def __init__(self, path: Path, restore: Path | None = None):
         path.parent.mkdir(parents=True, exist_ok=True)
         self.path = path
+        self._file: BinaryIO | None = None
         previous = None
+        data = _appendable(path) if restore is not None and restore == path else None
+        if data is not None:
+            self._file = path.open("r+b")
+            self._file.truncate(_HEADER + data)
+            self._file.seek(0, 2)
+            self.frames = data // SAMPLE_WIDTH
+            self._sync_header()
+            return
         if restore is not None and restore == path:
             # 同じ名前の WAV に書き直すので、前のものは別の名前にしておく
             previous = path.with_name(path.name + ".prev")
@@ -74,15 +87,59 @@ class WavAppender:
     def write(self, pcm: bytes) -> None:
         # Int16 なので、半端な1バイトは捨てる
         pcm = pcm[: len(pcm) - len(pcm) % SAMPLE_WIDTH]
+        if self._file is not None:
+            self._file.write(pcm)
+            self.frames += len(pcm) // SAMPLE_WIDTH
+            self._sync_header()
+            return
         self._wav.writeframes(pcm)
         self.frames += len(pcm) // SAMPLE_WIDTH
+
+    def _sync_header(self) -> None:
+        """書き足したファイルのヘッダーの長さを直す（wave と同じく、書くたびに直す）"""
+        assert self._file is not None
+        data = self.frames * SAMPLE_WIDTH
+        self._file.seek(4)
+        self._file.write(struct.pack("<I", _HEADER - 8 + data))
+        self._file.seek(40)
+        self._file.write(struct.pack("<I", data))
+        self._file.seek(0, 2)
+        self._file.flush()
 
     @property
     def seconds(self) -> float:
         return self.frames / SAMPLE_RATE
 
     def close(self) -> None:
+        if self._file is not None:
+            self._file.close()
+            return
         self._wav.close()
+
+
+# wave が書く WAV のヘッダーの長さ（RIFF・fmt・data の見出し）
+_HEADER = 44
+
+
+def _appendable(path: Path) -> int | None:
+    """wave で書いた（ヘッダーが 44 バイトの）16kHz・モノラル・Int16 の WAV なら、音声のバイト数。
+    そうでなければ None（名前を変えて読み直す、今までのやり方にする）"""
+    try:
+        with path.open("rb") as f:
+            head = f.read(_HEADER)
+        size = path.stat().st_size
+    except OSError:
+        return None
+    if len(head) < _HEADER or head[:4] != b"RIFF" or head[8:16] != b"WAVEfmt ":
+        return None
+    if head[36:40] != b"data":
+        return None
+    fmt_size, kind, channels, rate, _, _, bits = struct.unpack("<IHHIIHH", head[16:36])
+    if (fmt_size, kind, channels, rate, bits) != (16, 1, 1, SAMPLE_RATE, SAMPLE_WIDTH * 8):
+        return None
+    # ヘッダーの長さではなく、実際に書けていた分を使う（落ちて直す前のものでも読めるように）
+    data = size - _HEADER
+    return data - data % SAMPLE_WIDTH
 
 
 class RecordingSession:
@@ -124,6 +181,20 @@ class RecordingSession:
         # 最終の要約を作る予定のあいだ、status の summarizing から外すための関数（#118）。
         # 録音を終えたときに入れ、要約を積んだらキューのジョブに引き渡す
         self._summary_end: Callable[[], None] | None = None
+        # 録音を終えた時刻（time.monotonic）。続きを録音できる時間（#174）を数える
+        self.ended_at: float | None = None
+        # 普通に録音を終えたあと、続きを録音できる間は mp3 への変換を待たせる（#174）。そのタスク
+        self._deferred: asyncio.Task | None = None
+        # 録音を終えた状態（done・interrupted）。後始末で使う
+        self._status: str | None = None
+        # 浄書・最終の要約を作る段階（_complete）に入った
+        self._completing = False
+        # 積んだ最終の要約のジョブ（待っている間に続きを録音し始めたら、取り消す。#174）
+        self._summary_job: asyncio.Future | None = None
+        # 続きの録音に引き継ぐために、浄書・最終の要約を取り消した（続けられなかったら作り直す）
+        self._completion_cancelled = False
+        # 続きの録音に引き継ぐために、GPU キューで待っていた最終の要約を取り消した（同じく積み直す）
+        self._summary_cancelled = False
 
     def start_transcribing(self, whisper: WhisperWorker, gpu: GpuQueue, settings: Settings) -> None:
         meta = self.writer.meta
@@ -281,6 +352,8 @@ class RecordingSession:
         if self.ended:
             return
         self.ended = True
+        self.ended_at = time.monotonic()
+        self._status = status
         if status == "done" and self.manager.will_summarize():
             # 録音中の数が減ったことを送る status に、要約を待っていることを含める
             # （ブラウザは、summarizing から外れたら要約ができたものとして取り直す）
@@ -335,13 +408,20 @@ class RecordingSession:
     async def _complete(self, status: str) -> None:
         """mp3 に変換して、録音を終えたのなら最終の文字起こしを作り（#121）、最終の要約を積む
 
-        最終の要約は、最終の文字起こしができればそちらから作るので、できるまで待つ
+        最終の要約は、最終の文字起こしができればそちらから作るので、できるまで待つ。
+        普通に録音を終えたとき（done）は、続きを録音できる間（recording.continueWindowMin）は WAV の
+        まま残し、過ぎてから変換する（続けるたびに mp3 をデコードし直さないため。#174）。
+        浄書は WAV からでも作れる
         """
-        self.converting = True
-        try:
-            await self._convert()
-        finally:
-            self.converting = False
+        self._completing = True
+        if status == "done" and self.manager.continue_window_sec() > 0:
+            self._defer_convert()
+        else:
+            self.converting = True
+            try:
+                await self._convert()
+            finally:
+                self.converting = False
         if status == "done":
             # 大きい資料なら、今回扱った範囲を判断して用語リストを作り直してから浄書し、
             # 浄書の後にコンテキストを作り直す（#182）
@@ -361,12 +441,59 @@ class RecordingSession:
         finally:
             self._settle_summary()
 
+    def hand_over(self) -> None:
+        """続きの録音に引き継ぐ（#101・#174）。mp3 への変換をやめ、普通に録音を終えたあとの
+        浄書・最終の要約は、まだのものを取り消す（続きを録音し終えたら、録音全体で作り直す）。
+        すでに GPU で動いている最終の要約は、そのまま終わらせて前の版として残す
+        （作っている途中の浄書は、録音が始まると止まる。6.9 節）"""
+        self.superseded = True
+        if self._deferred is not None and not self._deferred.done():
+            self._deferred.cancel()
+        finishing = self._finishing
+        if self._status == "done" and self._completing and finishing and not finishing.done():
+            finishing.cancel()
+            self._completion_cancelled = True
+        job, gpu = self._summary_job, self.manager.gpu
+        if job is not None and gpu is not None and gpu.is_waiting(job):
+            job.cancel()
+            self._summary_cancelled = True
+
     def take_back(self) -> None:
         """続きの録音に引き継ごうとしたが、続けられなかった。後始末を元どおり行う（#101）"""
         self.superseded = False
         if self._handed_over is not None:
             status, self._handed_over = self._handed_over, None
             self._finishing = asyncio.create_task(self._complete_taken_back(status))
+        elif self._completion_cancelled:
+            # 取り消した浄書・最終の要約を作り直す（変換も、続きを録音できる時間のあとに行う）
+            self._completion_cancelled = False
+            self._finishing = asyncio.create_task(self._complete_taken_back("done"))
+        else:
+            if self._deferred is not None and self._deferred.cancelled():
+                self._defer_convert()
+            if self._summary_cancelled:
+                # 取り消した（GPU キューで待っていた）最終の要約を積み直す
+                self.manager.submit_final_summary(self)
+        self._summary_cancelled = False
+
+    def _defer_convert(self) -> None:
+        """続きを録音できる時間が過ぎたら、WAV を mp3 に変換する（#174）"""
+        left = self.manager.continue_window_sec() - (time.monotonic() - (self.ended_at or 0.0))
+        self._deferred = asyncio.create_task(self._convert_later(max(0.0, left)))
+
+    async def _convert_later(self, delay: float) -> None:
+        await asyncio.sleep(delay)
+        finishing = self._finishing
+        if finishing is not None and not finishing.done():
+            # 浄書・最終の要約を作っている途中なら、終わるのを待つ（浄書が WAV を読むため）
+            await asyncio.wait({finishing})
+        if self.superseded:
+            return
+        self.converting = True
+        try:
+            await self._convert()
+        finally:
+            self.converting = False
 
     async def _convert(self) -> None:
         """WAV を mp3 に変換して WAV を消す。失敗したら WAV を残す（次の起動時に変換し直す: #33）"""
@@ -394,9 +521,22 @@ class RecordingSession:
             wav.parent.rmdir()
 
     async def wait_finished(self) -> None:
-        """録音を終えたあとの処理（文字起こし・変換）が終わるまで待つ"""
-        if self._finishing is not None:
-            await asyncio.shield(self._finishing)
+        """録音を終えたあとの処理（文字起こし・変換）が終わるまで待つ。
+        続きの録音に引き継いで取り消したもの（#174）は、待たずに終わる"""
+        task = self._finishing
+        if task is not None:
+            await asyncio.wait({task})
+            if not task.cancelled():
+                task.result()
+
+    async def wait_converted(self) -> None:
+        """続きを録音できる時間のあとの mp3 への変換（#174）も含めて、終わるまで待つ"""
+        await self.wait_finished()
+        task = self._deferred
+        if task is not None:
+            await asyncio.wait({task})
+            if not task.cancelled():
+                task.result()
 
 
 def _ignore_failure(future: asyncio.Future) -> None:
@@ -412,6 +552,9 @@ def _ignore_summary_failure(future: asyncio.Future) -> None:
 
 
 class RecordingManager:
+    # continue_window の既定（テストでまとめて変える）
+    default_continue_window: float | None = None
+
     def __init__(
         self,
         hub: Hub,
@@ -441,6 +584,9 @@ class RecordingManager:
         self.on_count = on_count or (lambda n: None)
         # 接続が切れてから resume を待つ秒数。None なら全体設定（recording.resumeTimeoutMin）
         self.resume_timeout = resume_timeout
+        # 普通に録音を終えたあと、続きを録音できる秒数（#174）。None なら全体設定
+        # （recording.continueWindowMin）。テストで短くする
+        self.continue_window: float | None = RecordingManager.default_continue_window
         self.sessions: dict[str, RecordingSession] = {}
         # 続きを録音するために、前の録音を WAV に戻している途中のセッション
         self._restoring: set[str] = set()
@@ -500,13 +646,20 @@ class RecordingManager:
         self, ws: WebSocket, project: str, sid: str, previous: "RecordingSession | None"
     ) -> RecordingSession:
         if previous is not None:
+            # 続けられないセッション（時間を過ぎたなど）なら、前の録音の後始末に手を付けずに断る
+            try:
+                self._check_continuable(SessionWriter.existing(self.projects, project, sid).meta)
+            except (ProjectError, OSError, ValueError) as e:
+                raise RecordingError(
+                    "session_not_found", "続きを録音できるセッションがありません"
+                ) from e
             if previous.converting:
                 # mp3 に変換している途中なら、終わるのを待つ（CPU で数秒。WAV を読んでいるため）
-                await previous.wait_finished()
-            else:
-                # 残りの文字起こし（GPU の空きを待つことがある）は待たずに、そのまま続けさせる。
-                # その間に WAV を変換し始めないよう、先に止めておく（続けられなければ戻す）
-                previous.superseded = True
+                await previous.wait_converted()
+            # 残りの文字起こし（GPU の空きを待つことがある）は待たずに、そのまま続けさせる。
+            # その間に WAV を変換し始めないよう、先に止めておく。録音を終えたあとの浄書・
+            # 最終の要約でまだのものは取り消す（#174。続けられなければ take_back で戻す）
+            previous.hand_over()
         try:
             session = await self._restore(ws, project, sid)
         except BaseException:
@@ -524,6 +677,15 @@ class RecordingManager:
         self._begin(session)
         return session
 
+    def continue_window_sec(self) -> float:
+        """普通に録音を終えたあと、続きを録音できる秒数（#174）"""
+        if self.continue_window is not None:
+            return self.continue_window
+        return self.settings.get().recording.continue_window_min * 60
+
+    def _check_continuable(self, meta: TranscriptMeta) -> None:
+        check_continuable(meta, self.continue_window_sec())
+
     async def _restore(self, ws: WebSocket, project: str, sid: str) -> RecordingSession:
         """続きを録音できるか確かめて、前の録音を WAV に戻したセッションを作る"""
         try:
@@ -532,10 +694,7 @@ class RecordingManager:
             raise RecordingError(
                 "session_not_found", "続きを録音できるセッションがありません"
             ) from e
-        if writer.meta.status != "interrupted":
-            raise RecordingError(
-                "cannot_continue", "続きを録音できるのは、途中で終わったセッションだけです"
-            )
+        self._check_continuable(writer.meta)
         wav = writer.files.dir / ".tmp" / sid / "audio.wav"
         restore = wav if wav.is_file() else writer.files.recording()
         if restore is None:
@@ -637,6 +796,7 @@ class RecordingManager:
             raise
         future.add_done_callback(_ignore_summary_failure)
         future.add_done_callback(lambda _: end())
+        session._summary_job = future
 
     async def close(self) -> None:
         """サーバーを止めるとき。録音中の WAV を閉じ、録音を終えたあとの処理を止める
@@ -648,10 +808,12 @@ class RecordingManager:
                 await session.transcriber.close()
             if session.summarizer is not None:
                 await session.summarizer.close()
+        # 続きを録音できる時間のあとの変換（#174）も止める（WAV は次の起動時に変換する）
         finishing = [
-            s._finishing
+            task
             for s in self.sessions.values()
-            if s._finishing is not None and not s._finishing.done()
+            for task in (s._finishing, s._deferred)
+            if task is not None and not task.done()
         ]
         for task in finishing:
             task.cancel()

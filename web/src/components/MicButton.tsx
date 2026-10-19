@@ -1,8 +1,35 @@
+import { useEffect, useState } from 'react';
+
 import { MicIcon, MicOffIcon, PauseIcon, PlayIcon, PlusIcon, SquareIcon, Undo2Icon } from 'lucide-react';
 
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { continueLeftSec, describeLeft } from '@/continueWindow';
 import { currentProject, currentSession, useAppStore } from '@/store';
 import { formatElapsed } from '@/time';
+import type { Session } from '@/types';
+
+// 開いているセッションの続きから録音できる残りの秒数（#174）。続けられないなら null。
+// 続けられる間だけ 5 秒ごとに時計を進める（時間を過ぎてもしばらく「続きから録音」のまま、に
+// ならないよう短めにする。ずっと前に終えたセッションでは動かさない）
+function useContinueLeft(session: Session | undefined, windowMin: number, idle: boolean) {
+    const [now, setNow] = useState(() => Date.now());
+    const left = session && idle ? continueLeftSec(session, windowMin, now) : null;
+    const active = left !== null;
+    useEffect(() => {
+        if (!active) {
+            return;
+        }
+        const tick = () => setNow(Date.now());
+        // 止まっていた間に古くなった時刻は、すぐ取り直す
+        const first = setTimeout(tick, 0);
+        const timer = setInterval(tick, 5000);
+        return () => {
+            clearTimeout(first);
+            clearInterval(timer);
+        };
+    }, [active]);
+    return left;
+}
 
 // アイコンの大きさ。スマホの幅ではボタンが小さいので、アイコンも小さくする
 const smallIcon = 'size-10 md:size-14';
@@ -34,6 +61,11 @@ export function MicButton() {
         (s) => s.projects.flatMap((p) => p.sessions).find((x) => x.id === s.recordingSessionId)?.title,
     );
     const onBack = useAppStore((s) => s.showRecordingSession);
+    const onContinue = useAppStore((s) => s.continueRecording);
+    // 開いているセッションを、録音を終えてからしばらくは続きから録音できる（#174）
+    const session = useAppStore(currentSession);
+    const windowMin = useAppStore((s) => s.settings.recording.continueWindowMin);
+    const continueLeft = useContinueLeft(session, windowMin, state === 'idle');
 
     const target: MicTarget =
         projectName === undefined ? { kind: 'none' } : hasSession ? { kind: 'session', projectName } : { kind: 'new' };
@@ -64,38 +96,46 @@ export function MicButton() {
                   color: 'bg-amber-500',
                   icon: <PlayIcon className={smallIcon} fill='currentColor' />,
               }
-            : target.kind === 'session'
+            : session && continueLeft !== null
               ? {
-                    onClick: onStart,
-                    label: `クリックして「${target.projectName}」に新しいセッションを作成`,
-                    hint: '押すと新しいセッション',
-                    color: 'bg-neutral-500',
-                    icon: <PlusIcon className={largeIcon} />,
+                    onClick: () => void onContinue(session.id),
+                    label: `クリックして続きから録音（録音を終えてから ${windowMin} 分の間は、続きから録音できます。${describeLeft(continueLeft)}）`,
+                    hint: '押すと続きから録音',
+                    color: 'bg-blue-500',
+                    icon: <MicIcon className={largeIcon} />,
                 }
-              : target.kind === 'new' && micDenied
+              : target.kind === 'session'
                 ? {
-                      // 押すともう一度マイクの許可を求める（ブラウザの設定で許可し直した場合のため）
                       onClick: onStart,
-                      label: 'マイクが許可されていません。ブラウザの設定でマイクを許可してください',
-                      hint: 'マイクが許可されていません',
-                      color: 'bg-blue-500 opacity-50',
-                      icon: <MicOffIcon className={largeIcon} />,
+                      label: `クリックして「${target.projectName}」に新しいセッションを作成`,
+                      hint: '押すと新しいセッション',
+                      color: 'bg-neutral-500',
+                      icon: <PlusIcon className={largeIcon} />,
                   }
-                : target.kind === 'new'
+                : target.kind === 'new' && micDenied
                   ? {
+                        // 押すともう一度マイクの許可を求める（ブラウザの設定で許可し直した場合のため）
                         onClick: onStart,
-                        label: 'クリックして録音開始',
-                        hint: '押すと録音開始',
-                        color: 'bg-blue-500',
-                        icon: <MicIcon className={largeIcon} />,
+                        label: 'マイクが許可されていません。ブラウザの設定でマイクを許可してください',
+                        hint: 'マイクが許可されていません',
+                        color: 'bg-blue-500 opacity-50',
+                        icon: <MicOffIcon className={largeIcon} />,
                     }
-                  : {
-                        onClick: onStart,
-                        label: '録音するプロジェクトをメニューから選んでください',
-                        hint: 'プロジェクトを選んでください',
-                        color: 'cursor-not-allowed bg-blue-500 opacity-50',
-                        icon: <MicIcon className={largeIcon} />,
-                    };
+                  : target.kind === 'new'
+                    ? {
+                          onClick: onStart,
+                          label: 'クリックして録音開始',
+                          hint: '押すと録音開始',
+                          color: 'bg-blue-500',
+                          icon: <MicIcon className={largeIcon} />,
+                      }
+                    : {
+                          onClick: onStart,
+                          label: '録音するプロジェクトをメニューから選んでください',
+                          hint: 'プロジェクトを選んでください',
+                          color: 'cursor-not-allowed bg-blue-500 opacity-50',
+                          icon: <MicIcon className={largeIcon} />,
+                      };
 
     // 録音中は上に経過時間を出すので、Tooltip は左右に出して被らないようにする
     const recording = state !== 'idle';

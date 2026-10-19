@@ -18,6 +18,7 @@ from remote_whisper.corrections import Correction, CorrectionLine
 from remote_whisper.documents import FinalTranscriptMeta, SummaryMeta, TranscriptMeta, read_doc
 from remote_whisper.gpu_queue import Priority
 from remote_whisper.projects import ProjectError, ProjectFile, SessionEntry
+from remote_whisper.recovery import convert_leftover
 from remote_whisper.session_move import move_session
 from remote_whisper.session_writer import SessionWriter
 from remote_whisper.sessions import (
@@ -137,8 +138,12 @@ def move_blocker(ctx: AppContext, entry: SessionEntry) -> str | None:
     """セッションを移せない理由（移せるなら None）。#172"""
     sid = entry.id
     session = getattr(ctx.recorder, "sessions", {}).get(sid)
+    restoring = getattr(ctx.recorder, "_restoring", set())
     if entry.status == "recording" or (session is not None and not session.ended):
         return "録音中のセッションは移せません"
+    if sid in restoring:
+        # 続きの録音を始めている途中（前の録音を戻している）
+        return "続きの録音を始めている途中のセッションは移せません"
     if _still_finishing(ctx, sid) or getattr(session, "converting", False):
         return "録音を終えたあとの処理中のセッションは移せません"
     if sid in ctx.hub.status.transcribing:
@@ -171,8 +176,24 @@ async def move(pid: Pid, sid: str, body: MoveBody, ctx: Ctx) -> dict[str, Any]:
     # 録音マネージャは録音を終えたセッションも持っていて、用語・置き換えの書き込みはその writer
     # （移す前のディレクトリを指す）を使う。移したら外して、移動先のファイルを読み直させる
     sessions = getattr(ctx.recorder, "sessions", None)
-    if sessions is not None:
-        sessions.pop(sid, None)
+    recorded = sessions.pop(sid, None) if sessions is not None else None
+    deferred = getattr(recorded, "_deferred", None)
+    if deferred is not None and not deferred.done():
+        # 続きを録音できる間の mp3 への変換待ち（#174）は、移す前の場所を指しているのでやめ、
+        # 移動先で変換してから返す（移したら、続きは mp3 から戻して録音する）。変換の途中に続きの
+        # 録音が始まって WAV が重ならないよう、返事は変換を待つ（数秒）
+        deferred.cancel()
+        # 変換の間は、ほかの端末から続きの録音を頼まれても断る（前の録音を戻している途中と同じ扱い）
+        restoring = getattr(ctx.recorder, "_restoring", None)
+        if restoring is not None:
+            restoring.add(sid)
+        try:
+            await asyncio.to_thread(convert_leftover, ctx.projects, dst, sid)
+        except Exception as e:  # noqa: BLE001 変換できなければ WAV が残り、次の起動時に変換し直す（#33）
+            log.warning("converting a moved recording failed: %s", e)
+        finally:
+            if restoring is not None:
+                restoring.discard(sid)
     # ほかの端末にも一覧が変わったことを知らせる
     await ctx.hub.broadcast(
         {"type": "sessionMoved", "session": sid, "sessionUuid": moved.uuid, "from": pid, "to": dst}
@@ -452,7 +473,7 @@ async def remove_correction(
     return _corrections_json(writer, _terms_json(picked, rejected, writer.meta.manual_terms))
 
 
-_AUDIO_TYPES = {".mp3": "audio/mpeg", ".m4a": "audio/mp4"}
+_AUDIO_TYPES = {".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".wav": "audio/wav"}
 
 
 @router.get("/{sid}/recording")
@@ -460,10 +481,11 @@ def get_recording(pid: Pid, sid: str, ctx: Ctx) -> FileResponse:
     """録音ファイル（mp3）。ブラウザで再生する
 
     好きな位置から聞けるよう、Range リクエストに対応する（FileResponse が返す）。
-    ファイルがない（保存期間を過ぎた・録音中・mp3 への変換前）ときは 404
+    ファイルがない（保存期間を過ぎた・録音中）ときは 404。録音を終えて mp3 に変換する前
+    （続きを録音できる間。#174）は WAV を返す（続きを録音したあとの mp3 は前の部分だけのことがある）
     """
-    _, files = _session(ctx, pid, sid)
-    path = files.recording()
+    entry, files = _session(ctx, pid, sid)
+    path = files.recording() if entry.status == "recording" else files.audio()
     if path is None:
         raise HTTPException(status_code=404, detail="録音ファイルはありません")
     return FileResponse(path, media_type=_AUDIO_TYPES.get(path.suffix, "application/octet-stream"))

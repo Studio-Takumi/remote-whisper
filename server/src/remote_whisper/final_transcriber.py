@@ -221,7 +221,8 @@ class FinalTranscriber:
     ) -> str | None:
         if self._preempted:
             raise _Preempted
-        audio = files.recording() or _wav(files)
+        # WAV があればそちら（続きを録音したあとの mp3 は、前の部分だけのことがある。#174）
+        audio = files.audio()
         if audio is None:
             log.warning("no recording to make the final transcript of %s", files.id)
             return None
@@ -351,12 +352,6 @@ class FinalTranscriber:
                 await self.ollama.unload_all()
             except Exception:  # noqa: BLE001
                 log.exception("failed to unload ollama models before the final transcript")
-
-
-def _wav(files: SessionFiles) -> Path | None:
-    """mp3 に変換できずに残っている録音"""
-    wav = files.dir / ".tmp" / files.id / "audio.wav"
-    return wav if wav.is_file() else None
 
 
 def _hotwords(files: SessionFiles, meta: TranscriptMeta) -> str | None:

@@ -373,6 +373,33 @@ def test_terms_and_corrections_while_recording(mock_client, tmp_path):
     assert lines[0]["text"] == SCRIPT[0].replace("リリース", "出荷")
 
 
+def test_continue_a_done_session(mock_client, tmp_path):
+    # 録音を終えてしばらくは、モックでも続きから録音できる（#174）。時間を過ぎたら断る
+    root = tmp_path / "work"
+    (root / "meetings").mkdir(parents=True)
+    mock_client.patch("/api/settings", json={"materials": {"roots": [str(root)]}})
+    pid = mock_client.post("/api/projects", json={"path": str(root / "meetings")}).json()["id"]
+    with mock_client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        sid = start(ws, project=pid)
+        receive_until(ws, of_type("final"))
+        time.sleep(1.1)
+        ws.send_json({"type": "stop"})
+        receive_until(ws, of_type("title", provisional=False))
+        ws.send_json({"type": "continue", "project": pid, "session": sid})
+        started = receive_until(ws, of_type("started"))[-1]
+        assert started["continued"] is True and started["offsetSec"] >= 1
+        assert receive_until(ws, of_type("final"))[-1]["start"] >= started["offsetSec"]
+        ws.send_json({"type": "stop"})
+        receive_until(ws, of_type("title", provisional=False))
+    assert mock_client.get(f"/api/projects/{pid}/sessions/{sid}").json()["status"] == "done"
+    mock_client.patch("/api/settings", json={"recording": {"continueWindowMin": 0}})
+    with mock_client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        ws.send_json({"type": "continue", "project": pid, "session": sid})
+        assert receive_until(ws, of_type("error"))[-1]["code"] == "cannot_continue"
+
+
 def test_options(mock_client, client):
     models = mock_client.get("/api/settings/options").json()["ollama"]["models"]
     assert {m["thinking"] for m in models} == {True, False}

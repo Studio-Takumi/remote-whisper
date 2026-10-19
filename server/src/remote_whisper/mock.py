@@ -15,7 +15,7 @@ from remote_whisper.corrections import Correction, apply_all, replace
 from remote_whisper.hub import Hub, send
 from remote_whisper.ollama import OllamaUnavailable, ollama_error
 from remote_whisper.projects import ProjectError, ProjectStore
-from remote_whisper.recording import RecordingError
+from remote_whisper.recording import RecordingError, check_continuable
 from remote_whisper.session_writer import SessionWriter
 from remote_whisper.settings import FinalModels, OllamaModels, SettingsStore
 from remote_whisper.timeutil import make_id, now
@@ -81,7 +81,10 @@ class MockSession:
         project: str,
         ws: WebSocket,
         writer: SessionWriter | None = None,
+        offset: float = 0.0,
     ):
+        """offset は、続きを録音するとき（#101・#174）の前の録音の長さ（秒）。
+        経過時間はそこから数える"""
         self.recorder = recorder
         self.timing = recorder.timing
         self.id = sid
@@ -99,7 +102,7 @@ class MockSession:
         self.running.set()
         # 経過時間は実時間から一時停止していた時間を引いて求める
         self._loop = asyncio.get_running_loop()
-        self._started = self._loop.time()
+        self._started = self._loop.time() - offset
         self._paused_total = 0.0
         self._paused_since: float | None = None
         self._frozen: float | None = None  # 録音を終えた時点の経過時間
@@ -459,6 +462,35 @@ class MockRecorder:
         await asyncio.sleep(self.timing.whisper_load)
         if self.hub.status.whisper == "loading":
             await self.hub.set_status(whisper="ready")
+
+    async def continue_session(
+        self, ws: WebSocket, project: str, sid: str, max_concurrent: int
+    ) -> MockSession:
+        """録音を終えたセッションの続きを、同じセッションのまま録音する（#101・#174）。
+        本物と同じ条件で続けられるか確かめ、経過時間と文字起こしの時刻は前の長さから続ける"""
+        if len(self.active()) >= max_concurrent:
+            raise RecordingError("too_many_recordings", "同時に録音できる数を超えています")
+        previous = self.sessions.get(sid)
+        if previous is not None and not previous.ended:
+            raise RecordingError("already_recording", "このセッションは録音中です")
+        if self.projects is None or self.settings is None:
+            raise RecordingError("session_not_found", "続きを録音できるセッションがありません")
+        try:
+            writer = SessionWriter.existing(self.projects, project, sid)
+        except (ProjectError, OSError, ValueError) as e:
+            raise RecordingError(
+                "session_not_found", "続きを録音できるセッションがありません"
+            ) from e
+        check_continuable(writer.meta, self.settings.get().recording.continue_window_min * 60)
+        # 作っている途中の最終の要約は、本物と同じく終わらせて前の版として残す
+        offset = float(writer.meta.duration_sec or 0)
+        writer.reopen()
+        session = MockSession(self, sid, project, ws, writer, offset=offset)
+        self.sessions[sid] = session
+        await self._count_changed()
+        await session.send({"type": "started", "continued": True, "offsetSec": offset})
+        session.begin()
+        return session
 
     async def resume(self, ws: WebSocket, sid: str) -> MockSession:
         session = self.sessions.get(sid)

@@ -141,6 +141,11 @@ def _mark_interrupted(store: ProjectStore, pid: str, sid: str, report: Report) -
     report.interrupted.append(sid)
 
 
+def convert_leftover(store: ProjectStore, pid: str, sid: str) -> None:
+    """残っている WAV を mp3 に変換する（続きを録音できる間に別のプロジェクトへ移したとき。#174）"""
+    _convert_leftover(store, pid, sid, Report())
+
+
 def _convert_leftover(store: ProjectStore, pid: str, sid: str, report: Report) -> None:
     d = store.dir(pid)
     files = SessionFiles(d, sid)

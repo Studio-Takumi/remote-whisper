@@ -210,6 +210,9 @@ class RecordingSettings(_Model):
     # ブラウザとの接続が切れてから、つながり直すのを待つ時間（分）。過ぎたら interrupted にする
     # （interrupted になっても、続きから録音できる。spec 6.7、#101）
     resume_timeout_min: float = Field(10, gt=0)
+    # 普通に録音を終えた（done）あと、同じセッションの続きを録音できる時間（分。#174）。
+    # この間は録音を WAV のまま残し、過ぎてから mp3 に変換する。0 なら続けられない（すぐ変換する）
+    continue_window_min: float = Field(10, ge=0)
     # ブラウザのマイクの処理（getUserMedia の制約）。
     # サーバーは使わず、録音を始めるときにブラウザが読む
     noise_suppression: bool = True
