@@ -54,19 +54,12 @@ export function SessionView() {
     const [failedRecording, setFailedRecording] = useState<string | null>(null);
     // 録音の再生位置に当たる行（#122）。行が変わったときだけ変える（再生中の timeupdate のたびに描き直さない）
     const [playback, setPlayback] = useState<(Playback & { sessionId: string }) | null>(null);
-    // 録音中の文字起こしに切り替えたセッション（#121。最終の文字起こしがあれば、ふだんはそちらを出す）
-    const [liveViewOf, setLiveViewOf] = useState<string | null>(null);
     // 文字起こしの本文（文字を選んで置き換える範囲。#176）
     const transcriptBox = useRef<HTMLDivElement>(null);
-    // 別のセッションを開いたら、切り替えを戻す（開き直すと最終の文字起こしから出す）
-    const [openedSession, setOpenedSession] = useState(session?.id);
-    if (openedSession !== session?.id) {
-        setOpenedSession(session?.id);
-        setLiveViewOf(null);
-    }
+    // 最終の文字起こし（#121）があれば、それだけを出す（要約と同じ。録音中の文字起こしには戻せない。#145）。
+    // なければ（録音中・作っている途中・作らない設定・作れなかった）、録音中の文字起こしを出す
     const final = session?.finalTranscript;
-    const showFinal = !!final && liveViewOf !== session?.id;
-    const lines = showFinal ? final.lines : session?.transcript;
+    const lines = final ? final.lines : session?.transcript;
     const starts = useMemo(() => (lines ?? []).map((l) => clockToSeconds(l.time) ?? 0), [lines]);
     const seek = useCallback((time: string) => {
         const sec = clockToSeconds(time);
@@ -208,12 +201,10 @@ export function SessionView() {
                     {session && (
                         <FinalTranscriptBar
                             session={session}
-                            showFinal={showFinal}
                             making={
                                 server.transcribing.includes(session.id) ||
                                 makingFinalTranscript(server.jobs, session.id)
                             }
-                            onChange={(final) => setLiveViewOf(final ? null : session.id)}
                         />
                     )}
                     {session && (
@@ -221,7 +212,7 @@ export function SessionView() {
                             <Transcript
                                 sessionId={session.id}
                                 lines={lines ?? []}
-                                partial={!showFinal && partial?.sessionId === session.id ? partial : null}
+                                partial={!final && partial?.sessionId === session.id ? partial : null}
                                 follow={followTranscript}
                                 onSeek={recordingUrl ? seek : undefined}
                                 playback={recordingUrl && playback?.sessionId === session.id ? playback : null}
@@ -231,7 +222,7 @@ export function SessionView() {
                                 sessionId={session.id}
                                 lines={lines ?? []}
                                 target={
-                                    showFinal
+                                    final
                                         ? { transcript: 'final', generation: final.generationId }
                                         : { transcript: 'live' }
                                 }
@@ -309,18 +300,8 @@ function useTabScroll(sessionId: string | undefined) {
     return { tab: state.tab, changeTab, followTranscript };
 }
 
-// 最終の文字起こし（#121）と録音中の文字起こしの切り替え。作っている途中なら、そう出す
-function FinalTranscriptBar({
-    session,
-    showFinal,
-    making,
-    onChange,
-}: {
-    session: Session;
-    showFinal: boolean;
-    making: boolean;
-    onChange: (final: boolean) => void;
-}) {
+// 最終の文字起こし（#121）の世代の切り替えと作り直し。作っている途中なら、そう出す
+function FinalTranscriptBar({ session, making }: { session: Session; making: boolean }) {
     const whisperModel = useAppStore((s) => s.settings.whisper.model);
     // 最終の文字起こし（WhisperX）を作れるサーバーか。古いサーバーは返さないので、作れないものとする
     const available = useAppStore((s) => s.options.whisper.finalTranscript === true);
@@ -393,27 +374,7 @@ function FinalTranscriptBar({
     return (
         <div className='flex flex-col gap-1'>
             <div className='flex flex-wrap items-center gap-2'>
-                <div role='group' aria-label='表示する文字起こし' className='inline-flex rounded-md border p-0.5'>
-                    <Button
-                        size='sm'
-                        variant={showFinal ? 'default' : 'ghost'}
-                        className='h-7'
-                        aria-pressed={showFinal}
-                        onClick={() => onChange(true)}
-                    >
-                        最終
-                    </Button>
-                    <Button
-                        size='sm'
-                        variant={showFinal ? 'ghost' : 'default'}
-                        className='h-7'
-                        aria-pressed={!showFinal}
-                        onClick={() => onChange(false)}
-                    >
-                        録音中
-                    </Button>
-                </div>
-                {showFinal && generations.length > 1 ? (
+                {generations.length > 1 ? (
                     // 作り直した世代を切り替える（要約と同じ。#124）
                     <Select
                         value={final.generationId}
@@ -435,24 +396,22 @@ function FinalTranscriptBar({
                     </Select>
                 ) : (
                     <span className='text-xs text-muted-foreground'>
-                        {showFinal
-                            ? `録音全体から作り直した文字起こし（${label(final)}）`
-                            : '録音中に流れてきた文字起こし'}
+                        {`録音全体から作り直した文字起こし（${label(final)}）`}
                     </span>
                 )}
-                {showFinal && regenerateButton}
+                {regenerateButton}
             </div>
-            {showFinal && final.model !== whisperModel && (
+            {final.model !== whisperModel && (
                 <p className='text-xs text-muted-foreground'>{whisperModel} の最終の文字起こしはまだありません。</p>
             )}
-            {showFinal && final.diarization === 'unavailable' && (
+            {final.diarization === 'unavailable' && (
                 <p className='text-xs text-muted-foreground'>
                     話者分けはできませんでした（HuggingFace
                     のトークンか、話者分けのモデルの利用条件への同意がありません）。
                 </p>
             )}
-            {showFinal && noRecording}
-            {showFinal && locked}
+            {noRecording}
+            {locked}
             {status}
         </div>
     );

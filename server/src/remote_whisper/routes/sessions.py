@@ -18,6 +18,7 @@ from remote_whisper.corrections import Correction, CorrectionLine
 from remote_whisper.documents import FinalTranscriptMeta, SummaryMeta, TranscriptMeta, read_doc
 from remote_whisper.gpu_queue import Priority
 from remote_whisper.projects import ProjectError, ProjectFile, SessionEntry
+from remote_whisper.session_move import move_session
 from remote_whisper.session_writer import SessionWriter
 from remote_whisper.sessions import (
     ID_RE,
@@ -125,6 +126,58 @@ def get_session(pid: Pid, sid: str, ctx: Ctx) -> dict[str, Any]:
         except (OSError, ValueError):
             pass
     return result
+
+
+class MoveBody(BaseModel):
+    # 移動先のプロジェクト ID か UUID
+    to: str
+
+
+def move_blocker(ctx: AppContext, entry: SessionEntry) -> str | None:
+    """セッションを移せない理由（移せるなら None）。#172"""
+    sid = entry.id
+    session = getattr(ctx.recorder, "sessions", {}).get(sid)
+    if entry.status == "recording" or (session is not None and not session.ended):
+        return "録音中のセッションは移せません"
+    if _still_finishing(ctx, sid) or getattr(session, "converting", False):
+        return "録音を終えたあとの処理中のセッションは移せません"
+    if sid in ctx.hub.status.transcribing:
+        return "浄書済み文字起こしを作っている途中のセッションは移せません"
+    if sid in ctx.hub.status.summarizing:
+        return "要約を作っている途中のセッションは移せません"
+    jobs = ctx.gpu.snapshot()
+    if any(j and j["session"] == sid for j in [jobs["running"], *jobs["waiting"]]):
+        return "GPU の処理を待っている・実行しているセッションは移せません"
+    return None
+
+
+@router.post("/{sid}/move")
+async def move(pid: Pid, sid: str, body: MoveBody, ctx: Ctx) -> dict[str, Any]:
+    """セッションを別のプロジェクトへ移す（#172）。移せなければ 409 で理由を返す"""
+    entry, _ = _session(ctx, pid, sid)
+    try:
+        dst = ctx.projects.resolve(body.to)
+    except ProjectError as e:
+        raise HTTPException(status_code=e.status, detail=e.message) from e
+    reason = move_blocker(ctx, entry)
+    if reason is not None:
+        raise HTTPException(status_code=409, detail=reason)
+    try:
+        # 確かめてから移し終えるまでに、ほかの処理（作り直し・用語の書き込みなど）が
+        # 入り込まないよう、イベントループの中でそのまま動かす（rename と小さい書き換えだけ）
+        moved = move_session(ctx.projects, pid, dst, sid)
+    except ProjectError as e:
+        raise HTTPException(status_code=e.status, detail=e.message) from e
+    # 録音マネージャは録音を終えたセッションも持っていて、用語・置き換えの書き込みはその writer
+    # （移す前のディレクトリを指す）を使う。移したら外して、移動先のファイルを読み直させる
+    sessions = getattr(ctx.recorder, "sessions", None)
+    if sessions is not None:
+        sessions.pop(sid, None)
+    # ほかの端末にも一覧が変わったことを知らせる
+    await ctx.hub.broadcast(
+        {"type": "sessionMoved", "session": sid, "sessionUuid": moved.uuid, "from": pid, "to": dst}
+    )
+    return {"projectId": dst, **_session_json(moved, SessionFiles(ctx.projects.dir(dst), sid))}
 
 
 # セッションの UUID から引く（#177）。URL にプロジェクトを入れないので、これでプロジェクトを知る
