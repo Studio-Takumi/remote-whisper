@@ -14,6 +14,7 @@ import {
     SidebarTrigger,
     useSidebar,
 } from '@/components/ui/sidebar';
+import { moveBlocker } from '@/move';
 import { useAppStore, visibleProjects } from '@/store';
 
 // 録音中でも、新規プロジェクトの作成・ほかのセッションを開く・設定を開くことはできる（#133）。
@@ -24,6 +25,10 @@ export function AppSidebar() {
     const showMeta = useAppStore((s) => s.settings.display.sessionMeta);
     const selectSession = useAppStore((s) => s.selectSession);
     const newSession = useAppStore((s) => s.newSession);
+    const moveSession = useAppStore((s) => s.moveSession);
+    // セッションを移せるか（#172）を見るのに使う
+    const server = useAppStore((s) => s.server);
+    const recordingSessionId = useAppStore((s) => s.recordingSessionId);
     // スマホの幅ではサイドバーはシートとして重なるので、セッションを選んだら閉じる
     const { setOpenMobile } = useSidebar();
     const setNewProjectOpen = useAppStore((s) => s.setNewProjectOpen);
@@ -66,6 +71,15 @@ export function AppSidebar() {
                             newSession(projectId);
                             setOpenMobile(false);
                         }}
+                        moveBlocker={(session) =>
+                            moveBlocker(session, {
+                                jobs: server.jobs,
+                                transcribing: server.transcribing,
+                                summarizing: server.summarizing,
+                                recordingSessionId,
+                            })
+                        }
+                        onMove={(sessionId, to) => void moveSession(sessionId, to)}
                     />
                 </SidebarGroup>
             </SidebarContent>

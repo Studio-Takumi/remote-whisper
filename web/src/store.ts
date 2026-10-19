@@ -17,6 +17,7 @@ import {
     toSelection,
 } from '@/data';
 import { demoProjects, fallbackOptions, initialContextSets } from '@/mock';
+import { sortSessions } from '@/move';
 import { fetchOptions } from '@/options';
 import type { ServerMessage, SettingsOptions } from '@/protocol';
 import { type RecordingState, recordingLocks } from '@/recording';
@@ -105,6 +106,8 @@ type AppState = {
     rejectTerm: (sessionId: string, term: string) => Promise<void>;
     // 用語リストに手で語を足す（#175）。足せたら true
     addTerm: (sessionId: string, term: string) => Promise<boolean>;
+    // セッションを別のプロジェクトへ移す（#172）
+    moveSession: (sessionId: string, toProjectId: string) => Promise<void>;
     // ページを読み込み直す前に、サーバーに届かなかった音声（IndexedDB に置いてあったもの。#102）
     unsent: { sessionId: string; projectId: string; seconds: number } | null;
     // 届かなかった音声を送り、同じセッションの続きを録音する
@@ -684,6 +687,14 @@ export const useAppStore = create<AppState>()((set, get) => {
         }
     }
 
+    // セッションを別のプロジェクトへ移したあと、一覧を取り直す。開いていたら、移した先で開いたままにする
+    async function reloadAfterMove(sessionId: string, to: string) {
+        await get().loadProjects();
+        if (get().selection.sessionId === sessionId) {
+            get().selectSession(to, sessionId);
+        }
+    }
+
     // セッションの文字起こしと要約を取ってくる（開いたとき）
     async function loadSession(projectId: string, session: Session) {
         try {
@@ -1028,6 +1039,37 @@ export const useAppStore = create<AppState>()((set, get) => {
             }
         },
 
+        moveSession: async (sessionId, toProjectId) => {
+            const from = get().projects.find((p) => p.sessions.some((x) => x.id === sessionId));
+            const to = get().projects.find((p) => p.id === toProjectId);
+            const session = from?.sessions.find((x) => x.id === sessionId);
+            if (!from || !to || !session || from.id === to.id) {
+                return;
+            }
+            if (isDemo) {
+                set((s) => ({
+                    projects: s.projects.map((p) =>
+                        p.id === from.id
+                            ? { ...p, sessions: p.sessions.filter((x) => x.id !== sessionId) }
+                            : p.id === to.id
+                              ? { ...p, sessions: sortSessions([...p.sessions, session]) }
+                              : p,
+                    ),
+                    selection: s.selection.sessionId === sessionId ? { projectId: to.id, sessionId } : s.selection,
+                }));
+                toast.success(`「${session.title}」を${to.name}へ移しました`);
+                return;
+            }
+            try {
+                await api.post(`/api/projects/${from.id}/sessions/${sessionId}/move`, { to: to.id });
+            } catch (e) {
+                toast.error(`「${session.title}」を移せません: ${(e as Error).message}`);
+                return;
+            }
+            await reloadAfterMove(sessionId, to.id);
+            toast.success(`「${session.title}」を${to.name}へ移しました`);
+        },
+
         reopenMicrophone: async () => {
             if (get().recordingState === 'idle' || !mic) {
                 return;
@@ -1200,6 +1242,10 @@ export const useAppStore = create<AppState>()((set, get) => {
                                 JSON.stringify(m.transcribing ?? []) === JSON.stringify(s.server.transcribing)
                                     ? s.server.transcribing
                                     : (m.transcribing ?? []),
+                            summarizing:
+                                JSON.stringify(m.summarizing ?? []) === JSON.stringify(s.server.summarizing)
+                                    ? s.server.summarizing
+                                    : (m.summarizing ?? []),
                         },
                     }));
                     // Ollama につながるようになったら、モデルの一覧を取り直す（つながらない間は空になっている）
@@ -1231,6 +1277,9 @@ export const useAppStore = create<AppState>()((set, get) => {
                     // 最終の文字起こしができた（#121）。最終の要約を待っている間（一覧の取り直しでは中身を
                     // 置き換えない）でも出せるように、そのセッションの最終の文字起こしだけを取ってきて足す
                     void receiveFinalTranscript(m.session, m.generationId);
+                } else if (m.type === 'sessionMoved' && !isDemo) {
+                    // セッションを別のプロジェクトへ移した（ほかの端末からのものも。#172）
+                    void reloadAfterMove(m.session, m.to);
                 } else if (m.type === 'title') {
                     set((s) => ({
                         projects: updateSession(s.projects, m.session, (x) => ({

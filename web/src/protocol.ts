@@ -66,6 +66,8 @@ export type ServerMessage =
     | { type: 'title'; session: string; title: string; provisional: boolean }
     // 録音中に文字起こしから拾って用語リストに足した語と、消された語（#103）
     | { type: 'terms'; session: string; terms: string[]; rejected: string[]; manual?: string[] }
+    // セッションを別のプロジェクトへ移した（#172。全員に送る）。from・to はプロジェクト ID
+    | { type: 'sessionMoved'; session: string; sessionUuid: string | null; from: string; to: string }
     | { type: 'contextSet'; project: string; id: string; status: ContextSetStatus }
     | {
           type: 'status';
