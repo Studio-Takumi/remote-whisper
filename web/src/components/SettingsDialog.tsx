@@ -432,6 +432,19 @@ function SettingsForm({
                             />
                         </Row>
                         <Row
+                            id='continue-window'
+                            label='録音を終えたあと、続きから録音できる時間'
+                            description='この時間の間は、録音を終えたセッションの画面でマイクボタンを押すと、同じセッションの続きを録音できる。0 なら続けない'
+                        >
+                            <NumberInput
+                                id='continue-window'
+                                value={draft.recording.continueWindowMin}
+                                min={0}
+                                unit='分'
+                                onChange={(continueWindowMin) => update('recording', { continueWindowMin })}
+                            />
+                        </Row>
+                        <Row
                             id='noise-suppression'
                             label='ブラウザの雑音抑制'
                             locked={lock(recordingLocks.microphone)}

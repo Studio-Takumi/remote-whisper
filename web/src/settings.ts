@@ -56,6 +56,8 @@ export type Settings = {
         maxConcurrent: number;
         // 接続が切れてから、つながり直すのを待つ時間（分）。過ぎたら途中で終わったことになる
         resumeTimeoutMin: number;
+        // 普通に録音を終えたあと、同じセッションの続きを録音できる時間（分。#174）。0 なら続けられない
+        continueWindowMin: number;
         // ブラウザのマイクの処理（getUserMedia の制約）。録音を始めるときに使う
         noiseSuppression: boolean;
         autoGainControl: boolean;
@@ -117,6 +119,7 @@ export const defaultSettings: Settings = {
     recording: {
         maxConcurrent: 1,
         resumeTimeoutMin: 10,
+        continueWindowMin: 10,
         noiseSuppression: true,
         autoGainControl: true,
         echoCancellation: true,
