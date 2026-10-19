@@ -1,6 +1,7 @@
 import { type ReactNode, useState } from 'react';
 
 import {
+    type Announcements,
     type CollisionDetection,
     DndContext,
     type DragEndEvent,
@@ -43,6 +44,10 @@ function sessionMeta(session: Session) {
     const duration = sessionDuration(session);
     return duration === undefined ? started : `${started} · ${formatElapsed(Math.round(duration))}`;
 }
+
+const screenReaderInstructions = {
+    draggable: 'プロジェクトの並び順は、Space で持ち上げ、上下の矢印で動かし、Space で置きます。Esc でやめます',
+};
 
 // ドラッグしているセッション。data.type でプロジェクトの並び替え（#173）のドラッグと見分ける
 type Dragging = { type: 'session'; sessionId: string; projectId: string; title: string };
@@ -136,6 +141,26 @@ export function ProjectList({
             }
         }
     };
+    // 読み上げの案内。既定の英語の案内はドラッグの ID（プロジェクト ID にはパスが入る）を読むので、名前で案内する
+    const nameOf = (id: string | number | undefined | null) => {
+        const key = id == null ? null : String(id);
+        const project = projects.find((p) => p.id === key || sortableId(p.id) === key);
+        if (project) {
+            return project.name;
+        }
+        const session = projects.flatMap((p) => p.sessions).find((s) => key?.endsWith(`:${s.id}`));
+        return session?.title ?? '';
+    };
+    const announcements: Announcements = {
+        onDragStart: ({ active }) => `「${nameOf(active.id)}」を持ち上げました`,
+        onDragOver: ({ active, over }) =>
+            over ? `「${nameOf(active.id)}」を「${nameOf(over.id)}」の位置に動かしています` : undefined,
+        onDragEnd: ({ active, over }) =>
+            over
+                ? `「${nameOf(active.id)}」を「${nameOf(over.id)}」の位置に置きました`
+                : `「${nameOf(active.id)}」を戻しました`,
+        onDragCancel: ({ active }) => `「${nameOf(active.id)}」の移動をやめました`,
+    };
     const onDragCancel = () => {
         setDragging(null);
         setReordering(false);
@@ -148,6 +173,7 @@ export function ProjectList({
             onDragStart={onDragStart}
             onDragEnd={onDragEnd}
             onDragCancel={onDragCancel}
+            accessibility={{ announcements, screenReaderInstructions }}
         >
             <SortableContext items={projects.map((p) => sortableId(p.id))} strategy={verticalListSortingStrategy}>
                 <Accordion type='multiple' defaultValue={projects.map((p) => p.id)}>
