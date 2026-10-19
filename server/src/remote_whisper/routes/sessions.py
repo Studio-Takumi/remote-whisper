@@ -138,8 +138,12 @@ def move_blocker(ctx: AppContext, entry: SessionEntry) -> str | None:
     """セッションを移せない理由（移せるなら None）。#172"""
     sid = entry.id
     session = getattr(ctx.recorder, "sessions", {}).get(sid)
+    restoring = getattr(ctx.recorder, "_restoring", set())
     if entry.status == "recording" or (session is not None and not session.ended):
         return "録音中のセッションは移せません"
+    if sid in restoring:
+        # 続きの録音を始めている途中（前の録音を戻している）
+        return "続きの録音を始めている途中のセッションは移せません"
     if _still_finishing(ctx, sid) or getattr(session, "converting", False):
         return "録音を終えたあとの処理中のセッションは移せません"
     if sid in ctx.hub.status.transcribing:
