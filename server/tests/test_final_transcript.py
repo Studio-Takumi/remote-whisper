@@ -141,7 +141,7 @@ def test_a_slightly_early_speaker_change_does_not_cut_off_the_last_character():
 
 
 def test_a_short_backchannel_does_not_split_a_sentence():
-    # 文の途中の 0.4 秒の相槌は、話した時間の長い話者の行にまとめる
+    # 同じ話者に挟まれた 0.4 秒・2 語以下の断片は、ずれとみなして前後にまとめる（#148 の平滑化）
     words = chars("それで昨日の会議の話なんですけど", 0.0, step=0.2)
     turns = [
         turn(0.0, 1.6, "SPEAKER_00"),
@@ -168,26 +168,49 @@ def test_a_sentence_with_three_speakers_is_split_twice():
     ]
 
 
-def test_a_sentence_outside_the_turns_keeps_the_previous_speaker():
-    # 話者分けの区間にかからない文は、前の行の話者にする。最初の文なら話者なし
+def test_words_outside_the_turns_take_the_neighbouring_speaker():
+    # 話者分けの区間にかからない語は、前の語の話者にする。先頭なら後ろの語の話者（#148）
     words = chars("えー", 0.0, held=1.0) + chars("はい", 2.0, held=1.0) + chars("どうも", 4.0)
     turns = [turn(2.0, 3.0, "A")]
     assert texts(sentences([seg(words)], turns)) == [
-        (0.0, "えー", None),
+        (0.0, "えー", "A"),
         (2.0, "はい", "A"),
         (4.0, "どうも", "A"),
     ]
 
 
 @needs_morphology
-def test_a_turn_change_far_from_any_word_boundary_does_not_split():
-    # 替わり目から 0.6 秒以内に語の境目がなければ分けない（多数決にする）
-    # 語の境目は 2.5 秒（ありがとう｜ござい）と 4.0 秒（ござい｜まし）。
-    # どちらも替わり目の 3.25 秒から 0.75 秒離れている
+def test_speakers_are_assigned_per_word_and_lines_split_where_they_change():
+    # 語ごとに、いちばん長く重なる話者を付ける。語の途中では切らない（#148）
+    # 語は ありがとう（0〜2.5 秒）｜ござい（2.5〜4.0）｜まし（4.0〜5.0）｜た
+    # 「ござい」は A と B が同じ長さなので先に出た A、「ました」は B。
+    # 「ました」は 1 秒より長いので、ずれとはみなさない
     words = chars("ありがとうございました", 0.0, step=0.5)
     turns = [turn(0.0, 3.25, "A"), turn(3.25, 5.5, "B")]
-    [item] = sentences([seg(words)], turns)
-    assert (item.text, item.speaker) == ("ありがとうございました", "A")
+    assert texts(sentences([seg(words)], turns)) == [
+        (0.0, "ありがとうござい", "A"),
+        (4.0, "ました", "B"),
+    ]
+
+
+@needs_morphology
+def test_a_turn_in_the_middle_of_a_sentence_splits_it():
+    # 文の途中でも、話者が替わる語の境目で分ける。文ごとの多数決はしない（#148）。
+    # 文末の「ですけど」（0.8 秒）は、区間の端のずれとみなして前にまとめる
+    words = chars("それで昨日の会議の話なんですけど", 0.0, step=0.2)
+    turns = [turn(0.0, 1.0, "A"), turn(1.0, 2.4, "B"), turn(2.4, 3.2, "A")]
+    assert texts(sentences([seg(words)], turns)) == [
+        (0.0, "それで昨日", "A"),
+        (1.0, "の会議の話なんですけど", "B"),
+    ]
+
+
+def test_word_speakers_fills_the_gaps_from_the_neighbours():
+    words = chars("あいうえ", 0.0, step=1.0)
+    ends = [1, 2, 3, 4]
+    turns = [final_transcript._Turn(1.0, 2.0, "A"), final_transcript._Turn(3.0, 4.0, "B")]
+    # 1 文字ずつを語とみなす（形態素解析なし）
+    assert final_transcript.word_speakers(words, ends, None, turns) == ["A", "A", "A", "B"]
 
 
 def test_uses_word_speakers_without_turns():
