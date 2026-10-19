@@ -142,6 +142,9 @@ class TranscriptMeta(_Meta):
 
     id: str
     project: str | None = None
+    # URL に出す ID（#177）。別のプロジェクトへ移したとき（#172）に残す。project.json を
+    # 作り直しても（5.4 節）、移す前の URL のままにするため。ないものはパスと ID から決める
+    uuid: str | None = None
     title: str | None = None
     status: Literal["recording", "done", "interrupted"]
     started_at: str
