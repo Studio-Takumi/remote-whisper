@@ -1,10 +1,10 @@
 import { useState } from 'react';
 
 import {
+    CpuIcon,
     FileTextIcon,
     FolderIcon,
     HardDriveIcon,
-    LockIcon,
     MicIcon,
     MonitorIcon,
     PlusIcon,
@@ -13,6 +13,8 @@ import {
 } from 'lucide-react';
 
 import { DensitySelect } from '@/components/DensitySelect';
+import { ModelsPage } from '@/components/ModelsPage';
+import { OptionSelect, Row, Section } from '@/components/SettingsParts';
 import { VersionInfo } from '@/components/VersionInfo';
 import { Button } from '@/components/ui/button';
 import {
@@ -25,15 +27,14 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { ollamaModelNames, thinkingNote, withCurrent } from '@/options';
+import { withCurrent } from '@/options';
 import type { SettingsOptions } from '@/protocol';
 import { recordingLocks } from '@/recording';
-import { type OllamaModels, SETTINGS_PAGES, type Settings } from '@/settings';
+import { SETTINGS_PAGES, type Settings } from '@/settings';
 
 // 全体設定のモーダル。左にカテゴリ、右に項目を並べる
 export function SettingsDialog({
@@ -116,12 +117,6 @@ function SettingsForm({
     // 録音中に変えられない項目の理由。録音していなければ undefined（変えられる）
     const lock = (reason: string) => (recording ? reason : undefined);
     const isMobile = useIsMobile();
-    const models = draft.ollama.models;
-    const ollamaModels = withCurrent(ollamaModelNames(options), models.liveSummary, models.detail, models.context);
-    // 処理ごとのモデル（#178）。ここでは今までの 3 つの欄で、同じ段階の重い処理をまとめて変える
-    // （処理ごとに選ぶ画面は #179）
-    const updateModels = (patch: Partial<OllamaModels>) =>
-        update('ollama', { models: { ...draft.ollama.models, ...patch } });
 
     function update<K extends Exclude<keyof Settings, 'version'>>(section: K, patch: Partial<Settings[K]>) {
         setDraft((d) => ({ ...d, [section]: { ...d[section], ...patch } }));
@@ -157,6 +152,10 @@ function SettingsForm({
                         <MicIcon />
                         文字起こし
                     </TabsTrigger>
+                    <TabsTrigger value='models'>
+                        <CpuIcon />
+                        モデル
+                    </TabsTrigger>
                     <TabsTrigger value='ollama'>
                         <SparklesIcon />
                         要約
@@ -177,14 +176,6 @@ function SettingsForm({
 
                 <TabsContent value='whisper' className='min-h-0 overflow-y-auto pr-2'>
                     <Section>
-                        <Row id='whisper-model' label='モデル' locked={lock(recordingLocks.whisperModel)}>
-                            <OptionSelect
-                                id='whisper-model'
-                                value={draft.whisper.model}
-                                options={withCurrent(options.whisper.models, draft.whisper.model)}
-                                onChange={(model) => update('whisper', { model })}
-                            />
-                        </Row>
                         <Row
                             id='compute-type'
                             label='計算の精度'
@@ -328,6 +319,16 @@ function SettingsForm({
                     </Section>
                 </TabsContent>
 
+                <TabsContent value='models' className='min-h-0 overflow-y-auto pr-2'>
+                    <ModelsPage
+                        draft={draft}
+                        options={options}
+                        whisperLocked={lock(recordingLocks.whisperModel)}
+                        onChangeWhisperModel={(model) => update('whisper', { model })}
+                        onChangeModels={(next) => update('ollama', { models: next })}
+                    />
+                </TabsContent>
+
                 <TabsContent value='ollama' className='min-h-0 overflow-y-auto pr-2'>
                     <Section>
                         <Row id='ollama-host' label='Ollama の URL'>
@@ -336,42 +337,6 @@ function SettingsForm({
                                 className='w-56'
                                 value={draft.ollama.host}
                                 onChange={(e) => update('ollama', { host: e.target.value })}
-                            />
-                        </Row>
-                        <Row
-                            id='live-model'
-                            label='途中の要約のモデル'
-                            description='録音中に数分おきに作る。思考モードはオフ'
-                        >
-                            <OptionSelect
-                                id='live-model'
-                                value={models.liveSummary}
-                                options={ollamaModels}
-                                onChange={(liveSummary) => updateModels({ liveSummary })}
-                            />
-                        </Row>
-                        <Row
-                            id='final-model'
-                            label='最終の要約のモデル'
-                            description={`録音が終わった後に作る（全体概要と要約詳細）。${thinkingNote(options, models.detail)}`}
-                        >
-                            <OptionSelect
-                                id='final-model'
-                                value={models.detail}
-                                options={ollamaModels}
-                                onChange={(model) => updateModels({ overview: model, detail: model })}
-                            />
-                        </Row>
-                        <Row
-                            id='context-model'
-                            label='参考資料セットのモデル'
-                            description={`用語リストとコンテキストを作る。${thinkingNote(options, models.context)}`}
-                        >
-                            <OptionSelect
-                                id='context-model'
-                                value={models.context}
-                                options={ollamaModels}
-                                onChange={(model) => updateModels({ context: model, materialTerms: model })}
                             />
                         </Row>
                         <Row
@@ -628,88 +593,6 @@ function SettingsForm({
                 <Button onClick={save}>保存</Button>
             </DialogFooter>
         </>
-    );
-}
-
-function Section({
-    title,
-    description,
-    children,
-}: {
-    title?: string;
-    description?: string;
-    children: React.ReactNode;
-}) {
-    return (
-        <section className='flex flex-col gap-1 not-first:mt-6'>
-            {title && <h3 className='text-sm font-semibold'>{title}</h3>}
-            {description && <p className='text-xs text-muted-foreground'>{description}</p>}
-            <div className='flex flex-col divide-y'>{children}</div>
-        </section>
-    );
-}
-
-// 左に項目名と説明、右に入力欄。locked（録音中に変えられない理由）があれば、入力欄を押せなくして理由を出す
-function Row({
-    id,
-    label,
-    description,
-    locked,
-    children,
-}: {
-    id: string;
-    label: string;
-    description?: string;
-    locked?: string;
-    children: React.ReactNode;
-}) {
-    return (
-        // スマホの幅では、項目名と説明の下に入力欄を置く
-        <div className='flex flex-col items-start gap-2 py-3 md:flex-row md:items-center md:justify-between md:gap-4'>
-            <div className='flex flex-col gap-1'>
-                <Label htmlFor={id}>{label}</Label>
-                {description && <p className='text-xs text-muted-foreground'>{description}</p>}
-                {locked && (
-                    <p className='flex items-center gap-1 text-xs text-amber-700 dark:text-amber-400'>
-                        <LockIcon className='size-3 shrink-0' />
-                        {locked}
-                    </p>
-                )}
-            </div>
-            {/* fieldset を disabled にすると、中の入力欄・ボタン（Select・Switch）をまとめて押せなくできる */}
-            <fieldset disabled={locked !== undefined} className='shrink-0 disabled:opacity-50'>
-                {children}
-            </fieldset>
-        </div>
-    );
-}
-
-function OptionSelect({
-    id,
-    value,
-    options,
-    onChange,
-}: {
-    id: string;
-    value: string;
-    options: string[];
-    onChange: (value: string) => void;
-}) {
-    return (
-        <Select value={value} onValueChange={onChange}>
-            <SelectTrigger id={id} className='w-44'>
-                <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-                <SelectGroup>
-                    {options.map((o) => (
-                        <SelectItem key={o} value={o}>
-                            {o}
-                        </SelectItem>
-                    ))}
-                </SelectGroup>
-            </SelectContent>
-        </Select>
     );
 }
 

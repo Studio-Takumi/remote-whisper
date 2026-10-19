@@ -26,18 +26,18 @@
 
 ## 3. 用語
 
-| 用語 | 意味 |
-|---|---|
-| プロジェクト | サーバー上のディレクトリ1つ。録音はどれかのプロジェクトに属する |
-| セッション | 1回の録音。録音を開始してから終了するまで |
-| 参考資料セット | 選んだ参考資料ファイルの組と、そこから作った用語リストとコンテキストのまとまり |
-| 用語リスト（hotwords） | Whisper に渡す用語の一覧 |
-| コンテキスト（context） | 参考資料から抜き出した、Ollama に渡すための情報 |
-| 途中の要約 | 録音中に数分おきに作る要約。思考モードはオフ |
-| 最終の要約 | 録音が終わった後に作る要約。思考モードはオン |
-| 録音中の文字起こし | 録音中に区間ごとに流れてくる文字起こし |
-| 最終の文字起こし | 録音を終えたあとに、保存した録音全体から作り直した文字起こし（文ごとの行・話者分け。6.9 節） |
-| 要約度 | 要約の細かさ。1（ごく短く要点だけ）〜5（できるだけ省かず細かく）の5段階で、既定は 3。途中の要約・最終の要約の概要・最終の要約の詳細のそれぞれで設定する |
+| 用語                    | 意味                                                                                                                                                    |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| プロジェクト            | サーバー上のディレクトリ1つ。録音はどれかのプロジェクトに属する                                                                                         |
+| セッション              | 1回の録音。録音を開始してから終了するまで                                                                                                               |
+| 参考資料セット          | 選んだ参考資料ファイルの組と、そこから作った用語リストとコンテキストのまとまり                                                                          |
+| 用語リスト（hotwords）  | Whisper に渡す用語の一覧                                                                                                                                |
+| コンテキスト（context） | 参考資料から抜き出した、Ollama に渡すための情報                                                                                                         |
+| 途中の要約              | 録音中に数分おきに作る要約。思考モードはオフ                                                                                                            |
+| 最終の要約              | 録音が終わった後に作る要約。思考モードはオン                                                                                                            |
+| 録音中の文字起こし      | 録音中に区間ごとに流れてくる文字起こし                                                                                                                  |
+| 最終の文字起こし        | 録音を終えたあとに、保存した録音全体から作り直した文字起こし（文ごとの行・話者分け。6.9 節）                                                            |
+| 要約度                  | 要約の細かさ。1（ごく短く要点だけ）〜5（できるだけ省かず細かく）の5段階で、既定は 3。途中の要約・最終の要約の概要・最終の要約の詳細のそれぞれで設定する |
 
 ## 4. データモデル
 
@@ -103,13 +103,13 @@ erDiagram
 
 ### 5.2 ID と命名
 
-| 対象 | 形式 | 例 |
-|---|---|---|
-| セッション ID | `YYYYMMDD-HHMMSS`（録音を開始した時刻。日付をまたいでも開始時の日付を使う） | `20261009-143012` |
-| 参考資料セット ID | `YYYYMMDD-HHMMSS`（作成を開始した時刻） | `20261009-090501` |
-| 要約の生成 ID | `YYYYMMDD-HHMMSS`（要約の生成を開始した時刻） | `20261009-160203` |
-| プロジェクト ID | パスを変換した名前＋短いハッシュ | `D--work-meetings-a1b2c3` |
-| プロジェクト・セッションの UUID | UUID（画面の URL に出す。#177） | `9ce88ddf-db8e-5f9b-818e-11c3c80f9335` |
+| 対象                            | 形式                                                                        | 例                                     |
+| ------------------------------- | --------------------------------------------------------------------------- | -------------------------------------- |
+| セッション ID                   | `YYYYMMDD-HHMMSS`（録音を開始した時刻。日付をまたいでも開始時の日付を使う） | `20261009-143012`                      |
+| 参考資料セット ID               | `YYYYMMDD-HHMMSS`（作成を開始した時刻）                                     | `20261009-090501`                      |
+| 要約の生成 ID                   | `YYYYMMDD-HHMMSS`（要約の生成を開始した時刻）                               | `20261009-160203`                      |
+| プロジェクト ID                 | パスを変換した名前＋短いハッシュ                                            | `D--work-meetings-a1b2c3`              |
+| プロジェクト・セッションの UUID | UUID（画面の URL に出す。#177）                                             | `9ce88ddf-db8e-5f9b-818e-11c3c80f9335` |
 
 - **UUID（#177）**: 画面の URL（8 章）に出す ID。ファイル名と今の ID・命名は変えず、`project.json`（5.4 節）にだけ持たせる。プロジェクト ID にはパスが入っていて URL に出すと読めてしまうので、プロジェクトにも持たせる。
   - 値はパスと ID から決める（UUID v5。プロジェクトはそのパス、セッションは振ったときのプロジェクトのパスとセッション ID）。`project.json` を作り直しても（5.4 節）同じ値になるようにするため。
@@ -125,11 +125,11 @@ erDiagram
 
 全体設定。画面右上の簡易設定と、設定モーダルの両方からこのファイルを書き換える。**録音中は、次の項目だけ変更できない**（#133。`PATCH /api/settings` で値を変えようとすると `409`。同じ値を送るのはかまわない）。ほかの項目は録音中も変えられる。
 
-| 項目 | 録音中に変えられない理由 |
-|---|---|
-| `whisper.model`・`whisper.computeType` | 変えると読み込み直しになり、その間の文字起こしが止まる |
+| 項目                                                                                          | 録音中に変えられない理由                                         |
+| --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `whisper.model`・`whisper.computeType`                                                        | 変えると読み込み直しになり、その間の文字起こしが止まる           |
 | `whisper.silenceMs`・`whisper.maxSegmentSec`・`whisper.speechThreshold`・`whisper.speechDbfs` | 区切りの設定は録音を始めたときに決まるので、今の録音には効かない |
-| `recording.noiseSuppression`・`recording.autoGainControl`・`recording.echoCancellation` | ブラウザが録音を始めるときにマイクに設定する |
+| `recording.noiseSuppression`・`recording.autoGainControl`・`recording.echoCancellation`       | ブラウザが録音を始めるときにマイクに設定する                     |
 
 ```json
 {
@@ -198,21 +198,21 @@ erDiagram
 - `recording.resumeTimeoutMin` は、ブラウザとの接続が切れてから、つながり直すのを待つ時間（分、既定 10。0 より大きい数で、小数も書ける。設定画面からは 1 分以上）。過ぎたら `interrupted` にする（続きから録音できる。6.7 節）。
 - `ollama.models` は、Ollama を使う処理ごとのモデル（#178）。既定はおすすめのモデルで、軽い処理は小さいモデルにしている。おすすめはあくまで目安で、設定で自由に変えられる。
 
-  | 大きな段階 | 処理 | キー | おすすめ（既定） |
-  |---|---|---|---|
-  | 参考資料 | 用語リスト（資料抽出） | `materialTerms` | `qwen3.5:2b` |
-  | | コンテキスト | `context` | `qwen3.5:4b` |
-  | | 範囲の判断（#182） | `scope` | `qwen3.5:4b` |
-  | リアルタイム文字起こし | 用語リスト（文字起こし抽出） | `transcriptTerms` | `qwen3.5:2b` |
-  | リアルタイム要約 | 要約 | `liveSummary` | `qwen3.5:2b` |
-  | | タイトル | `liveTitle` | `qwen3.5:2b` |
-  | 最終要約 | 全体概要 | `overview` | `qwen3.5:4b` |
-  | | 要約詳細 | `detail` | `qwen3.5:4b` |
-  | | タイトル | `finalTitle` | `qwen3.5:0.8b` |
-
+  | 大きな段階             | 処理                         | キー              | おすすめ（既定） |
+  | ---------------------- | ---------------------------- | ----------------- | ---------------- |
+  | 参考資料               | 用語リスト（資料抽出）       | `materialTerms`   | `qwen3.5:2b`     |
+  |                        | コンテキスト                 | `context`         | `qwen3.5:4b`     |
+  |                        | 範囲の判断（#182）           | `scope`           | `qwen3.5:4b`     |
+  | リアルタイム文字起こし | 用語リスト（文字起こし抽出） | `transcriptTerms` | `qwen3.5:2b`     |
+  | リアルタイム要約       | 要約                         | `liveSummary`     | `qwen3.5:2b`     |
+  |                        | タイトル                     | `liveTitle`       | `qwen3.5:2b`     |
+  | 最終要約               | 全体概要                     | `overview`        | `qwen3.5:4b`     |
+  |                        | 要約詳細                     | `detail`          | `qwen3.5:4b`     |
+  |                        | タイトル                     | `finalTitle`      | `qwen3.5:0.8b`   |
   - 録音中に使う 3 つ（`transcriptTerms`・`liveSummary`・`liveTitle`）のおすすめは同じモデルにそろえている。録音中は Ollama のモデルを 1 つしか載せない（6.3 節）ので、別々だと区切りごとに読み込み直しになるため。`qwen3.5:0.8b` は、用語の抽出で語ではなく文をそのまま返すなど品質が足りなかった（#178 で比べた）。
   - **入っていないモデル**: 選んだモデルが Ollama に入っていなければ、要約詳細のモデル → 全体概要のモデル → 入っているうち名前の順で最初のもの、の順に代わりを選んで動かす（動かなくならないように）。ログに残し（モデルごとに 1 回）、`/api/settings/options` の `ollama.missing` に入っていない処理のキーを返す（画面は「入っていません」と出す。#179）。フロントマターには、実際に使ったモデルを残す。
   - **前の設定からの移行**: #178 より前の `liveSummaryModel` は `liveSummary` に、`finalSummaryModel` は `overview`・`detail` に、`contextModel` は `context`・`materialTerms` に移す。新しい軽い処理（`scope`・`transcriptTerms`・`liveTitle`・`finalTitle`）は、おすすめのモデルが入っていればそれ、なければ移行元（`scope` は `contextModel`、`transcriptTerms`・`liveTitle` は `liveSummaryModel`、`finalTitle` は `finalSummaryModel`）と同じモデルにする。入っているかは、読み込んだときに Ollama に聞く（つながらなければ移行元と同じ）。古いキーは受け付けるが書き出さない（`PATCH` で送られても無視する）。
+
 - 思考モードは処理ごとに固定する。参考資料セットの作成と最終の要約はオン、途中の要約はオフ。思考モードに対応していないモデルが選ばれた場合は、オフで実行する（9.3 節）。
 - `whisper.speechThreshold` は、話しているかの判定のしかた（6.2 節）。`auto`（既定）は、音の大きさをそろえてから Silero VAD で声らしさを判定する。`manual` は `whisper.speechDbfs`（dBFS、-70〜-10）より大きい音を話し声とみなす。自動の結果が悪いときのために手動を残している。
 - `whisper.finalTranscript` は、録音を終えたら最終の文字起こしを作るか（6.9 節、既定はオン）。サーバーに WhisperX が入っていないとき（`uv sync --extra final` していないとき）は、オンでも作らない。`whisper.diarize` は、最終の文字起こしで話者を分けるか（既定はオン）。話者分けのモデルを使えない（HuggingFace のトークンがない・利用条件に同意していない）ときは、分けずに作る。どちらも作り始める時点の値を使う。
@@ -242,7 +242,10 @@ erDiagram
     {
       "id": "20261009-090501",
       "status": "ready",
-      "materials": ["D:\\work\\meetings\\weekly\\agenda.md", "D:\\work\\meetings\\weekly\\notes.md"]
+      "materials": [
+        "D:\\work\\meetings\\weekly\\agenda.md",
+        "D:\\work\\meetings\\weekly\\notes.md"
+      ]
     }
   ],
   "sessions": [
@@ -296,6 +299,7 @@ materials:
   - path: D:\work\meetings\weekly\notes.md
     sha1: 9b1c...
 ---
+
 リリース計画
 ステージング環境
 ...
@@ -312,10 +316,10 @@ materials:
 ```yaml
 toc:
   - path: D:\work\meetings\weekly\textbook.pdf
-    kind: pages          # pages（PDF のページ） | headings（見出し） | chunks（約 2000 文字ずつ）
+    kind: pages # pages（PDF のページ） | headings（見出し） | chunks（約 2000 文字ずつ）
     chars: 184300
-    large: true          # 大きい資料（6.6 節）
-    entries:             # 範囲は「資料＋始まり〜終わりの index」で表す
+    large: true # 大きい資料（6.6 節）
+    entries: # 範囲は「資料＋始まり〜終わりの index」で表す
       - { index: 1, title: 第1章 はじめに, level: 1, chars: 1820 }
       - { index: 2, title: 第1章 はじめに, level: 1, chars: 2105 }
       # level は見出しの階層（1が最上位）。しおりのない PDF と chunks では null
@@ -328,7 +332,7 @@ toc:
 id: 20261009-143012
 project: D:\work\meetings
 title: 新機能のリリース計画
-status: done            # recording | done | interrupted
+status: done # recording | done | interrupted
 startedAt: 2026-10-09T14:30:12+09:00
 endedAt: 2026-10-09T15:59:40+09:00
 durationSec: 5368
@@ -338,21 +342,22 @@ whisper:
   beamSize: 5
   silenceMs: 600
   speechThreshold: auto
-  speechDbfs: null            # speechThreshold が manual のときだけ値が入る
-contextSet: 20261009-090501   # 使わなかった場合は null
+  speechDbfs: null # speechThreshold が manual のときだけ値が入る
+contextSet: 20261009-090501 # 使わなかった場合は null
 useHotwords: true
 recording: recording-20261009-143012.mp3
-summaryFailed: false          # 最終の要約を作れなかったら true（作れたら false に戻す）
-pickedTerms: [フォトンリンク]  # 録音中に文字起こしから拾って、用語リストに足した語（6.2 節）
-rejectedTerms: []             # 画面で消された語（以後足さない）
-appVersion: 2b23d9b           # 録音したサーバーのバージョン
-source: upload                # 音声ファイルをアップロードして作ったセッション（6.11 節）。録音したものにはない
-originalName: 会議.m4a        # アップロードした元のファイル名（アップロードのときだけ）
-uploadedAt: 2026-10-10T09:00:00+09:00  # アップロードした日時（アップロードのときだけ。保存期間はここから数える）
-materialRange:                # 今回扱った範囲で参考資料を作り直したとき（6.12 節）。from・to は目次の index で両端を含む
-  - {file: slides.pdf, path: D:\work\slides.pdf, from: 12, to: 30}
-baseContextSet: 20261009-090501  # 作り直したとき、元の（資料全体の）セット。contextSet はセッション専用のセットになる
+summaryFailed: false # 最終の要約を作れなかったら true（作れたら false に戻す）
+pickedTerms: [フォトンリンク] # 録音中に文字起こしから拾って、用語リストに足した語（6.2 節）
+rejectedTerms: [] # 画面で消された語（以後足さない）
+appVersion: 2b23d9b # 録音したサーバーのバージョン
+source: upload # 音声ファイルをアップロードして作ったセッション（6.11 節）。録音したものにはない
+originalName: 会議.m4a # アップロードした元のファイル名（アップロードのときだけ）
+uploadedAt: 2026-10-10T09:00:00+09:00 # アップロードした日時（アップロードのときだけ。保存期間はここから数える）
+materialRange: # 今回扱った範囲で参考資料を作り直したとき（6.12 節）。from・to は目次の index で両端を含む
+  - { file: slides.pdf, path: D:\work\slides.pdf, from: 12, to: 30 }
+baseContextSet: 20261009-090501 # 作り直したとき、元の（資料全体の）セット。contextSet はセッション専用のセットになる
 ---
+
 [00:00:03] 今日はリリース計画について…
 [00:00:15] …
 ```
@@ -371,17 +376,18 @@ project: D:\work\meetings
 title: 新機能のリリース計画
 startedAt: 2026-10-09T14:30:12+09:00
 endedAt: 2026-10-09T15:59:40+09:00
-model: qwen3.5:4b             # 要約詳細のモデル（6.5 節）
-overviewModel: qwen3.5:4b     # 全体概要のモデル（#178）。項目のない古いファイルは model と同じとみなす
+model: qwen3.5:4b # 要約詳細のモデル（6.5 節）
+overviewModel: qwen3.5:4b # 全体概要のモデル（#178）。項目のない古いファイルは model と同じとみなす
 think: true
 transcript: transcript-20261009-143012.md
 contextSet: 20261009-090501
 useContext: true
 generatedAt: 2026-10-09T16:03:11+09:00
-appVersion: 2b23d9b           # 要約を作ったサーバーのバージョン（文字起こしと同じ）
-overviewDensity: 3            # 使った要約度（概要・詳細。5.3 節）。一度に収まって概要を作らなかったときは null。項目のない古いファイルも読める
+appVersion: 2b23d9b # 要約を作ったサーバーのバージョン（文字起こしと同じ）
+overviewDensity: 3 # 使った要約度（概要・詳細。5.3 節）。一度に収まって概要を作らなかったときは null。項目のない古いファイルも読める
 detailDensity: 3
 ---
+
 （要約の本文）
 ```
 
@@ -392,14 +398,15 @@ detailDensity: 3
 id: 20261009-143012
 generationId: 20261009-160011
 project: D:\work\meetings
-model: large-v3-turbo          # 使った Whisper のモデル
+model: large-v3-turbo # 使った Whisper のモデル
 generatedAt: 2026-10-09T16:00:11+09:00
 recording: recording-20261009-143012.mp3
-alignModel: jonatasgrosman/wav2vec2-large-xlsr-53-japanese   # 単語の時刻を合わせたモデル
-diarization: done              # done（話者を分けた）/ off（設定で切っていた）/ unavailable（モデルを使えなかった）
+alignModel: jonatasgrosman/wav2vec2-large-xlsr-53-japanese # 単語の時刻を合わせたモデル
+diarization: done # done（話者を分けた）/ off（設定で切っていた）/ unavailable（モデルを使えなかった）
 speakers: 2
 appVersion: 2b23d9b
 ---
+
 [00:00:03] 話者 1: 今日はリリース計画について決めていきたいと思います。
 [00:00:08] 話者 2: まずステージング環境での確認ですが、来週の水曜日までに終わらせる予定です。
 ```
@@ -508,11 +515,11 @@ sequenceDiagram
 
 GPU を使う処理は、1つのキューを通して順番に実行する。
 
-| 優先度 | ジョブ |
-|---|---|
-| 1 | 文字起こし（partial と final） |
-| 2 | 途中の要約・仮のタイトル・録音中の用語の抽出 |
-| 3 | 最終の文字起こし・最終の要約・タイトル・参考資料セットの作成・作り直し・範囲の判断と参考資料の作り直し（6.12 節） |
+| 優先度 | ジョブ                                                                                                            |
+| ------ | ----------------------------------------------------------------------------------------------------------------- |
+| 1      | 文字起こし（partial と final）                                                                                    |
+| 2      | 途中の要約・仮のタイトル・録音中の用語の抽出                                                                      |
+| 3      | 最終の文字起こし・最終の要約・タイトル・参考資料セットの作成・作り直し・範囲の判断と参考資料の作り直し（6.12 節） |
 
 - 実行中のジョブは途中で止めない（例外は最終の文字起こしで、録音が始まったら止めて、録音が終わってから作り直す。6.9 節）。途中の要約や前のセッションの最終の要約を作っている間は、文字起こしのジョブがその後ろで待たされる。
 - 何が詰まっているかを画面で見られるよう、ジョブには種類（`transcribe`・`whisperLoad`・`liveSummary`・`finalSummary`・`contextSet`・`terms`・`finalTranscript`・`materialRange`・`other`）とセッションを持たせ、実行中のジョブと待っているジョブの一覧を `status` の `jobs` で送る（7.2 節）。
@@ -561,6 +568,7 @@ GPU を使う処理は、1つのキューを通して順番に実行する。
 4. `hotwords-<ID>.md` と `context-<ID>.md` に保存する。資料ファイルごとの目次も、`context-<ID>.md` のフロントマター（`toc`。5.5 節）に残す。
 
 **資料の目次**（#181。Ollama は使わず、ルールで決める）: 録音するまでどの範囲を扱うか分からないので、あとで範囲を選べるように、資料ごとにページ（区切り）の一覧を取っておく。区切りには 1 から番号（`index`）を振り、範囲は「資料ファイル＋始まり〜終わりの `index`」で表す。
+
 - PDF: ページごとに、ページ番号・見出し・文字数。見出しは、しおり（outline）があれば「そのページ以前でいちばん後ろのしおり」（階層つき）、なければページの先頭の行。
 - md・html: 見出し（md は `#`、html は `h1`〜`h6`）ごとに、見出し・階層・文字数。見出しの前に文があれば、それを最初の区切りにする。md のコードブロックの中の `#` は見出しにしない。
 - txt と、見出しのない md・html: 行の切れ目で約 2000 文字ずつに区切り、区切りの先頭の行を見出しにする。
@@ -576,17 +584,18 @@ GPU を使う処理は、1つのキューを通して順番に実行する。
 
 ### 6.7 障害が起きたとき
 
-| 状況 | 動作 |
-|---|---|
-| Whisper が読み込めない・落ちた | 録音は続ける。UI には状態を通知する。文字起こしは録音ファイルから後で作り直す（**提案**: 文字起こしの作り直し機能） |
-| Ollama に接続できない | 録音と文字起こしは続ける。要約は失敗として記録し、後で作り直せるようにする |
-| ブラウザとの接続が切れた | サーバーはセッションを `recording.resumeTimeoutMin` 分（既定 10 分）保持する。その間ブラウザは録音を続け、音声を手元に溜める。再接続したら、受け取り済みの連番の次から送ってもらい、同じセッションのまま続ける。時間を過ぎたら `interrupted` にして、そこまでの録音を保存する（続きから録音できる。下の「続きから録音」） |
-| 端末の画面がスリープする | 録音中（一時停止中も）は Screen Wake Lock API で画面のスリープを止める。タブを裏に回すとブラウザが外すので、表に戻ったら取り直す。使えないブラウザでは何もしない |
-| マイクが止まった | マイクのトラックが止まった（`ended`）・音が届かない（`mute`）・音声の処理が止まった（`AudioContext` が `running` でない）ときは、すぐに目立つ警告（上に貼り付けた場所と通知）を出す。「マイクを開き直す」で、録音を続けたままマイクを開き直す（`mute` は OS やほかのアプリが止めているので、戻るのを待つ） |
-| ページを読み込み直した・タブが落とされた | サーバーに届いていない音声（ack されていないチャンク）は IndexedDB にも置き、ack を受けたら消す。上限は約 60 分（120MB）で、超えた分は手元（メモリ）だけに持ち、警告を出す。次にページを開いたとき残っていれば知らせ、「送って続きを録音」で同じセッションの続きを録音する（サーバーが待っていれば `resume` で同じ連番のまま送り直し、`started` の `offsetSec` から経過時間を戻す。待つ時間を過ぎていれば `continue` で、届かなかった音声を頭に足す）。「捨てる」で消す |
-| サーバーが落ちた | 次に起動したとき、`.tmp/` に残っている WAV を mp3 に変換する（mp3 がもうあっても、途中まで変換したものかもしれないので WAV から変換し直す。変換できなければ WAV を残す。書きかけの `recording-<ID>.mp3.tmp` は消す）。最終の要約の途中で止まったセッション（要約がなく失敗の記録もない）は、要約の失敗として記録する。`status: recording` のままの文字起こしは `interrupted` に直し、最後の区間の時刻を終了日時にする（区間がなければ、開始日時に WAV の長さを足したもの） |
+| 状況                                     | 動作                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Whisper が読み込めない・落ちた           | 録音は続ける。UI には状態を通知する。文字起こしは録音ファイルから後で作り直す（**提案**: 文字起こしの作り直し機能）                                                                                                                                                                                                                                                                                                                                                        |
+| Ollama に接続できない                    | 録音と文字起こしは続ける。要約は失敗として記録し、後で作り直せるようにする                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ブラウザとの接続が切れた                 | サーバーはセッションを `recording.resumeTimeoutMin` 分（既定 10 分）保持する。その間ブラウザは録音を続け、音声を手元に溜める。再接続したら、受け取り済みの連番の次から送ってもらい、同じセッションのまま続ける。時間を過ぎたら `interrupted` にして、そこまでの録音を保存する（続きから録音できる。下の「続きから録音」）                                                                                                                                                  |
+| 端末の画面がスリープする                 | 録音中（一時停止中も）は Screen Wake Lock API で画面のスリープを止める。タブを裏に回すとブラウザが外すので、表に戻ったら取り直す。使えないブラウザでは何もしない                                                                                                                                                                                                                                                                                                           |
+| マイクが止まった                         | マイクのトラックが止まった（`ended`）・音が届かない（`mute`）・音声の処理が止まった（`AudioContext` が `running` でない）ときは、すぐに目立つ警告（上に貼り付けた場所と通知）を出す。「マイクを開き直す」で、録音を続けたままマイクを開き直す（`mute` は OS やほかのアプリが止めているので、戻るのを待つ）                                                                                                                                                                 |
+| ページを読み込み直した・タブが落とされた | サーバーに届いていない音声（ack されていないチャンク）は IndexedDB にも置き、ack を受けたら消す。上限は約 60 分（120MB）で、超えた分は手元（メモリ）だけに持ち、警告を出す。次にページを開いたとき残っていれば知らせ、「送って続きを録音」で同じセッションの続きを録音する（サーバーが待っていれば `resume` で同じ連番のまま送り直し、`started` の `offsetSec` から経過時間を戻す。待つ時間を過ぎていれば `continue` で、届かなかった音声を頭に足す）。「捨てる」で消す    |
+| サーバーが落ちた                         | 次に起動したとき、`.tmp/` に残っている WAV を mp3 に変換する（mp3 がもうあっても、途中まで変換したものかもしれないので WAV から変換し直す。変換できなければ WAV を残す。書きかけの `recording-<ID>.mp3.tmp` は消す）。最終の要約の途中で止まったセッション（要約がなく失敗の記録もない）は、要約の失敗として記録する。`status: recording` のままの文字起こしは `interrupted` に直し、最後の区間の時刻を終了日時にする（区間がなければ、開始日時に WAV の長さを足したもの） |
 
 **続きから録音**（#101）: `interrupted` のセッションは、同じセッションのまま続きを録音できる（画面ではセッションの「続きから録音」と、途中で終わったときの通知のボタン）。
+
 - ブラウザは `continue`（`project`・`session`）を送る。サーバーは前の録音を `.tmp/<ID>/audio.wav` に戻してから、その後ろに続けて書く。`.tmp` に WAV が残っていればそれを、なければ変換済みの mp3（m4a）を WAV に戻す（mp3 から戻した分は、録音し終えたときにもう一度 mp3 に変換するので、少し音質が落ちる）。録音ファイルが保存期間を過ぎて消えていれば、続けられない（`cannot_continue`）。
 - 時刻は前の録音の長さ（`started` の `offsetSec`）から続ける。止まっていた間の時間は含めない（一時停止と同じ）。文字起こしは同じファイルの後ろに足し、途中の要約は前の文字起こしも含めて作る。
 - 文字起こしの状態は `recording` に戻し、録音を終えたら、終了日時・長さ（前の録音と続きを合わせたもの）・状態を決め直す。`stop` で終えれば最終の要約を作る。続きでも途中で終わったら、もう一度続きから録音できる。
@@ -686,31 +695,31 @@ flowchart LR
 
 ### 7.1 REST
 
-| メソッド | パス | 内容 |
-|---|---|---|
-| GET | `/api/settings` | 全体設定を返す |
-| PATCH | `/api/settings` | 全体設定を部分的に更新する。録音中に、録音中は変えられない項目（5.3 節）の値を変えようとすると `409` |
-| GET | `/api/settings/options` | 選べる値を返す（Whisper のモデル、Ollama のモデルと、それぞれが思考モードに対応しているか。処理ごとのモデルのうち Ollama に入っていないもののキー `ollama.missing`。5.3 節） |
-| GET | `/api/projects` | プロジェクトの一覧 |
-| POST | `/api/projects` | ディレクトリをプロジェクトとして登録する（すでにあればそれを返す） |
-| GET | `/api/sessions/{uuid}` | セッションの UUID から、セッションのメタ情報と `projectId`・`projectUuid` を返す（#177）。なければ `404` |
-| GET | `/api/projects/{pid}/sessions` | セッションの一覧（サイドバー用） |
-| POST | `/api/projects/{pid}/sessions/upload` | 音声ファイルから新しいセッションを作る（6.11 節、#180）。クエリは `name`・`lastModified`、本文はファイルそのもの。`202` で作ったセッションを返す |
-| GET | `/api/projects/{pid}/sessions/{sid}` | セッションのメタ情報 |
-| GET | `/api/projects/{pid}/sessions/{sid}/transcript` | 文字起こし |
-| GET | `/api/projects/{pid}/sessions/{sid}/final-transcripts` | 最終の文字起こしの世代の一覧（フロントマター。古いものから） |
-| GET | `/api/projects/{pid}/sessions/{sid}/final-transcripts/{gid}` | 指定した世代の最終の文字起こし（`lines` と `meta`）。`gid` に `latest` を指定すると、いちばん新しいもの。なければ `410` |
-| POST | `/api/projects/{pid}/sessions/{sid}/final-transcripts` | 最終の文字起こしを今の全体設定（`whisper.model`・`whisper.diarize`）で作り直す（#124）。202 で使うモデルと話者分けのオン・オフを返す。結果は WebSocket で全員に送る（`finalTranscript`、作れなければ `error` の `final_transcript_failed`）。録音中・録音を終えた直後のセッションは 409、録音ファイルが消えていれば 410、WhisperX のないサーバーは 503 |
-| DELETE | `/api/projects/{pid}/sessions/{sid}/terms/{term}` | 録音中に拾った語を消す（誤った語）。以後そのセッションでは足さない。録音中なら録音中の用語リストからもすぐ外す。拾った語と消された語の一覧（`pickedTerms`・`rejectedTerms`）を返す |
-| GET | `/api/projects/{pid}/sessions/{sid}/recording` | 録音ファイル（mp3）。Range リクエストに対応する（好きな位置から再生できるように）。ファイルがない（保存期間を過ぎた・録音中・mp3 への変換前）ときは `404` |
-| GET | `/api/projects/{pid}/sessions/{sid}/summaries` | 最終の要約の一覧（生成 ID・モデル・生成日時） |
-| GET | `/api/projects/{pid}/sessions/{sid}/summaries/{gid}` | 指定した最終の要約。`gid` に `latest` を指定すると、いちばん新しいものを返す。最終の要約がまだないときは、途中の要約を返す |
-| POST | `/api/projects/{pid}/sessions/{sid}/summaries` | 最終の要約を作り直す（202 で使うモデルを返す。結果は WebSocket で全員に送る。録音中のセッションは 409、文字起こしが消えていれば 410） |
-| GET | `/api/fs?path=…` | 許可したルートの中のディレクトリの中身を返す |
-| GET | `/api/projects/{pid}/context-sets` | 参考資料セットの一覧 |
-| POST | `/api/projects/{pid}/context-sets` | 参考資料を指定して、セットの作成を始める |
-| PATCH | `/api/projects/{pid}/selection` | 使うセットと、用語リスト・コンテキストそれぞれを使うかどうか、録音中に用語を拾うか（`pickTerms`）を設定する。録音中は `409` |
-| GET | `/api/version` | サーバーのバージョン（`{"version": "2b23d9b"}`。5.5 節の `appVersion` と同じ値） |
+| メソッド | パス                                                         | 内容                                                                                                                                                                                                                                                                                                                                                   |
+| -------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| GET      | `/api/settings`                                              | 全体設定を返す                                                                                                                                                                                                                                                                                                                                         |
+| PATCH    | `/api/settings`                                              | 全体設定を部分的に更新する。録音中に、録音中は変えられない項目（5.3 節）の値を変えようとすると `409`                                                                                                                                                                                                                                                   |
+| GET      | `/api/settings/options`                                      | 選べる値を返す（Whisper のモデル、Ollama のモデルと、それぞれが思考モードに対応しているか。処理ごとのモデルのうち Ollama に入っていないもののキー `ollama.missing`。5.3 節）                                                                                                                                                                           |
+| GET      | `/api/projects`                                              | プロジェクトの一覧                                                                                                                                                                                                                                                                                                                                     |
+| POST     | `/api/projects`                                              | ディレクトリをプロジェクトとして登録する（すでにあればそれを返す）                                                                                                                                                                                                                                                                                     |
+| GET      | `/api/sessions/{uuid}`                                       | セッションの UUID から、セッションのメタ情報と `projectId`・`projectUuid` を返す（#177）。なければ `404`                                                                                                                                                                                                                                               |
+| GET      | `/api/projects/{pid}/sessions`                               | セッションの一覧（サイドバー用）                                                                                                                                                                                                                                                                                                                       |
+| POST     | `/api/projects/{pid}/sessions/upload`                        | 音声ファイルから新しいセッションを作る（6.11 節、#180）。クエリは `name`・`lastModified`、本文はファイルそのもの。`202` で作ったセッションを返す                                                                                                                                                                                                       |
+| GET      | `/api/projects/{pid}/sessions/{sid}`                         | セッションのメタ情報                                                                                                                                                                                                                                                                                                                                   |
+| GET      | `/api/projects/{pid}/sessions/{sid}/transcript`              | 文字起こし                                                                                                                                                                                                                                                                                                                                             |
+| GET      | `/api/projects/{pid}/sessions/{sid}/final-transcripts`       | 最終の文字起こしの世代の一覧（フロントマター。古いものから）                                                                                                                                                                                                                                                                                           |
+| GET      | `/api/projects/{pid}/sessions/{sid}/final-transcripts/{gid}` | 指定した世代の最終の文字起こし（`lines` と `meta`）。`gid` に `latest` を指定すると、いちばん新しいもの。なければ `410`                                                                                                                                                                                                                                |
+| POST     | `/api/projects/{pid}/sessions/{sid}/final-transcripts`       | 最終の文字起こしを今の全体設定（`whisper.model`・`whisper.diarize`）で作り直す（#124）。202 で使うモデルと話者分けのオン・オフを返す。結果は WebSocket で全員に送る（`finalTranscript`、作れなければ `error` の `final_transcript_failed`）。録音中・録音を終えた直後のセッションは 409、録音ファイルが消えていれば 410、WhisperX のないサーバーは 503 |
+| DELETE   | `/api/projects/{pid}/sessions/{sid}/terms/{term}`            | 録音中に拾った語を消す（誤った語）。以後そのセッションでは足さない。録音中なら録音中の用語リストからもすぐ外す。拾った語と消された語の一覧（`pickedTerms`・`rejectedTerms`）を返す                                                                                                                                                                     |
+| GET      | `/api/projects/{pid}/sessions/{sid}/recording`               | 録音ファイル（mp3）。Range リクエストに対応する（好きな位置から再生できるように）。ファイルがない（保存期間を過ぎた・録音中・mp3 への変換前）ときは `404`                                                                                                                                                                                              |
+| GET      | `/api/projects/{pid}/sessions/{sid}/summaries`               | 最終の要約の一覧（生成 ID・モデル・生成日時）                                                                                                                                                                                                                                                                                                          |
+| GET      | `/api/projects/{pid}/sessions/{sid}/summaries/{gid}`         | 指定した最終の要約。`gid` に `latest` を指定すると、いちばん新しいものを返す。最終の要約がまだないときは、途中の要約を返す                                                                                                                                                                                                                             |
+| POST     | `/api/projects/{pid}/sessions/{sid}/summaries`               | 最終の要約を作り直す（202 で使うモデルを返す。結果は WebSocket で全員に送る。録音中のセッションは 409、文字起こしが消えていれば 410）                                                                                                                                                                                                                  |
+| GET      | `/api/fs?path=…`                                             | 許可したルートの中のディレクトリの中身を返す                                                                                                                                                                                                                                                                                                           |
+| GET      | `/api/projects/{pid}/context-sets`                           | 参考資料セットの一覧                                                                                                                                                                                                                                                                                                                                   |
+| POST     | `/api/projects/{pid}/context-sets`                           | 参考資料を指定して、セットの作成を始める                                                                                                                                                                                                                                                                                                               |
+| PATCH    | `/api/projects/{pid}/selection`                              | 使うセットと、用語リスト・コンテキストそれぞれを使うかどうか、録音中に用語を拾うか（`pickTerms`）を設定する。録音中は `409`                                                                                                                                                                                                                            |
+| GET      | `/api/version`                                               | サーバーのバージョン（`{"version": "2b23d9b"}`。5.5 節の `appVersion` と同じ値）                                                                                                                                                                                                                                                                       |
 
 - `{pid}` には、プロジェクト ID の代わりにプロジェクトの UUID（5.2 節）も使える。プロジェクトの一覧とセッションの一覧・メタ情報には `uuid` を付ける。
 - 画面の URL（`/s/<UUID>` など、8 章）にはファイルがないので、`/api`・`/ws` 以外の拡張子のないパスには `index.html` を返す（SPA のフォールバック）。拡張子のあるもの（なくなった JS など）は `404` のまま。
@@ -726,28 +735,28 @@ flowchart LR
 
 **ブラウザ → サーバー**
 
-| 種類 | 中身 |
-|---|---|
+| 種類 | 中身                                                                                                                                                                                                                                                                                                                                        |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 制御 | `{"type":"start","project":"<pid>"}` / `{"type":"stop"}` / `{"type":"pause"}` / `{"type":"unpause"}` / `{"type":"resume","session":"<sid>","nextSeq":n}`（`resume` は再接続のためのもので、一時停止からの再開は `unpause`） / `{"type":"continue","project":"<pid>","session":"<sid>"}`（途中で終わったセッションの続きを録音する。6.7 節） |
-| 音声 | バイナリ。先頭4バイトが連番（uint32、リトルエンディアン）、続きが 16kHz・モノラル・Int16 の PCM |
+| 音声 | バイナリ。先頭4バイトが連番（uint32、リトルエンディアン）、続きが 16kHz・モノラル・Int16 の PCM                                                                                                                                                                                                                                             |
 
 **サーバー → ブラウザ**
 
-| type | 中身 |
-|---|---|
-| `started` | `session`。`start` のときは `sessionUuid`（新しいセッションの UUID。画面はこの URL に置き換える）。`resume` のときは `resumed: true` と `offsetSec`（受け取り済みの録音の長さ）、`continue` のときは `continued: true` と `offsetSec`（前の録音の長さ。時刻はここから続く） |
-| `ack` | `seq`。ブラウザは、ここまでの音声を手元のバッファから消してよい |
-| `partial` | `segment`、`committed`、`tentative` |
-| `final` | `segment`、`start`、`end`、`text`。`text` が空なら、その区間は文字にならなかった（話していないのに出た文をすべて捨てた・Whisper を使えなかった）。UI は partial を消すだけで、行は足さない |
-| `transcriptionStalled` | `stalled`（音は届いているのに文字起こしが出ていない。また出るようになったら `false`。6.2 節）。`resume` したときは、今の状態（止まっていなければ `false`）を送り直す（切れている間の知らせは届かないため） |
-| `summary.delta` | `kind`（`live` / `final`）、`text`（追加分）。`replace: true` のときは、追加分ではなく、届いている下書きをこの `text` で置き換える（途中の要約の前置きと、できあがった全体。6.4 節） |
-| `summary.done` | `kind` |
-| `title` | `title`、`provisional`（仮のタイトルかどうか） |
-| `terms` | `terms`（録音中に拾って用語リストに足した語）、`rejected`（消された語）。拾った語が変わったときに送る |
-| `contextSet` | `project`（プロジェクト ID）、`id`、`status`（`generating` / `ready` / `failed`） |
-| `finalTranscript` | `generationId`。最終の文字起こしができた（6.9 節）。全員に送る |
-| `status` | `whisper`（`unloaded` / `loading` / `ready` / `error`）、`ollama`（`ready` / `error`）、`recordings`（録音中のセッションの数）、`queue`（待っている・実行中のジョブの数）、`jobs`、`gpu`、`summarizing`、`transcribing` |
-| `error` | `code`、`message` |
+| type                   | 中身                                                                                                                                                                                                                                                                        |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `started`              | `session`。`start` のときは `sessionUuid`（新しいセッションの UUID。画面はこの URL に置き換える）。`resume` のときは `resumed: true` と `offsetSec`（受け取り済みの録音の長さ）、`continue` のときは `continued: true` と `offsetSec`（前の録音の長さ。時刻はここから続く） |
+| `ack`                  | `seq`。ブラウザは、ここまでの音声を手元のバッファから消してよい                                                                                                                                                                                                             |
+| `partial`              | `segment`、`committed`、`tentative`                                                                                                                                                                                                                                         |
+| `final`                | `segment`、`start`、`end`、`text`。`text` が空なら、その区間は文字にならなかった（話していないのに出た文をすべて捨てた・Whisper を使えなかった）。UI は partial を消すだけで、行は足さない                                                                                  |
+| `transcriptionStalled` | `stalled`（音は届いているのに文字起こしが出ていない。また出るようになったら `false`。6.2 節）。`resume` したときは、今の状態（止まっていなければ `false`）を送り直す（切れている間の知らせは届かないため）                                                                  |
+| `summary.delta`        | `kind`（`live` / `final`）、`text`（追加分）。`replace: true` のときは、追加分ではなく、届いている下書きをこの `text` で置き換える（途中の要約の前置きと、できあがった全体。6.4 節）                                                                                        |
+| `summary.done`         | `kind`                                                                                                                                                                                                                                                                      |
+| `title`                | `title`、`provisional`（仮のタイトルかどうか）                                                                                                                                                                                                                              |
+| `terms`                | `terms`（録音中に拾って用語リストに足した語）、`rejected`（消された語）。拾った語が変わったときに送る                                                                                                                                                                       |
+| `contextSet`           | `project`（プロジェクト ID）、`id`、`status`（`generating` / `ready` / `failed`）                                                                                                                                                                                           |
+| `finalTranscript`      | `generationId`。最終の文字起こしができた（6.9 節）。全員に送る                                                                                                                                                                                                              |
+| `status`               | `whisper`（`unloaded` / `loading` / `ready` / `error`）、`ollama`（`ready` / `error`）、`recordings`（録音中のセッションの数）、`queue`（待っている・実行中のジョブの数）、`jobs`、`gpu`、`summarizing`、`transcribing`                                                     |
+| `error`                | `code`、`message`                                                                                                                                                                                                                                                           |
 
 - `start`・`continue` の `project` と、`continue`・`resume` の `session` には、ID の代わりに UUID（5.2 節）も使える（#177）。
 - `resume` を受け付けたら、`started`（`resumed: true`、`offsetSec` は受け取り済みの録音の長さ）と、受け取り済みの最後の連番の `ack` を返す。ブラウザはその次から送り直す。再開できるセッションがなければ `error`（`session_not_found`）。
@@ -790,14 +799,15 @@ flowchart LR
 - **最終の文字起こしの作り直し（#124）**: 要約の作り直しと揃える。録音を終えていて録音ファイルが残っているセッションに「<今の Whisper のモデル> で作り直す」ボタンを出す（最終の文字起こしがまだなければ「最終の文字起こしを作る」）。WhisperX のないサーバー（`/api/settings/options` の `whisper.finalTranscript` が false）では出さない。録音ファイルがなければ、作り直せない理由を出す。世代が複数あれば、選んで切り替えられる。既定は、今の全体設定の Whisper のモデルで作ったうちいちばん新しいもの（なければモデルを問わずいちばん新しいもの）。表示しているものが今のモデルのものでなければ「<モデル> の最終の文字起こしはまだありません」と出す（モデルを変えても、要約と違って自動では作り直さない。数分かかるため）。作り直したら、要約も作り直すかをトーストで聞く（勝手には作り直さない）。録音中や、ほかのジョブを実行している間に押しても、録音が終わってから・キューの順番で作る。
 - 再生しているとき、再生位置に当たる文字起こしの行（始まりの時刻が再生位置以前の最後の行）を目立たせ、その行が画面の中ほどに来るように追う（#122）。再生中に自分でスクロール（ホイール・タッチ・キー。入力欄やダイアログの中の操作は除く）したら追うのをやめ、「再生位置に戻る」ボタンを出す。シーク（行の時刻を押す・再生バーで動かす）したら、また追う。一時停止しても、その位置の行は目立たせたまま。再生する前は目立たせない。
 - 右上にモデルなどの簡易設定と、参考資料を選ぶ場所を置く。簡易設定は全体設定をそのまま書き換える。
-  - 要約度は、上のバーには「途中・概要・詳細」の3つの値を並べて（例: `3・3・3`）出し、押すとそれぞれを選べる。設定モーダルの「要約」にも同じ3つを置く。
+  - 簡易設定は「モデル」と「参考資料」の2つだけ（#179）。「モデル」のボタンには今の要約詳細のモデルの名前を出し、押すと設定モーダルの「モデル」ページ（`/settings/models`）が開く（戻るで閉じる）。要約度は設定モーダルの「要約」にだけ置く。
+  - 「モデル」ページには、大きな段階（参考資料・リアルタイム文字起こし・浄書済み文字起こし・リアルタイム要約・最終要約）ごとに、処理とそれに使うものを並べる。Ollama と Whisper は選べ、Silero VAD・wav2vec2・pyannote など選べないものも薄い文字で出す。選べるものの横におすすめのモデルと、Ollama に入っていなければ「入っていません」を出し、「おすすめに戻す」で Ollama のモデルだけをおすすめに戻す。録音中は Whisper のモデルだけ選べない。
 - 上のバーの左に、GPU の状態を小さく出す（使用率と、待っているジョブの数。何か実行中なら点が光る）。押すと、実行中のジョブと経過時間、待っているジョブ（実行する順）が開く。録音中でも見られる。
 - 録音中に、要約などのジョブが GPU を使っていて、このセッションの文字起こしがその後ろで待たされているときは、文字起こしの画面の下の状態に「途中の要約の生成中のため、文字起こしを待っています…」のように出す。
 - 全体設定はモーダルで開く。
 - **画面の URL（#177）**: 開いているものを URL に出し、戻る・進む・再読み込み・URL を直接開く（別の端末に送るなど）のどれでも同じ画面を開く。
   - `/s/<セッションの UUID>`: セッション。プロジェクトを入れないので、セッションを別のプロジェクトへ移しても URL が変わらない
   - `/p/<プロジェクトの UUID>/new`: 新しいセッションの画面（`/p/<UUID>` も同じ）
-  - `/settings/<ページ>`: 設定モーダル（`whisper`・`ollama`・`storage`・`materials`・`display`。知らないページは最初のページ）。閉じたら開く前の URL に戻る。URL から直接開いたときは、閉じると何も選んでいない画面（`/`）になる
+  - `/settings/<ページ>`: 設定モーダル（`whisper`・`models`・`ollama`・`storage`・`materials`・`display`。知らないページは最初のページ）。閉じたら開く前の URL に戻る。URL から直接開いたときは、閉じると何も選んでいない画面（`/`）になる
   - セッションを選ぶ・新しいセッションの画面を開く・設定モーダルを開くと、履歴が増える。設定モーダルの中のページの切り替えと、録音を始めて新しいセッションの画面がそのセッションになったときは、履歴を増やさずに置き換える
   - 存在しない UUID や、保存期間を過ぎて一覧から消えたものは「見つかりません」と出す（URL はそのまま）
   - `?demo` などのクエリは残す。UUID のないもの（古いサーバー・`?demo` のダミーデータ）は、UUID の代わりに今の ID を使う
@@ -810,7 +820,7 @@ flowchart LR
 - 録音中にほかのセッション（または新しいセッションの画面）を開いているときは、マイクのボタンを「録音中のセッションに戻る」ボタンにする（Tooltip は「『<タイトル>』で録音中です。クリックで戻ります」）。一時停止・終了のボタンと録音の状態の表示は、録音中のセッションの画面でだけ出す。左メニューの録音中のセッションには赤い点を出す。
 - スマホ（幅 768px 未満）でも使える。
   - サイドバーは画面に重なるシートになり、左上のボタンで開く。セッションを選ぶと閉じる。
-  - 上部のモデルの簡易設定は、ボタン1つにまとめて、下から出るシートで選ぶ。参考資料はそのまま。
+  - 上部の簡易設定は、シートにまとめず、「モデル」と参考資料のボタンをそのまま並べる。
   - マイクのボタンは少し小さくし（96px）、画面の下端（ホームバーなど）を避けて置く。
   - タッチではツールチップが出ないので、待機中はマイクのボタンの上に短い説明を、録音中は終了ボタンの下に「終了」を出す。
   - 設定モーダルは、カテゴリを上に横並びにし、各項目は入力欄を説明の下に置く。

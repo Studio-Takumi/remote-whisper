@@ -19,7 +19,7 @@ const statusLabel: Record<ContextSet['status'], string> = {
     failed: '（失敗）',
 };
 
-// 参考資料セットを選ぶ。右上では ModelSelect と同じ見た目で、押すと右から Sheet が開く
+// 参考資料セットを選ぶ。右上では モデルのボタンと同じ見た目で、押すと右から Sheet が開く
 // セットと選択はプロジェクトごとに持つ
 export function ContextSetSheet() {
     const project = useAppStore(currentProject);
@@ -35,7 +35,7 @@ export function ContextSetSheet() {
 
     return (
         <Sheet>
-            {/* 見た目は ModelSelect にそろえる（SelectTrigger と同じクラス） */}
+            {/* 見た目は モデルのボタンにそろえる（SelectTrigger と同じクラス） */}
             <div className='flex flex-col'>
                 <p className='flex items-center gap-1 px-2 text-xs'>
                     <FileTextIcon className='size-3' />

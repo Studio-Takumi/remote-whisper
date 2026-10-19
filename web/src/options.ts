@@ -1,4 +1,5 @@
 import type { SettingsOptions } from '@/protocol';
+import type { OllamaModels } from '@/settings';
 
 // 設定で選べる値（GET /api/settings/options）を取る
 export async function fetchOptions(): Promise<SettingsOptions> {
@@ -16,6 +17,13 @@ export function withCurrent(options: string[], ...current: string[]) {
 
 export function ollamaModelNames(options: SettingsOptions) {
     return options.ollama.models.map((m) => m.name);
+}
+
+// 処理ごとのモデルが Ollama に入っていないか。一覧が取れていれば入っているものと突き合わせ、
+// 取れていなければサーバーが返した ollama.missing を見る（#179）
+export function isMissing(options: SettingsOptions, key: keyof OllamaModels, model: string) {
+    const names = ollamaModelNames(options);
+    return names.length > 0 ? !names.includes(model) : (options.ollama.missing?.includes(key) ?? false);
 }
 
 // 思考モードを使う処理（最終の要約・参考資料セット）の説明。対応していないモデルはオフで実行する（spec 5.3・9.3）
