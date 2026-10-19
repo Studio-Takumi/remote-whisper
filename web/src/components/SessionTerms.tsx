@@ -1,8 +1,9 @@
 import { useState } from 'react';
 
-import { PlusIcon, TagsIcon, XIcon } from 'lucide-react';
+import { ArrowRightLeftIcon, PlusIcon, TagsIcon, XIcon } from 'lucide-react';
 
 import { Input } from '@/components/ui/input';
+import { describeCorrection } from '@/corrections';
 import { useAppStore } from '@/store';
 import { addAll, describeInvalid, isSubmitKey, parseTermInput, remainingDraft } from '@/terms';
 import type { Session } from '@/types';
@@ -12,6 +13,7 @@ import type { Session } from '@/types';
 // 拾った語の一覧は showPicked（全体設定 display.showPickedTerms、#147）がオンのときだけ出す
 export function SessionTerms({ session, showPicked }: { session: Session; showPicked: boolean }) {
     const reject = useAppStore((s) => s.rejectTerm);
+    const removeCorrection = useAppStore((s) => s.removeCorrection);
     const addTerm = useAppStore((s) => s.addTerm);
     const [draft, setDraft] = useState('');
     const [busy, setBusy] = useState(false);
@@ -21,6 +23,7 @@ export function SessionTerms({ session, showPicked }: { session: Session; showPi
     const [addedAfterRecording, setAddedAfterRecording] = useState(false);
     const manual = session.manualTerms ?? [];
     const picked = showPicked ? (session.pickedTerms ?? []) : [];
+    const corrections = session.corrections ?? [];
 
     // 入力（複数行でもよい）を、確かめてから行ごとに足す。足せなかった語だけを入力欄に残し、理由を出す
     const add = async (text: string, fromPaste = false) => {
@@ -102,6 +105,31 @@ export function SessionTerms({ session, showPicked }: { session: Session; showPi
                     />
                 </label>
             </div>
+            {corrections.length > 0 && (
+                // 置き換え（#176）。文字起こしの文字を選んで足したもの。× で外すと、以後は当たらない
+                <div className='flex flex-wrap items-center gap-1.5'>
+                    <span className='flex items-center gap-1 text-muted-foreground'>
+                        <ArrowRightLeftIcon className='size-3.5' />
+                        置き換え
+                    </span>
+                    {corrections.map((c) => (
+                        <span
+                            key={JSON.stringify(c)}
+                            className='flex items-center gap-0.5 rounded-full border border-border bg-muted/40 py-0.5 pr-1 pl-2'
+                        >
+                            {describeCorrection(c)}
+                            <button
+                                className='rounded-full p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground'
+                                aria-label={`置き換え「${c.from} → ${c.to}」を外す`}
+                                title='外す（以後は当たらない。もう直した行は戻さない）'
+                                onClick={() => void removeCorrection(session.id, c)}
+                            >
+                                <XIcon className='size-3' />
+                            </button>
+                        </span>
+                    ))}
+                </div>
+            )}
             {problem && (
                 <p role='alert' className='text-destructive'>
                     {problem}

@@ -68,6 +68,8 @@ class LiveTranscriber:
         self.send = send
         self.append_final = append_final
         self.hotwords = hotwords
+        # 確定した文に当てる置き換え（#176。録音しているセッションが差し替える）
+        self.correct: Callable[[str], str] = lambda text: text
         # auto は Silero VAD で切り出す（#88）。manual は音量のしきい値で切り出す（#82）
         # vad はテスト用（Silero の代わりに使う判定）
         self.segmenter: Segmenter | VadSegmenter
@@ -141,7 +143,8 @@ class LiveTranscriber:
             log.warning("final of segment %d of %s skipped: %s", segment.index, self.session, e)
             await self._send_final(segment, "")
             return
-        text = _join(_drop_hallucinations(result, segment, "final"))
+        # 画面で足した置き換え（#176）を当ててから、書いて送る
+        text = self.correct(_join(_drop_hallucinations(result, segment, "final")))
         # 区間ごとの実行時間（本文は書かない。文字起こしのファイルに残っている）
         log.info(
             "final of segment %d of %s: %.1fs of audio in %.2fs, %d chars",

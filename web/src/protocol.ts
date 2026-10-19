@@ -66,6 +66,8 @@ export type ServerMessage =
     | { type: 'title'; session: string; title: string; provisional: boolean }
     // 録音中に文字起こしから拾って用語リストに足した語と、消された語（#103）
     | { type: 'terms'; session: string; terms: string[]; rejected: string[]; manual?: string[] }
+    // 置き換え（#176）を足した・外した。そのセッションの文字起こしを取り直す
+    | { type: 'corrections'; session: string }
     | { type: 'contextSet'; project: string; id: string; status: ContextSetStatus }
     | {
           type: 'status';

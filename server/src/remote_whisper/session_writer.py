@@ -9,6 +9,7 @@ import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from remote_whisper.corrections import Correction, replace
 from remote_whisper.documents import (
     SummaryMeta,
     TranscriptMeta,
@@ -37,6 +38,21 @@ _locks_guard = threading.Lock()
 def _lock_for(path: Path) -> threading.Lock:
     with _locks_guard:
         return _locks.setdefault(path.resolve(), threading.Lock())
+
+
+def _correct_body(body: str, correction: Correction) -> str:
+    """録音中の文字起こしの本文に置き換えを当てる。行の時刻は変えない。
+    「この行だけ」は、時刻で始まる行の番号（0 から。画面に出す行と同じ）で選ぶ"""
+    out = []
+    index = -1
+    for line in body.split("\n"):
+        m = _LINE.match(line)
+        if m:
+            index += 1
+            if correction.line is None or correction.line.index == index:
+                line = f"[{m.group(1)}] {replace(m.group(2), correction.wrong, correction.right)}"
+        out.append(line)
+    return "\n".join(out)
 
 
 def fmt_clock(sec: float) -> str:
@@ -213,6 +229,16 @@ class SessionWriter:
         with self._lock:
             self.meta.manual_terms = list(manual)
             self._rewrite_meta()
+
+    def set_corrections(self, corrections: list[Correction], applied: Correction | None) -> None:
+        """置き換えの組を記録する（#176）。applied を渡すと、録音中の文字起こしのファイルの中身にも
+        当てる（全部ならすべての行、録音中の文字起こしの「この行だけ」ならその行）"""
+        with self._lock:
+            self.meta.corrections = list(corrections)
+            _, body = parse(self.files.transcript.read_text(encoding="utf-8"))
+            if applied is not None and (applied.line is None or applied.line.transcript == "live"):
+                body = _correct_body(body, applied)
+            write_doc(self.files.transcript, self.meta, body)
 
     def set_recording(self, name: str) -> None:
         """録音ファイル（mp3）ができた。フロントマターに記録する"""

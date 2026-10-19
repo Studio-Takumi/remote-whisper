@@ -17,6 +17,7 @@ from typing import Any
 from fastapi import WebSocket
 
 from remote_whisper.audio_convert import convert_wav, decode_pcm
+from remote_whisper.corrections import Correction, apply_all, replace
 from remote_whisper.documents import recording_name
 from remote_whisper.gpu_queue import GpuQueue, Priority
 from remote_whisper.hub import Hub, send
@@ -139,6 +140,24 @@ class RecordingSession:
             session=self.id,
             offset=self.offset,
         )
+        # 画面で足した置き換え（#176）を、以後に確定する文に当てる
+        self.transcriber.correct = lambda text: apply_all(text, self.writer.meta.corrections)
+
+    def apply_correction(self, correction: Correction) -> None:
+        """置き換え（#176）を、途中の要約と用語拾いが持っている文字起こしにも当てる
+        （全部の置き換えと、録音中の文字起こしの「この行だけ」）"""
+        line = correction.line
+        if line is not None and line.transcript != "live":
+            return
+        for holder in (self.summarizer, self.picker):
+            if holder is None:
+                continue
+            holder.finals = [
+                (start, replace(text, correction.wrong, correction.right))
+                if line is None or line.index == i
+                else (start, text)
+                for i, (start, text) in enumerate(holder.finals)
+            ]
 
     def apply_hotwords(self) -> None:
         """手で足した語・参考資料セットの用語・拾った語から、録音中の用語リストを作り直す（次の区間から効く）"""
