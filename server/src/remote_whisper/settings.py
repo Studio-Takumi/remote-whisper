@@ -236,6 +236,9 @@ class MaterialsSettings(_Model):
 class DisplaySettings(_Model):
     # 左メニューのセッションに、録音日時と長さを出すか
     session_meta: bool = False
+    # 文字起こしのタブに、録音中に拾った用語（PickedTerms）を出すか。
+    # 拾うか（ollama.pickTerms）とは別で、オフでも拾った語は hotwords に使う
+    show_picked_terms: bool = False
 
 
 class Settings(_Model):
