@@ -138,4 +138,8 @@ export const defaultSettings: Settings = {
 };
 
 // 設定モーダルのページ（URL の /settings/<ページ>。#177）。最初のものが既定
-export const SETTINGS_PAGES = ['whisper', 'ollama', 'storage', 'materials', 'display'];
+export const SETTINGS_PAGES = ['whisper', 'models', 'ollama', 'storage', 'materials', 'display'];
+
+// おすすめのモデル（#179。「おすすめに戻す」と、モデルの横の表示）。サーバーの既定値と同じ
+export const recommendedModels: OllamaModels = defaultSettings.ollama.models;
+export const recommendedWhisperModel = defaultSettings.whisper.model;
