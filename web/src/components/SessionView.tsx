@@ -14,8 +14,8 @@ import { AudioDropZone, AudioUploadButton, UploadProgress } from '@/components/A
 import { LiveSummary } from '@/components/LiveSummary';
 import { Markdown } from '@/components/Markdown';
 import { MicAlert } from '@/components/MicAlert';
-import { PickedTerms } from '@/components/PickedTerms';
 import { RecordingPlayer } from '@/components/RecordingPlayer';
+import { SessionTerms } from '@/components/SessionTerms';
 import { StatusIndicator } from '@/components/StatusIndicator';
 import { type Playback, Transcript } from '@/components/Transcript';
 import { Button } from '@/components/ui/button';
@@ -190,7 +190,9 @@ export function SessionView() {
                 )}
 
                 <TabsContent value='transcript' className='flex flex-col gap-2'>
-                    {session && showPickedTerms && <PickedTerms session={session} />}
+                    {session && !expired(session, 'transcript') && (
+                        <SessionTerms session={session} showPicked={showPickedTerms} />
+                    )}
                     {session?.materialRange && session.materialRange.length > 0 && (
                         <p className='text-xs text-muted-foreground'>{describeMaterialRange(session.materialRange)}</p>
                     )}

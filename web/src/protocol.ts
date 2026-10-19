@@ -65,7 +65,7 @@ export type ServerMessage =
     | { type: 'summary.done'; session: string; kind: SummaryKind }
     | { type: 'title'; session: string; title: string; provisional: boolean }
     // 録音中に文字起こしから拾って用語リストに足した語と、消された語（#103）
-    | { type: 'terms'; session: string; terms: string[]; rejected: string[] }
+    | { type: 'terms'; session: string; terms: string[]; rejected: string[]; manual?: string[] }
     | { type: 'contextSet'; project: string; id: string; status: ContextSetStatus }
     | {
           type: 'status';

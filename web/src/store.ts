@@ -101,8 +101,10 @@ type AppState = {
     continueRecording: (sessionId: string) => Promise<void>;
     // 止まったマイクを開き直す（録音はそのまま続ける。#102）
     reopenMicrophone: () => Promise<void>;
-    // 拾った語を消す（誤った語。以後そのセッションでは足さない。#103）
+    // 拾った語を消す（誤った語。以後そのセッションでは足さない。#103）。手で足した語は外すだけ（#175）
     rejectTerm: (sessionId: string, term: string) => Promise<void>;
+    // 用語リストに手で語を足す（#175）。足せたら true
+    addTerm: (sessionId: string, term: string) => Promise<boolean>;
     // ページを読み込み直す前に、サーバーに届かなかった音声（IndexedDB に置いてあったもの。#102）
     unsent: { sessionId: string; projectId: string; seconds: number } | null;
     // 届かなかった音声を送り、同じセッションの続きを録音する
@@ -338,7 +340,11 @@ export const useAppStore = create<AppState>()((set, get) => {
             } else if (m.type === 'terms') {
                 // 録音中に拾った語が変わった（#103）
                 set((s) => ({
-                    projects: updateSession(s.projects, m.session, (x) => ({ ...x, pickedTerms: m.terms })),
+                    projects: updateSession(s.projects, m.session, (x) => ({
+                        ...x,
+                        pickedTerms: m.terms,
+                        manualTerms: m.manual ?? x.manualTerms,
+                    })),
                 }));
             } else if (m.type === 'summary.done' && m.kind === 'live') {
                 set((s) => ({
@@ -958,9 +964,14 @@ export const useAppStore = create<AppState>()((set, get) => {
             }
             const drop = (terms?: string[]) => terms?.filter((t) => t !== term);
             // 先に画面から消す（失敗したら戻す）
-            const before = project.sessions.find((x) => x.id === sessionId)?.pickedTerms;
+            const old = project.sessions.find((x) => x.id === sessionId);
+            const before = { pickedTerms: old?.pickedTerms, manualTerms: old?.manualTerms };
             set((s) => ({
-                projects: updateSession(s.projects, sessionId, (x) => ({ ...x, pickedTerms: drop(x.pickedTerms) })),
+                projects: updateSession(s.projects, sessionId, (x) => ({
+                    ...x,
+                    pickedTerms: drop(x.pickedTerms),
+                    manualTerms: drop(x.manualTerms),
+                })),
             }));
             if (isDemo) {
                 return;
@@ -970,13 +981,50 @@ export const useAppStore = create<AppState>()((set, get) => {
                     `/api/projects/${project.id}/sessions/${sessionId}/terms/${encodeURIComponent(term)}`,
                 );
                 set((s) => ({
-                    projects: updateSession(s.projects, sessionId, (x) => ({ ...x, pickedTerms: res.pickedTerms })),
+                    projects: updateSession(s.projects, sessionId, (x) => ({
+                        ...x,
+                        pickedTerms: res.pickedTerms,
+                        manualTerms: res.manualTerms ?? x.manualTerms,
+                    })),
                 }));
             } catch (e) {
                 set((s) => ({
-                    projects: updateSession(s.projects, sessionId, (x) => ({ ...x, pickedTerms: before })),
+                    projects: updateSession(s.projects, sessionId, (x) => ({ ...x, ...before })),
                 }));
                 toast.error(`用語を消せません: ${(e as Error).message}`);
+            }
+        },
+
+        addTerm: async (sessionId, term) => {
+            const project = get().projects.find((p) => p.sessions.some((x) => x.id === sessionId));
+            if (!project) {
+                return false;
+            }
+            if (isDemo) {
+                set((s) => ({
+                    projects: updateSession(s.projects, sessionId, (x) => ({
+                        ...x,
+                        manualTerms: [...new Set([...(x.manualTerms ?? []), term])],
+                        pickedTerms: x.pickedTerms?.filter((t) => t !== term),
+                    })),
+                }));
+                return true;
+            }
+            try {
+                const res = await api.post<TermsJson>(`/api/projects/${project.id}/sessions/${sessionId}/terms`, {
+                    term,
+                });
+                set((s) => ({
+                    projects: updateSession(s.projects, sessionId, (x) => ({
+                        ...x,
+                        pickedTerms: res.pickedTerms,
+                        manualTerms: res.manualTerms ?? x.manualTerms,
+                    })),
+                }));
+                return true;
+            } catch (e) {
+                toast.error(`用語を足せません: ${(e as Error).message}`);
+                return false;
             }
         },
 
