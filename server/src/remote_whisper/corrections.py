@@ -7,6 +7,7 @@
   その版のその行に、表示するときと要約の入力にするときに当てる
 """
 
+import re
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -33,39 +34,44 @@ class Correction(BaseModel):
     line: CorrectionLine | None = None
 
 
-def replace(text: str, wrong: str, right: str) -> str:
-    """text の中の wrong を right にする。すでに right になっているところ（wrong が right の一部の
-    とき。「岩田」→「岩田匠」など）は、もう一度置き換えない"""
+def _scan(text: str, wrong: str, right: str) -> tuple[str, int]:
+    """text の中の wrong を right にした文と、置き換えた箇所の数。すでに right になっているところと
+    重なる wrong（「高橋」→「高橋健」の「高橋健」の頭、「田健」→「高橋健」の「高橋健」の中）は
+    置き換えない（正しい語を壊さないように）"""
     if not wrong or wrong == right:
-        return text
+        return text, 0
+    protected = [False] * len(text)
+    start = text.find(right)
+    while start != -1:
+        for k in range(start, start + len(right)):
+            protected[k] = True
+        start = text.find(right, start + len(right))
     out: list[str] = []
+    n = 0
     i = 0
     while i < len(text):
-        if right.startswith(wrong) and text.startswith(right, i):
+        if text.startswith(wrong, i) and not any(protected[i : i + len(wrong)]):
             out.append(right)
-            i += len(right)
-        elif text.startswith(wrong, i):
-            out.append(right)
+            n += 1
             i += len(wrong)
         else:
             out.append(text[i])
             i += 1
-    return "".join(out)
+    return "".join(out), n
+
+
+def replace(text: str, wrong: str, right: str) -> str:
+    """text の中の wrong を right にする（すでに right になっているところは触らない）"""
+    return _scan(text, wrong, right)[0]
 
 
 def count(text: str, wrong: str, right: str) -> int:
     """置き換わる箇所の数"""
-    n = 0
-    i = 0
-    while i < len(text):
-        if right.startswith(wrong) and text.startswith(right, i):
-            i += len(right)
-        elif text.startswith(wrong, i):
-            n += 1
-            i += len(wrong)
-        else:
-            i += 1
-    return n
+    return _scan(text, wrong, right)[1]
+
+
+# 最終の文字起こしの行の話者の札（#121）。置き換えは札には当てない
+SPEAKER_RE = re.compile(r"話者 \d+: ")
 
 
 def apply_all(text: str, corrections: list[Correction]) -> str:
@@ -82,12 +88,15 @@ def apply_final_lines(
     """最終の文字起こしの版 generation の行に、全部の置き換えと、その版の「この行だけ」を当てる"""
     out = []
     for i, text in enumerate(texts):
+        m = SPEAKER_RE.match(text)
+        label = m.group(0) if m else ""
+        body = text[len(label) :]
         for c in corrections:
             if c.line is None or (
                 c.line.transcript == "final"
                 and c.line.generation == generation
                 and c.line.index == i
             ):
-                text = replace(text, c.wrong, c.right)
-        out.append(text)
+                body = replace(body, c.wrong, c.right)
+        out.append(label + body)
     return out

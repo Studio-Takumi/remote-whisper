@@ -34,11 +34,21 @@ def project(client, tmp_path):
 
 
 def test_replace_does_not_touch_what_is_already_right():
-    # 間違った文字列が正しい語の一部のとき（「岩田」→「岩田匠」）、すでに直っているところは触らない
-    text = "岩田さんと岩田匠さん"
-    assert replace(text, "岩田", "岩田匠") == "岩田匠さんと岩田匠さん"
-    assert count(text, "岩田", "岩田匠") == 1
+    # 間違った文字列が正しい語の一部のとき（「高橋」→「高橋健」）、すでに直っているところは触らない
+    text = "高橋さんと高橋健さん"
+    assert replace(text, "高橋", "高橋健") == "高橋健さんと高橋健さん"
+    assert count(text, "高橋", "高橋健") == 1
     assert replace("記者が貴社に", "貴社", "記者") == "記者が記者に"
+    # 正しい語の途中や終わりと重なるところも触らない
+    assert replace("高橋健さんと田健さん", "田健", "高田健") == "高橋健さんと高田健さん"
+    assert replace("高田健さん", "田健", "高田健") == "高田健さん"
+    assert count("高田健と高田健", "健", "高田健") == 0
+
+
+def test_speaker_labels_are_not_replaced():
+    # 浄書の行の「話者 1: 」の札には当てない
+    texts = apply_final_lines(["話者 1: 1 番です"], [Correction(wrong="1", right="一")], "g")
+    assert texts == ["話者 1: 一 番です"]
 
 
 def test_final_lines_get_the_all_and_their_own_line_corrections():
@@ -143,38 +153,38 @@ def test_final_transcript_gets_corrections_when_shown_and_summarized(client, pro
         d,
         sid,
         "20261019-100000",
-        "[00:00:00] 話者 1: 岩田さんです\n[00:00:02] 話者 2: 岩田さんですか\n",
+        "[00:00:00] 話者 1: 高橋さんです\n[00:00:02] 話者 2: 高橋さんですか\n",
     )
     base = f"/api/projects/{pid}/sessions/{sid}"
     final_url = f"{base}/final-transcripts/latest"
     # 全部: 表示に当たる。版の中身は書き換えない
     assert (
-        client.post(f"{base}/corrections", json={"from": "岩田", "to": "岩田匠"}).status_code == 200
+        client.post(f"{base}/corrections", json={"from": "高橋", "to": "高橋健"}).status_code == 200
     )
     texts = [line["text"] for line in client.get(final_url).json()["lines"]]
-    assert texts == ["話者 1: 岩田匠さんです", "話者 2: 岩田匠さんですか"]
+    assert texts == ["話者 1: 高橋健さんです", "話者 2: 高橋健さんですか"]
     raw = (d / f"transcript-final-{sid}-20261019-100000.md").read_text(encoding="utf-8")
-    assert "岩田匠" not in raw
+    assert "高橋健" not in raw
     # この行だけ（版と行を指定）
     line = {"transcript": "final", "generation": "20261019-100000", "index": 0}
     client.post(f"{base}/corrections", json={"from": "さん", "to": "様", "line": line})
     texts = [line["text"] for line in client.get(final_url).json()["lines"]]
-    assert texts == ["話者 1: 岩田匠様です", "話者 2: 岩田匠さんですか"]
+    assert texts == ["話者 1: 高橋健様です", "話者 2: 高橋健さんですか"]
     # 作り直した版（新しい生成 ID）にも、全部の置き換えは当たる。「この行だけ」は当たらない
-    _final(d, sid, "20261019-110000", "[00:00:00] 話者 1: 岩田さんです\n")
+    _final(d, sid, "20261019-110000", "[00:00:00] 話者 1: 高橋さんです\n")
     texts = [line["text"] for line in client.get(final_url).json()["lines"]]
-    assert texts == ["話者 1: 岩田匠さんです"]
+    assert texts == ["話者 1: 高橋健さんです"]
     # 要約の入力にも当たる
     with client.websocket_connect("/ws") as ws:
         ws.receive_json()
         assert client.post(f"{base}/summaries").status_code == 202
         receive_until(ws, lambda m: m["type"] == "title" and not m["provisional"])
     prompts = [b["messages"][-1]["content"] for b in fake_ollama.bodies("/api/chat")]
-    assert any("岩田匠さんです" in p for p in prompts)
+    assert any("高橋健さんです" in p for p in prompts)
     # 外すと、以後は当たらない
-    client.delete(f"{base}/corrections", params={"from": "岩田", "to": "岩田匠"})
+    client.delete(f"{base}/corrections", params={"from": "高橋", "to": "高橋健"})
     texts = [line["text"] for line in client.get(final_url).json()["lines"]]
-    assert texts == ["話者 1: 岩田さんです"]
+    assert texts == ["話者 1: 高橋さんです"]
 
 
 def test_correction_validation(client, project):

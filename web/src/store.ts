@@ -6,7 +6,7 @@ import { type MicState, Microphone, MicrophoneError, SAMPLE_RATE, watchMicrophon
 import { type UnsentSession, clearSession, deleteUpTo, listUnsent, restoreSize, saveChunk } from '@/audio/unsentStore';
 import { keepScreenOn, screenKeptOn } from '@/audio/wakeLock';
 import { AudioSender, connection } from '@/connection';
-import { type Correction, applyCorrectionLocally } from '@/corrections';
+import { type Correction, applyCorrectionLocally, mergeLiveLines } from '@/corrections';
 import {
     fetchContextSets,
     fetchFinalTranscript,
@@ -719,7 +719,11 @@ export const useAppStore = create<AppState>()((set, get) => {
             set((s) => ({
                 projects: updateSession(s.projects, sessionId, (x) => ({
                     ...x,
-                    transcript: transcriptJson.lines,
+                    // 録音中（この端末で録音しているセッション）は、行の数を手元のままにする
+                    transcript:
+                        s.recordingSessionId === sessionId && x.transcript
+                            ? mergeLiveLines(x.transcript, transcriptJson.lines)
+                            : transcriptJson.lines,
                     pickedTerms: transcriptJson.meta?.pickedTerms ?? x.pickedTerms,
                     manualTerms: transcriptJson.meta?.manualTerms ?? x.manualTerms,
                     corrections: transcriptJson.meta?.corrections ?? x.corrections,

@@ -153,7 +153,17 @@ export function TranscriptCorrection({
                 engaged.current = true;
             }}
         >
-            {confirming ? (
+            {confirming && n === 0 ? (
+                // 選んだところがすでに正しい語の一部だったとき（置き換えると正しい語を壊すので当てない）
+                <>
+                    <p>置き換わる箇所はありません（すでに『{value}』になっています）</p>
+                    <div className='flex justify-end'>
+                        <Button size='sm' variant='ghost' onClick={close}>
+                            閉じる
+                        </Button>
+                    </div>
+                </>
+            ) : confirming ? (
                 <>
                     <p>
                         このセッションの {n} 箇所を『{value}』に置き換えます

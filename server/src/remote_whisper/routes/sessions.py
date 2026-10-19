@@ -356,7 +356,7 @@ async def add_correction(pid: Pid, sid: str, body: CorrectionBody, ctx: Ctx) -> 
     ほかの端末にも、置き換えたことを知らせる（`corrections`）
     """
     wrong = body.wrong.strip()
-    if not wrong or "\n" in wrong or len(wrong) > CORRECTION_MAX_CHARS:
+    if not wrong or any(c in wrong for c in "\n\r") or len(wrong) > CORRECTION_MAX_CHARS:
         raise HTTPException(
             status_code=400,
             detail=f"直す文字列は 1〜{CORRECTION_MAX_CHARS} 文字で、改行は使えません",
