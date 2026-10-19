@@ -195,6 +195,21 @@ def test_nothing_is_made_without_a_recording(home, session_files, fake_worker):
     assert not fake_worker.count.exists()
 
 
+def test_manual_terms_are_passed_to_the_final_transcript(home, session_files, fake_worker):
+    # 浄書（再生成を含む）でも、手で足した語を hotwords の先頭に渡す（#175）
+    files, meta = session_files
+    meta.manual_terms = ["ハルシオン"]
+    meta.picked_terms = ["ケルビン"]
+    # 参考資料セットを使わない（use_hotwords がオフ）ときも、手で足した語は渡す
+    run_final(home, fake_worker(), files, meta)
+    job = json.loads(fake_worker.count.with_name("job.json").read_text(encoding="utf-8"))
+    assert job["hotwords"] == "ハルシオン"
+    meta.use_hotwords = True
+    run_final(home, fake_worker(), files, meta)
+    job = json.loads(fake_worker.count.with_name("job.json").read_text(encoding="utf-8"))
+    assert job["hotwords"] == "ハルシオン、ケルビン"
+
+
 def test_a_failed_worker_makes_nothing(home, session_files, fake_worker):
     files, meta = session_files
     assert run_final(home, fake_worker("fail"), files, meta) is None

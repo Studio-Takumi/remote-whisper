@@ -360,10 +360,13 @@ def _wav(files: SessionFiles) -> Path | None:
 
 
 def _hotwords(files: SessionFiles, meta: TranscriptMeta) -> str | None:
-    """録音のときと同じ用語リスト（参考資料セットの用語と、録音中に拾った語）"""
+    """録音のときと同じ用語リスト（手で足した語、参考資料セットの用語、録音中に拾った語）"""
+    # 手で足した語（#175）は、参考資料セットを使わないときも使う
     if not meta.use_hotwords:
-        return None
-    return combine_hotwords(load_hotwords(files.dir, meta.context_set), meta.picked_terms)
+        return combine_hotwords(None, [], meta.manual_terms)
+    return combine_hotwords(
+        load_hotwords(files.dir, meta.context_set), meta.picked_terms, meta.manual_terms
+    )
 
 
 def _save(

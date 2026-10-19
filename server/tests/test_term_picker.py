@@ -16,6 +16,7 @@ class StubMeta:
     def __init__(self, picked=(), rejected=()):
         self.picked_terms = list(picked)
         self.rejected_terms = list(rejected)
+        self.manual_terms = []
 
 
 class StubWriter:
@@ -94,7 +95,9 @@ def test_picks_only_terms_that_appear_in_several_lines(home):
     assert picker.picked == ["フォトンリンク", "ケルビン"]
     assert changes == [["フォトンリンク", "ケルビン"]]
     assert picker.writer.saved == (["フォトンリンク", "ケルビン"], [])
-    assert sent == [{"type": "terms", "terms": ["フォトンリンク", "ケルビン"], "rejected": []}]
+    assert sent == [
+        {"type": "terms", "terms": ["フォトンリンク", "ケルビン"], "rejected": [], "manual": []}
+    ]
     # 用語は JSON Schema で返させ、思考モードはオフ。num_ctx は要約と同じ
     body = [b for b in fake.bodies("/api/chat") if b.get("format")][0]
     assert body["think"] is False and body["options"]["num_ctx"] == 16384
@@ -222,3 +225,23 @@ def test_parse_terms(reply, terms):
         assert parse_terms(reply) == ["フォトンリンク", "ケルビン 同期", "リブラ"]
     else:
         assert parse_terms(reply) == terms
+
+
+def test_combine_hotwords_puts_manual_terms_first_and_trims_the_picked_ones():
+    # 順は「手で足した語 → 参考資料の用語リスト → 拾った語」（#175）
+    assert combine_hotwords("資料A、資料B", ["拾った"], ["手A"]) == "手A、資料A、資料B、拾った"
+    # 重なる語は 1 回だけ
+    assert combine_hotwords("資料A", ["手A", "資料A", "拾った"], ["手A"]) == "手A、資料A、拾った"
+    # 手で足した語だけでも使える
+    assert combine_hotwords(None, [], ["手A"]) == "手A"
+    # 上限を超えるときは、拾った語から削る。手で足した語と資料の用語は残る
+    manual = ["手" * 40, "手" * 39 + "ア", "手" * 38 + "アア", "手" * 37 + "アアア"]
+    picked = ["拾" * 40, "拾" * 5]
+    result = combine_hotwords("資料", picked, manual)
+    assert result is not None and len(result) <= HOTWORDS_MAX_CHARS
+    assert result == "、".join([*manual, "資料"])
+    # 拾った語が増えても、手で足した語は先頭に残る
+    many = [f"語{i:03d}" * 3 for i in range(100)]
+    result = combine_hotwords("資料", many, ["手A"])
+    assert result is not None and result.startswith("手A、資料、")
+    assert len(result) <= HOTWORDS_MAX_CHARS
