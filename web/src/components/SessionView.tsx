@@ -18,6 +18,7 @@ import { RecordingPlayer } from '@/components/RecordingPlayer';
 import { SessionTerms } from '@/components/SessionTerms';
 import { StatusIndicator } from '@/components/StatusIndicator';
 import { type Playback, Transcript } from '@/components/Transcript';
+import { TranscriptCorrection } from '@/components/TranscriptCorrection';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -55,6 +56,8 @@ export function SessionView() {
     const [playback, setPlayback] = useState<(Playback & { sessionId: string }) | null>(null);
     // 録音中の文字起こしに切り替えたセッション（#121。最終の文字起こしがあれば、ふだんはそちらを出す）
     const [liveViewOf, setLiveViewOf] = useState<string | null>(null);
+    // 文字起こしの本文（文字を選んで置き換える範囲。#176）
+    const transcriptBox = useRef<HTMLDivElement>(null);
     // 別のセッションを開いたら、切り替えを戻す（開き直すと最終の文字起こしから出す）
     const [openedSession, setOpenedSession] = useState(session?.id);
     if (openedSession !== session?.id) {
@@ -214,14 +217,26 @@ export function SessionView() {
                         />
                     )}
                     {session && (
-                        <Transcript
-                            sessionId={session.id}
-                            lines={lines ?? []}
-                            partial={!showFinal && partial?.sessionId === session.id ? partial : null}
-                            follow={followTranscript}
-                            onSeek={recordingUrl ? seek : undefined}
-                            playback={recordingUrl && playback?.sessionId === session.id ? playback : null}
-                        />
+                        <div ref={transcriptBox}>
+                            <Transcript
+                                sessionId={session.id}
+                                lines={lines ?? []}
+                                partial={!showFinal && partial?.sessionId === session.id ? partial : null}
+                                follow={followTranscript}
+                                onSeek={recordingUrl ? seek : undefined}
+                                playback={recordingUrl && playback?.sessionId === session.id ? playback : null}
+                            />
+                            <TranscriptCorrection
+                                container={transcriptBox}
+                                sessionId={session.id}
+                                lines={lines ?? []}
+                                target={
+                                    showFinal
+                                        ? { transcript: 'final', generation: final.generationId }
+                                        : { transcript: 'live' }
+                                }
+                            />
+                        </div>
                     )}
                     {!session && recordingState === 'idle' && (
                         <p className='text-sm text-muted-foreground'>マイクボタンを押すと録音が始まります。</p>

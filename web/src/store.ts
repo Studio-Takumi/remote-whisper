@@ -1,11 +1,12 @@
 import { toast } from 'sonner';
 import { create } from 'zustand';
 
-import { ApiError, type ProjectJson, type TermsJson, api } from '@/api';
+import { ApiError, type CorrectionsJson, type ProjectJson, type TermsJson, type TranscriptJson, api } from '@/api';
 import { type MicState, Microphone, MicrophoneError, SAMPLE_RATE, watchMicrophonePermission } from '@/audio/microphone';
 import { type UnsentSession, clearSession, deleteUpTo, listUnsent, restoreSize, saveChunk } from '@/audio/unsentStore';
 import { keepScreenOn, screenKeptOn } from '@/audio/wakeLock';
 import { AudioSender, connection } from '@/connection';
+import { type Correction, applyCorrectionLocally } from '@/corrections';
 import {
     fetchContextSets,
     fetchFinalTranscript,
@@ -105,6 +106,10 @@ type AppState = {
     rejectTerm: (sessionId: string, term: string) => Promise<void>;
     // 用語リストに手で語を足す（#175）。足せたら true
     addTerm: (sessionId: string, term: string) => Promise<boolean>;
+    // 文字起こしの置き換えを足す（#176）。正しい語は手で足した語にも入る。足せたら true
+    addCorrection: (sessionId: string, correction: Correction) => Promise<boolean>;
+    // 置き換えを外す（以後は当たらない）
+    removeCorrection: (sessionId: string, correction: Correction) => Promise<void>;
     // ページを読み込み直す前に、サーバーに届かなかった音声（IndexedDB に置いてあったもの。#102）
     unsent: { sessionId: string; projectId: string; seconds: number } | null;
     // 届かなかった音声を送り、同じセッションの続きを録音する
@@ -684,6 +689,52 @@ export const useAppStore = create<AppState>()((set, get) => {
         }
     }
 
+    // 置き換え（#176）を足した・外したときの返事を、セッションに入れる
+    function receiveCorrections(sessionId: string, res: CorrectionsJson) {
+        set((s) => ({
+            projects: updateSession(s.projects, sessionId, (x) => ({
+                ...x,
+                pickedTerms: res.pickedTerms,
+                manualTerms: res.manualTerms ?? x.manualTerms,
+                corrections: res.corrections,
+            })),
+        }));
+    }
+
+    // 置き換えたあと（ほかの端末で置き換えたときも）、読み込み済みのセッションの文字起こし
+    // （リアルタイムと、いま出している浄書済みの版）と置き換えの一覧を取り直す
+    async function refreshTranscripts(sessionId: string) {
+        const project = get().projects.find((p) => p.sessions.some((x) => x.id === sessionId));
+        const session = project?.sessions.find((x) => x.id === sessionId);
+        if (!project || !session?.loaded) {
+            return;
+        }
+        const base = `/api/projects/${project.id}/sessions/${sessionId}`;
+        const gid = session.finalTranscript?.generationId;
+        try {
+            const [transcriptJson, finalTranscript] = await Promise.all([
+                api.get<TranscriptJson>(`${base}/transcript`),
+                gid ? fetchFinalTranscript(project.id, sessionId, gid) : Promise.resolve(undefined),
+            ]);
+            set((s) => ({
+                projects: updateSession(s.projects, sessionId, (x) => ({
+                    ...x,
+                    transcript: transcriptJson.lines,
+                    pickedTerms: transcriptJson.meta?.pickedTerms ?? x.pickedTerms,
+                    manualTerms: transcriptJson.meta?.manualTerms ?? x.manualTerms,
+                    corrections: transcriptJson.meta?.corrections ?? x.corrections,
+                    // 取り直している間に別の版に切り替えていたら、そのまま
+                    finalTranscript:
+                        finalTranscript && x.finalTranscript?.generationId === gid
+                            ? finalTranscript
+                            : x.finalTranscript,
+                })),
+            }));
+        } catch {
+            // 取れなければ、次に開いたときに出る
+        }
+    }
+
     // セッションの文字起こしと要約を取ってくる（開いたとき）
     async function loadSession(projectId: string, session: Session) {
         try {
@@ -1028,6 +1079,59 @@ export const useAppStore = create<AppState>()((set, get) => {
             }
         },
 
+        addCorrection: async (sessionId, correction) => {
+            const project = get().projects.find((p) => p.sessions.some((x) => x.id === sessionId));
+            if (!project) {
+                return false;
+            }
+            if (isDemo) {
+                set((s) => ({
+                    projects: updateSession(s.projects, sessionId, (x) => applyCorrectionLocally(x, correction)),
+                }));
+                return true;
+            }
+            try {
+                const res = await api.post<CorrectionsJson>(
+                    `/api/projects/${project.id}/sessions/${sessionId}/corrections`,
+                    correction,
+                );
+                receiveCorrections(sessionId, res);
+                await refreshTranscripts(sessionId);
+                return true;
+            } catch (e) {
+                toast.error(`置き換えられません: ${(e as Error).message}`);
+                return false;
+            }
+        },
+
+        removeCorrection: async (sessionId, correction) => {
+            const project = get().projects.find((p) => p.sessions.some((x) => x.id === sessionId));
+            if (!project) {
+                return;
+            }
+            const same = (c: Correction) => c.from === correction.from && c.to === correction.to;
+            if (isDemo) {
+                set((s) => ({
+                    projects: updateSession(s.projects, sessionId, (x) => ({
+                        ...x,
+                        corrections: x.corrections?.filter((c) => !same(c)),
+                    })),
+                }));
+                return;
+            }
+            try {
+                const query = new URLSearchParams({ from: correction.from, to: correction.to });
+                const res = await api.delete<CorrectionsJson>(
+                    `/api/projects/${project.id}/sessions/${sessionId}/corrections?${query}`,
+                );
+                receiveCorrections(sessionId, res);
+                // 浄書済みの文字起こしは表示のときに当てているので、外したら取り直す
+                await refreshTranscripts(sessionId);
+            } catch (e) {
+                toast.error(`置き換えを外せません: ${(e as Error).message}`);
+            }
+        },
+
         reopenMicrophone: async () => {
             if (get().recordingState === 'idle' || !mic) {
                 return;
@@ -1231,6 +1335,9 @@ export const useAppStore = create<AppState>()((set, get) => {
                     // 最終の文字起こしができた（#121）。最終の要約を待っている間（一覧の取り直しでは中身を
                     // 置き換えない）でも出せるように、そのセッションの最終の文字起こしだけを取ってきて足す
                     void receiveFinalTranscript(m.session, m.generationId);
+                } else if (m.type === 'corrections' && !isDemo) {
+                    // 置き換えを足した・外した（ほかの端末からのものも。#176）
+                    void refreshTranscripts(m.session);
                 } else if (m.type === 'title') {
                     set((s) => ({
                         projects: updateSession(s.projects, m.session, (x) => ({
