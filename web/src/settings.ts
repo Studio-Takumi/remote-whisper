@@ -74,6 +74,8 @@ export type Settings = {
     display: {
         // 左メニューのセッションに、録音日時と長さを出すか
         sessionMeta: boolean;
+        // 文字起こしのタブに、録音中に拾った用語を出すか。拾うか（ollama.pickTerms）とは別で、オフでも hotwords には使う
+        showPickedTerms: boolean;
     };
 };
 
@@ -131,6 +133,7 @@ export const defaultSettings: Settings = {
     },
     display: {
         sessionMeta: false,
+        showPickedTerms: false,
     },
 };
 

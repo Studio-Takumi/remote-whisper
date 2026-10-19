@@ -37,6 +37,7 @@ export function SessionView() {
     const notFound = useAppStore((s) => s.notFound);
     const project = useAppStore(currentProject);
     const session = useAppStore(currentSession);
+    const showPickedTerms = useAppStore((s) => s.settings.display.showPickedTerms ?? false);
     const recordingState = useAppStore((s) => s.recordingState);
     const server = useAppStore((s) => s.server);
     const liveIntervalMin = useAppStore((s) => s.settings.ollama.liveSummaryIntervalMin);
@@ -189,7 +190,7 @@ export function SessionView() {
                 )}
 
                 <TabsContent value='transcript' className='flex flex-col gap-2'>
-                    {session && <PickedTerms session={session} />}
+                    {session && showPickedTerms && <PickedTerms session={session} />}
                     {session?.materialRange && session.materialRange.length > 0 && (
                         <p className='text-xs text-muted-foreground'>{describeMaterialRange(session.materialRange)}</p>
                     )}

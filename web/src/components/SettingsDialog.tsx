@@ -614,6 +614,17 @@ function SettingsForm({
                                 onCheckedChange={(sessionMeta) => update('display', { sessionMeta })}
                             />
                         </Row>
+                        <Row
+                            id='show-picked-terms'
+                            label='拾った用語を表示する'
+                            description='文字起こしのタブの上に、録音中に拾った用語の一覧を出す（誤った語は × で外せる）。オフでも、拾った用語は文字起こしの精度を上げるために使う。拾うかどうかは「録音中に用語を拾う」で決める'
+                        >
+                            <Switch
+                                id='show-picked-terms'
+                                checked={draft.display.showPickedTerms ?? false}
+                                onCheckedChange={(showPickedTerms) => update('display', { showPickedTerms })}
+                            />
+                        </Row>
                     </Section>
                 </TabsContent>
             </Tabs>
