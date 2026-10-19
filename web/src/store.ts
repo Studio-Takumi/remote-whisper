@@ -108,7 +108,7 @@ type AppState = {
     // 用語リストに手で語を足す（#175）。足せたら true
     addTerm: (sessionId: string, term: string) => Promise<boolean>;
     // セッションを別のプロジェクトへ移す（#172）
-    moveSession: (sessionId: string, toProjectId: string) => Promise<void>;
+    moveSession: (fromProjectId: string, sessionId: string, toProjectId: string) => Promise<void>;
     // 文字起こしの置き換えを足す（#176）。正しい語は手で足した語にも入る。足せたら true
     addCorrection: (sessionId: string, correction: Correction) => Promise<boolean>;
     // 置き換えを外す（以後は当たらない）
@@ -693,9 +693,10 @@ export const useAppStore = create<AppState>()((set, get) => {
     }
 
     // セッションを別のプロジェクトへ移したあと、一覧を取り直す。開いていたら、移した先で開いたままにする
-    async function reloadAfterMove(sessionId: string, to: string) {
+    async function reloadAfterMove(sessionId: string, from: string, to: string) {
         await get().loadProjects();
-        if (get().selection.sessionId === sessionId) {
+        const { selection } = get();
+        if (selection.sessionId === sessionId && selection.projectId === from) {
             get().selectSession(to, sessionId);
         }
     }
@@ -1094,8 +1095,8 @@ export const useAppStore = create<AppState>()((set, get) => {
             }
         },
 
-        moveSession: async (sessionId, toProjectId) => {
-            const from = get().projects.find((p) => p.sessions.some((x) => x.id === sessionId));
+        moveSession: async (fromProjectId, sessionId, toProjectId) => {
+            const from = get().projects.find((p) => p.id === fromProjectId);
             const to = get().projects.find((p) => p.id === toProjectId);
             const session = from?.sessions.find((x) => x.id === sessionId);
             if (!from || !to || !session || from.id === to.id) {
@@ -1110,7 +1111,10 @@ export const useAppStore = create<AppState>()((set, get) => {
                               ? { ...p, sessions: sortSessions([...p.sessions, session]) }
                               : p,
                     ),
-                    selection: s.selection.sessionId === sessionId ? { projectId: to.id, sessionId } : s.selection,
+                    selection:
+                        s.selection.sessionId === sessionId && s.selection.projectId === from.id
+                            ? { projectId: to.id, sessionId }
+                            : s.selection,
                 }));
                 toast.success(`「${session.title}」を${to.name}へ移しました`);
                 return;
@@ -1121,7 +1125,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                 toast.error(`「${session.title}」を移せません: ${(e as Error).message}`);
                 return;
             }
-            await reloadAfterMove(sessionId, to.id);
+            await reloadAfterMove(sessionId, from.id, to.id);
             toast.success(`「${session.title}」を${to.name}へ移しました`);
         },
 
@@ -1387,7 +1391,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                     void receiveFinalTranscript(m.session, m.generationId);
                 } else if (m.type === 'sessionMoved' && !isDemo) {
                     // セッションを別のプロジェクトへ移した（ほかの端末からのものも。#172）
-                    void reloadAfterMove(m.session, m.to);
+                    void reloadAfterMove(m.session, m.from, m.to);
                 } else if (m.type === 'corrections' && !isDemo) {
                     // 置き換えを足した・外した（ほかの端末からのものも。#176）
                     void refreshTranscripts(m.session);

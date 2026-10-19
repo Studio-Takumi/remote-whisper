@@ -40,6 +40,11 @@ def _lock_for(path: Path) -> threading.Lock:
         return _locks.setdefault(path.resolve(), threading.Lock())
 
 
+def transcript_lock(path: Path) -> threading.Lock:
+    """文字起こしのファイルの書き込みのロック（セッションを移すときにも持つ。#172）"""
+    return _lock_for(path)
+
+
 def _correct_body(body: str, correction: Correction) -> str:
     """録音中の文字起こしの本文に置き換えを当てる。行の時刻は変えない。
     「この行だけ」は、時刻で始まる行の番号（0 から。画面に出す行と同じ）で選ぶ"""

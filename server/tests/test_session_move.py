@@ -220,6 +220,39 @@ def test_cannot_move_a_recording_or_busy_session(client, projects):
     client.portal.call(end)
 
 
+def test_terms_corrections_and_continuing_after_moving_a_just_recorded_session(client, projects):
+    # 録音したばかりのセッション（録音マネージャがまだ持っている）を移しても、移動先で
+    # 用語・置き換えを足せて、続きも録音できる（移す前のディレクトリに書かない）
+    (a, da, _), (b, db, _) = projects
+    sid = interrupted_session(client, a, seconds=0.5)
+    assert client.post(f"/api/projects/{a}/sessions/{sid}/move", json={"to": b}).status_code == 200
+    base = f"/api/projects/{b}/sessions/{sid}"
+    assert client.post(f"{base}/terms", json={"term": "テスト語"}).status_code == 200
+    assert client.post(f"{base}/corrections", json={"from": "あ", "to": "い"}).status_code == 200
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        ws.send_json({"type": "continue", "project": b, "session": sid})
+        assert receive_until(ws, of_type("started"))[-1]["continued"] is True
+        ws.send_json({"type": "stop"})
+    client.portal.call(client.app.state.ctx.recorder.sessions[sid].wait_finished)
+    assert not list(da.glob(f"*{sid}*")) and not (da / ".tmp" / sid).exists()
+    meta, _ = read_doc(db / f"transcript-{sid}.md", TranscriptMeta)
+    assert meta.manual_terms == ["テスト語", "い"]
+
+
+def test_a_file_in_use_is_reported_as_a_conflict(client, projects, monkeypatch):
+    (a, da, _), (b, _, _) = projects
+    sid = interrupted_session(client, a, seconds=0.5)
+
+    def busy(src, dst):
+        raise PermissionError("使用中です（テスト）")
+
+    monkeypatch.setattr(session_move.os, "replace", busy)
+    res = client.post(f"/api/projects/{a}/sessions/{sid}/move", json={"to": b})
+    assert res.status_code == 409 and "使われている" in res.json()["detail"]
+    assert sid in _ids(client, a)
+
+
 def test_bad_moves(client, projects):
     (a, da, _), (b, db, _) = projects
     sid = interrupted_session(client, a, seconds=0.5)
@@ -250,7 +283,7 @@ def test_a_failed_move_leaves_the_session_where_it_was(client, projects, monkeyp
         calls.append(src)
         # 3 つ目のファイルを動かすところで失敗させる
         if len(calls) == 3:
-            raise PermissionError("使用中です（テスト）")
+            raise OSError("書き込めません（テスト）")
         real_replace(src, dst)
 
     monkeypatch.setattr(session_move.os, "replace", flaky_replace)

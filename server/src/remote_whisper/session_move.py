@@ -26,6 +26,7 @@ from remote_whisper.documents import (
 )
 from remote_whisper.fsutil import atomic_write_text
 from remote_whisper.projects import ContextSetEntry, ProjectError, ProjectStore, SessionEntry
+from remote_whisper.session_writer import transcript_lock
 
 log = logging.getLogger(__name__)
 
@@ -111,7 +112,8 @@ def move_session(store: ProjectStore, src: str, dst: str, sid: str) -> SessionEn
     """セッションを src から dst へ移す。移せなければ ProjectError（400・404・409・500）"""
     if src == dst:
         raise ProjectError(400, "移動先が同じプロジェクトです")
-    with store.lock:
+    # 文字起こしのファイルの書き込み（用語・置き換えなど）とも混ざらないようにする
+    with store.lock, transcript_lock(store.dir(src) / transcript_name(sid)):
         source = store.load(src)
         target = store.load(dst)
         entry = next((s for s in source.sessions if s.id == sid), None)
@@ -165,7 +167,11 @@ def move_session(store: ProjectStore, src: str, dst: str, sid: str) -> SessionEn
                 to_path = dst_dir / path.relative_to(src_dir)
                 if to_path.is_file() and to_path.suffix == ".md":
                     uuid = entry.uuid if to_path.name == transcript_name(sid) else None
-                    _rewrite_project(to_path, target.path, undo, uuid)
+                    try:
+                        _rewrite_project(to_path, target.path, undo, uuid)
+                    except ValueError as e:
+                        # フロントマターが壊れているファイルは、そのまま移す（読めないのは前から）
+                        log.warning("cannot rewrite the frontmatter of %s: %s", to_path, e)
 
             # project.json を書き換える（移動先に足してから、元から外す）
             target.sessions.append(entry)
@@ -174,7 +180,7 @@ def move_session(store: ProjectStore, src: str, dst: str, sid: str) -> SessionEn
             target_saved = True
             source.sessions = [s for s in source.sessions if s.id != sid]
             store.save(src, source)
-        except (OSError, ValueError) as e:
+        except Exception as e:
             log.exception("failed to move session %s from %s to %s", sid, src, dst)
             undo.run()
             if target_saved:
@@ -182,5 +188,12 @@ def move_session(store: ProjectStore, src: str, dst: str, sid: str) -> SessionEn
                     store.save(dst, original_target)
                 except OSError:
                     log.exception("failed to restore project.json of %s", dst)
+            if isinstance(e, PermissionError):
+                # Windows では、開いているファイル（ほかの端末で再生中の録音など）は動かせない
+                raise ProjectError(
+                    409,
+                    "使われているファイルがあるため移せませんでした（元のままです）。"
+                    "ほかの端末で録音を再生していないか確かめてください",
+                ) from e
             raise ProjectError(500, f"セッションを移せませんでした（元のままです）: {e}") from e
         return entry

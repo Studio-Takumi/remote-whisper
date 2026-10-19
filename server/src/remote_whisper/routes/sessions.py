@@ -163,9 +163,16 @@ async def move(pid: Pid, sid: str, body: MoveBody, ctx: Ctx) -> dict[str, Any]:
     if reason is not None:
         raise HTTPException(status_code=409, detail=reason)
     try:
-        moved = await asyncio.to_thread(move_session, ctx.projects, pid, dst, sid)
+        # 確かめてから移し終えるまでに、ほかの処理（作り直し・用語の書き込みなど）が
+        # 入り込まないよう、イベントループの中でそのまま動かす（rename と小さい書き換えだけ）
+        moved = move_session(ctx.projects, pid, dst, sid)
     except ProjectError as e:
         raise HTTPException(status_code=e.status, detail=e.message) from e
+    # 録音マネージャは録音を終えたセッションも持っていて、用語・置き換えの書き込みはその writer
+    # （移す前のディレクトリを指す）を使う。移したら外して、移動先のファイルを読み直させる
+    sessions = getattr(ctx.recorder, "sessions", None)
+    if sessions is not None:
+        sessions.pop(sid, None)
     # ほかの端末にも一覧が変わったことを知らせる
     await ctx.hub.broadcast(
         {"type": "sessionMoved", "session": sid, "sessionUuid": moved.uuid, "from": pid, "to": dst}

@@ -79,7 +79,7 @@ export function AppSidebar() {
                                 recordingSessionId,
                             })
                         }
-                        onMove={(sessionId, to) => void moveSession(sessionId, to)}
+                        onMove={(from, sessionId, to) => void moveSession(from, sessionId, to)}
                     />
                 </SidebarGroup>
             </SidebarContent>

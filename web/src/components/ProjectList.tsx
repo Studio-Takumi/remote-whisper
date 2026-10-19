@@ -57,7 +57,8 @@ export function ProjectList({
     onNewSession: (projectId: string) => void;
     // セッションを移せない理由（移せるなら null）
     moveBlocker: (session: Session) => string | null;
-    onMove: (sessionId: string, toProjectId: string) => void;
+    // セッションの ID はプロジェクトをまたぐと重なることがある（アップロードなど）ので、元のプロジェクトも渡す
+    onMove: (fromProjectId: string, sessionId: string, toProjectId: string) => void;
 }) {
     const [dragging, setDragging] = useState<Dragging | null>(null);
     const sensors = useSensors(
@@ -73,11 +74,11 @@ export function ProjectList({
         setDragging((e.active.data.current as Dragging | undefined) ?? null);
     };
     const onDragEnd = (e: DragEndEvent) => {
-        const from = (e.active.data.current as Dragging | undefined)?.projectId;
-        const to = from ? moveTarget(from, e.over ? String(e.over.id) : null) : null;
+        const data = e.active.data.current as Dragging | undefined;
+        const to = data ? moveTarget(data.projectId, e.over ? String(e.over.id) : null) : null;
         setDragging(null);
-        if (to) {
-            onMove(String(e.active.id), to);
+        if (data && to) {
+            onMove(data.projectId, data.sessionId, to);
         }
     };
 
@@ -123,7 +124,9 @@ export function ProjectList({
                                         active={session.id === activeSession}
                                         showMeta={showMeta}
                                         blocker={moveBlocker(session)}
-                                        dragging={dragging?.sessionId === session.id}
+                                        dragging={
+                                            dragging?.projectId === project.id && dragging.sessionId === session.id
+                                        }
                                         onSelect={() => onSelectSession(project.id, session.id)}
                                     />
                                 ))}
@@ -187,7 +190,8 @@ function SessionItem({
 }) {
     const data: Dragging = { sessionId: session.id, projectId: project.id, title: session.title };
     const { setNodeRef, attributes, listeners } = useDraggable({
-        id: session.id,
+        // セッションの ID はプロジェクトをまたぐと重なることがあるので、プロジェクトの ID を付ける
+        id: `${project.id}:${session.id}`,
         data,
         // 移せないセッションはドラッグを始められない（理由は Tooltip で出す）
         disabled: blocker !== null,
