@@ -8,7 +8,7 @@ from pydantic.alias_generators import to_camel
 
 from remote_whisper.context import AppContext, Pid, get_ctx
 from remote_whisper.context_sets import ContextSetError, ContextSetService
-from remote_whisper.projects import ProjectError, ProjectFile, display_name
+from remote_whisper.projects import ProjectError, ProjectFile, display_name, order_projects
 
 router = APIRouter(prefix="/api/projects")
 
@@ -29,7 +29,9 @@ def project_json(pid: str, project: ProjectFile) -> dict[str, Any]:
 
 @router.get("")
 def list_projects(ctx: Annotated[AppContext, Depends(get_ctx)]) -> list[dict[str, Any]]:
-    return [project_json(pid, p) for pid, p in ctx.projects.all()]
+    # 並びは全体設定の projectOrder（5.3 節、#173）。ここにないものは先頭
+    ordered = order_projects(ctx.projects.all(), ctx.settings.get().project_order)
+    return [project_json(pid, p) for pid, p in ordered]
 
 
 class ContextSetBody(BaseModel):

@@ -20,6 +20,7 @@ import {
 import { demoProjects, fallbackOptions, initialContextSets } from '@/mock';
 import { sortSessions } from '@/move';
 import { fetchOptions } from '@/options';
+import { sortByIds } from '@/projectOrder';
 import type { ServerMessage, SettingsOptions } from '@/protocol';
 import { type RecordingState, recordingLocks } from '@/recording';
 import { replaceUrlNext } from '@/router';
@@ -109,6 +110,8 @@ type AppState = {
     addTerm: (sessionId: string, term: string) => Promise<boolean>;
     // セッションを別のプロジェクトへ移す（#172）
     moveSession: (fromProjectId: string, sessionId: string, toProjectId: string) => Promise<void>;
+    // サイドバーのプロジェクトを並び替える（#173）。ids は新しい並び。サーバーに保存し、ほかの端末にも反映される
+    reorderProjects: (ids: string[]) => Promise<void>;
     // 文字起こしの置き換えを足す（#176）。正しい語は手で足した語にも入る。足せたら true
     addCorrection: (sessionId: string, correction: Correction) => Promise<boolean>;
     // 置き換えを外す（以後は当たらない）
@@ -1129,6 +1132,21 @@ export const useAppStore = create<AppState>()((set, get) => {
             toast.success(`「${session.title}」を${to.name}へ移しました`);
         },
 
+        reorderProjects: async (ids) => {
+            // 先に画面を入れ替えておく（保存を待つと、離した瞬間に元の位置へ戻って見える）
+            set((s) => ({ projects: sortByIds(s.projects, ids), settings: { ...s.settings, projectOrder: ids } }));
+            if (isDemo) {
+                return;
+            }
+            try {
+                await api.patch('/api/settings', { projectOrder: ids });
+            } catch (e) {
+                toast.error(`プロジェクトの並びを保存できません: ${(e as Error).message}`);
+                // 保存できなかったので、サーバーの並びに戻す
+                await Promise.all([get().loadProjects(), get().loadSettings()]);
+            }
+        },
+
         addCorrection: async (sessionId, correction) => {
             const project = get().projects.find((p) => p.sessions.some((x) => x.id === sessionId));
             if (!project) {
@@ -1392,6 +1410,20 @@ export const useAppStore = create<AppState>()((set, get) => {
                 } else if (m.type === 'sessionMoved' && !isDemo) {
                     // セッションを別のプロジェクトへ移した（ほかの端末からのものも。#172）
                     void reloadAfterMove(m.session, m.from, m.to);
+                } else if (m.type === 'projectOrder' && !isDemo) {
+                    // プロジェクトの並びが変わった（ほかの端末からのものも。#173）。設定だけ取り直して、
+                    // 手元の一覧を並べ直す（一覧を取り直すと、続けて並び替えたときに古い応答で戻ることがある）
+                    void get()
+                        .loadSettings()
+                        .then(() => {
+                            const ids = get().settings.projectOrder;
+                            if (ids.some((id) => !get().projects.some((p) => p.id === id))) {
+                                // 知らないプロジェクト（ほかの端末で作ったもの）があれば、一覧ごと取り直す
+                                void get().loadProjects();
+                            } else {
+                                set((s) => ({ projects: sortByIds(s.projects, ids) }));
+                            }
+                        });
                 } else if (m.type === 'corrections' && !isDemo) {
                     // 置き換えを足した・外した（ほかの端末からのものも。#176）
                     void refreshTranscripts(m.session);
@@ -1476,7 +1508,9 @@ export const useAppStore = create<AppState>()((set, get) => {
             }
             const before = finalModelLabel(get().settings.ollama.models);
             try {
-                set({ settings: await api.patch<Settings>('/api/settings', next) });
+                // 並び順（#173）は並び替えのときだけ送る。古い設定で、ほかの端末の並び替えを上書きしないように
+                const { projectOrder: _order, ...patch } = next;
+                set({ settings: await api.patch<Settings>('/api/settings', patch) });
                 // 最終の要約のモデル（全体概要か要約詳細。#178）を変えたら、開いているセッションにその組の要約が
                 // なければ作り直す（spec 6.5）。録音中は作り直さない（録音中の文字起こしが止まるため。#133）
                 const models = get().settings.ollama.models;

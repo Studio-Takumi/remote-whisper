@@ -3,6 +3,7 @@ import json
 import pytest
 from pydantic import ValidationError
 
+from remote_whisper.projects import order_projects
 from remote_whisper.settings import (
     Settings,
     SettingsError,
@@ -304,3 +305,75 @@ def test_old_keys_in_a_patch_are_accepted_and_ignored(client):
     assert res.status_code == 200
     assert "finalSummaryModel" not in res.json()["ollama"]
     assert res.json()["ollama"]["models"]["detail"] == "qwen3.5:4b"
+
+
+# --- プロジェクトの並び順（#173） ---
+
+
+def test_project_order_defaults_to_empty_and_drops_duplicates(home):
+    store = SettingsStore(home)
+    assert store.get().project_order == []
+    assert store.update({"projectOrder": ["b", "a", "b"]}).project_order == ["b", "a"]
+    saved = json.loads((home / "setting.json").read_text(encoding="utf-8"))
+    assert saved["projectOrder"] == ["b", "a"]
+
+
+def test_project_order_rejects_non_strings(client):
+    assert client.patch("/api/settings", json={"projectOrder": [1]}).status_code == 422
+    assert client.patch("/api/settings", json={"projectOrder": "a"}).status_code == 422
+
+
+def test_order_projects():
+    items = [("a", 1), ("b", 2), ("c", 3), ("d", 4)]
+    # 並び順にないもの（b・d）は元の順のまま先頭、消えたプロジェクトの ID（x）は無視する
+    assert order_projects(items, ["c", "x", "a"]) == [("b", 2), ("d", 4), ("c", 3), ("a", 1)]
+    assert order_projects(items, []) == items
+
+
+def test_projects_follow_the_saved_order(client, tmp_path):
+    root = tmp_path / "work"
+    for name in ("one", "two", "three"):
+        (root / name).mkdir(parents=True)
+    client.patch("/api/settings", json={"materials": {"roots": [str(root)]}})
+    ids = [
+        client.post("/api/projects", json={"path": str(root / n)}).json()["id"]
+        for n in ("one", "two", "three")
+    ]
+
+    def listed():
+        return [p["id"] for p in client.get("/api/projects").json()]
+
+    assert sorted(listed()) == sorted(ids)
+    order = [ids[1], ids[2], ids[0]]
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        res = client.patch("/api/settings", json={"projectOrder": order})
+        assert res.status_code == 200
+        # 別の端末にも知らせる
+        assert ws.receive_json() == {"type": "projectOrder"}
+    assert listed() == order
+    # 新しく作ったプロジェクトは先頭に出る
+    (root / "four").mkdir()
+    four = client.post("/api/projects", json={"path": str(root / "four")}).json()["id"]
+    assert listed() == [four, *order]
+    # 消えたプロジェクトの ID が残っていても読める
+    client.patch("/api/settings", json={"projectOrder": ["gone", *order]})
+    assert listed() == [four, *order]
+
+
+def test_project_order_broadcast_only_when_changed(client):
+    client.patch("/api/settings", json={"projectOrder": ["a", "b"]})
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        client.patch("/api/settings", json={"projectOrder": ["a", "b"]})
+        client.patch("/api/settings", json={"display": {"sessionMeta": True}})
+        client.patch("/api/settings", json={"projectOrder": ["b", "a"]})
+        assert ws.receive_json() == {"type": "projectOrder"}
+
+
+def test_project_order_can_be_saved_while_recording(client, app):
+    # 並びは録音に関係ないので、録音中も変えられる（#133）
+    app.state.ctx.recordings = 1
+    res = client.patch("/api/settings", json={"projectOrder": ["a", "b"]})
+    assert res.status_code == 200
+    assert res.json()["projectOrder"] == ["a", "b"]

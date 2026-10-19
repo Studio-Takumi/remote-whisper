@@ -17,14 +17,15 @@ def get_settings(ctx: Annotated[AppContext, Depends(get_ctx)]) -> dict[str, Any]
 
 
 @router.patch("")
-def patch_settings(
+async def patch_settings(
     patch: Annotated[dict[str, Any], Body()],
     ctx: Annotated[AppContext, Depends(get_ctx)],
 ) -> dict[str, Any]:
     # 録音中は、文字起こしのモデル・区切り・マイクの処理だけ変えられない（spec 5.3）
     locked = RECORDING_LOCKED if ctx.is_recording else ()
+    before = ctx.settings.get().project_order
     try:
-        return ctx.settings.update(patch, locked=locked).to_json()
+        settings = ctx.settings.update(patch, locked=locked)
     except SettingsLockedError as e:
         raise HTTPException(
             status_code=409, detail=f"録音中は変えられない項目です: {', '.join(e.fields)}"
@@ -33,3 +34,7 @@ def patch_settings(
         raise HTTPException(
             status_code=422, detail=e.errors(include_url=False, include_context=False)
         ) from e
+    # プロジェクトの並びが変わったら、ほかの端末にも知らせる（#173）
+    if settings.project_order != before:
+        await ctx.hub.broadcast({"type": "projectOrder"})
+    return settings.to_json()

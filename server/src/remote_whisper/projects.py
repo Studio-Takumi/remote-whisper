@@ -8,7 +8,7 @@ import threading
 import uuid
 from collections.abc import Callable
 from pathlib import Path
-from typing import Literal
+from typing import Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from pydantic.alias_generators import to_camel
@@ -63,6 +63,21 @@ def project_id(path: str) -> str:
 def display_name(path: str) -> str:
     """UI に出す名前（ディレクトリ名）。ドライブのルートならパスそのもの"""
     return Path(path).name or path
+
+
+_T = TypeVar("_T")
+
+
+def order_projects(items: list[tuple[str, _T]], order: list[str]) -> list[tuple[str, _T]]:
+    """プロジェクトを setting.json の projectOrder（#173）の順に並べる
+
+    order にないもの（新しく作った・並び順を保存する前からある）は先頭に置き、元の順を保つ。
+    order にある ID のうち、items にないもの（消えたプロジェクト）は無視する
+    """
+    rank = {pid: i for i, pid in enumerate(order)}
+    unlisted = [item for item in items if item[0] not in rank]
+    listed = sorted((item for item in items if item[0] in rank), key=lambda item: rank[item[0]])
+    return unlisted + listed
 
 
 class _Model(BaseModel):
