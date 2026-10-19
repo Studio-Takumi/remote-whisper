@@ -55,6 +55,9 @@ DOT_RADIUS = 0.18
 DOT_EDGE = 0.06
 # 小さい画像は、境目がにじまないよう何倍かで描いてから縮める
 SUPERSAMPLE = 8
+# Mac のライト・ダークの判定を使い回す秒数と、その答え（[調べた時刻, 明るいか]）
+MAC_THEME_CACHE_SEC = 5.0
+_mac_theme_cache: list[Any] = [-MAC_THEME_CACHE_SEC - 1, False]
 BAR_LIGHT, BAR_DARK = (255, 255, 255, 255), (32, 32, 32, 255)
 # 状態を見に行く間隔（秒）
 REFRESH_SEC = 1.0
@@ -136,17 +139,48 @@ def taskbar_is_light() -> bool:
             with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key) as handle:
                 return winreg.QueryValueEx(handle, "SystemUsesLightTheme")[0] == 1
         if sys.platform == "darwin":
-            # ダークのときだけ "Dark" と出る（ライトのときは項目がなく、エラーで終わる）
-            result = subprocess.run(  # noqa: S603, S607
-                ["defaults", "read", "-g", "AppleInterfaceStyle"],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            return "Dark" not in result.stdout
+            # 1 秒ごとに外のコマンドを呼ばないよう、数秒は前の答えを使う
+            now = time.monotonic()
+            if now - _mac_theme_cache[0] > MAC_THEME_CACHE_SEC:
+                # ダークのときだけ "Dark" と出る（ライトのときは項目がなく、エラーで終わる）
+                result = subprocess.run(  # noqa: S603, S607
+                    ["defaults", "read", "-g", "AppleInterfaceStyle"],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=2,
+                )
+                _mac_theme_cache[:] = [now, "Dark" not in result.stdout]
+            return bool(_mac_theme_cache[1])
     except Exception:  # noqa: BLE001 見た目の判定に失敗しても、暗い配色のままで出す
         log.debug("failed to detect the taskbar theme", exc_info=True)
     return False
+
+
+def small_icon_size() -> int:
+    """Windows のトレイに出すアイコンの大きさ（px）。表示スケールに合わせる。分からなければ 16
+
+    サーバーは DPI 非対応のプロセスで、GetSystemMetrics は常に 16 を返す。調べている間だけ
+    スレッドを DPI 対応にして、システムの DPI でのサイズ（SM_CXSMICON）を聞く
+    """
+    try:
+        import ctypes
+
+        user32 = ctypes.windll.user32
+        user32.SetThreadDpiAwarenessContext.restype = ctypes.c_void_p
+        user32.SetThreadDpiAwarenessContext.argtypes = [ctypes.c_void_p]
+        # -4 は DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
+        previous = user32.SetThreadDpiAwarenessContext(ctypes.c_void_p(-4))
+        try:
+            dpi = user32.GetDpiForSystem()
+            size = user32.GetSystemMetricsForDpi(49, dpi)  # SM_CXSMICON
+        finally:
+            user32.SetThreadDpiAwarenessContext(ctypes.c_void_p(previous))
+        if 16 <= size <= 64:
+            return int(size)
+    except Exception:  # noqa: BLE001 取れなければ 16 に戻す
+        log.debug("failed to get the small icon size", exc_info=True)
+    return 16
 
 
 def pystray_icon_class() -> Any:
@@ -160,11 +194,19 @@ def pystray_icon_class() -> Any:
     import pystray
 
     class Icon(pystray.Icon):
+        # 差し替えた処理が失敗しても、トレイのせいでサーバーを落とさない。pystray 標準に戻す
         def _assert_icon_handle(self) -> None:  # Windows
             frames = getattr(self.icon, "tray_frames", None)
             if self._icon_handle or not frames:
                 return super()._assert_icon_handle()
-            import ctypes
+            try:
+                self._icon_handle = self._load_icon_handle(frames)
+            except Exception:  # noqa: BLE001
+                log.warning("failed to load the tray icon at the exact size", exc_info=True)
+                self._icon_handle = None
+                super()._assert_icon_handle()
+
+        def _load_icon_handle(self, frames: list[Any]) -> Any:
             import tempfile
 
             from pystray._util import win32
@@ -174,28 +216,36 @@ def pystray_icon_class() -> Any:
                 with os.fdopen(fd, "wb") as f:
                     sizes = [frame.size for frame in frames]
                     frames[-1].save(f, format="ICO", sizes=sizes, append_images=frames[:-1])
-                small = ctypes.windll.user32.GetSystemMetrics(49)  # SM_CXSMICON
-                self._icon_handle = win32.LoadImage(
-                    None, path, win32.IMAGE_ICON, small, small, win32.LR_LOADFROMFILE
+                size = small_icon_size()
+                handle = win32.LoadImage(
+                    None, path, win32.IMAGE_ICON, size, size, win32.LR_LOADFROMFILE
                 )
             finally:
                 os.unlink(path)
+            if not handle:
+                raise OSError("LoadImage returned NULL")
+            return handle
 
         def _assert_image(self) -> None:  # Mac
             if self._icon_image is not None and getattr(self, "_icon_source", None) is self.icon:
                 return
-            import io
+            try:
+                import io
 
-            import AppKit
-            import Foundation
+                import AppKit
+                import Foundation
 
-            buffer = io.BytesIO()
-            self.icon.save(buffer, "png")
-            image = AppKit.NSImage.alloc().initWithData_(Foundation.NSData(buffer.getvalue()))
-            image.setSize_((MAC_ICON_PT, MAC_ICON_PT))
-            self._icon_image = image
-            self._icon_source = self.icon
-            self._status_item.button().setImage_(image)
+                buffer = io.BytesIO()
+                self.icon.save(buffer, "png")
+                data = Foundation.NSData(buffer.getvalue())
+                image = AppKit.NSImage.alloc().initWithData_(data)
+                image.setSize_((MAC_ICON_PT, MAC_ICON_PT))
+                self._status_item.button().setImage_(image)
+                self._icon_image = image
+                self._icon_source = self.icon
+            except Exception:  # noqa: BLE001
+                log.warning("failed to set the menu bar icon at the exact size", exc_info=True)
+                super()._assert_image()
 
     return Icon
 
@@ -278,12 +328,19 @@ class Tray:
             status_line = pystray.MenuItem(self._status_text, None, enabled=False)
             items = [status_line, pystray.Menu.SEPARATOR, *items]
         self._light = taskbar_is_light()
-        self._icon = pystray_icon_class()(
-            APP_NAME,
-            icon=icon_images(state.color, self._light),
-            title=state.tooltip,
-            menu=pystray.Menu(*items),
-        )
+        menu = pystray.Menu(*items)
+        try:
+            self._icon = pystray_icon_class()(
+                APP_NAME, icon=icon_images(state.color, self._light), title=state.tooltip, menu=menu
+            )
+        except Exception:  # noqa: BLE001 差し替えが効かなくても、素の pystray で出す
+            log.warning("failed to build the tray icon, using the plain one", exc_info=True)
+            self._icon = pystray.Icon(
+                APP_NAME,
+                icon=icon_image(state.color, 32, self._light),
+                title=state.tooltip,
+                menu=menu,
+            )
         # 作っている間にサーバーが止まった（ポートが使われていたなど）なら、出さずに戻る
         if self._stopped.is_set():
             return
