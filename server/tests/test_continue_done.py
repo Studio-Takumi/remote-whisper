@@ -10,6 +10,7 @@ from test_recorder import audio_seconds, chunk, finished, of_type, receive_until
 from remote_whisper.app import create_app
 from remote_whisper.documents import TranscriptMeta, read_doc
 from remote_whisper.gpu_queue import Priority
+from remote_whisper.sessions import SessionFiles
 
 
 @pytest.fixture
@@ -192,3 +193,48 @@ def test_continuing_cancels_the_final_summary_that_is_still_waiting(client, proj
     time.sleep(0.3)
     assert summarized == [sid]
     assert client.app.state.ctx.hub.status.summarizing == []
+
+
+def test_a_failed_continue_puts_the_cancelled_summary_back(client, project, summarized):
+    # 続けようとして失敗したら（録音ファイルがない）、取り消した最終の要約を積み直す
+    pid, d = project
+    gpu = client.app.state.ctx.gpu
+    gate = client.portal.call(asyncio.Event)
+
+    async def block():
+        await gate.wait()
+
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        sid = start(ws, pid)
+        record(ws)
+        client.portal.call(lambda: [gpu.submit(Priority.BACKGROUND, block)])
+        ws.send_json({"type": "stop"})
+    finished(client, sid)
+    (d / ".tmp" / sid / "audio.wav").unlink()
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        ws.send_json({"type": "continue", "project": pid, "session": sid})
+        assert receive_until(ws, of_type("error"))[-1]["code"] == "cannot_continue"
+    client.portal.call(gate.set)
+    wait_for(lambda: summarized == [sid])
+    wait_for(lambda: client.app.state.ctx.hub.status.summarizing == [])
+
+
+def test_the_whole_recording_is_used_while_it_is_still_a_wav(client, project, summarized):
+    # 続きを録音したあと、前の部分だけの mp3 が残っていても、再生と浄書は録音全体の WAV を使う
+    pid, d = project
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        sid = start(ws, pid)
+        record(ws)
+        ws.send_json({"type": "stop"})
+    finished(client, sid)
+    # 前の部分だけの mp3（途中で終わって変換されたもの・移したときに変換したもの）
+    (d / f"recording-{sid}.mp3").write_bytes(b"old part")
+    res = client.get(f"/api/projects/{pid}/sessions/{sid}/recording")
+    assert res.status_code == 200
+    assert res.headers["content-type"] == "audio/wav"
+    files = SessionFiles(d, sid)
+    assert files.audio() == d / ".tmp" / sid / "audio.wav"
+    assert client.get(f"/api/projects/{pid}/sessions/{sid}").json()["files"]["recording"] is True

@@ -6,10 +6,15 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { continueLeftSec, describeLeft } from '@/continueWindow';
 import { currentProject, currentSession, useAppStore } from '@/store';
 import { formatElapsed } from '@/time';
+import type { Session } from '@/types';
 
-// 今の時刻（ミリ秒）。active の間だけ 15 秒ごとに進める（続きから録音できる残りの時間を出すため）
-function useNow(active: boolean) {
+// 開いているセッションの続きから録音できる残りの秒数（#174）。続けられないなら null。
+// 続けられる間だけ 5 秒ごとに時計を進める（時間を過ぎてもしばらく「続きから録音」のまま、に
+// ならないよう短めにする。ずっと前に終えたセッションでは動かさない）
+function useContinueLeft(session: Session | undefined, windowMin: number, idle: boolean) {
     const [now, setNow] = useState(() => Date.now());
+    const left = session && idle ? continueLeftSec(session, windowMin, now) : null;
+    const active = left !== null;
     useEffect(() => {
         if (!active) {
             return;
@@ -17,13 +22,13 @@ function useNow(active: boolean) {
         const tick = () => setNow(Date.now());
         // 止まっていた間に古くなった時刻は、すぐ取り直す
         const first = setTimeout(tick, 0);
-        const timer = setInterval(tick, 15000);
+        const timer = setInterval(tick, 5000);
         return () => {
             clearTimeout(first);
             clearInterval(timer);
         };
     }, [active]);
-    return now;
+    return left;
 }
 
 // アイコンの大きさ。スマホの幅ではボタンが小さいので、アイコンも小さくする
@@ -60,8 +65,7 @@ export function MicButton() {
     // 開いているセッションを、録音を終えてからしばらくは続きから録音できる（#174）
     const session = useAppStore(currentSession);
     const windowMin = useAppStore((s) => s.settings.recording.continueWindowMin);
-    const now = useNow(state === 'idle' && session !== undefined && session.status !== 'recording');
-    const continueLeft = session && state === 'idle' ? continueLeftSec(session, windowMin, now) : null;
+    const continueLeft = useContinueLeft(session, windowMin, state === 'idle');
 
     const target: MicTarget =
         projectName === undefined ? { kind: 'none' } : hasSession ? { kind: 'session', projectName } : { kind: 'new' };

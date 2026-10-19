@@ -129,16 +129,6 @@ def get_session(pid: Pid, sid: str, ctx: Ctx) -> dict[str, Any]:
     return result
 
 
-# 移したセッションの変換（#174）。終わるまで参照を持っておく（途中で消されないように）
-_converting: set[asyncio.Task] = set()
-
-
-def _log_convert_failure(future: asyncio.Future) -> None:
-    # 変換できなければ WAV が残り、次の起動時に変換し直す（#33）
-    if not future.cancelled() and future.exception() is not None:
-        log.warning("converting a moved recording failed: %s", future.exception())
-
-
 class MoveBody(BaseModel):
     # 移動先のプロジェクト ID か UUID
     to: str
@@ -186,12 +176,13 @@ async def move(pid: Pid, sid: str, body: MoveBody, ctx: Ctx) -> dict[str, Any]:
     deferred = getattr(recorded, "_deferred", None)
     if deferred is not None and not deferred.done():
         # 続きを録音できる間の mp3 への変換待ち（#174）は、移す前の場所を指しているのでやめ、
-        # 移動先ですぐ変換する（移したら、続きは mp3 から戻して録音する）
+        # 移動先で変換してから返す（移したら、続きは mp3 から戻して録音する）。変換の途中に続きの
+        # 録音が始まって WAV が重ならないよう、返事は変換を待つ（数秒）
         deferred.cancel()
-        task = asyncio.create_task(asyncio.to_thread(convert_leftover, ctx.projects, dst, sid))
-        _converting.add(task)
-        task.add_done_callback(_converting.discard)
-        task.add_done_callback(_log_convert_failure)
+        try:
+            await asyncio.to_thread(convert_leftover, ctx.projects, dst, sid)
+        except Exception as e:  # noqa: BLE001 変換できなければ WAV が残り、次の起動時に変換し直す（#33）
+            log.warning("converting a moved recording failed: %s", e)
     # ほかの端末にも一覧が変わったことを知らせる
     await ctx.hub.broadcast(
         {"type": "sessionMoved", "session": sid, "sessionUuid": moved.uuid, "from": pid, "to": dst}
@@ -471,7 +462,7 @@ async def remove_correction(
     return _corrections_json(writer, _terms_json(picked, rejected, writer.meta.manual_terms))
 
 
-_AUDIO_TYPES = {".mp3": "audio/mpeg", ".m4a": "audio/mp4"}
+_AUDIO_TYPES = {".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".wav": "audio/wav"}
 
 
 @router.get("/{sid}/recording")
@@ -479,10 +470,11 @@ def get_recording(pid: Pid, sid: str, ctx: Ctx) -> FileResponse:
     """録音ファイル（mp3）。ブラウザで再生する
 
     好きな位置から聞けるよう、Range リクエストに対応する（FileResponse が返す）。
-    ファイルがない（保存期間を過ぎた・録音中・mp3 への変換前）ときは 404
+    ファイルがない（保存期間を過ぎた・録音中）ときは 404。録音を終えて mp3 に変換する前
+    （続きを録音できる間。#174）は WAV を返す（続きを録音したあとの mp3 は前の部分だけのことがある）
     """
-    _, files = _session(ctx, pid, sid)
-    path = files.recording()
+    entry, files = _session(ctx, pid, sid)
+    path = files.recording() if entry.status == "recording" else files.audio()
     if path is None:
         raise HTTPException(status_code=404, detail="録音ファイルはありません")
     return FileResponse(path, media_type=_AUDIO_TYPES.get(path.suffix, "application/octet-stream"))

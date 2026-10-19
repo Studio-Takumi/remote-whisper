@@ -137,6 +137,8 @@ class RecordingSession:
         self._summary_job: asyncio.Future | None = None
         # 続きの録音に引き継ぐために、浄書・最終の要約を取り消した（続けられなかったら作り直す）
         self._completion_cancelled = False
+        # 続きの録音に引き継ぐために、GPU キューで待っていた最終の要約を取り消した（同じく積み直す）
+        self._summary_cancelled = False
 
     def start_transcribing(self, whisper: WhisperWorker, gpu: GpuQueue, settings: Settings) -> None:
         meta = self.writer.meta
@@ -398,6 +400,7 @@ class RecordingSession:
         job, gpu = self._summary_job, self.manager.gpu
         if job is not None and gpu is not None and gpu.is_waiting(job):
             job.cancel()
+            self._summary_cancelled = True
 
     def take_back(self) -> None:
         """続きの録音に引き継ごうとしたが、続けられなかった。後始末を元どおり行う（#101）"""
@@ -409,8 +412,13 @@ class RecordingSession:
             # 取り消した浄書・最終の要約を作り直す（変換も、続きを録音できる時間のあとに行う）
             self._completion_cancelled = False
             self._finishing = asyncio.create_task(self._complete_taken_back("done"))
-        elif self._deferred is not None and self._deferred.cancelled():
-            self._defer_convert()
+        else:
+            if self._deferred is not None and self._deferred.cancelled():
+                self._defer_convert()
+            if self._summary_cancelled:
+                # 取り消した（GPU キューで待っていた）最終の要約を積み直す
+                self.manager.submit_final_summary(self)
+        self._summary_cancelled = False
 
     def _defer_convert(self) -> None:
         """続きを録音できる時間が過ぎたら、WAV を mp3 に変換する（#174）"""

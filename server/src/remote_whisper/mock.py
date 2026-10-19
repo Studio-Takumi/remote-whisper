@@ -482,9 +482,7 @@ class MockRecorder:
                 "session_not_found", "続きを録音できるセッションがありません"
             ) from e
         check_continuable(writer.meta, self.settings.get().recording.continue_window_min * 60)
-        if previous is not None and previous.summary_task is not None:
-            # 作っている途中の最終の要約はやめる（続きを録音し終えたら、全体で作り直す）
-            previous.summary_task.cancel()
+        # 作っている途中の最終の要約は、本物と同じく終わらせて前の版として残す
         offset = float(writer.meta.duration_sec or 0)
         writer.reopen()
         session = MockSession(self, sid, project, ws, writer, offset=offset)

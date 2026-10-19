@@ -46,6 +46,12 @@ class SessionFiles:
                 return path
         return None
 
+    def audio(self) -> Path | None:
+        """録音を終えたセッションの録音全体。`.tmp` に WAV が残っていればそちら（続きを録音できる間
+        （#174）や変換に失敗したとき。続きを録音したあとの mp3 は前の部分だけのことがある）"""
+        wav = self.dir / ".tmp" / self.id / "audio.wav"
+        return wav if wav.is_file() else self.recording()
+
     def summary(self, gid: str) -> Path:
         return self.dir / summary_name(self.id, gid)
 
@@ -84,7 +90,8 @@ class SessionFiles:
     def availability(self) -> dict[str, Any]:
         """どのファイルが残っているか。保存期間を過ぎて消えたものを UI で「期限切れ」と出すため"""
         return {
-            "recording": self.recording() is not None,
+            # 変換前の WAV（続きを録音できる間。#174）も再生できるので、あるものとして返す
+            "recording": self.audio() is not None,
             "transcript": self.transcript.is_file(),
             "finalTranscripts": len(self.final_transcripts()),
             "summaries": len(self.summaries()),
