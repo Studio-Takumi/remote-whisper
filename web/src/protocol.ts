@@ -68,6 +68,8 @@ export type ServerMessage =
     | { type: 'terms'; session: string; terms: string[]; rejected: string[]; manual?: string[] }
     // セッションを別のプロジェクトへ移した（#172。全員に送る）。from・to はプロジェクト ID
     | { type: 'sessionMoved'; session: string; sessionUuid: string | null; from: string; to: string }
+    // 置き換え（#176）を足した・外した。そのセッションの文字起こしを取り直す
+    | { type: 'corrections'; session: string }
     | { type: 'contextSet'; project: string; id: string; status: ContextSetStatus }
     | {
           type: 'status';

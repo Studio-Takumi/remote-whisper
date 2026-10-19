@@ -1,4 +1,5 @@
 // サーバーの REST API（docs/spec.md 7.1 節）を呼ぶ
+import type { Correction } from '@/corrections';
 
 // サーバーがエラー（4xx・5xx）を返したとき。message はサーバーの detail（日本語）
 export class ApiError extends Error {
@@ -90,7 +91,13 @@ export type MaterialRange = { file: string; path: string; from: number; to: numb
 export type TranscriptJson = {
     lines: { time: string; text: string }[];
     // materialRange は、録音のあとに今回扱った範囲で参考資料を作り直したとき（#182）
-    meta?: { pickedTerms?: string[]; manualTerms?: string[]; materialRange?: MaterialRange[] | null };
+    meta?: {
+        pickedTerms?: string[];
+        manualTerms?: string[];
+        materialRange?: MaterialRange[] | null;
+        // 置き換え（#176。古いサーバーにはない）
+        corrections?: Correction[];
+    };
 };
 
 // 最終の文字起こし（#121）。meta はフロントマター（使うところだけ）
@@ -107,6 +114,9 @@ export type FinalTranscriptJson = {
 
 // 拾った語を消したときの返事（#103）
 export type TermsJson = { pickedTerms: string[]; rejectedTerms: string[]; manualTerms?: string[] };
+
+// 置き換えを足した・外したときの返事（#176）
+export type CorrectionsJson = TermsJson & { corrections: Correction[] };
 
 export type SummaryInfoJson = {
     generationId: string;

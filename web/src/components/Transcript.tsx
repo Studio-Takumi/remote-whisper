@@ -44,6 +44,7 @@ export function Transcript({
                 {lines.map((line, i) => (
                     <Line
                         key={`${line.time}-${i}`}
+                        index={i}
                         line={line}
                         active={i === active}
                         rowRef={i === active ? activeRow : undefined}
@@ -78,11 +79,13 @@ export function Transcript({
 
 // 1行。長い文字起こし（1時間で千行ほど）でも、再生位置が変わったときに描き直すのは前後の2行だけにする
 const Line = memo(function Line({
+    index,
     line,
     active,
     rowRef,
     onSeek,
 }: {
+    index: number;
     line: TranscriptLine;
     active: boolean;
     rowRef?: Ref<HTMLDivElement>;
@@ -91,6 +94,8 @@ const Line = memo(function Line({
     return (
         <div
             ref={rowRef}
+            // 文字を選んで置き換えるときに、どの行か見分ける（#176）
+            data-line-index={index}
             aria-current={active ? 'true' : undefined}
             // 目立たせても行の位置がずれないよう、余白の分を外側に出す
             className={`-mx-2 flex gap-3 rounded-md px-2 transition-colors ${active ? 'bg-primary/10 ring-1 ring-primary/30 dark:bg-primary/15 dark:ring-primary/40' : ''}`}
@@ -112,6 +117,7 @@ const Line = memo(function Line({
     );
 });
 
+// 置き換え（#176）に使えるのは data-correctable の中の文字だけ（時刻と話者の札は選んでも使わない）
 // 最終の文字起こし（#121）で話者を分けた行は「話者 1: …」で始まる。話者は色付きの札にする
 const SPEAKER_RE = /^話者 (\d+): (.*)$/s;
 const SPEAKER_COLORS = [
@@ -126,13 +132,17 @@ const SPEAKER_COLORS = [
 function LineText({ text }: { text: string }) {
     const m = SPEAKER_RE.exec(text);
     if (!m) {
-        return <p className='leading-6'>{text}</p>;
+        return (
+            <p className='leading-6'>
+                <span data-correctable>{text}</span>
+            </p>
+        );
     }
     const color = SPEAKER_COLORS[(Number(m[1]) - 1) % SPEAKER_COLORS.length];
     return (
         <p className='leading-6'>
             <span className={`mr-1.5 rounded px-1.5 py-0.5 text-xs whitespace-nowrap ${color}`}>話者 {m[1]}</span>
-            {m[2]}
+            <span data-correctable>{m[2]}</span>
         </p>
     );
 }

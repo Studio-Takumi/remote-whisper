@@ -152,6 +152,7 @@ export async function fetchSessionDetail(projectId: string, session: Session, wh
     const pickedTerms = transcriptJson?.meta?.pickedTerms ?? [];
     const manualTerms = transcriptJson?.meta?.manualTerms ?? [];
     const materialRange = transcriptJson?.meta?.materialRange ?? undefined;
+    const corrections = transcriptJson?.meta?.corrections ?? [];
     // 取れなくても（消えた直後など）、録音中の文字起こしと要約は出す
     const finalTranscripts = files?.finalTranscripts
         ? await fetchFinalTranscripts(projectId, session.id).catch(() => undefined)
@@ -189,5 +190,6 @@ export async function fetchSessionDetail(projectId: string, session: Session, wh
         pickedTerms,
         manualTerms,
         materialRange,
+        corrections,
     };
 }

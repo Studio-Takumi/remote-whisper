@@ -1,5 +1,6 @@
 // 画面で扱うデータの形。サーバーの API（spec 7.1）から作る
 import type { MaterialRange, SessionFiles } from '@/api';
+import type { Correction } from '@/corrections';
 
 export type TranscriptLine = {
     time: string;
@@ -67,6 +68,8 @@ export type Session = {
     manualTerms?: string[];
     // 録音のあとに、今回扱った範囲で参考資料を作り直したとき（#182）
     materialRange?: MaterialRange[];
+    // 文字起こしの置き換え（#176）
+    corrections?: Correction[];
 };
 
 export type Project = {

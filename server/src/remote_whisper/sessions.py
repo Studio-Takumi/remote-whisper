@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from remote_whisper.corrections import Correction, apply_final_lines
 from remote_whisper.documents import (
     FINAL_TRANSCRIPT_RE,
     SUMMARY_RE,
@@ -11,6 +12,7 @@ from remote_whisper.documents import (
     SummaryMeta,
     TranscriptMeta,
     final_transcript_name,
+    parse,
     read_doc,
     recording_name,
     summary_name,
@@ -94,6 +96,37 @@ def summary_source(files: SessionFiles) -> Path:
     """最終の要約を作る元。最終の文字起こし（#121）があれば、いちばん新しいもの。なければ録音中の文字起こし"""
     finals = files.final_transcripts()
     return files.final_transcript(finals[-1].generation_id) if finals else files.transcript
+
+
+def summary_body(files: SessionFiles, corrections: list[Correction]) -> str:
+    """最終の要約の入力にする本文。置き換え（#176）を当てたもの。
+    録音中の文字起こしはファイルの中身をもう直してあるので、最終の文字起こしにだけ当てる"""
+    finals = files.final_transcripts()
+    if not finals:
+        return parse(files.transcript.read_text(encoding="utf-8"))[1]
+    gid = finals[-1].generation_id
+    _, body = parse(files.final_transcript(gid).read_text(encoding="utf-8"))
+    return correct_final_body(body, corrections, gid)
+
+
+def correct_final_body(body: str, corrections: list[Correction], gid: str) -> str:
+    """最終の文字起こしの本文（版 gid）に、置き換えを当てる。行の時刻はそのまま"""
+    if not corrections:
+        return body
+    lines = parse_transcript_lines(body)
+    texts = apply_final_lines([line["text"] for line in lines], corrections, gid)
+    return "".join(
+        f"[{line['time']}] {text}\n" if line["time"] else f"{text}\n"
+        for line, text in zip(lines, texts, strict=True)
+    )
+
+
+def session_corrections(files: SessionFiles) -> list[Correction]:
+    """セッションの置き換え（文字起こしのフロントマター）。文字起こしが消えていれば、なし"""
+    try:
+        return read_transcript(files)[0].corrections
+    except (OSError, ValueError):
+        return []
 
 
 def same_models(summary: SummaryMeta, overview: str, detail: str) -> bool:

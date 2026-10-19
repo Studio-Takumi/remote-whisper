@@ -8,6 +8,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
+from remote_whisper.corrections import Correction
 from remote_whisper.fsutil import atomic_write_text
 from remote_whisper.material_toc import MaterialRange, MaterialToc
 
@@ -164,6 +165,8 @@ class TranscriptMeta(_Meta):
     rejected_terms: list[str] = Field(default_factory=list)
     # 画面で手で足した語（#175）。拾った語とは分けて持ち、Whisper に渡す用語リストの先頭に入れる
     manual_terms: list[str] = Field(default_factory=list)
+    # 文字起こしの置き換え（#176。「間違った文字列 → 正しい語」）
+    corrections: list[Correction] = Field(default_factory=list)
     # 音声ファイルをアップロードして作ったセッション（#180）は upload。録音したものにはない
     source: Literal["upload"] | None = None
     # アップロードした元のファイル名と、アップロードした日時（保存期間はここから数える）
