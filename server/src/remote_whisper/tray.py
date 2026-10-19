@@ -39,11 +39,23 @@ from remote_whisper.tray_state import (
 
 log = logging.getLogger(__name__)
 
-ICON = Path(__file__).with_name("assets") / "tray-icon.png"
-ICON_SIZE = 64
-# 元のアイコンの周りを切り落とす割合と、点の半径（アイコンの大きさに対する割合）
-CROP = 0.17
-DOT_RADIUS = 0.19
+# トレイ用のアイコンの大きさ（px）。OS の表示スケールに合わせて、縮めさせずにそのまま渡す
+# （Windows は 100% で 16、125% で 20、150% で 24、200% で 32。Mac のメニューバーは 18pt の 1x・2x）
+WINDOWS_ICON_SIZES = (16, 20, 24, 32, 48)
+MAC_ICON_PT = 18
+# 波形の棒の本数と、高さ（アイコンの大きさに対する割合）。画面（PWA）のアイコンと同じ形
+BAR_HEIGHTS = (0.34, 0.56, 0.8, 0.56, 0.34)
+# 右上の点と重なりにくいよう、波形を少し下げる（アイコンの大きさに対する割合）
+BAR_DROP = 0.07
+# 棒の太さと間（アイコンの大きさに対する割合。16px でも 2px・1px は残す）
+BAR_WIDTH = 0.12
+BAR_GAP = 0.06
+# 点の半径と白い縁の太さ（アイコンの大きさに対する割合。16px でも潰れない大きさを下限にする）
+DOT_RADIUS = 0.18
+DOT_EDGE = 0.06
+# 小さい画像は、境目がにじまないよう何倍かで描いてから縮める
+SUPERSAMPLE = 8
+BAR_LIGHT, BAR_DARK = (255, 255, 255, 255), (32, 32, 32, 255)
 # 状態を見に行く間隔（秒）
 REFRESH_SEC = 1.0
 
@@ -63,24 +75,129 @@ def shows_status_line() -> bool:
     return sys.platform == "darwin"
 
 
-def icon_image(color: Color) -> Any:
-    """アプリのアイコンの右上に、状態の色の丸い点を打った画像（アイコンそのものの色は変えない）"""
+def icon_image(color: Color, size: int = 32, light: bool = False) -> Any:
+    """size px 四方の、背景が透明なアイコン。波形の棒を描き、右上に状態の色の丸い点を打つ
+
+    小さいほど潰れやすいので、棒の位置と太さは px の格子に合わせる（にじませない）。
+    light は背景（タスクバー・メニューバー）が明るいとき。棒を暗い色にして、見えるようにする
+    """
     from PIL import Image, ImageDraw
 
-    source = Image.open(ICON).convert("RGBA")
-    # PWA のアイコンは周りの余白が広いので、トレイの小さい表示では詰めて、波形を大きく見せる
-    w, h = source.size
-    m = CROP
-    source = source.crop((round(w * m), round(h * m), round(w * (1 - m)), round(h * (1 - m))))
-    base = source.resize((ICON_SIZE, ICON_SIZE), Image.LANCZOS)
-    draw = ImageDraw.Draw(base)
-    # 小さく表示されても見えるよう、大きめの点に白い縁を付ける
-    r = ICON_SIZE * DOT_RADIUS
-    cx, cy = ICON_SIZE - r - 1, r + 1
-    edge = ICON_SIZE * 0.05
-    draw.ellipse((cx - r - edge, cy - r - edge, cx + r + edge, cy + r + edge), fill="white")
-    draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=DOT_COLORS[color])
-    return base
+    k = SUPERSAMPLE
+    image = Image.new("RGBA", (size * k, size * k), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    # 棒: 太さと間は px の整数にし、高さは size と偶奇をそろえて、上下が半 px ずれないようにする
+    width = max(2, round(size * BAR_WIDTH))
+    gap = max(1, round(size * BAR_GAP))
+    total = len(BAR_HEIGHTS) * width + (len(BAR_HEIGHTS) - 1) * gap
+    left = (size - total) // 2
+    drop = round(size * BAR_DROP)
+    bar_color = BAR_DARK if light else BAR_LIGHT
+    for i, ratio in enumerate(BAR_HEIGHTS):
+        height = max(2, round(size * ratio / 2) * 2)
+        x = left + i * (width + gap)
+        y = (size - height) // 2 + drop
+        draw.rounded_rectangle(
+            (x * k, y * k, (x + width) * k - 1, (y + height) * k - 1),
+            radius=width * k / 2,
+            fill=bar_color,
+        )
+    # 小さく表示されても見えるよう、大きめの点に白い縁を付ける（右上の角に寄せる）
+    edge = max(1.0, size * DOT_EDGE)
+    r = max(2.5, size * DOT_RADIUS)
+    cx, cy = size - r - edge, r + edge
+    draw.ellipse(
+        ((cx - r - edge) * k, (cy - r - edge) * k, (cx + r + edge) * k, (cy + r + edge) * k),
+        fill="white",
+    )
+    draw.ellipse(((cx - r) * k, (cy - r) * k, (cx + r) * k, (cy + r) * k), fill=DOT_COLORS[color])
+    return image.resize((size, size), Image.BOX)
+
+
+def icon_images(color: Color, light: bool = False) -> Any:
+    """OS に渡すアイコン。Windows は複数サイズ入りの ICO にできるよう、小さい画像も付ける
+
+    返すのは一番大きい画像で、全部のサイズは tray_frames に入れてある
+    """
+    sizes = WINDOWS_ICON_SIZES if sys.platform == "win32" else (MAC_ICON_PT * 2,)
+    frames = [icon_image(color, size, light) for size in sizes]
+    largest = frames[-1]
+    largest.tray_frames = frames
+    return largest
+
+
+def taskbar_is_light() -> bool:
+    """タスクバー（Windows）・メニューバー（Mac）が明るい配色か。分からなければ暗いとみなす"""
+    try:
+        if sys.platform == "win32":
+            import winreg
+
+            key = r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key) as handle:
+                return winreg.QueryValueEx(handle, "SystemUsesLightTheme")[0] == 1
+        if sys.platform == "darwin":
+            # ダークのときだけ "Dark" と出る（ライトのときは項目がなく、エラーで終わる）
+            result = subprocess.run(  # noqa: S603, S607
+                ["defaults", "read", "-g", "AppleInterfaceStyle"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            return "Dark" not in result.stdout
+    except Exception:  # noqa: BLE001 見た目の判定に失敗しても、暗い配色のままで出す
+        log.debug("failed to detect the taskbar theme", exc_info=True)
+    return False
+
+
+def pystray_icon_class() -> Any:
+    """pystray のアイコン。OS に縮めさせず、用意した大きさの画像をそのまま使うよう差し替える
+
+    - Windows: pystray は 1 枚の画像から ICO を作り、大きい方（32px）で読み込んでシェルに
+      縮めさせる。複数サイズ入りの ICO を作り、小さいアイコンの大きさ（SM_CXSMICON）で読む
+    - Mac: pystray はメニューバーの高さ（22）に縮めるので、36px の画像を 18pt として使う
+      （Retina でぼやけない）
+    """
+    import pystray
+
+    class Icon(pystray.Icon):
+        def _assert_icon_handle(self) -> None:  # Windows
+            frames = getattr(self.icon, "tray_frames", None)
+            if self._icon_handle or not frames:
+                return super()._assert_icon_handle()
+            import ctypes
+            import tempfile
+
+            from pystray._util import win32
+
+            fd, path = tempfile.mkstemp(".ico")
+            try:
+                with os.fdopen(fd, "wb") as f:
+                    sizes = [frame.size for frame in frames]
+                    frames[-1].save(f, format="ICO", sizes=sizes, append_images=frames[:-1])
+                small = ctypes.windll.user32.GetSystemMetrics(49)  # SM_CXSMICON
+                self._icon_handle = win32.LoadImage(
+                    None, path, win32.IMAGE_ICON, small, small, win32.LR_LOADFROMFILE
+                )
+            finally:
+                os.unlink(path)
+
+        def _assert_image(self) -> None:  # Mac
+            if self._icon_image is not None and getattr(self, "_icon_source", None) is self.icon:
+                return
+            import io
+
+            import AppKit
+            import Foundation
+
+            buffer = io.BytesIO()
+            self.icon.save(buffer, "png")
+            image = AppKit.NSImage.alloc().initWithData_(Foundation.NSData(buffer.getvalue()))
+            image.setSize_((MAC_ICON_PT, MAC_ICON_PT))
+            self._icon_image = image
+            self._icon_source = self.icon
+            self._status_item.button().setImage_(image)
+
+    return Icon
 
 
 # --- OS ごとに違う部分 ---
@@ -136,6 +253,7 @@ class Tray:
         self.on_quit = on_quit
         self._icon: Any = None
         self._shown: TrayState | None = None
+        self._light = False
         self._stopped = threading.Event()
 
     def run(self) -> None:
@@ -159,8 +277,12 @@ class Tray:
             # 押せない行として、今の状態を出す（変わったら update_menu で書き直す）
             status_line = pystray.MenuItem(self._status_text, None, enabled=False)
             items = [status_line, pystray.Menu.SEPARATOR, *items]
-        self._icon = pystray.Icon(
-            APP_NAME, icon=icon_image(state.color), title=state.tooltip, menu=pystray.Menu(*items)
+        self._light = taskbar_is_light()
+        self._icon = pystray_icon_class()(
+            APP_NAME,
+            icon=icon_images(state.color, self._light),
+            title=state.tooltip,
+            menu=pystray.Menu(*items),
         )
         # 作っている間にサーバーが止まった（ポートが使われていたなど）なら、出さずに戻る
         if self._stopped.is_set():
@@ -203,16 +325,21 @@ class Tray:
     def _refresh(self) -> None:
         while not self._stopped.wait(REFRESH_SEC):
             try:
-                self.update(tray_state(self.status()))
+                self.update(tray_state(self.status()), taskbar_is_light())
             except Exception:  # noqa: BLE001 表示の失敗でサーバーを止めない
                 log.exception("failed to update the tray icon")
 
-    def update(self, state: TrayState) -> None:
-        """変わっていれば、アイコンと文を変える"""
-        if state == self._shown or self._icon is None:
+    def update(self, state: TrayState, light: bool | None = None) -> None:
+        """変わっていれば、アイコンと文を変える。light は背景の明るさ（切り替えたら絵を描き直す）"""
+        if self._icon is None:
             return
-        if self._shown is None or state.color != self._shown.color:
-            self._icon.icon = icon_image(state.color)
+        light_changed = light is not None and light != self._light
+        if state == self._shown and not light_changed:
+            return
+        if light is not None:
+            self._light = light
+        if self._shown is None or state.color != self._shown.color or light_changed:
+            self._icon.icon = icon_images(state.color, self._light)
         self._icon.title = state.tooltip
         self._shown = state
         if shows_status_line():

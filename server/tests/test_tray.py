@@ -74,18 +74,6 @@ def test_confirms_quitting_only_while_recording():
     assert "1 件" in quit_confirmation(status(recordings=1))
 
 
-def test_icon_has_a_dot_of_the_state_color():
-    pytest.importorskip("PIL")
-    from remote_whisper.tray import DOT_RADIUS, ICON_SIZE, icon_image
-
-    for color, rgb in DOT_COLORS.items():
-        image = icon_image(color)
-        assert image.size == (ICON_SIZE, ICON_SIZE)
-        # 右上の点の真ん中が、その色になっている
-        r = ICON_SIZE * DOT_RADIUS
-        assert image.getpixel((round(ICON_SIZE - r - 1), round(r + 1)))[:3] == rgb
-
-
 def test_tray_updates_only_when_the_state_changes(monkeypatch):
     pytest.importorskip("PIL")
     from remote_whisper import tray
@@ -256,3 +244,56 @@ def test_mac_server_keeps_running_without_a_menu_bar():
     _serve_with_tray_on_main_thread(server, FakeTray(fail=True))
     # メニューバーが出せなくても、止められるまで動いていた
     assert server.ran >= 0.25
+
+
+# --- アイコンの絵（#144） ---
+
+ICON_SIZES = (16, 18, 20, 24, 32, 36, 48)
+
+
+@pytest.mark.parametrize("size", ICON_SIZES)
+def test_icon_is_transparent_with_bars_and_dot(size):
+    pytest.importorskip("PIL")
+    from remote_whisper.tray import DOT_RADIUS, icon_image
+
+    image = icon_image("red", size)
+    assert image.size == (size, size) and image.mode == "RGBA"
+    # 左上・左下の角は透明（背景を塗らない）
+    assert image.getpixel((0, 0))[3] == 0
+    assert image.getpixel((0, size - 1))[3] == 0
+    # 真ん中の棒は不透明な白
+    assert image.getpixel((size // 2, size // 2)) == (255, 255, 255, 255)
+    # 右上の点の真ん中が、状態の色になっている
+    r = max(2.5, size * DOT_RADIUS)
+    edge = max(1.0, size * 0.06)
+    assert image.getpixel((round(size - r - edge), round(r + edge)))[:3] == DOT_COLORS["red"]
+
+
+@pytest.mark.parametrize("color", list(DOT_COLORS))
+def test_icon_dot_has_state_color_even_at_16px(color):
+    pytest.importorskip("PIL")
+    from remote_whisper.tray import icon_image
+
+    image = icon_image(color, 16)
+    pixels = [image.getpixel((x, y)) for x in range(16) for y in range(16)]
+    assert sum(p[:3] == DOT_COLORS[color] and p[3] == 255 for p in pixels) >= 8
+
+
+def test_icon_bars_follow_background_brightness():
+    pytest.importorskip("PIL")
+    from remote_whisper.tray import icon_image
+
+    dark = icon_image("gray", 32, light=False).getpixel((16, 16))
+    light = icon_image("gray", 32, light=True).getpixel((16, 16))
+    assert dark == (255, 255, 255, 255)
+    assert light[:3] != dark[:3] and light[3] == 255
+
+
+def test_icon_images_carry_every_size_for_the_ico():
+    pytest.importorskip("PIL")
+    from remote_whisper.tray import WINDOWS_ICON_SIZES, icon_images
+
+    image = icon_images("gray")
+    frames = getattr(image, "tray_frames", [image])
+    assert image is frames[-1]
+    assert [f.size[0] for f in frames] in ([*WINDOWS_ICON_SIZES], [image.size[0]])
