@@ -4,7 +4,7 @@ import { PlusIcon, TagsIcon, XIcon } from 'lucide-react';
 
 import { Input } from '@/components/ui/input';
 import { useAppStore } from '@/store';
-import { splitTerms } from '@/terms';
+import { addAll, describeInvalid, isSubmitKey, parseTermInput, remainingDraft } from '@/terms';
 import type { Session } from '@/types';
 
 // 用語リストの欄。手で足した語と、録音中に文字起こしから拾って足した語（#103）を出し、どちらも × で外せる。
@@ -15,25 +15,35 @@ export function SessionTerms({ session, showPicked }: { session: Session; showPi
     const addTerm = useAppStore((s) => s.addTerm);
     const [draft, setDraft] = useState('');
     const [busy, setBusy] = useState(false);
+    // 足せなかった語と、その理由
+    const [problem, setProblem] = useState('');
     // 録音を終えたあとに足した語は、浄書済みの文字起こしを作り直すまで反映されない
     const [addedAfterRecording, setAddedAfterRecording] = useState(false);
     const manual = session.manualTerms ?? [];
     const picked = showPicked ? (session.pickedTerms ?? []) : [];
 
-    const add = async (terms: string[]) => {
-        if (terms.length === 0 || busy) {
+    // 入力（複数行でもよい）を、確かめてから行ごとに足す。足せなかった語だけを入力欄に残し、理由を出す
+    const add = async (text: string, fromPaste = false) => {
+        const { valid, invalid } = parseTermInput(text);
+        if (valid.length === 0 && invalid.length === 0) {
             return;
         }
         setBusy(true);
         try {
-            let ok = true;
-            for (const term of terms) {
-                ok = (await addTerm(session.id, term)) && ok;
-            }
-            if (ok) {
+            const { added, failed } = await addAll(valid, (term) => addTerm(session.id, term));
+            const left = [...invalid.map((x) => x.term), ...failed];
+            const reasons = [
+                ...(invalid.length > 0 ? [describeInvalid(invalid)] : []),
+                ...(failed.length > 0 ? [`足せませんでした（${failed.length} 語）`] : []),
+            ];
+            setProblem(reasons.join(' / '));
+            if (left.length > 0) {
+                setDraft(remainingDraft(left));
+            } else if (!fromPaste) {
                 setDraft('');
             }
-            if (session.status !== 'recording') {
+            // 録音を終えたあとに足せたときだけ出す
+            if (added.length > 0 && session.status !== 'recording') {
                 setAddedAfterRecording(true);
             }
         } finally {
@@ -76,9 +86,9 @@ export function SessionTerms({ session, showPicked }: { session: Session; showPi
                         onChange={(e) => setDraft(e.target.value)}
                         onKeyDown={(e) => {
                             // 変換の確定の Enter では足さない
-                            if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                            if (isSubmitKey({ key: e.key, isComposing: e.nativeEvent.isComposing })) {
                                 e.preventDefault();
-                                void add(splitTerms(draft));
+                                void add(draft);
                             }
                         }}
                         onPaste={(e) => {
@@ -86,12 +96,17 @@ export function SessionTerms({ session, showPicked }: { session: Session; showPi
                             // 複数行の貼り付けは、行ごとに足す
                             if (/[\r\n]/.test(text)) {
                                 e.preventDefault();
-                                void add(splitTerms(text));
+                                void add(text, true);
                             }
                         }}
                     />
                 </label>
             </div>
+            {problem && (
+                <p role='alert' className='text-destructive'>
+                    {problem}
+                </p>
+            )}
             {addedAfterRecording && (
                 <p className='text-muted-foreground'>浄書済み文字起こしを再生成すると反映されます</p>
             )}

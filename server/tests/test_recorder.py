@@ -978,3 +978,57 @@ def test_manual_term_after_recording_and_validation(client, project):
         client.post(f"/api/projects/{pid}/sessions/nope/terms", json={"term": "x"}).status_code
         == 404
     )
+
+
+def test_continuing_starts_with_the_manual_terms_in_the_hotwords(client, project):
+    # 続きの録音の初期の用語リストにも、手で足した語が先頭に入る（#175）
+    pid, d = project
+    sid = interrupted_session(client, pid)
+    session = client.app.state.ctx.recorder.sessions[sid]
+    session.writer.set_manual_terms(["ハルシオン"])
+    session.writer.set_terms(["ケルビン"], [])
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        ws.send_json({"type": "continue", "project": pid, "session": sid})
+        receive_until(ws, of_type("started"))
+        session = client.app.state.ctx.recorder.sessions[sid]
+        assert session.transcriber.hotwords == "ハルシオン、ケルビン"
+        ws.send_json({"type": "stop"})
+    finished(client, sid)
+
+
+def test_removing_a_manual_term_does_not_touch_the_picked_ones(client, project, fake_ollama):
+    # 拾うのがオンでも、手で足した語を外すと rejectedTerms には入らず、拾った語もそのまま（#175）
+    pid, d = project
+
+    def reply(body):
+        if "terms" in (body.get("format") or {}).get("properties", {}):
+            return json.dumps({"terms": ["fake"]})
+        return None
+
+    fake_ollama.reply_for = reply
+    client.patch(
+        "/api/settings", json={"ollama": {"liveSummaryIntervalMin": 0.005, "pickTerms": True}}
+    )
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        sid = start(ws, pid)
+        for seq in range(8):
+            ws.send_bytes(chunk(seq, value=3000 if seq % 4 < 2 else 0))
+            receive_until(ws, of_type("ack", seq=seq))
+        receive_until(ws, of_type("terms"))
+        session = client.app.state.ctx.recorder.sessions[sid]
+        url = f"/api/projects/{pid}/sessions/{sid}/terms"
+        client.post(url, json={"term": "ケルビン"})
+        assert session.transcriber.hotwords == "ケルビン、fake"
+        res = client.delete(f"{url}/ケルビン")
+        assert res.json() == {"pickedTerms": ["fake"], "rejectedTerms": [], "manualTerms": []}
+        assert session.transcriber.hotwords == "fake"
+        assert session.picker.picked == ["fake"]
+        assert session.picker.rejected == set()
+        last = receive_until(ws, of_type("terms", manual=[]))[-1]
+        assert (last["terms"], last["rejected"], last["manual"]) == (["fake"], [], [])
+        ws.send_json({"type": "stop"})
+    finished(client, sid)
+    meta, _ = read_doc(d / f"transcript-{sid}.md", TranscriptMeta)
+    assert (meta.picked_terms, meta.rejected_terms, meta.manual_terms) == (["fake"], [], [])
