@@ -6,9 +6,12 @@ WhisperX の結果（区間ごとの文と、単語ごとの時刻・話者）�
 1. 文に分ける（話者は見ない）。「。」などで区切るほか、「。」がなくても間が空いたところで区切る。
    区切るのは形態素解析で語の境目になるところだけ（語の途中で切らない）。「ます」「ね」のような
    文末らしいところは、短い間でも区切る。長すぎる行は、少しでも間のあるところで区切る
-2. 話者を付ける。文の中で話した時間がいちばん長い話者にする。2 人目もはっきり話しているときだけ、
-   話者分けの替わり目にいちばん近い語の境目で分ける（相槌や、区間の端の 1〜2 文字のずれでは
-   分けない）
+2. 話者を語ごとに付ける（#148）。形態素解析の語ごとに文字の時刻をまとめて語の区間を作り、
+   話者分けの区間といちばん長く重なる話者にする。重なる区間がない語は、前（なければ後ろ）の語の
+   話者にする。文の中でも、話者が替わる語の境目で必ず行を分ける。文ごとに 1 人に決めると、
+   短い相づちや短い発言での交代が消えるため
+3. 文の中の短い話者の断片（2 語以下で 1 秒以下）は、話者分けの区間の端のずれとみなして、
+   隣の断片にまとめる（_smooth）
 
 形態素解析（fugashi + unidic-lite。サーバーの extra `final`）が入っていなければ、どの文字の境目でも
 区切ってよいことにし、文末らしいところは見ない。
@@ -44,11 +47,9 @@ SHORT_GAP_SEC = 0.25
 SHORT_HELD_SEC = 0.5
 # それでも区切れずに長くなったら、そこで区切る（語の境目で）
 MAX_CHARS = 160
-# 文の中の 2 人目の話者が、これだけ話していれば分ける（秒・文の中の割合）
-SECOND_SPEAKER_SEC = 1.0
-SECOND_SPEAKER_SHARE = 0.2
-# 話者の替わり目から、これだけ離れた語の境目までは分ける位置の候補にする（秒）
-TURN_SNAP_SEC = 0.6
+# 文の中の話者の断片のうち、これだけの語以下で、これだけの秒以下のずれは隣にまとめる（_smooth）
+SMOOTH_WORDS = 2
+SMOOTH_SEC = 1.0
 SPEAKER_LABEL = "話者"
 
 
@@ -209,55 +210,106 @@ def _turns_from_words(words: list[dict[str, Any]]) -> list[_Turn]:
     ]
 
 
-def _assign_speakers(
+def _tokens(
+    words: list[dict[str, Any]], ends: list[int], boundaries: set[int] | None
+) -> list[tuple[int, int]]:
+    """形態素解析の語ごとの、words（日本語では 1 文字ずつ）の範囲 [i, j)。
+    句読点は前の語に付ける。形態素解析がなければ、words の 1 つずつを語とみなす"""
+    tokens: list[tuple[int, int]] = []
+    first = 0
+    for i in range(len(words)):
+        last = i + 1 == len(words)
+        if last or (
+            (boundaries is None or ends[i] in boundaries)
+            and not _is_punctuation(words[i + 1]["word"])
+        ):
+            tokens.append((first, i + 1))
+            first = i + 1
+    return tokens
+
+
+def word_speakers(
     words: list[dict[str, Any]],
-    i: int,
-    j: int,
+    tokens: list[tuple[int, int]],
     turns: list[_Turn],
-    boundaries: set[int] | None,
-    ends: list[int],
-    depth: int = 0,
-) -> list[tuple[int, int, str | None]]:
-    """文 words[i:j] に話者を付ける。2 人目もはっきり話していれば、替わり目で分ける"""
-    start, end = _span(words, i, j)
-    acc = _speaker_time(turns, start, end)
-    if not acc:
-        # 話者分けの区間にかからない（無音と判定されたところ）。前の話者を引き継ぐ
-        return [(i, j, None)]
-    ranked = acc.most_common()
-    top = ranked[0][0]
-    if len(ranked) == 1 or depth >= 8 or j - i < 2:
-        return [(i, j, top)]
-    second = ranked[1][1]
-    if second < SECOND_SPEAKER_SEC or second / sum(acc.values()) < SECOND_SPEAKER_SHARE:
-        return [(i, j, top)]
-    assert start is not None and end is not None
-    # 文の中にある話者の替わり目に近い語の境目のうち、間がいちばん長いところで分ける
-    edges = sorted({e for t in turns for e in (t.start, t.end) if start < e < end})
-    best: tuple[float, int] | None = None
-    for k in range(i + 1, j):
-        prev = words[k - 1]
-        if prev.get("end") is None or _is_punctuation(words[k]["word"]):
-            continue
-        if boundaries is not None and ends[k - 1] not in boundaries:
-            continue
-        dist = min((abs(prev["end"] - e) for e in edges), default=TURN_SNAP_SEC + 1)
-        if dist > TURN_SNAP_SEC:
-            continue
-        gap, held = _pause(words, k - 1)
-        score = max(gap, held - SHORT_HELD_SEC) - dist
-        if best is None or score > best[0]:
-            best = (score, k)
-    if best is None:
-        return [(i, j, top)]
-    k = best[1]
-    left = _speaker_time(turns, *_span(words, i, k))
-    right = _speaker_time(turns, *_span(words, k, j))
-    if not left or not right or left.most_common(1)[0][0] == right.most_common(1)[0][0]:
-        return [(i, j, top)]
-    return _assign_speakers(words, i, k, turns, boundaries, ends, depth + 1) + _assign_speakers(
-        words, k, j, turns, boundaries, ends, depth + 1
-    )
+) -> list[str | None]:
+    """words の 1 つずつに、その語の話者を付ける（#148）。tokens は語ごとの words の範囲（_tokens）
+
+    語の区間（その語の文字の時刻をまとめたもの）といちばん長く重なる話者にする。重なる区間がない
+    （無音と判定されたところ）語は、前の語の話者、先頭なら後ろの語の話者にする。どの語も重ならない
+    ときは、話者なし
+    """
+    speakers: list[str | None] = [None] * len(words)
+    token_speakers: list[tuple[int, int, str | None]] = []
+    for i, j in tokens:
+        acc = _speaker_time(turns, *_span(words, i, j))
+        token_speakers.append((i, j, acc.most_common(1)[0][0] if acc else None))
+    known = [s for _, _, s in token_speakers if s is not None]
+    previous = known[0] if known else None
+    for i, j, speaker in token_speakers:
+        speaker = speaker or previous
+        previous = speaker
+        for k in range(i, j):
+            speakers[k] = speaker
+    return speakers
+
+
+def _smooth(
+    words: list[dict[str, Any]],
+    parts: list[tuple[int, int]],
+    speakers: list[str | None],
+    token_of: list[int],
+) -> list[tuple[int, int]]:
+    """文の中の話者の断片のうち、ずれと思われるものを隣にまとめる（#148）
+
+    短い断片（SMOOTH_WORDS 語以下で SMOOTH_SEC 秒以下）だけを見る。次の順に当てる
+    1. 同じ話者に挟まれた短い断片は、前後にまとめる
+    2. 文の端の短い断片（文末の「ね」が次の話者の区間にかかる、など。話者分けの区間の端は 1〜2 文字
+       ずれることが多い）は、隣の断片が短くなければ、そちらにまとめる
+    3. 短い断片 2 つだけの文は、長く話した方の話者にする
+    文の全体が 1 つの断片（相づちだけの文など）なら、そのまま残る
+    """
+
+    def duration(p: tuple[int, int]) -> float:
+        start, end = _span(words, *p)
+        return end - start if start is not None and end is not None else 0.0
+
+    def short(p: tuple[int, int]) -> bool:
+        return token_of[p[1] - 1] - token_of[p[0]] + 1 <= SMOOTH_WORDS and (
+            duration(p) <= SMOOTH_SEC
+        )
+
+    def relabel(p: tuple[int, int], speaker: str | None) -> list[tuple[int, int]]:
+        for k in range(*p):
+            speakers[k] = speaker
+        merged: list[tuple[int, int]] = []
+        for q in parts:
+            if merged and speakers[merged[-1][0]] == speakers[q[0]]:
+                merged[-1] = (merged[-1][0], q[1])
+            else:
+                merged.append(q)
+        return merged
+
+    parts = list(parts)
+    # 1. 挟まれた断片（まとめるたびに断片が減るので、必ず止まる）
+    changed = True
+    while changed:
+        changed = False
+        for n in range(1, len(parts) - 1):
+            before, after = speakers[parts[n - 1][0]], speakers[parts[n + 1][0]]
+            if before == after and short(parts[n]):
+                parts = relabel(parts[n], before)
+                changed = True
+                break
+    # 2・3. 文の端の断片
+    if len(parts) == 2 and short(parts[0]) and short(parts[1]):
+        longer = max(parts, key=duration)
+        parts = relabel(parts[0] if longer is parts[1] else parts[1], speakers[longer[0]])
+    if len(parts) > 1 and short(parts[0]) and not short(parts[1]):
+        parts = relabel(parts[0], speakers[parts[1][0]])
+    if len(parts) > 1 and short(parts[-1]) and not short(parts[-2]):
+        parts = relabel(parts[-1], speakers[parts[-2][0]])
+    return parts
 
 
 def sentences(
@@ -286,23 +338,31 @@ def sentences(
         ends.append(pos)
     morph = _morphology("".join(w["word"] for w in words)) if language == "ja" else None
     boundaries = morph[0] if morph is not None else None
+    tokens = _tokens(words, ends, boundaries)
+    speakers = word_speakers(words, tokens, speaker_turns) if speaker_turns else [None] * len(words)
+    token_of = [0] * len(words)
+    for n, (a, b) in enumerate(tokens):
+        for k in range(a, b):
+            token_of[k] = n
 
     out: list[Sentence] = []
     last_end: float | None = None
     for i, j in _split_sentences(words, ends, morph):
-        parts = (
-            _assign_speakers(words, i, j, speaker_turns, boundaries, ends)
-            if speaker_turns
-            else [(i, j, None)]
-        )
-        for a, b, speaker in parts:
+        # 文の中でも、話者が替わる語の境目で分ける
+        parts: list[tuple[int, int]] = []
+        first = i
+        for k in range(i + 1, j):
+            if speakers[k] != speakers[k - 1]:
+                parts.append((first, k))
+                first = k
+        parts.append((first, j))
+        parts = _smooth(words, parts, speakers, token_of)
+        for a, b in parts:
             body = "".join(w["word"] for w in words[a:b]).strip()
             start, end = _span(words, a, b)
-            if speaker is None and speaker_turns and out:
-                speaker = out[-1].speaker
             if body:
                 begin = start if start is not None else (last_end or 0.0)
-                out.append(Sentence(begin, body, speaker))
+                out.append(Sentence(begin, body, speakers[a]))
             if end is not None:
                 last_end = end
     return out
