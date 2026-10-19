@@ -208,6 +208,12 @@ class SessionWriter:
             self.meta.rejected_terms = list(rejected)
             self._rewrite_meta()
 
+    def set_manual_terms(self, manual: list[str]) -> None:
+        """画面で手で足した語を、フロントマターに記録する（#175）"""
+        with self._lock:
+            self.meta.manual_terms = list(manual)
+            self._rewrite_meta()
+
     def set_recording(self, name: str) -> None:
         """録音ファイル（mp3）ができた。フロントマターに記録する"""
         with self._lock:

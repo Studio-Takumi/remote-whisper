@@ -63,6 +63,8 @@ export type Session = {
     summaryFailed?: boolean;
     // 録音中に文字起こしから拾って、用語リストに足した語（#103）
     pickedTerms?: string[];
+    // 画面で手で足した語（#175）。拾った語とは分けて持つ
+    manualTerms?: string[];
     // 録音のあとに、今回扱った範囲で参考資料を作り直したとき（#182）
     materialRange?: MaterialRange[];
 };

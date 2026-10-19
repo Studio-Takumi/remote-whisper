@@ -66,9 +66,14 @@ COMMON_WORDS = frozenset(
 )
 
 
-def combine_hotwords(base: str | None, picked: list[str]) -> str | None:
-    """参考資料セットの用語（base、「、」区切り）のあとに、拾った語を上限まで足す"""
-    words = [w for w in (base or "").split("、") if w]
+def combine_hotwords(
+    base: str | None, picked: list[str], manual: list[str] | tuple[str, ...] = ()
+) -> str | None:
+    """Whisper に渡す用語リストを作る。順は、手で足した語 → 参考資料セットの用語（base、「、」
+    区切り）→ 拾った語（#175）。長さの上限を超えるときは、拾った語から削る（手で足した語と
+    参考資料セットの用語は削らない）"""
+    words = list(dict.fromkeys(manual))
+    words += [w for w in (base or "").split("、") if w and w not in words]
     for word in picked:
         if word in words:
             continue
@@ -76,6 +81,15 @@ def combine_hotwords(base: str | None, picked: list[str]) -> str | None:
             break
         words.append(word)
     return "、".join(words) or None
+
+
+# 手で足す語の長さ（文字）の上限
+MANUAL_MAX_CHARS = 40
+
+
+def manual_terms_fit(manual: list[str]) -> bool:
+    """手で足した語だけで、Whisper に渡す長さの上限に収まるか"""
+    return len("、".join(manual)) <= HOTWORDS_MAX_CHARS
 
 
 class TermPicker:
@@ -202,7 +216,12 @@ class TermPicker:
         # 語のうち、カタカナかラテン文字のところだけを使う（ハルシオン計画 → ハルシオン）
         parts = [p for word in candidates for p in _DISTINCT_RUN.findall(word)]
         for word in parts:
-            if word in counts or word in self.rejected or word in COMMON_WORDS:
+            if (
+                word in counts
+                or word in self.rejected
+                or word in COMMON_WORDS
+                or word in self.writer.meta.manual_terms
+            ):
                 continue
             if not MIN_CHARS <= len(word) <= MAX_CHARS:
                 continue
@@ -239,7 +258,18 @@ class TermPicker:
             self.writer.set_terms(picked, sorted(self.rejected))
         except OSError:
             log.exception("failed to save the terms of %s", self.writer.id)
-        await self.send({"type": "terms", "terms": picked, "rejected": sorted(self.rejected)})
+        await self.send(terms_message(picked, self.rejected, self.writer.meta.manual_terms))
+
+    async def set_manual(self, manual: list[str]) -> None:
+        """手で足した語が変わった。拾った語・消された語から重なるものを外し、すぐ反映する"""
+        self.writer.set_manual_terms(manual)
+        self.rejected -= set(manual)
+        self.picked = [w for w in self.picked if w not in manual]
+        await self._update(self.picked)
+
+
+def terms_message(picked: list[str], rejected: set[str] | list[str], manual: list[str]) -> dict:
+    return {"type": "terms", "terms": picked, "rejected": sorted(rejected), "manual": manual}
 
 
 def _consume(future: asyncio.Future) -> None:

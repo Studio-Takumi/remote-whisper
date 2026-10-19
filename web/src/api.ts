@@ -90,7 +90,7 @@ export type MaterialRange = { file: string; path: string; from: number; to: numb
 export type TranscriptJson = {
     lines: { time: string; text: string }[];
     // materialRange は、録音のあとに今回扱った範囲で参考資料を作り直したとき（#182）
-    meta?: { pickedTerms?: string[]; materialRange?: MaterialRange[] | null };
+    meta?: { pickedTerms?: string[]; manualTerms?: string[]; materialRange?: MaterialRange[] | null };
 };
 
 // 最終の文字起こし（#121）。meta はフロントマター（使うところだけ）
@@ -106,7 +106,7 @@ export type FinalTranscriptJson = {
 };
 
 // 拾った語を消したときの返事（#103）
-export type TermsJson = { pickedTerms: string[]; rejectedTerms: string[] };
+export type TermsJson = { pickedTerms: string[]; rejectedTerms: string[]; manualTerms?: string[] };
 
 export type SummaryInfoJson = {
     generationId: string;

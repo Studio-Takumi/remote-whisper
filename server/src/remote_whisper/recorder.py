@@ -135,17 +135,19 @@ class RecordingSession:
             settings.whisper,
             self.send,
             self._append_final,
-            combine_hotwords(self.base_hotwords, meta.picked_terms),
+            combine_hotwords(self.base_hotwords, meta.picked_terms, meta.manual_terms),
             session=self.id,
             offset=self.offset,
         )
 
     def apply_hotwords(self) -> None:
-        """参考資料セットの用語と拾った語から、録音中の用語リストを作り直す（次の区間から効く）"""
+        """手で足した語・参考資料セットの用語・拾った語から、録音中の用語リストを作り直す（次の区間から効く）"""
         if self.transcriber is None:
             return
         picked = self.picker.picked if self.picker is not None else self.writer.meta.picked_terms
-        self.transcriber.hotwords = combine_hotwords(self.base_hotwords, picked)
+        self.transcriber.hotwords = combine_hotwords(
+            self.base_hotwords, picked, self.writer.meta.manual_terms
+        )
 
     def start_picking(self, ollama: OllamaClient, gpu: GpuQueue, settings: SettingsStore) -> None:
         """録音中に文字起こしから用語を拾い、用語リストに足す（#103）"""
