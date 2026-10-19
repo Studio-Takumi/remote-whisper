@@ -1411,9 +1411,19 @@ export const useAppStore = create<AppState>()((set, get) => {
                     // セッションを別のプロジェクトへ移した（ほかの端末からのものも。#172）
                     void reloadAfterMove(m.session, m.from, m.to);
                 } else if (m.type === 'projectOrder' && !isDemo) {
-                    // プロジェクトの並びが変わった（ほかの端末からのものも。#173）
-                    void get().loadProjects();
-                    void get().loadSettings();
+                    // プロジェクトの並びが変わった（ほかの端末からのものも。#173）。設定だけ取り直して、
+                    // 手元の一覧を並べ直す（一覧を取り直すと、続けて並び替えたときに古い応答で戻ることがある）
+                    void get()
+                        .loadSettings()
+                        .then(() => {
+                            const ids = get().settings.projectOrder;
+                            if (ids.some((id) => !get().projects.some((p) => p.id === id))) {
+                                // 知らないプロジェクト（ほかの端末で作ったもの）があれば、一覧ごと取り直す
+                                void get().loadProjects();
+                            } else {
+                                set((s) => ({ projects: sortByIds(s.projects, ids) }));
+                            }
+                        });
                 } else if (m.type === 'corrections' && !isDemo) {
                     // 置き換えを足した・外した（ほかの端末からのものも。#176）
                     void refreshTranscripts(m.session);

@@ -20,8 +20,8 @@ export function reorderedIds(ids: string[], active: string, over: string | null 
     return from < 0 || to < 0 || from === to ? null : arrayMove(ids, from, to);
 }
 
-// ids の順に projects を並べ直す（ids にないものは今の順のまま後ろに）
+// ids の順に projects を並べ直す（ids にないものは、サーバーと同じく今の順のまま先頭に）
 export function sortByIds<T extends { id: string }>(projects: T[], ids: string[]): T[] {
     const rank = new Map(ids.map((id, i) => [id, i]));
-    return [...projects].sort((a, b) => (rank.get(a.id) ?? ids.length) - (rank.get(b.id) ?? ids.length));
+    return [...projects].sort((a, b) => (rank.get(a.id) ?? -1) - (rank.get(b.id) ?? -1));
 }

@@ -148,8 +148,11 @@ export function ProjectList({
         if (project) {
             return project.name;
         }
-        const session = projects.flatMap((p) => p.sessions).find((s) => key?.endsWith(`:${s.id}`));
-        return session?.title ?? '';
+        // セッションのドラッグの ID は `<プロジェクト ID>:<セッション ID>`（ID はプロジェクトをまたぐと重なりうる）
+        const session = projects
+            .flatMap((p) => p.sessions.map((s) => ({ key: `${p.id}:${s.id}`, s })))
+            .find((x) => x.key === key);
+        return session?.s.title ?? '';
     };
     const announcements: Announcements = {
         onDragStart: ({ active }) => `「${nameOf(active.id)}」を持ち上げました`,

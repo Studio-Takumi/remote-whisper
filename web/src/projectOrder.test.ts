@@ -47,7 +47,7 @@ describe('sortByIds', () => {
         expect(sortByIds(projects, ['c', 'x', 'a', 'b']).map((p) => p.id)).toEqual(['c', 'a', 'b']);
     });
 
-    it('ids にないものは今の順のまま後ろに置く', () => {
-        expect(sortByIds(projects, ['c']).map((p) => p.id)).toEqual(['c', 'a', 'b']);
+    it('ids にないものは今の順のまま先頭に置く（サーバーと同じ）', () => {
+        expect(sortByIds(projects, ['c']).map((p) => p.id)).toEqual(['a', 'b', 'c']);
     });
 });
