@@ -14,6 +14,8 @@ export type ServerStatus = {
     gpu: GpuStats | null;
     // 最終の文字起こしを作っているセッション（#124）
     transcribing: string[];
+    // 最終の要約を作っているセッション（#118）。移せるかどうか（#172）に使う
+    summarizing: string[];
 };
 
 export const initialServerStatus: ServerStatus = {
@@ -25,6 +27,7 @@ export const initialServerStatus: ServerStatus = {
     jobsAt: 0,
     gpu: null,
     transcribing: [],
+    summarizing: [],
 };
 
 // GPU キューのジョブの種類の名前

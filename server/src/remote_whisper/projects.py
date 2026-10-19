@@ -158,6 +158,7 @@ def rebuild_project_file(project_dir: Path) -> ProjectFile | None:
                 candidates.append(t.project or "")
                 sessions[t.id] = SessionEntry(
                     id=t.id,
+                    uuid=t.uuid,
                     title=t.title,
                     status=t.status,
                     started_at=t.started_at,
@@ -227,6 +228,11 @@ class ProjectStore:
     def __init__(self, home: Path):
         self.root = home / "projects"
         self._lock = threading.RLock()
+
+    @property
+    def lock(self) -> threading.RLock:
+        """project.json をまとめて書き換えるとき（セッションの移動。#172）に持つ"""
+        return self._lock
 
     def dir(self, pid: str) -> Path:
         # pid は URL から来るので、パスとして外に出られないものだけ受け付ける

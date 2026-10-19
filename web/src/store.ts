@@ -18,6 +18,7 @@ import {
     toSelection,
 } from '@/data';
 import { demoProjects, fallbackOptions, initialContextSets } from '@/mock';
+import { sortSessions } from '@/move';
 import { fetchOptions } from '@/options';
 import type { ServerMessage, SettingsOptions } from '@/protocol';
 import { type RecordingState, recordingLocks } from '@/recording';
@@ -106,6 +107,8 @@ type AppState = {
     rejectTerm: (sessionId: string, term: string) => Promise<void>;
     // 用語リストに手で語を足す（#175）。足せたら true
     addTerm: (sessionId: string, term: string) => Promise<boolean>;
+    // セッションを別のプロジェクトへ移す（#172）
+    moveSession: (fromProjectId: string, sessionId: string, toProjectId: string) => Promise<void>;
     // 文字起こしの置き換えを足す（#176）。正しい語は手で足した語にも入る。足せたら true
     addCorrection: (sessionId: string, correction: Correction) => Promise<boolean>;
     // 置き換えを外す（以後は当たらない）
@@ -689,6 +692,15 @@ export const useAppStore = create<AppState>()((set, get) => {
         }
     }
 
+    // セッションを別のプロジェクトへ移したあと、一覧を取り直す。開いていたら、移した先で開いたままにする
+    async function reloadAfterMove(sessionId: string, from: string, to: string) {
+        await get().loadProjects();
+        const { selection } = get();
+        if (selection.sessionId === sessionId && selection.projectId === from) {
+            get().selectSession(to, sessionId);
+        }
+    }
+
     // 置き換え（#176）を足した・外したときの返事を、セッションに入れる
     function receiveCorrections(sessionId: string, res: CorrectionsJson) {
         set((s) => ({
@@ -1083,6 +1095,40 @@ export const useAppStore = create<AppState>()((set, get) => {
             }
         },
 
+        moveSession: async (fromProjectId, sessionId, toProjectId) => {
+            const from = get().projects.find((p) => p.id === fromProjectId);
+            const to = get().projects.find((p) => p.id === toProjectId);
+            const session = from?.sessions.find((x) => x.id === sessionId);
+            if (!from || !to || !session || from.id === to.id) {
+                return;
+            }
+            if (isDemo) {
+                set((s) => ({
+                    projects: s.projects.map((p) =>
+                        p.id === from.id
+                            ? { ...p, sessions: p.sessions.filter((x) => x.id !== sessionId) }
+                            : p.id === to.id
+                              ? { ...p, sessions: sortSessions([...p.sessions, session]) }
+                              : p,
+                    ),
+                    selection:
+                        s.selection.sessionId === sessionId && s.selection.projectId === from.id
+                            ? { projectId: to.id, sessionId }
+                            : s.selection,
+                }));
+                toast.success(`「${session.title}」を${to.name}へ移しました`);
+                return;
+            }
+            try {
+                await api.post(`/api/projects/${from.id}/sessions/${sessionId}/move`, { to: to.id });
+            } catch (e) {
+                toast.error(`「${session.title}」を移せません: ${(e as Error).message}`);
+                return;
+            }
+            await reloadAfterMove(sessionId, from.id, to.id);
+            toast.success(`「${session.title}」を${to.name}へ移しました`);
+        },
+
         addCorrection: async (sessionId, correction) => {
             const project = get().projects.find((p) => p.sessions.some((x) => x.id === sessionId));
             if (!project) {
@@ -1308,6 +1354,10 @@ export const useAppStore = create<AppState>()((set, get) => {
                                 JSON.stringify(m.transcribing ?? []) === JSON.stringify(s.server.transcribing)
                                     ? s.server.transcribing
                                     : (m.transcribing ?? []),
+                            summarizing:
+                                JSON.stringify(m.summarizing ?? []) === JSON.stringify(s.server.summarizing)
+                                    ? s.server.summarizing
+                                    : (m.summarizing ?? []),
                         },
                     }));
                     // Ollama につながるようになったら、モデルの一覧を取り直す（つながらない間は空になっている）
@@ -1339,6 +1389,9 @@ export const useAppStore = create<AppState>()((set, get) => {
                     // 最終の文字起こしができた（#121）。最終の要約を待っている間（一覧の取り直しでは中身を
                     // 置き換えない）でも出せるように、そのセッションの最終の文字起こしだけを取ってきて足す
                     void receiveFinalTranscript(m.session, m.generationId);
+                } else if (m.type === 'sessionMoved' && !isDemo) {
+                    // セッションを別のプロジェクトへ移した（ほかの端末からのものも。#172）
+                    void reloadAfterMove(m.session, m.from, m.to);
                 } else if (m.type === 'corrections' && !isDemo) {
                     // 置き換えを足した・外した（ほかの端末からのものも。#176）
                     void refreshTranscripts(m.session);
