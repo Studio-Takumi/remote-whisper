@@ -239,6 +239,8 @@ class DisplaySettings(_Model):
     # 文字起こしのタブに、録音中に拾った用語（PickedTerms）を出すか。
     # 拾うか（ollama.pickTerms）とは別で、オフでも拾った語は hotwords に使う
     show_picked_terms: bool = False
+    # 最終の文字起こしに、話者（「話者 1」など）を出すか。話者分けの処理と保存するファイルは変えない
+    show_speakers: bool = False
 
 
 class Settings(_Model):

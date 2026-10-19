@@ -307,6 +307,8 @@ function FinalTranscriptBar({ session, making }: { session: Session; making: boo
     const available = useAppStore((s) => s.options.whisper.finalTranscript === true);
     const regenerate = useAppStore((s) => s.regenerateFinalTranscript);
     const pick = useAppStore((s) => s.showFinalTranscript);
+    // 世代の選択肢に話者の数を出すか（全体設定 display.showSpeakers、#146）
+    const showSpeakers = useAppStore((s) => s.settings.display.showSpeakers ?? false);
     // 録音中は作り直せない（GPU を長く使い、録音中の文字起こしが止まるため。#133）
     const recording = useAppStore((s) => s.recordingState !== 'idle');
     const final = session.finalTranscript;
@@ -370,7 +372,9 @@ function FinalTranscriptBar({ session, making }: { session: Session; making: boo
         );
     }
     const label = (g: FinalTranscriptInfo) =>
-        [g.model, g.diarization === 'done' ? `話者 ${g.speakers} 人` : null, g.generatedAt].filter(Boolean).join('・');
+        [g.model, showSpeakers && g.diarization === 'done' ? `話者 ${g.speakers} 人` : null, g.generatedAt]
+            .filter(Boolean)
+            .join('・');
     return (
         <div className='flex flex-col gap-1'>
             <div className='flex flex-wrap items-center gap-2'>

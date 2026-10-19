@@ -76,6 +76,8 @@ export type Settings = {
         sessionMeta: boolean;
         // 文字起こしのタブに、録音中に拾った用語を出すか。拾うか（ollama.pickTerms）とは別で、オフでも hotwords には使う
         showPickedTerms: boolean;
+        // 最終の文字起こしに、話者（「話者 1」など）と世代の選択肢の話者の数を出すか。保存するファイルは変えない
+        showSpeakers: boolean;
     };
     // サイドバーのプロジェクトの並び順（プロジェクト ID。#173）。ここにないものは先頭。
     // 一覧（GET /api/projects）はこの順で返ってくる。変えるのは並び替えのときだけ（changeSettings は送らない）
@@ -137,6 +139,7 @@ export const defaultSettings: Settings = {
     display: {
         sessionMeta: false,
         showPickedTerms: false,
+        showSpeakers: false,
     },
     projectOrder: [],
 };

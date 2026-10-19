@@ -4,7 +4,7 @@ import { LocateFixedIcon } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { isScrolledToBottom, scrollToBottom } from '@/scroll';
-import type { LivePartial } from '@/store';
+import { type LivePartial, useAppStore } from '@/store';
 import type { TranscriptLine } from '@/types';
 
 // 録音の再生位置（#122）。index は再生位置に当たる行（まだ当たる行がなければ null）。
@@ -130,11 +130,20 @@ const SPEAKER_COLORS = [
 ];
 
 function LineText({ text }: { text: string }) {
+    // 全体設定の display.showSpeakers（#146）がオフなら、札は出さず文だけを出す
+    const showSpeakers = useAppStore((s) => s.settings.display.showSpeakers ?? false);
     const m = SPEAKER_RE.exec(text);
     if (!m) {
         return (
             <p className='leading-6'>
                 <span data-correctable>{text}</span>
+            </p>
+        );
+    }
+    if (!showSpeakers) {
+        return (
+            <p className='leading-6'>
+                <span data-correctable>{m[2]}</span>
             </p>
         );
     }
