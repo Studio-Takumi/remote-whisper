@@ -26,6 +26,7 @@ export function AppSidebar() {
     const selectSession = useAppStore((s) => s.selectSession);
     const newSession = useAppStore((s) => s.newSession);
     const moveSession = useAppStore((s) => s.moveSession);
+    const reorderProjects = useAppStore((s) => s.reorderProjects);
     // セッションを移せるか（#172）を見るのに使う
     const server = useAppStore((s) => s.server);
     const recordingSessionId = useAppStore((s) => s.recordingSessionId);
@@ -80,6 +81,7 @@ export function AppSidebar() {
                             })
                         }
                         onMove={(from, sessionId, to) => void moveSession(from, sessionId, to)}
+                        onReorder={(ids) => void reorderProjects(ids)}
                     />
                 </SidebarGroup>
             </SidebarContent>

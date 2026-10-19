@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from pydantic.alias_generators import to_camel
 
 from remote_whisper.fsutil import atomic_write_json
@@ -251,6 +251,16 @@ class Settings(_Model):
     retention_days: RetentionDays = Field(default_factory=RetentionDays)
     materials: MaterialsSettings = Field(default_factory=MaterialsSettings)
     display: DisplaySettings = Field(default_factory=DisplaySettings)
+    # サイドバーのプロジェクトの並び順（プロジェクト ID。#173）。
+    # ここにないプロジェクトは先頭に出す。消えたプロジェクトの ID が残っていても読むときに無視する。
+    # 録音中も変えられる（#133）
+    project_order: list[str] = Field(default_factory=list)
+
+    @field_validator("project_order")
+    @classmethod
+    def _unique_project_order(cls, value: list[str]) -> list[str]:
+        # 同じ ID が重なっていたら最初のものだけ残す
+        return list(dict.fromkeys(value))
 
     def to_json(self) -> dict[str, Any]:
         return self.model_dump(by_alias=True)

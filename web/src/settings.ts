@@ -79,6 +79,9 @@ export type Settings = {
         // 最終の文字起こしに、話者（「話者 1」など）と世代の選択肢の話者の数を出すか。保存するファイルは変えない
         showSpeakers: boolean;
     };
+    // サイドバーのプロジェクトの並び順（プロジェクト ID。#173）。ここにないものは先頭。
+    // 一覧（GET /api/projects）はこの順で返ってくる。変えるのは並び替えのときだけ（changeSettings は送らない）
+    projectOrder: string[];
 };
 
 export const defaultSettings: Settings = {
@@ -138,6 +141,7 @@ export const defaultSettings: Settings = {
         showPickedTerms: false,
         showSpeakers: false,
     },
+    projectOrder: [],
 };
 
 // 設定モーダルのページ（URL の /settings/<ページ>。#177）。最初のものが既定
