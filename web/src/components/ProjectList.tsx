@@ -200,8 +200,10 @@ function SessionItem({
             onClick={onSelect}
             {...attributes}
             {...listeners}
-            // dnd-kit の attributes は role="button" を付けるが、もともと button なので要らない
+            // dnd-kit の attributes は role="button" を付けるが、もともと button なので要らない。
+            // 移せないときに付く aria-disabled も外す（サイドバーのボタンは aria-disabled だと押せなくなる）
             role={undefined}
+            aria-disabled={undefined}
         >
             {showMeta ? (
                 // 録音日時と長さを、タイトルの下に小さく出す
