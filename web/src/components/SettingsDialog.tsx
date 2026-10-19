@@ -603,6 +603,17 @@ function SettingsForm({
                                 onCheckedChange={(showPickedTerms) => update('display', { showPickedTerms })}
                             />
                         </Row>
+                        <Row
+                            id='show-speakers'
+                            label='話者を表示する'
+                            description='最終の文字起こしの行の頭に「話者 1」などを出し、世代の選択肢に話者の数を出す。話者分けの精度がまだ低いので、既定ではオフ。オフでも、話者は分けて保存する'
+                        >
+                            <Switch
+                                id='show-speakers'
+                                checked={draft.display.showSpeakers ?? false}
+                                onCheckedChange={(showSpeakers) => update('display', { showSpeakers })}
+                            />
+                        </Row>
                     </Section>
                 </TabsContent>
             </Tabs>
