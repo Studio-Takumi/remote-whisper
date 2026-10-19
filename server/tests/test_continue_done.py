@@ -2,6 +2,7 @@
 
 import asyncio
 import time
+import wave
 
 import pytest
 from fastapi.testclient import TestClient
@@ -96,6 +97,31 @@ def test_continue_a_done_session_within_the_window(client, project, summarized):
     assert [line[:10] for line in body.splitlines()[-2:]] == ["[00:00:00]", "[00:00:02]"]
     # 続きの録音を終えたら、録音全体で最終の要約をもう一度作る（新しい版）
     wait_for(lambda: summarized == [sid, sid])
+
+
+def test_continue_while_the_wav_is_being_read(client, project, summarized):
+    # 再生（や浄書）が WAV を開いている最中でも続きを始められる（名前を変えずに後ろに書き足す）
+    pid, d = project
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        sid = start(ws, pid)
+        record(ws)
+        ws.send_json({"type": "stop"})
+    finished(client, sid)
+    wav = d / ".tmp" / sid / "audio.wav"
+    with wav.open("rb") as reading:
+        reading.read(100)
+        with client.websocket_connect("/ws") as ws:
+            ws.receive_json()
+            ws.send_json({"type": "continue", "project": pid, "session": sid})
+            started = receive_until(ws, of_type("started", continued=True))[-1]
+            assert started["offsetSec"] == pytest.approx(2.0, abs=0.1)
+            record(ws, first_seq=0)
+            ws.send_json({"type": "stop"})
+        finished(client, sid)
+    with wave.open(str(wav)) as w:
+        assert (w.getnchannels(), w.getframerate()) == (1, 16000)
+        assert w.getnframes() / 16000 == pytest.approx(4.0, abs=0.1)
 
 
 def test_after_the_window_it_is_converted_and_cannot_be_continued(client, project, summarized):

@@ -179,10 +179,17 @@ async def move(pid: Pid, sid: str, body: MoveBody, ctx: Ctx) -> dict[str, Any]:
         # 移動先で変換してから返す（移したら、続きは mp3 から戻して録音する）。変換の途中に続きの
         # 録音が始まって WAV が重ならないよう、返事は変換を待つ（数秒）
         deferred.cancel()
+        # 変換の間は、ほかの端末から続きの録音を頼まれても断る（前の録音を戻している途中と同じ扱い）
+        restoring = getattr(ctx.recorder, "_restoring", None)
+        if restoring is not None:
+            restoring.add(sid)
         try:
             await asyncio.to_thread(convert_leftover, ctx.projects, dst, sid)
         except Exception as e:  # noqa: BLE001 変換できなければ WAV が残り、次の起動時に変換し直す（#33）
             log.warning("converting a moved recording failed: %s", e)
+        finally:
+            if restoring is not None:
+                restoring.discard(sid)
     # ほかの端末にも一覧が変わったことを知らせる
     await ctx.hub.broadcast(
         {"type": "sessionMoved", "session": sid, "sessionUuid": moved.uuid, "from": pid, "to": dst}
