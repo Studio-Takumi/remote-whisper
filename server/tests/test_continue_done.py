@@ -121,6 +121,31 @@ def test_after_the_window_it_is_converted_and_cannot_be_continued(client, projec
     assert summarized == [sid]
 
 
+def test_moving_while_it_can_be_continued_converts_in_the_new_project(client, project, tmp_path):
+    # 続きを録音できる間（WAV のまま）に別のプロジェクトへ移したら、移動先ですぐ mp3 にする（#172）
+    pid, d = project
+    other = tmp_path / "work" / "other"
+    other.mkdir()
+    dst = client.post("/api/projects", json={"path": str(other)}).json()["id"]
+    dst_dir = client.app.state.ctx.projects.dir(dst)
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        sid = start(ws, pid)
+        record(ws)
+        ws.send_json({"type": "stop"})
+    finished(client, sid)
+    assert (d / ".tmp" / sid / "audio.wav").is_file()
+    # 最終の要約を作り終えるまでは移せない
+    wait_for(lambda: client.app.state.ctx.hub.status.summarizing == [], timeout=30)
+    res = client.post(f"/api/projects/{pid}/sessions/{sid}/move", json={"to": dst})
+    assert res.status_code == 200, res.text
+    wait_for(lambda: (dst_dir / f"recording-{sid}.mp3").is_file())
+    wait_for(lambda: not (dst_dir / ".tmp" / sid / "audio.wav").exists())
+    meta, _ = read_doc(dst_dir / f"transcript-{sid}.md", TranscriptMeta)
+    assert meta.recording == f"recording-{sid}.mp3"
+    assert not list(d.glob(f"*{sid}*"))
+
+
 def test_the_window_follows_the_setting(home):
     app = create_app(home)
     recorder = app.state.ctx.recorder

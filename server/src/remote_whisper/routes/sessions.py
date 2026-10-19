@@ -18,6 +18,7 @@ from remote_whisper.corrections import Correction, CorrectionLine
 from remote_whisper.documents import FinalTranscriptMeta, SummaryMeta, TranscriptMeta, read_doc
 from remote_whisper.gpu_queue import Priority
 from remote_whisper.projects import ProjectError, ProjectFile, SessionEntry
+from remote_whisper.recovery import convert_leftover
 from remote_whisper.session_move import move_session
 from remote_whisper.session_writer import SessionWriter
 from remote_whisper.sessions import (
@@ -128,6 +129,16 @@ def get_session(pid: Pid, sid: str, ctx: Ctx) -> dict[str, Any]:
     return result
 
 
+# 移したセッションの変換（#174）。終わるまで参照を持っておく（途中で消されないように）
+_converting: set[asyncio.Task] = set()
+
+
+def _log_convert_failure(future: asyncio.Future) -> None:
+    # 変換できなければ WAV が残り、次の起動時に変換し直す（#33）
+    if not future.cancelled() and future.exception() is not None:
+        log.warning("converting a moved recording failed: %s", future.exception())
+
+
 class MoveBody(BaseModel):
     # 移動先のプロジェクト ID か UUID
     to: str
@@ -171,8 +182,16 @@ async def move(pid: Pid, sid: str, body: MoveBody, ctx: Ctx) -> dict[str, Any]:
     # 録音マネージャは録音を終えたセッションも持っていて、用語・置き換えの書き込みはその writer
     # （移す前のディレクトリを指す）を使う。移したら外して、移動先のファイルを読み直させる
     sessions = getattr(ctx.recorder, "sessions", None)
-    if sessions is not None:
-        sessions.pop(sid, None)
+    recorded = sessions.pop(sid, None) if sessions is not None else None
+    deferred = getattr(recorded, "_deferred", None)
+    if deferred is not None and not deferred.done():
+        # 続きを録音できる間の mp3 への変換待ち（#174）は、移す前の場所を指しているのでやめ、
+        # 移動先ですぐ変換する（移したら、続きは mp3 から戻して録音する）
+        deferred.cancel()
+        task = asyncio.create_task(asyncio.to_thread(convert_leftover, ctx.projects, dst, sid))
+        _converting.add(task)
+        task.add_done_callback(_converting.discard)
+        task.add_done_callback(_log_convert_failure)
     # ほかの端末にも一覧が変わったことを知らせる
     await ctx.hub.broadcast(
         {"type": "sessionMoved", "session": sid, "sessionUuid": moved.uuid, "from": pid, "to": dst}
