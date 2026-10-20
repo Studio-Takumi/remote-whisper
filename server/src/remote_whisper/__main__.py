@@ -12,7 +12,7 @@ import threading
 
 import uvicorn
 
-from remote_whisper import logs, tray
+from remote_whisper import cloud, logs, tray
 from remote_whisper.app import create_app
 from remote_whisper.mock import MockTiming
 from remote_whisper.settings import default_home
@@ -68,6 +68,10 @@ def main() -> None:
             log_dir=path.parent,
             # 止めるとき（lifespan の後片付け）を経てから止まる
             on_quit=lambda: setattr(server, "should_exit", True),
+            # クラウド版のホストの登録（#158）。中間サーバーの URL は、押したときの設定を読む
+            cloud=cloud.CloudHost(
+                home, relay_url=lambda: app.state.ctx.settings.get().cloud.relay_url
+            ),
         )
         if tray.must_run_on_main_thread():
             _serve_with_tray_on_main_thread(server, icon)

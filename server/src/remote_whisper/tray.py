@@ -4,7 +4,9 @@
   OS ごとに違う部分（確認のダイアログ・フォルダを開く・状態の行）
 - 状態はサーバーの中（Hub の status）から直接読む。1 秒ごとに見て、変わったらアイコンと文を変える
 - 左クリックで画面をブラウザで開く。右クリックのメニューは
-  「画面を開く / ログのフォルダを開く / 終了」
+  「画面を開く / ログのフォルダを開く / クラウドの状態の行・クラウドにログイン（など） / 終了」。
+  クラウドの項目（#158）は、登録していなければ「クラウドにログイン」、登録中は「登録をやめる」、
+  登録済みなら「クラウドから外す」だけを出す。登録コードと結果は通知（Mac は osascript）でも出す
 - Mac ではクリックでメニューが開き、マウスを乗せたときの文が出ないことがあるので、
   メニューの一番上に状態の行を出す。アイコンはテンプレート画像にしない（点の色が見えるように）
 - pystray と Pillow は Windows と Mac だけの依存。ないときは available() が False になり、
@@ -24,15 +26,21 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from remote_whisper.cloud import CloudHost, CloudView
 from remote_whisper.hub import ServerStatus
 from remote_whisper.tray_state import (
     APP_NAME,
+    CLOUD_UNPAIR_CONFIRM,
     DOT_COLORS,
+    MENU_CLOUD_CANCEL,
+    MENU_CLOUD_LOGIN,
+    MENU_CLOUD_UNPAIR,
     MENU_LOGS,
     MENU_OPEN,
     MENU_QUIT,
     Color,
     TrayState,
+    cloud_menu,
     quit_confirmation,
     tray_state,
 )
@@ -253,8 +261,8 @@ def pystray_icon_class() -> Any:
 # --- OS ごとに違う部分 ---
 
 
-def confirm(message: str) -> bool:
-    """はい・いいえを聞く。はいなら True"""
+def confirm(message: str, ok_label: str = "終了") -> bool:
+    """はい・いいえを聞く。はいなら True。ok_label は Mac のはいのボタンの文"""
     if sys.platform == "win32":
         import ctypes
 
@@ -265,14 +273,25 @@ def confirm(message: str) -> bool:
         quote = message.replace("\\", "\\\\").replace('"', '\\"')
         script = (
             f'display dialog "{quote}" with title "{APP_NAME}" with icon caution '
-            'buttons {"キャンセル", "終了"} default button "キャンセル" cancel button "キャンセル"'
+            f'buttons {{"キャンセル", "{ok_label}"}} default button "キャンセル" '
+            'cancel button "キャンセル"'
         )
         # キャンセルなら osascript は失敗で終わる
         result = subprocess.run(  # noqa: S603, S607
             ["osascript", "-e", script], capture_output=True, text=True, check=False
         )
-        return result.returncode == 0 and "終了" in result.stdout
+        return result.returncode == 0 and ok_label in result.stdout
     return True
+
+
+def notify_mac(message: str) -> None:
+    """Mac の通知（pystray の Mac 版は通知を出せないので、osascript で出す）"""
+    quote = message.replace("\\", "\\\\").replace('"', '\\"')
+    subprocess.Popen(  # noqa: S603, S607
+        ["osascript", "-e", f'display notification "{quote}" with title "{APP_NAME}"'],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
 
 
 def open_folder(path: Path) -> None:
@@ -295,16 +314,24 @@ class Tray:
         url: str,
         log_dir: Path,
         on_quit: Callable[[], None],
+        cloud: CloudHost | None = None,
     ):
-        """status はサーバーの今の状態を返すもの、on_quit はサーバーを止めるもの"""
+        """status はサーバーの今の状態を返すもの、on_quit はサーバーを止めるもの
+
+        cloud はクラウド版のホストの登録（#158）。None ならクラウドの行と項目を出さない
+        """
         self.status = status
         self.url = url
         self.log_dir = log_dir
         self.on_quit = on_quit
+        self.cloud = cloud
+        if cloud is not None:
+            cloud.on_notice = self._notify
         self._icon: Any = None
         self._shown: TrayState | None = None
         self._light = False
         self._stopped = threading.Event()
+        self._update_lock = threading.Lock()
 
     def run(self) -> None:
         """アイコンを出して、止めるまで戻らない
@@ -313,7 +340,7 @@ class Tray:
         """
         import pystray
 
-        state = tray_state(self.status())
+        state = self._state()
         # メニューの状態の行は、作るときにもこれを読む
         self._shown = state
         items = [
@@ -321,8 +348,24 @@ class Tray:
             pystray.MenuItem(MENU_OPEN, self._open, default=True),
             pystray.MenuItem(MENU_LOGS, self._open_logs),
             pystray.Menu.SEPARATOR,
-            pystray.MenuItem(MENU_QUIT, self._quit),
         ]
+        if self.cloud is not None:
+            # クラウドの状態の行（登録中は登録コードも）と、今の状態で押せる項目だけを出す。
+            # 状態が変わったら update_menu で出し直す
+            items += [
+                pystray.MenuItem(self._cloud_text, None, enabled=False),
+                pystray.MenuItem(
+                    MENU_CLOUD_LOGIN, self._cloud_login, visible=lambda _: self._menu().login
+                ),
+                pystray.MenuItem(
+                    MENU_CLOUD_CANCEL, self._cloud_cancel, visible=lambda _: self._menu().cancel
+                ),
+                pystray.MenuItem(
+                    MENU_CLOUD_UNPAIR, self._cloud_unpair, visible=lambda _: self._menu().unpair
+                ),
+                pystray.Menu.SEPARATOR,
+            ]
+        items.append(pystray.MenuItem(MENU_QUIT, self._quit))
         if shows_status_line():
             # 押せない行として、今の状態を出す（変わったら update_menu で書き直す）
             status_line = pystray.MenuItem(self._status_text, None, enabled=False)
@@ -382,12 +425,19 @@ class Tray:
     def _refresh(self) -> None:
         while not self._stopped.wait(REFRESH_SEC):
             try:
-                self.update(tray_state(self.status()), taskbar_is_light())
+                self.update(self._state(), taskbar_is_light())
             except Exception:  # noqa: BLE001 表示の失敗でサーバーを止めない
                 log.exception("failed to update the tray icon")
 
     def update(self, state: TrayState, light: bool | None = None) -> None:
-        """変わっていれば、アイコンと文を変える。light は背景の明るさ（切り替えたら絵を描き直す）"""
+        """変わっていれば、アイコンと文を変える。light は背景の明るさ（切り替えたら絵を描き直す）
+
+        1 秒ごとの見直しと、クラウドの登録のスレッド・メニューの操作から呼ばれるので、1 つずつ進める
+        """
+        with self._update_lock:
+            self._update(state, light)
+
+    def _update(self, state: TrayState, light: bool | None) -> None:
         if self._icon is None:
             return
         light_changed = light is not None and light != self._light
@@ -398,12 +448,56 @@ class Tray:
         if self._shown is None or state.color != self._shown.color or light_changed:
             self._icon.icon = icon_images(state.color, self._light)
         self._icon.title = state.tooltip
+        cloud_changed = self._shown is not None and state.cloud != self._shown.cloud
         self._shown = state
-        if shows_status_line():
+        # クラウドの項目はどの OS でもメニューに出すので、変わったら出し直す
+        if shows_status_line() or cloud_changed:
             self._icon.update_menu()
+
+    def _state(self) -> TrayState:
+        return tray_state(self.status(), self._cloud_view())
+
+    def _cloud_view(self) -> CloudView | None:
+        return self.cloud.view if self.cloud is not None else None
+
+    def _menu(self) -> Any:
+        return cloud_menu(self._cloud_view())
 
     def _status_text(self, *_: Any) -> str:
         return self._shown.text if self._shown is not None else ""
+
+    def _cloud_text(self, *_: Any) -> str:
+        return self._shown.cloud if self._shown is not None else ""
+
+    def _notify(self, message: str) -> None:
+        """登録コードや失敗を知らせる。出せなくても止めない（メニューの行とログでも分かる）"""
+        try:
+            if sys.platform == "darwin":
+                notify_mac(message)
+            elif self._icon is not None and getattr(self._icon, "HAS_NOTIFICATION", False):
+                self._icon.notify(message, APP_NAME)
+        except Exception:  # noqa: BLE001
+            log.warning("failed to show a notification", exc_info=True)
+        # 状態（コード・登録済み）をすぐメニューに出す
+        try:
+            self.update(self._state())
+        except Exception:  # noqa: BLE001
+            log.warning("failed to update the tray", exc_info=True)
+
+    def _cloud_login(self, *_: Any) -> None:
+        if self.cloud is not None:
+            self.cloud.start_pairing()
+            self.update(self._state())
+
+    def _cloud_cancel(self, *_: Any) -> None:
+        if self.cloud is not None:
+            self.cloud.cancel_pairing()
+
+    def _cloud_unpair(self, *_: Any) -> None:
+        if self.cloud is None or not confirm(CLOUD_UNPAIR_CONFIRM, "外す"):
+            return
+        self.cloud.unpair()
+        self.update(self._state())
 
     def _open(self, *_: Any) -> None:
         webbrowser.open(self.url)

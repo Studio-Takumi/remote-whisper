@@ -183,6 +183,31 @@ def test_display_show_speakers(client):
     assert res.json()["display"]["showSpeakers"] is True
 
 
+def test_cloud_relay_url(client):
+    # 中間サーバーの URL は、既定は staging。録音中でも変えられる（#158）
+    assert client.get("/api/settings").json()["cloud"]["relayUrl"] == (
+        "https://rw-dev.studio-takumi.dev"
+    )
+    res = client.patch("/api/settings", json={"cloud": {"relayUrl": "http://localhost:8787/"}})
+    assert res.json()["cloud"]["relayUrl"] == "http://localhost:8787"
+    # 書き方の違いはそろえる
+    res = client.patch(
+        "/api/settings", json={"cloud": {"relayUrl": "HTTPS://Relay.Example.COM:443/?#"}}
+    )
+    assert res.json()["cloud"]["relayUrl"] == "https://relay.example.com"
+    for bad in (
+        "http://example.com",
+        "ftp://example.com",
+        "https://example.com/x",
+        "nope",
+        # 見た目は本物のドメインでも、接続先は evil.test になる
+        "https://rw-dev.studio-takumi.dev@evil.test",
+        "https://user:secret@relay.example.com",
+    ):
+        res = client.patch("/api/settings", json={"cloud": {"relayUrl": bad}})
+        assert res.status_code == 422, bad
+
+
 def test_patch_settings_invalid(client, home):
     before = (home / "setting.json").read_text(encoding="utf-8")
     res = client.patch("/api/settings", json={"whisper": {"beamSize": "many"}})
