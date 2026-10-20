@@ -15,6 +15,7 @@ import {
     useAccountStore,
 } from '@/account';
 import { useCloudStore } from '@/cloud';
+import { HostsSection } from '@/components/HostsSection';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
@@ -106,6 +107,7 @@ export function AccountDialog({ open, onOpenChange }: { open: boolean; onOpenCha
                                 ))}
                             </div>
                         </section>
+                        <HostsSection open={open} />
                         <section className='flex flex-wrap items-center justify-between gap-2 border-t pt-3'>
                             <Button size='sm' variant='outline' onClick={() => void signOut()}>
                                 ログアウト

@@ -123,6 +123,23 @@ export async function deleteTunnel(env: Env, host: HostTunnel): Promise<void> {
     }
 }
 
+// トンネルに cloudflared がつながっているか（#161 のホストの一覧）。healthy・degraded ならつながっている。
+// API が使えない・失敗したときは null（分からない）
+export async function tunnelOnline(env: Env, tunnelId: string): Promise<boolean | null> {
+    if (!configured(env)) {
+        return null;
+    }
+    try {
+        const res = await cf<{ status?: string }>(env, 'GET', `/accounts/${env.CF_ACCOUNT_ID}/cfd_tunnel/${tunnelId}`);
+        if (!res.success || !res.result?.status) {
+            return null;
+        }
+        return res.result.status === 'healthy' || res.result.status === 'degraded';
+    } catch {
+        return null;
+    }
+}
+
 // ユーザーのホストのトンネルをすべて消す（退会のとき）
 export async function deleteUserTunnels(env: Env, userId: string): Promise<void> {
     const rows = await env.DB.prepare('SELECT id, tunnel_id, tunnel_hostname FROM hosts WHERE user_id = ?')

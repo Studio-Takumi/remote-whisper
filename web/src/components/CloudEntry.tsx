@@ -5,6 +5,7 @@ import { useEffect } from 'react';
 import { fetchMe, logout, useAccountStore } from '@/account';
 import { useCloudStore } from '@/cloud';
 import type { CloudStage } from '@/cloud';
+import { HostPicker } from '@/components/HostPicker';
 import { LoginButtons } from '@/components/LoginButtons';
 
 const PLACEHOLDERS: Record<Exclude<CloudStage, 'login'>, { title: string; body: string }> = {
@@ -50,6 +51,8 @@ export function CloudEntry() {
                     <h1 className='text-xl font-semibold'>ログイン</h1>
                     {checked ? <LoginButtons /> : <p className='text-sm text-muted-foreground'>確かめています…</p>}
                 </>
+            ) : stage === 'hosts' ? (
+                <HostPicker />
             ) : (
                 <>
                     <h1 className='text-xl font-semibold'>{PLACEHOLDERS[stage].title}</h1>

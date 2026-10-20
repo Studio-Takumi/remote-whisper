@@ -11,7 +11,8 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "preview": "vite preview",
-    "screenshots": "node scripts/screenshots.mjs"
+    "screenshots": "node scripts/screenshots.mjs",
+    "check:cloud-hosts": "node scripts/cloud-hosts.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "6.3.1",

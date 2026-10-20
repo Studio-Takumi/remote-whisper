@@ -2,10 +2,12 @@ import { useLayoutEffect, useRef } from 'react';
 
 import { ChevronRightIcon, CpuIcon } from 'lucide-react';
 
+import { CloudHostBadge } from '@/components/CloudHostBadge';
 import { ContextSetSheet } from '@/components/ContextSetSheet';
 import { GpuIndicator } from '@/components/GpuIndicator';
 import { RecordingLock } from '@/components/RecordingLock';
 import { SidebarTrigger } from '@/components/ui/sidebar';
+import { isCloud } from '@/endpoint';
 import { recordingLocks } from '@/recording';
 import { useAppStore } from '@/store';
 
@@ -64,6 +66,12 @@ export function TopBar() {
             {/* スマホの幅ではサイドバーが隠れるので、開くボタンをここに出す */}
             <SidebarTrigger className='size-9 md:hidden' aria-label='メニューを開く' />
             <GpuIndicator />
+            {/* クラウド版だけ、つないでいるホスト（#161）。録音中は切り替えない */}
+            {isCloud && (
+                <RecordingLock locked={recording} message='録音中はホストを切り替えられません'>
+                    <CloudHostBadge />
+                </RecordingLock>
+            )}
             <div className='ml-auto flex flex-row items-center gap-2'>
                 {modelButton}
                 <RecordingLock locked={recording} message={recordingLocks.contextSet}>
