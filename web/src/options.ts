@@ -1,9 +1,10 @@
+import { apiUrl } from '@/endpoint';
 import type { SettingsOptions } from '@/protocol';
 import type { OllamaModels } from '@/settings';
 
 // 設定で選べる値（GET /api/settings/options）を取る
 export async function fetchOptions(): Promise<SettingsOptions> {
-    const res = await fetch('/api/settings/options');
+    const res = await fetch(apiUrl('/api/settings/options'));
     if (!res.ok) {
         throw new Error(`GET /api/settings/options: ${res.status}`);
     }

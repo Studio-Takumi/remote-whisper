@@ -1,12 +1,8 @@
 // WebSocket /ws の接続（spec/api.md 7.2）。接続は1本で、録音とサーバーの状態の通知の両方に使う
+import { wsUrl } from '@/endpoint';
 import type { ClientMessage, ServerMessage } from '@/protocol';
 
 type Listener = (message: ServerMessage) => void;
-
-function wsUrl() {
-    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${protocol}//${location.host}/ws`;
-}
 
 // 切れたらつなぎ直すまでの待ち時間（ミリ秒）。失敗するたびに伸ばす
 const RETRY_DELAYS = [500, 1000, 2000, 4000, 8000];

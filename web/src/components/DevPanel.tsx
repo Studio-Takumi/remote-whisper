@@ -4,6 +4,7 @@ import { WrenchIcon } from 'lucide-react';
 
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
+import { apiUrl } from '@/endpoint';
 import { useAppStore } from '@/store';
 
 // 開発中だけ出す、状態を切り替えるパネル。サーバーがなくても、状態ごとの表示を確かめられるようにする
@@ -71,7 +72,7 @@ export function DevPanel() {
 // モックサーバー（--mock）の状態を変える。サーバーから全員に status が届いて、表示が変わる
 // モックサーバーでないとき（404 など）や、つながらないときは reject するので、画面の中だけで切り替える
 async function setMockStatus(status: { whisper?: string; ollama?: string }) {
-    const res = await fetch('/api/mock/status', {
+    const res = await fetch(apiUrl('/api/mock/status'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(status),
