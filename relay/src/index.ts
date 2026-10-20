@@ -2,9 +2,9 @@
 //
 // 画面（web/dist）は静的アセットとして配る（wrangler.jsonc の assets）。ここに来るのは、
 // run_worker_first に書いたパス（/h/・/auth/・/me・/pair/・/healthz）だけ（登録の確認画面 /pair?code= は画面が出す）。
-// ホストの登録（#157）・中継（#160）は、それぞれの Issue で足す
 import { handleAuth } from './auth';
 import { handleMe } from './me';
+import { handlePairing } from './pairing';
 import { handleHostRelay } from './relay';
 
 export interface Env {
@@ -19,6 +19,13 @@ export interface Env {
     DISCORD_CLIENT_SECRET?: string;
     GITHUB_CLIENT_ID?: string;
     GITHUB_CLIENT_SECRET?: string;
+    // トンネルの作成・削除（#159）。API トークン・アカウント・ゾーンは secret、ドメインと接頭辞は vars。
+    // どれかがなければ、トンネルは作らない（/pair/tunnel は 503）
+    CF_API_TOKEN?: string;
+    CF_ACCOUNT_ID?: string;
+    CF_ZONE_ID?: string;
+    TUNNEL_DOMAIN?: string;
+    TUNNEL_PREFIX?: string;
 }
 
 export default {
@@ -36,6 +43,9 @@ export default {
         }
         if (path === '/me' || path.startsWith('/me/')) {
             return handleMe(request, env, path);
+        }
+        if (path.startsWith('/pair/')) {
+            return handlePairing(request, env, path);
         }
         return new Response('Not found', { status: 404 });
     },

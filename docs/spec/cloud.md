@@ -82,6 +82,7 @@ flowchart LR
 cloudflared はホストの中から 127.0.0.1 でつないでくるので、IP ではローカルからの接続と区別できない。そこで、トンネルは別のポートに向ける。
 
 - ホストの FastAPI は、8000 番（今まで通り）に加えて **8001 番（トンネル専用）** を開く。8001 番は 127.0.0.1 だけで開き、トンネルのとき以外は開かない（クラウドに登録していないホストでは開かない）
+  - 実装（#160）: アプリを署名の確認で包んだ ASGI アプリ（`server/src/remote_whisper/tunnel.py`）を、別の uvicorn で 8001 番に動かす（8000 番のアプリは包まない。アプリの状態は 8000 番のイベントループに結びついているので、8001 番も同じループの上で動かす。`X-Forwarded-*` は信じない）。起動時に cloud.json に中継の鍵があれば開き、登録を承認したら開き、解除したら閉じる
 - 8001 番では、**Worker の署名がないリクエストは 401** で断る。WebSocket も同じ（つなぐ前に確かめる）
 - 署名: Worker が「ユーザー ID・ホスト ID・時刻（UNIX 秒）・メソッド・パス」をホストごとの鍵で HMAC-SHA256 し、ヘッダーに付けて転送する。ホストは、自分のホスト ID か・時刻が許容幅（60 秒）の中か・署名が合うかを確かめる（比べるのは定数時間で）
   - パスは、Worker が `/h/<hostId>` を外したあとのホスト側のパス（クエリを含む）
@@ -145,10 +146,14 @@ sequenceDiagram
 - 解除したら、hosts の行を消す（トンネルも消す）。ホストは `cloud.json` を消し、次に登録するときは**新しいホスト ID と鍵のペア**で申請する（同じ ID を使い回さない）。資格情報をなくしたホストは、画面の管理から解除してから登録し直す
 - サーバーには公開鍵だけを置く。秘密鍵はホストから出さない
 - 登録コードは 10 分有効・1 回だけ。DB にはコードのハッシュを置く。トレイとブラウザに同じコードを出し、同じことを確かめてから承認させる（ほかの人の PC を自分のアカウントに登録させる乗っ取りの対策）
-- 申請とポーリングには回数の制限を付ける。期限切れの申請は消す
+- 申請とポーリングには回数の制限を付ける。期限切れの申請は消す（#157）
+  - 申請（`/pair/start`）は、同じ接続元（`CF-Connecting-IP` のハッシュ。IP そのものは置かない）から 10 分に 5 回まで
+  - ポーリング（`/pair/poll`）は、1 つの申請につき 1 秒に 1 回まで
+  - 期限切れの申請は、次の申請のときに消す
+- 登録コードは `XXXX-XXXX`（読み間違えやすい `0`・`O`・`1`・`I` を除いた英大文字と数字の 32 文字から 8 文字）。画面で打ち直されたものは、小文字・空白・ハイフンなしもそろえて受け付ける
 - 解除（画面から・トレイの「クラウドから外す」・退会）: hosts から消し、トンネルと公開ホスト名の DNS レコードを消し、ホストは資格情報を消して cloudflared を止める。トンネルが消えるので、つながっている WebSocket も切れる
 - ログアウトしても、つながっている WebSocket はそのまま（素通しなので Worker から切れない）。閉じたときに切れ、つなぎ直すときにログインを確かめる。これは許容する
-- **ホストと Worker のやり取り（#158 で決めた。Worker は #157 で同じに作る）**: どれも `POST`、本文は JSON、10.5 節の `X-RW-Host` の署名つき。エラーの本文は `{"error": "<短い英語の理由>"}`
+- **ホストと Worker のやり取り（#158 で決めた。Worker は #157 で同じに作る）**: どれも `POST`、本文は JSON、10.5 節の `X-RW-Host` の署名つき。エラーの本文は `{"detail": "<理由>"}`（/me などと同じ形。ホストは状態コードだけを見る）
 
   | パス | 送るもの | 返すもの |
   |---|---|---|
@@ -157,13 +162,26 @@ sequenceDiagram
   | `/pair/unpair` | `{}` | `200 {"ok": true}`。hosts から消し、トンネルと DNS レコードを消す。ないホストなら `404` |
 
   - `approved` は、申請の期限（10 分）までは何度聞かれても同じ `relayKey` で返す。返事がネットワークで落ちても、ホストが聞き直せば受け取れる（持ち主のいないホストを Worker に残さない）。聞けるのは申請の秘密鍵を持つホストだけなので、何度返しても漏れない。期限を過ぎたら申請の行を消す（次の `/pair/poll` は `404`）。`relayKey` は 10.5 節の中継の鍵（32 バイト以上の乱数の base64url）
-  - hosts に入れるのは、ブラウザで**承認したとき**。承認より前に `/pair/unpair` が来たら申請を消して `200` を返し（申請の公開鍵で署名を確かめる）、そのあとの承認は「申請が見つからない」で断る
+  - hosts に入れるのは、ブラウザで**承認したとき**。承認より前に `/pair/unpair` が来たら申請を取り消し済み（`rejected`）にして `200` を返し（申請の公開鍵で署名を確かめる）、そのあとの承認は「申請が見つからない」で断る。行は期限まで残す（消すと、申請と取り消しを繰り返して回数の制限を抜けられるため）
+  - 確認の画面の `GET /pair/request` は `answeredByMe`（承認・拒否したのが自分か。まだなら `null`）も返す。ほかの人が先に承認していたら、画面で「心当たりがなければクラウドから外す」と知らせる（コードが漏れたときに気づけるように）
+  - PC 名からは制御文字と書式の文字（右から左への上書き・ゼロ幅の文字など）を除く
+  - 確認の画面の API には回数の制限を付けない。コードは 40 ビット（32 文字から 8 文字）で 10 分しか有効でなく、総当たりは現実的でないため。当てられたときに気づけるよう `answeredByMe` を出す
   - `/pair/start` の `409` は、登録済みのホスト ID に加えて、**申請中の同じホスト ID**（公開鍵が違っても同じでも）にも返す
   - `X-RW-Host` は `;` で区切った `v1`・`host=`・`ts=`・`sig=` の 4 つちょうど、この順だけを受け付ける（同じ項目の重複・余計な項目・空の値は `401`）
   - 署名の対象に中間サーバーのオリジンは入れない。鍵は登録した中間サーバーごとに別（登録のたびに作る）で、staging と本番で同じ鍵を使うことはないため
   - ホストは `401` と、`408`・`429` 以外の 4xx を受けたら聞き直さずにやめる（時計のずれは 10 分待たせずに知らせる）。`429` のあいだは間隔を倍にしていく（上限 30 秒）
   - `code` は英数字とハイフン（4〜32 文字）。ホストはそれ以外の形なら受け付けない（通知に変な文を出さないため）
   - `url` は Worker と同じオリジンのものだけをホストが開く。違えば（または無ければ）ホストが `<中間サーバーの URL>/pair?code=<code>` を組み立てて開く
+- **トンネル（#159）**: `POST /pair/tunnel`（署名つき。本文 `{"appVersion": "<版>"}`、appVersion は任意）→ `200 {"token": "<cloudflared のトークン>", "hostname": "<公開ホスト名>"}`。登録済みのホストが**起動のたびに**呼ぶ（トークンをホストに長く置かない）。`last_seen_at` と `app_version` も更新する
+  - Worker は、トンネルがなければここで作る（承認のときではない）。手順は「トンネルを作る（`config_src: cloudflare`）→ `hosts.tunnel_id` に残す → 転送先の設定（公開ホスト名 → `http://127.0.0.1:8001`、ほかは 404）と DNS の CNAME（`<tunnel_id>.cfargotunnel.com`、プロキシあり）→ `hosts.tunnel_hostname` に残す」。途中で失敗しても、次に呼ばれたときに続きから作る（トンネルを作り直さない）
+  - 返事: 登録していないホストは `404`、署名が合わなければ `401`、トンネルの API の設定（secret・vars）がなければ `503`、Cloudflare の API で失敗したら `502`
+  - 解除（`/pair/unpair`・画面から外す・退会）のときは、DNS のレコード → トンネルの接続 → トンネルの順に消してから行を消す。Cloudflare で消せなくても行は消す（残ったものはログに出す）
+- **確認の画面とブラウザの API（#157）**: どれもログインセッションが要る（なければ `401`）。`POST` は Origin が自分のオリジンのときだけ（違えば `403`）
+  - 画面 `/pair?code=…`: ログインしていなければログインのボタンを出し、ログインのあとはこの画面に戻る。「〇〇（PC 名）を △△ のアカウントに登録しますか？」とコードを大きく出し、トレイの通知と同じかを確かめさせてから承認・拒否させる
+  - `GET /pair/request?code=` → `{"code", "hostName", "status", "expiresAt"}`。見つからない・期限切れは `404`
+  - `POST /pair/approve {"code"}` → hosts に入れ（中継の鍵を作る）、申請を `approved` にする（同じトランザクション）。`pending` で期限内のものだけ。ほかの人が承認済みのコードは `404`
+  - `POST /pair/reject {"code"}` → 申請を `rejected` にする
+- **ホストの管理（#157。画面は #161）**: `GET /me/hosts` → `{"hosts": [{"id", "name", "appVersion", "createdAt", "lastSeenAt"}]}`（鍵は出さない）。`DELETE /me/hosts/<id>` → 自分のホストだけ消せる（ほかの人のものは `404`）。消したホストがポーリングしても中継の鍵は返さない
 - **ホスト（トレイ）の動き（#158）**
   - 「クラウドにログイン」を押すと、新しいホスト ID と鍵のペアを作って `cloud.json` に書き（`relayKey` は `null`）、`/pair/start` を呼ぶ。返ってきた URL をブラウザで開き、登録コードをトレイの通知とメニューの行に出す
   - 3 秒ごとに `/pair/poll` を呼ぶ。`approved` なら `relayKey` を `cloud.json` に足して登録済みにする。`rejected`・`expired`・`404`・10 分たった・「登録をやめる」を押した・`401` などの断り（上の箇条）のどれかなら、`cloud.json` を消して登録していない状態に戻す（次は新しいホスト ID で申請する）。つながらない・`5xx`・`429` のときは、期限まで聞き直す
@@ -248,11 +266,13 @@ erDiagram
     pairing_requests {
         text id PK
         text code_hash "一意"
-        text host_id
+        text host_id "一意（申請は 1 ホスト 1 つ）"
         text host_name
         text public_key
         text status "pending・approved・rejected"
         text user_id FK "承認した人"
+        text client_hash "申請した接続元のハッシュ（回数の制限）"
+        int last_polled_at
         int created_at
         int expires_at
     }
@@ -354,8 +374,8 @@ erDiagram
 | `wrangler dev` のポート | 8787 |
 | ホストのトンネル専用のポート | 8001（127.0.0.1 だけ） |
 | OAuth のコールバック | `/auth/callback/google`・`/auth/callback/discord`・`/auth/callback/github` |
-| Worker の secret | `GOOGLE_CLIENT_ID`・`GOOGLE_CLIENT_SECRET`・`DISCORD_CLIENT_ID`・`DISCORD_CLIENT_SECRET`・`GITHUB_CLIENT_ID`・`GITHUB_CLIENT_SECRET`・`CF_API_TOKEN`（トンネルの操作と、`studio-takumi.dev` の DNS の編集だけの権限） |
-| Worker の vars（秘密でない） | Cloudflare の Account ID、クラウド用のドメイン |
+| Worker の secret | `GOOGLE_CLIENT_ID`・`GOOGLE_CLIENT_SECRET`・`DISCORD_CLIENT_ID`・`DISCORD_CLIENT_SECRET`・`GITHUB_CLIENT_ID`・`GITHUB_CLIENT_SECRET`・`CF_API_TOKEN`（トンネルの操作と、`studio-takumi.dev` の DNS の編集だけの権限）・`CF_ACCOUNT_ID`・`CF_ZONE_ID`（秘密ではないが、公開のリポジトリに置かないため secret にする。#159） |
+| Worker の vars（秘密でない） | `TUNNEL_DOMAIN`（`studio-takumi.dev`）・`TUNNEL_PREFIX`（dev は `rwt-local-`、staging は `rwt-dev-`、本番は `rwt-`。#159） |
 | GitHub Actions の secret（自動デプロイ。#170） | `CLOUDFLARE_API_TOKEN`（デプロイ用）・`CLOUDFLARE_ACCOUNT_ID`（秘密ではないが、workflow ではここから読む） |
 
 - 環境は dev（ローカル。`wrangler dev`）・staging（`rw-dev.studio-takumi.dev`）・prod（本番のサブドメイン。#167）。OAuth のリダイレクト URI は、localhost と staging のドメインのものをクライアントに足す

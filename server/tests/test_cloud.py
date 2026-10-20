@@ -328,6 +328,35 @@ def test_unpair_tells_the_worker_and_cleans_up(tmp_path):
     assert load_credentials(tmp_path).host_id != host_id
 
 
+def test_registration_change_is_reported_after_pairing_and_unpairing(tmp_path):
+    worker = FakeWorker()
+    host, _ = make_host(tmp_path, worker)
+    seen: list[bool] = []
+    # 呼ばれた時点で、cloud.json は新しい状態になっている（トンネルのポートがそれを読む）
+    host.on_registration_change = lambda: seen.append(load_credentials(tmp_path) is not None)
+    host.start_pairing()
+    host.wait(10)
+    assert seen == [True]
+    host.unpair()
+    host.wait(10)
+    assert seen == [True, False]
+
+
+def test_registration_change_error_does_not_break_pairing_and_unpairing(tmp_path):
+    def boom():
+        raise RuntimeError("boom")
+
+    worker = FakeWorker()
+    host, _ = make_host(tmp_path, worker)
+    host.on_registration_change = boom
+    host.start_pairing()
+    host.wait(10)
+    assert host.view == CloudView("registered")
+    host.unpair()
+    host.wait(10)
+    assert host.view.status == "unregistered"
+
+
 def test_unpair_without_network_still_removes_local_credentials(tmp_path):
     creds = Credentials(**{**new_credentials(RELAY).__dict__, "relay_key": "k"})
     save_credentials(tmp_path, creds)

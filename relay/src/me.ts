@@ -4,6 +4,7 @@ import { PRIVACY_URL, TERMS_URL, TOS_VERSION, dataCollectionGranted, postConsent
 import { clearSessionCookie, error, json, sameOrigin } from './http';
 import type { Env } from './index';
 import { PROVIDERS } from './providers';
+import { type HostTunnel, deleteTunnel, deleteUserTunnels } from './tunnel';
 
 export async function handleMe(request: Request, env: Env, path: string): Promise<Response> {
     const user = await currentUser(request, env);
@@ -30,7 +31,55 @@ export async function handleMe(request: Request, env: Env, path: string): Promis
     if (m && request.method === 'DELETE') {
         return removeIdentity(env, user.userId, m[1]);
     }
+    if (path === '/me/hosts' && request.method === 'GET') {
+        return hosts(env, user.userId);
+    }
+    const h = /^\/me\/hosts\/([^/]+)$/.exec(path);
+    if (h && request.method === 'DELETE') {
+        return removeHost(env, user.userId, h[1]);
+    }
     return error(404, 'Not found');
+}
+
+// 自分のホスト（#157）。中継の鍵や公開鍵は出さない
+async function hosts(env: Env, userId: string): Promise<Response> {
+    const rows = await env.DB.prepare(
+        'SELECT id, name, app_version, created_at, last_seen_at FROM hosts WHERE user_id = ? ORDER BY created_at',
+    )
+        .bind(userId)
+        .all<{
+            id: string;
+            name: string;
+            app_version: string | null;
+            created_at: number;
+            last_seen_at: number | null;
+        }>();
+    return json({
+        hosts: rows.results.map((h) => ({
+            id: h.id,
+            name: h.name,
+            appVersion: h.app_version,
+            createdAt: h.created_at,
+            lastSeenAt: h.last_seen_at,
+        })),
+    });
+}
+
+// 画面からホストを外す。トンネルと DNS レコードも消す（#159）
+async function removeHost(env: Env, userId: string, hostId: string): Promise<Response> {
+    const host = await env.DB.prepare('SELECT id, tunnel_id, tunnel_hostname FROM hosts WHERE id = ? AND user_id = ?')
+        .bind(hostId, userId)
+        .first<HostTunnel>();
+    if (!host) {
+        return error(404, 'そのホストはありません');
+    }
+    await deleteTunnel(env, host);
+    // 同じトランザクションで消す。申請の行は、そのユーザーが承認したものだけ
+    await env.DB.batch([
+        env.DB.prepare('DELETE FROM hosts WHERE id = ? AND user_id = ?').bind(hostId, userId),
+        env.DB.prepare('DELETE FROM pairing_requests WHERE host_id = ? AND user_id = ?').bind(hostId, userId),
+    ]);
+    return hosts(env, userId);
 }
 
 async function me(env: Env, userId: string): Promise<Response> {
@@ -86,8 +135,9 @@ async function removeIdentity(env: Env, userId: string, identityId: string): Pro
 }
 
 // 退会: ユーザー・ログイン手段・ログインセッション・ホスト・同意の履歴を消す（外部キーの CASCADE）。
-// ホストのトンネルを消すのは #159 で足す
+// ホストのトンネルと DNS レコードは、行を消す前に消す（#159）
 async function deleteAccount(env: Env, userId: string): Promise<Response> {
+    await deleteUserTunnels(env, userId);
     await env.DB.prepare('DELETE FROM users WHERE id = ?').bind(userId).run();
     return json({ ok: true }, 200, { 'Set-Cookie': clearSessionCookie() });
 }
