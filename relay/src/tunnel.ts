@@ -47,6 +47,40 @@ async function must<T>(env: Env, method: string, path: string, body?: unknown): 
     return res.result;
 }
 
+// ホストのトンネルを作り、hosts.tunnel_id に残して、その ID を返す。
+// - 名前はホストごとに決まっている（同じ名前の生きているトンネルは作れない）。作ったあと DB に残す前に失敗していたら、
+//   同じ名前のものが残っているので、まず探して使い直す
+// - 同時に 2 回呼ばれたら、先に DB に残した方を使い、負けた側が作ったものは消す
+async function createTunnel(env: Env, hostId: string): Promise<string> {
+    const account = `/accounts/${env.CF_ACCOUNT_ID}`;
+    const name = `rw-${env.CLOUD_ENV}-${hostId}`;
+    const found = await must<{ id: string }[]>(
+        env,
+        'GET',
+        `${account}/cfd_tunnel?name=${encodeURIComponent(name)}&is_deleted=false`,
+    );
+    const ours =
+        found[0]?.id ??
+        (await must<{ id: string }>(env, 'POST', `${account}/cfd_tunnel`, { name, config_src: 'cloudflare' })).id;
+    // 次の手順で失敗しても、作ったトンネルを見失わないように先に残す
+    const saved = await env.DB.prepare('UPDATE hosts SET tunnel_id = ? WHERE id = ? AND tunnel_id IS NULL')
+        .bind(ours, hostId)
+        .run();
+    if (saved.meta.changes) {
+        return ours;
+    }
+    const winner = await env.DB.prepare('SELECT tunnel_id FROM hosts WHERE id = ?')
+        .bind(hostId)
+        .first<{ tunnel_id: string | null }>();
+    if (!winner?.tunnel_id) {
+        throw new Error('the host was removed while creating its tunnel');
+    }
+    if (winner.tunnel_id !== ours) {
+        await cf(env, 'DELETE', `${account}/cfd_tunnel/${ours}`);
+    }
+    return winner.tunnel_id;
+}
+
 // トンネルを用意して（なければ作って）、cloudflared に渡すトークンと公開ホスト名を返す
 export async function ensureTunnel(env: Env, host: HostTunnel): Promise<{ token: string; hostname: string }> {
     if (!configured(env)) {
@@ -55,13 +89,7 @@ export async function ensureTunnel(env: Env, host: HostTunnel): Promise<{ token:
     const account = `/accounts/${env.CF_ACCOUNT_ID}`;
     let tunnelId = host.tunnel_id;
     if (!tunnelId) {
-        const created = await must<{ id: string }>(env, 'POST', `${account}/cfd_tunnel`, {
-            name: `rw-${env.CLOUD_ENV}-${host.id}`,
-            config_src: 'cloudflare',
-        });
-        tunnelId = created.id;
-        // 次の手順で失敗しても、作ったトンネルを見失わないように先に残す
-        await env.DB.prepare('UPDATE hosts SET tunnel_id = ? WHERE id = ?').bind(tunnelId, host.id).run();
+        tunnelId = await createTunnel(env, host.id);
     }
     let hostname = host.tunnel_hostname;
     if (!hostname) {
@@ -80,7 +108,9 @@ export async function ensureTunnel(env: Env, host: HostTunnel): Promise<{ token:
         } else {
             await must(env, 'POST', `/zones/${env.CF_ZONE_ID}/dns_records`, record);
         }
-        await env.DB.prepare('UPDATE hosts SET tunnel_hostname = ? WHERE id = ?').bind(hostname, host.id).run();
+        await env.DB.prepare('UPDATE hosts SET tunnel_hostname = ? WHERE id = ? AND tunnel_hostname IS NULL')
+            .bind(hostname, host.id)
+            .run();
     }
     const token = await must<string>(env, 'GET', `${account}/cfd_tunnel/${tunnelId}/token`);
     return { token, hostname };
@@ -110,15 +140,32 @@ export async function deleteTunnel(env: Env, host: HostTunnel): Promise<void> {
     }
     if (host.tunnel_id) {
         const base = `/accounts/${env.CF_ACCOUNT_ID}/cfd_tunnel/${host.tunnel_id}`;
-        // つながっている cloudflared を切ってから消す（つながったままだと消せない）
-        steps.push(['connections', () => cf(env, 'DELETE', `${base}/connections`)]);
-        steps.push(['tunnel', () => must(env, 'DELETE', base)]);
+        // つながっている cloudflared を切ってから消す（つながったままだと消せない）。
+        // 切った直後にホストの cloudflared がつなぎ直すことがあるので、消せなければもう 1 回切ってからやり直す
+        steps.push([
+            'tunnel',
+            async () => {
+                for (let attempt = 0; ; attempt++) {
+                    await must(env, 'DELETE', `${base}/connections`);
+                    const res = await cf(env, 'DELETE', base);
+                    if (res.success || attempt >= 1) {
+                        if (!res.success) {
+                            throw new Error((res.errors ?? []).map((e) => `${e.code} ${e.message}`).join(', '));
+                        }
+                        return;
+                    }
+                }
+            },
+        ]);
     }
     for (const [name, step] of steps) {
         try {
             await step();
         } catch (e) {
-            console.warn(`failed to delete the ${name} of host ${host.id}: ${(e as Error).message}`);
+            // 残ったものを手で消せるように、ID と名前を残す
+            console.warn(
+                `failed to delete the ${name} of host ${host.id} (tunnel ${host.tunnel_id ?? '-'}, ${host.tunnel_hostname ?? '-'}): ${(e as Error).message}`,
+            );
         }
     }
 }
