@@ -55,7 +55,15 @@ export default defineConfig({
                 navigateFallback: 'index.html',
                 // 画面の読み込み直し（navigation）として扱わないパス。クラウド版のホスト経由（/h/）・ログイン（/auth/）・
                 // アカウント（/me/）・ホストの登録（/pair）・死活（/healthz）は、Worker に直接取りに行く
-                navigateFallbackDenylist: [/^\/api\//, /^\/ws/, /^\/h\//, /^\/auth\//, /^\/me\//, /^\/pair/, /^\/healthz/],
+                navigateFallbackDenylist: [
+                    /^\/api\//,
+                    /^\/ws/,
+                    /^\/h\//,
+                    /^\/auth\//,
+                    /^\/me\//,
+                    /^\/pair/,
+                    /^\/healthz/,
+                ],
                 cleanupOutdatedCaches: true,
                 runtimeCaching: [
                     {
