@@ -31,7 +31,7 @@ export function NewProjectDialog({
                 <DialogHeader>
                     <DialogTitle>新規プロジェクト作成</DialogTitle>
                     <DialogDescription>
-                        プロジェクトにするフォルダを選んでください。録音はプロジェクトごとにまとめられ、最終の要約のコピーはこのフォルダに置かれます。
+                        プロジェクトにするフォルダを選んでください。録音はプロジェクトごとにまとめられ、最終要約のコピーはこのフォルダに置かれます。
                     </DialogDescription>
                 </DialogHeader>
                 {/* DialogContent は閉じると消えるので、開くたびに選び直せる */}

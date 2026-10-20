@@ -18,7 +18,7 @@ describe('pickFinalTranscript', () => {
         expect(pickFinalTranscript(infos, 'large-v3')?.generationId).toBe('g4');
     });
 
-    it('世代がなければない', () => {
+    it('版がなければない', () => {
         expect(pickFinalTranscript([], 'turbo')).toBeUndefined();
     });
 });

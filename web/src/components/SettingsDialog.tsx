@@ -215,7 +215,7 @@ function SettingsForm({
                             id='silence-ms'
                             label='区切りとみなす無音'
                             locked={lock(recordingLocks.segmentation)}
-                            description='この長さだけ無音が続いたら区間を確定する'
+                            description='この長さだけ無音が続いたらチャンクを確定する'
                         >
                             <NumberInput
                                 id='silence-ms'
@@ -228,9 +228,9 @@ function SettingsForm({
                         </Row>
                         <Row
                             id='max-segment'
-                            label='区間の最大の長さ'
+                            label='チャンクの最大の長さ'
                             locked={lock(recordingLocks.segmentation)}
-                            description='無音がなくても、この長さで区間を確定する'
+                            description='無音がなくても、この長さでチャンクを確定する'
                         >
                             <NumberInput
                                 id='max-segment'
@@ -282,8 +282,8 @@ function SettingsForm({
                         )}
                         <Row
                             id='final-transcript'
-                            label='最終の文字起こしを作る'
-                            description='録音を終えたら、保存した録音全体から文ごとの文字起こしを作り直す（録音中のものも残る）。サーバーに WhisperX が入っているときだけ'
+                            label='浄書する'
+                            description='録音を終えたら、保存した録音全体から文ごとの文字起こしを作る（リアルタイム文字起こしも残る）。サーバーに WhisperX が入っているときだけ'
                         >
                             <Switch
                                 id='final-transcript'
@@ -294,7 +294,7 @@ function SettingsForm({
                         <Row
                             id='diarize'
                             label='話者を分ける'
-                            description='最終の文字起こしで、話している人ごとに「話者 1」「話者 2」と付ける。HuggingFace のトークンと、モデルの利用条件への同意が要る'
+                            description='浄書済み文字起こしで、話している人ごとに「話者 1」「話者 2」と付ける。HuggingFace のトークンと、モデルの利用条件への同意が要る'
                         >
                             <Switch
                                 id='diarize'
@@ -341,8 +341,8 @@ function SettingsForm({
                         </Row>
                         <Row
                             id='live-density'
-                            label='途中の要約の要約度'
-                            description='区間（文字起こし約 4000 文字ずつ）ごとの要約の細かさ。1 はごく短く要点だけ、5 はできるだけ省かず細かく'
+                            label='リアルタイム要約の要約度'
+                            description='要約区間（文字起こし約 4000 文字ずつ）ごとの要約の細かさ。1 はごく短く要点だけ、5 はできるだけ省かず細かく'
                         >
                             <DensitySelect
                                 id='live-density'
@@ -352,8 +352,8 @@ function SettingsForm({
                         </Row>
                         <Row
                             id='overview-density'
-                            label='最終の要約の概要の要約度'
-                            description='長い録音で、一番上に置く「全体の概要」の箇条書きの数'
+                            label='最終要約の全体概要の要約度'
+                            description='長い録音で、一番上に置く「全体概要」の箇条書きの数'
                         >
                             <DensitySelect
                                 id='overview-density'
@@ -363,7 +363,7 @@ function SettingsForm({
                         </Row>
                         <Row
                             id='detail-density'
-                            label='最終の要約の詳細の要約度'
+                            label='最終要約の要約詳細の要約度'
                             description='部分ごとの要約（短い録音では要約そのもの）の細かさ'
                         >
                             <DensitySelect
@@ -372,7 +372,7 @@ function SettingsForm({
                                 onChange={(detailDensity) => update('ollama', { detailDensity })}
                             />
                         </Row>
-                        <Row id='live-interval' label='途中の要約の間隔'>
+                        <Row id='live-interval' label='リアルタイム要約の間隔'>
                             <NumberInput
                                 id='live-interval'
                                 value={draft.ollama.liveSummaryIntervalMin}
@@ -384,7 +384,7 @@ function SettingsForm({
                         <Row
                             id='pick-terms'
                             label='録音中に用語を拾う'
-                            description='途中の要約と同じ間隔で、文字起こしに何度も出てくる固有名詞・専門用語を用語リストに足す。録音中の GPU の負荷が上がる。プロジェクトごとのスイッチ（参考資料）もオンのときだけ拾う'
+                            description='リアルタイム要約と同じ間隔で、文字起こしに何度も出てくる固有名詞・専門用語を用語リストに足す。録音中の GPU の負荷が上がる。プロジェクトごとのスイッチ（参考資料）もオンのときだけ拾う'
                         >
                             <Switch
                                 id='pick-terms'
@@ -509,7 +509,7 @@ function SettingsForm({
                                 onChange={(summary) => update('retentionDays', { summary })}
                             />
                         </Row>
-                        <Row id='keep-context' label='参考資料セット'>
+                        <Row id='keep-context' label='参考資料'>
                             <NumberInput
                                 id='keep-context'
                                 value={draft.retentionDays.contextSet}
@@ -583,7 +583,7 @@ function SettingsForm({
                     <Section>
                         <Row
                             id='session-meta'
-                            label='左メニューに録音日時と長さを出す'
+                            label='サイドバーに録音日時と長さを出す'
                             description='セッションのタイトルの下に、録音を始めた日時と録音の長さを小さく出す'
                         >
                             <Switch
@@ -594,8 +594,8 @@ function SettingsForm({
                         </Row>
                         <Row
                             id='show-picked-terms'
-                            label='拾った用語を表示する'
-                            description='文字起こしのタブの上に、録音中に拾った用語の一覧を出す（誤った語は × で外せる）。オフでも、拾った用語は文字起こしの精度を上げるために使う。拾うかどうかは「録音中に用語を拾う」で決める'
+                            label='用語リスト（文字起こし抽出）を表示する'
+                            description='文字起こしのタブの上に、用語リスト（文字起こし抽出）の一覧を出す（誤った語は × で外せる）。オフでも、用語リスト（文字起こし抽出）は文字起こしの精度を上げるために使う。拾うかどうかは「録音中に用語を拾う」で決める'
                         >
                             <Switch
                                 id='show-picked-terms'
@@ -606,7 +606,7 @@ function SettingsForm({
                         <Row
                             id='show-speakers'
                             label='話者を表示する'
-                            description='最終の文字起こしの行の頭に「話者 1」などを出し、世代の選択肢に話者の数を出す。話者分けの精度がまだ低いので、既定ではオフ。オフでも、話者は分けて保存する'
+                            description='浄書済み文字起こしの行の頭に「話者 1」などを出し、版の選択肢に話者の数を出す。話者分けの精度がまだ低いので、既定ではオフ。オフでも、話者は分けて保存する'
                         >
                             <Switch
                                 id='show-speakers'

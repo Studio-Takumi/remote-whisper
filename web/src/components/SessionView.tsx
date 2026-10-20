@@ -246,7 +246,7 @@ export function SessionView() {
                     ) : (
                         recordingState === 'idle' && (
                             <p className='text-sm text-muted-foreground'>
-                                録音が始まると、{liveIntervalMin} 分おきに途中の要約がここに出ます。
+                                録音が始まると、{liveIntervalMin} 分おきにリアルタイム要約がここに出ます。
                             </p>
                         )
                     )}
@@ -337,7 +337,7 @@ function FinalTranscriptBar({ session, making }: { session: Session; making: boo
             onClick={() => void regenerate(session.id)}
         >
             <RefreshCwIcon />
-            {whisperModel} で{final ? '作り直す' : '最終の文字起こしを作る'}
+            {whisperModel} で{final ? '再生成する' : '浄書する'}
         </Button>
     );
     const locked = regenerateButton && recording && (
@@ -347,13 +347,13 @@ function FinalTranscriptBar({ session, making }: { session: Session; making: boo
         <StatusIndicator
             status={{
                 tone: 'active',
-                text: final ? '最終の文字起こしを作り直しています…' : '録音全体から最終の文字起こしを作成中…',
+                text: final ? '浄書済み文字起こしを再生成しています…' : '浄書中…',
             }}
         />
     );
     const noRecording = available && done && session.files?.recording === false && (
         <p className='text-xs text-muted-foreground'>
-            録音ファイルが残っていないため、最終の文字起こしは作り直せません。
+            録音ファイルが残っていないため、浄書済み文字起こしは再生成できません。
         </p>
     );
 
@@ -387,7 +387,7 @@ function FinalTranscriptBar({ session, making }: { session: Session; making: boo
                             void pick(session.id, generationId);
                         }}
                     >
-                        <SelectTrigger size='sm' className='text-xs' aria-label='表示する最終の文字起こし'>
+                        <SelectTrigger size='sm' className='text-xs' aria-label='表示する浄書済み文字起こし'>
                             <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -399,14 +399,12 @@ function FinalTranscriptBar({ session, making }: { session: Session; making: boo
                         </SelectContent>
                     </Select>
                 ) : (
-                    <span className='text-xs text-muted-foreground'>
-                        {`録音全体から作り直した文字起こし（${label(final)}）`}
-                    </span>
+                    <span className='text-xs text-muted-foreground'>{`浄書済み文字起こし（${label(final)}）`}</span>
                 )}
                 {regenerateButton}
             </div>
             {final.model !== whisperModel && (
-                <p className='text-xs text-muted-foreground'>{whisperModel} の最終の文字起こしはまだありません。</p>
+                <p className='text-xs text-muted-foreground'>{whisperModel} の浄書済み文字起こしはまだありません。</p>
             )}
             {final.diarization === 'unavailable' && (
                 <p className='text-xs text-muted-foreground'>
@@ -465,9 +463,9 @@ function SummaryPanel({
         // 途中の要約は最終の要約ができた後も手元に残ることがあるので、最終の要約を先に見る
         const live = liveDraft?.sessionId === session.id ? liveDraft.text : session.liveSummary;
         const placeholder = summary?.text
-            ? { label: '今の要約（作り直した要約が届いたら差し替えます）', text: summary.text, live: false }
+            ? { label: '今の要約（再生成した要約が届いたら差し替えます）', text: summary.text, live: false }
             : live
-              ? { label: '途中の要約（最終の要約が届いたら差し替えます）', text: live, live: true }
+              ? { label: 'リアルタイム要約（最終要約が届いたら差し替えます）', text: live, live: true }
               : null;
         return (
             <>
@@ -503,7 +501,7 @@ function SummaryPanel({
                 onClick={() => void regenerate(session.id)}
             >
                 <RefreshCwIcon />
-                {finalModel} で{summary ? '作り直す' : '要約を作る'}
+                {finalModel} で{summary ? '再生成する' : '要約を作る'}
             </Button>
             {recording && <p className='text-xs text-muted-foreground'>{recordingLocks.regenerate}</p>}
         </div>
@@ -517,16 +515,16 @@ function SummaryPanel({
         >
             <p className='flex items-center gap-1.5 font-medium text-destructive'>
                 <TriangleAlertIcon className='size-4' />
-                {summary ? '直近の要約の作り直しに失敗しました' : '最終の要約を作れませんでした'}
+                {summary ? '直近の要約の再生成に失敗しました' : '最終要約を作れませんでした'}
             </p>
             <p className='text-xs text-muted-foreground'>
                 {!canRegenerate
                     ? session.files?.transcript === false || session.transcript.length === 0
-                        ? '文字起こしが残っていないため、作り直せません。'
-                        : 'ほかの要約を作り終えてから、作り直してください。'
+                        ? '文字起こしが残っていないため、再生成できません。'
+                        : 'ほかの要約を作り終えてから、再生成してください。'
                     : ollama === 'ready'
-                      ? 'Ollama には今つながっています。作り直してください（保存に失敗した場合は、ディスクの空きも確かめてください）。'
-                      : 'Ollama に接続できません。Ollama が動いているか確かめてから、作り直してください。'}
+                      ? 'Ollama には今つながっています。再生成してください（保存に失敗した場合は、ディスクの空きも確かめてください）。'
+                      : 'Ollama に接続できません。Ollama が動いているか確かめてから、再生成してください。'}
             </p>
             {regenerateButton}
         </div>
@@ -542,7 +540,7 @@ function SummaryPanel({
                 <>
                     {failure}
                     <p className='text-xs text-muted-foreground'>
-                        途中の要約{session.status === 'recording' ? '（録音中に数分おきに更新します）' : ''}
+                        リアルタイム要約{session.status === 'recording' ? '（録音中に数分おきに更新します）' : ''}
                     </p>
                     <LiveSummary text={live} streaming={draft !== null} />
                 </>
