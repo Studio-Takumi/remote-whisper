@@ -17,21 +17,31 @@ export function ConsentForm({ me, onSignOut }: { me: Me; onSignOut: () => void }
     const [dataCollection, setDataCollection] = useState(false);
     const [busy, setBusy] = useState(false);
 
+    // 送信は済んだが、状態の取り直しに失敗したとき（やり直しで二重に送らない）
+    const [posted, setPosted] = useState(false);
+
     const submit = async () => {
         setBusy(true);
+        if (!posted) {
+            try {
+                await postConsent(me, dataCollection);
+                setPosted(true);
+            } catch (e) {
+                toast.error(`同意を送れませんでした: ${(e as Error).message}`);
+                // 版が変わったかもしれないので、最新の情報に取り直す
+                fetchMe()
+                    .then(setMe)
+                    .catch(() => undefined);
+                setBusy(false);
+                return;
+            }
+        }
+        // 送れたら、同意済みの状態に取り直して次へ進む。取り直せなければ進まない（再読み込みを促す）
         try {
-            await postConsent(me, dataCollection);
-            // 送れたら、同意済みの状態に取り直して次へ進む
-            await fetchMe()
-                .then(setMe)
-                .catch(() => undefined);
+            setMe(await fetchMe());
             dispatch({ type: 'consented' });
-        } catch (e) {
-            toast.error(`同意を送れませんでした: ${(e as Error).message}`);
-            // 版が変わったかもしれないので、最新の情報に取り直す
-            fetchMe()
-                .then(setMe)
-                .catch(() => undefined);
+        } catch {
+            toast.error('同意は送れましたが、状態を取り直せませんでした。もう一度「同意して進む」を押してください');
         } finally {
             setBusy(false);
         }
@@ -58,15 +68,26 @@ export function ConsentForm({ me, onSignOut }: { me: Me; onSignOut: () => void }
             <section className='flex flex-col gap-2 rounded-md border p-3'>
                 <div className='flex items-center justify-between gap-2'>
                     <Label htmlFor='consent-data'>データ収集を許可する（任意）</Label>
-                    <Switch id='consent-data' checked={dataCollection} onCheckedChange={setDataCollection} />
+                    <Switch
+                        id='consent-data'
+                        aria-describedby='consent-data-desc'
+                        checked={dataCollection}
+                        disabled={posted}
+                        onCheckedChange={setDataCollection}
+                    />
                 </div>
-                <p className='text-xs text-muted-foreground'>
+                <p id='consent-data-desc' className='text-xs text-muted-foreground'>
                     現在は収集していません。収集を始めるときは、何を何に使うかをここに書きます。あとから設定で変えられます。
                 </p>
             </section>
             <Button disabled={!canSubmitConsent(agreed, busy)} onClick={() => void submit()}>
                 同意して進む
             </Button>
+            {!agreed && (
+                <p className='text-xs text-muted-foreground'>
+                    進むには、利用規約とプライバシーポリシーへの同意が必要です。
+                </p>
+            )}
             <p className='text-xs text-muted-foreground'>
                 {me.displayName} でログインしています。
                 <button className='ml-1 underline' onClick={onSignOut}>

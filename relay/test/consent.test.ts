@@ -81,6 +81,36 @@ describe('初回の同意', () => {
         expect(await history(userId, 'tos')).toEqual([]);
     });
 
+    it('同意済みの再送は 409 で、tos_version も consents も変わらない', async () => {
+        const { userId, cookie } = await newUser();
+        // 旧い版に同意した人（今の版とは違う）
+        await env.DB.prepare('UPDATE users SET tos_version = ? WHERE id = ?').bind('2020-01-01', userId).run();
+        const res = await consent(cookie, { tosVersion: TOS_VERSION, dataCollection: true });
+        expect(res.status).toBe(409);
+        expect((await getMe(cookie)).tosVersion).toBe('2020-01-01');
+        expect(await history(userId, 'tos')).toEqual([]);
+        expect(await history(userId, 'data_collection')).toEqual([]);
+
+        // 通常の同意のあとの再送も同じ
+        const other = await newUser();
+        expect((await consent(other.cookie, { tosVersion: TOS_VERSION, dataCollection: false })).status).toBe(200);
+        expect((await consent(other.cookie, { tosVersion: TOS_VERSION, dataCollection: true })).status).toBe(409);
+        expect(await history(other.userId, 'tos')).toHaveLength(1);
+        expect((await history(other.userId, 'data_collection')).map((r) => r.granted)).toEqual([0]);
+        expect((await getMe(other.cookie)).dataCollection).toBe(false);
+    });
+
+    it('退会すると consents も消える', async () => {
+        const { userId, cookie } = await newUser();
+        await consent(cookie, { tosVersion: TOS_VERSION, dataCollection: true });
+        const res = await SELF.fetch(`${ORIGIN}/me`, { method: 'DELETE', headers: { Cookie: cookie, Origin: ORIGIN } });
+        expect(res.status).toBe(200);
+        const n = await env.DB.prepare('SELECT COUNT(*) AS n FROM consents WHERE user_id = ?')
+            .bind(userId)
+            .first<{ n: number }>();
+        expect(n?.n).toBe(0);
+    });
+
     it('形が違う本文は 400', async () => {
         const { cookie } = await newUser();
         expect((await consent(cookie, { tosVersion: TOS_VERSION })).status).toBe(400);

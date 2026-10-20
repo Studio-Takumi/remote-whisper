@@ -25,6 +25,7 @@ export function AccountDialog({ open, onOpenChange }: { open: boolean; onOpenCha
     const { me, setMe } = useAccountStore();
     const dispatch = useCloudStore((s) => s.dispatch);
     const [confirmDelete, setConfirmDelete] = useState(false);
+    const [saving, setSaving] = useState(false);
 
     // 開いたときに取り直す（ほかのタブで足した手段も出すため）
     useEffect(() => {
@@ -51,6 +52,7 @@ export function AccountDialog({ open, onOpenChange }: { open: boolean; onOpenCha
     };
 
     const changeDataCollection = async (granted: boolean) => {
+        setSaving(true);
         try {
             await putDataCollection(granted);
             if (me) {
@@ -58,6 +60,8 @@ export function AccountDialog({ open, onOpenChange }: { open: boolean; onOpenCha
             }
         } catch (e) {
             toast.error(`変更できません: ${(e as Error).message}`);
+        } finally {
+            setSaving(false);
         }
     };
 
@@ -127,11 +131,13 @@ export function AccountDialog({ open, onOpenChange }: { open: boolean; onOpenCha
                                 </Label>
                                 <Switch
                                     id='account-data-collection'
+                                    aria-describedby='account-data-collection-desc'
+                                    disabled={saving}
                                     checked={me.dataCollection}
                                     onCheckedChange={(v) => void changeDataCollection(v)}
                                 />
                             </div>
-                            <p className='text-xs text-muted-foreground'>
+                            <p id='account-data-collection-desc' className='text-xs text-muted-foreground'>
                                 現在は収集していません。収集を始めるときは、何を何に使うかをここに書きます。
                             </p>
                         </section>

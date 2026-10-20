@@ -30,10 +30,25 @@ async function readBody(request: Request): Promise<Record<string, unknown> | nul
     }
 }
 
-function insertConsent(env: Env, userId: string, kind: string, granted: boolean, version: string, now: number) {
+function insertConsent(
+    env: Env,
+    userId: string,
+    kind: string,
+    granted: boolean,
+    version: string,
+    now: number,
+    onlyIfNotConsented = false,
+) {
+    const values = [crypto.randomUUID(), userId, kind, granted ? 1 : 0, version, now] as const;
+    if (!onlyIfNotConsented) {
+        return env.DB.prepare(
+            'INSERT INTO consents (id, user_id, kind, granted, version, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+        ).bind(...values);
+    }
     return env.DB.prepare(
-        'INSERT INTO consents (id, user_id, kind, granted, version, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-    ).bind(crypto.randomUUID(), userId, kind, granted ? 1 : 0, version, now);
+        `INSERT INTO consents (id, user_id, kind, granted, version, created_at)
+         SELECT ?1, ?2, ?3, ?4, ?5, ?6 WHERE EXISTS (SELECT 1 FROM users WHERE id = ?2 AND tos_version IS NULL)`,
+    ).bind(...values);
 }
 
 // POST /me/consent: 初回の同意。版が今の版のときだけ受け付ける
@@ -46,11 +61,19 @@ export async function postConsent(request: Request, env: Env, userId: string): P
         return error(409, '利用規約の版が変わりました。画面を開き直してください');
     }
     const now = Date.now();
-    await env.DB.batch([
-        env.DB.prepare('UPDATE users SET tos_version = ? WHERE id = ?').bind(TOS_VERSION, userId),
-        insertConsent(env, userId, 'tos', true, TOS_VERSION, now),
-        insertConsent(env, userId, 'data_collection', body.dataCollection, DATA_COLLECTION_VERSION, now),
+    // 初回だけ（tos_version が null のとき）。consents の追記は、tos_version を入れる UPDATE より前に
+    // 「まだ null」の条件つきで行う。同意済みなら 3 つとも何も変えず、UPDATE の changes が 0 になる
+    const results = await env.DB.batch([
+        insertConsent(env, userId, 'tos', true, TOS_VERSION, now, true),
+        insertConsent(env, userId, 'data_collection', body.dataCollection, DATA_COLLECTION_VERSION, now, true),
+        env.DB.prepare('UPDATE users SET tos_version = ? WHERE id = ? AND tos_version IS NULL').bind(
+            TOS_VERSION,
+            userId,
+        ),
     ]);
+    if (results[2].meta.changes === 0) {
+        return error(409, 'すでに同意済みです');
+    }
     return json({ ok: true });
 }
 
