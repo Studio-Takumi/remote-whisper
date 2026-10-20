@@ -404,10 +404,11 @@ GROUP BY kind, path, status ORDER BY n DESC LIMIT 20;
 
 ## 10.12 お知らせ
 
-- `announcements.json`（LP ができるまでは relay の静的アセット）。項目は `id`・`kind`（`tos`・`release`・`info`）・`title`・`url`・`since`・`until`
-- クラウド版の画面: 開いたときに読み、まだ見ていないものを控えめに出す。閉じたら同じものは出さない（見たかどうかは localStorage）
-- 常駐アイコン: クラウドに登録しているときだけ読み、`release` で今より新しいバージョンがあれば知らせる
-- ダイレクト版の画面と、クラウドに登録していない常駐アイコンは読みに行かない
+- `announcements.json`（LP ができるまでは relay の静的アセット。`web/public/announcements.json` に置くと `web/dist` に入り、Worker の assets で `/announcements.json` として配られる。`run_worker_first` には入れない）。配列で、項目は `id`・`kind`（`tos`・`release`・`info`）・`title`・`url`・`since`・`until`（ISO の日付か日時。日付だけの `until` はその日いっぱい）。`release` は `version`（`1.2.0` のような数字の版）も持つ。形の合わない項目は捨てる。置いたあとの反映は、通常のデプロイ（#170）
+- クラウド版の画面: **クラウド版のときだけ**、ホストにつながって画面が出たときに読む（`cache: no-cache`）。期間内（`since`〜`until`）でまだ見ていないものを、画面の上に小さなバナーで出す（録音のボタンや文字起こしには重ねない）。閉じたら同じ `id` は出さない（見た `id` は localStorage に覚える。使えなくても動く）。`title` は文字として出し（HTML にしない）、`url` は `https` のものだけリンクにする
+- 常駐アイコン: クラウドに登録しているとき（cloud.json に `relayKey` がある）だけ、cloud.json の `relayUrl`（登録した中間サーバー）の `/announcements.json` を、起動時と 1 日 1 回ほど読む。期間内の `release` で、今の版（パッケージの version。git のハッシュは数字で比べられないので使わない。読めなければ読みに行かない）より新しい版があれば、通知で「新しい版があります（x.y.z）」と出す。通知した版はデータのルートの `announcements-state.json`（cloud.json とは別）に覚え、同じ版（とそれより古い版）では出さない。つながらない・JSON が壊れているときは何もせず、次の回に回す
+- 版の比べ方は数字の比較（major.minor.patch。`v` やプレリリースの印は見ない。読めない版は比べない）
+- ダイレクト版の画面と、クラウドに登録していない常駐アイコンは読みに行かない（外に何も送らない）
 
 ## 10.13 広告
 
