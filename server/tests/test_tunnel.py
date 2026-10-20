@@ -76,6 +76,14 @@ def make_app():
     def ping():
         return {"ok": True}
 
+    @app.get("/api/files/{name:path}")
+    def files(name: str):
+        return {"name": name}
+
+    @app.get("/index.html")
+    def index():
+        return {"spa": True}
+
     @app.websocket("/ws")
     async def ws(sock: WebSocket):
         await sock.accept()
@@ -116,6 +124,33 @@ def test_http_ok(wrapped):
 )
 def test_http_rejected(wrapped, headers):
     assert wrapped.get("/api/ping", headers=headers).status_code == 401
+
+
+def test_raw_path_is_signed_before_decoding(wrapped):
+    raw = "/api/files/a%2Fb"
+    res = wrapped.get(raw, headers=h(path=raw))
+    assert res.status_code == 200
+    assert res.json() == {"name": "a/b"}
+    # デコード後の形で署名したものは通らない
+    assert wrapped.get(raw, headers=h(path="/api/files/a/b")).status_code == 401
+
+
+def test_verify_relay_uppercases_method():
+    header = signed(method="GET")
+    assert verify_relay(KEY, HOST_ID, header, "get", "/api/ping", NOW) == "u-1"
+
+
+def test_only_api_and_ws_are_served(wrapped):
+    # 署名が合っていても、画面などは 404
+    assert wrapped.get("/index.html", headers=h(path="/index.html")).status_code == 404
+    assert wrapped.get("/", headers=h(path="/")).status_code == 404
+    # 署名がなければ、まず 401
+    assert wrapped.get("/index.html").status_code == 401
+    with (
+        pytest.raises(WebSocketDisconnect),
+        wrapped.websocket_connect("/other", headers=h(path="/other")),
+    ):
+        pass
 
 
 def test_http_duplicate_header_rejected(wrapped):

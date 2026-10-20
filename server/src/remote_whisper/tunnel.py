@@ -83,6 +83,19 @@ def verify_relay(
     return fields["user"]
 
 
+def _raw_path(scope: dict) -> str:
+    """デコード前のパス（クエリを含まない）"""
+    raw = scope.get("raw_path")
+    if raw is None:
+        raw = scope["path"].encode("utf-8")
+    return raw.decode("latin-1")
+
+
+def _is_api_path(path: str) -> bool:
+    """8001 番で出すのは `/api/` の下と `/ws` だけ"""
+    return path == "/ws" or path.startswith("/api/")
+
+
 class RelayAuthApp:
     """アプリを包み、署名のないリクエストを断る ASGI アプリ（8001 番だけに使う）
 
@@ -113,6 +126,10 @@ class RelayAuthApp:
         if scope["type"] not in ("http", "websocket") or not self._authorized(scope):
             await self._reject(scope, receive, send)
             return
+        if not (_is_api_path(_raw_path(scope)) and _is_api_path(scope["path"])):
+            # 署名が合っていても、画面（SPA の静的ファイル）は 8001 番では出さない
+            await self._not_found(scope, receive, send)
+            return
         await self.app(scope, receive, send)
 
     def _authorized(self, scope: dict) -> bool:
@@ -129,13 +146,32 @@ class RelayAuthApp:
         except UnicodeDecodeError:
             return False
         host_id, key = creds
-        method = "GET" if scope["type"] == "websocket" else scope["method"]
-        path = scope.get("raw_path") or scope["path"].encode("utf-8")
-        path_text = path.decode("latin-1")
+        method = "GET" if scope["type"] == "websocket" else scope["method"].upper()
+        # デコードする前の形で組み立てる（scope["path"] は使わない）
+        path_text = _raw_path(scope)
         query = scope.get("query_string", b"")
         if query:
             path_text += "?" + query.decode("latin-1")
         return verify_relay(key, host_id, header, method, path_text, self.clock()) is not None
+
+    @staticmethod
+    async def _not_found(scope: dict, receive: Any, send: Any) -> None:
+        if scope["type"] == "websocket":
+            await receive()
+            await send({"type": "websocket.close", "code": 1008})
+            return
+        body = json.dumps({"detail": "not found"}).encode()
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 404,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"content-length", str(len(body)).encode()),
+                ],
+            }
+        )
+        await send({"type": "http.response.body", "body": body})
 
     @staticmethod
     async def _reject(scope: dict, receive: Any, send: Any) -> None:
