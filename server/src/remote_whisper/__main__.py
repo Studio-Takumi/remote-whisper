@@ -16,6 +16,7 @@ from remote_whisper import cloud, logs, tray
 from remote_whisper.app import create_app
 from remote_whisper.mock import MockTiming
 from remote_whisper.settings import default_home
+from remote_whisper.tunnel import TunnelPort
 
 log = logging.getLogger("remote_whisper")
 
@@ -54,6 +55,10 @@ def main() -> None:
             app, host=args.host, port=args.port, log_config=None, access_log=False
         )
         server = uvicorn.Server(config)
+        # トンネル専用の 8001 番（#160）。クラウドに登録しているときだけ開く
+        # 8000 番と同じイベントループで動かす。ループは app の lifespan が渡す
+        tunnel = TunnelPort(app, home)
+        app.state.tunnel = tunnel
         if args.no_tray or not tray.available():
             server.run()
             return
@@ -62,6 +67,13 @@ def main() -> None:
         host = "127.0.0.1" if args.host in ("0.0.0.0", "::") else args.host
         if ":" in host:
             host = f"[{host}]"  # IPv6 のアドレスは URL では [] で囲む
+        cloud_host = cloud.CloudHost(
+            home, relay_url=lambda: app.state.ctx.settings.get().cloud.relay_url
+        )
+        # 登録したら 8001 番を開き、解除したら閉じる
+        cloud_host.on_registration_change = tunnel.sync
+        # ポートが使えなかったら、トレイの通知で知らせる
+        tunnel.on_error = lambda message: cloud_host.on_notice(message)
         icon = tray.Tray(
             status=lambda: app.state.ctx.hub.status,
             url=f"http://{host}:{args.port}/",
@@ -69,9 +81,7 @@ def main() -> None:
             # 止めるとき（lifespan の後片付け）を経てから止まる
             on_quit=lambda: setattr(server, "should_exit", True),
             # クラウド版のホストの登録（#158）。中間サーバーの URL は、押したときの設定を読む
-            cloud=cloud.CloudHost(
-                home, relay_url=lambda: app.state.ctx.settings.get().cloud.relay_url
-            ),
+            cloud=cloud_host,
         )
         if tray.must_run_on_main_thread():
             _serve_with_tray_on_main_thread(server, icon)

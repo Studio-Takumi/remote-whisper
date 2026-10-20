@@ -36,7 +36,15 @@ function fakeCloudflare(input: RequestInfo | URL, init?: RequestInit) {
     return (async () => {
         const body = req.method === 'GET' || req.method === 'DELETE' ? null : await req.json<Record<string, unknown>>();
         let m: RegExpExecArray | null;
+        if (req.method === 'GET' && path === '/accounts/acct/cfd_tunnel') {
+            const name = url.searchParams.get('name');
+            return ok([...cf.tunnels].filter(([, t]) => t.name === name).map(([id]) => ({ id })));
+        }
         if (req.method === 'POST' && path === '/accounts/acct/cfd_tunnel') {
+            // 同じ名前の生きているトンネルは作れない
+            if ([...cf.tunnels.values()].some((t) => t.name === String(body?.name))) {
+                return ng(409);
+            }
             const id = crypto.randomUUID();
             cf.tunnels.set(id, { name: String(body?.name), connections: true });
             return ok({ id });
@@ -226,6 +234,28 @@ describe('トンネルを用意する（POST /pair/tunnel）', () => {
         expect((await hostCall(stranger, '/pair/tunnel', {})).status).toBe(404);
         expect(cf.calls).toEqual([]);
     });
+
+    it('作ったあと DB に残す前に落ちていても、同じ名前のトンネルを使い直す（作り直そうとして詰まらない）', async () => {
+        const { cookie } = await newUser();
+        const host = await registeredHost(cookie);
+        // 前の回に作られたまま、DB には残っていないトンネル
+        const orphan = crypto.randomUUID();
+        cf.tunnels.set(orphan, { name: `rw-dev-${host.hostId}`, connections: false });
+        expect((await hostCall(host, '/pair/tunnel', {})).status).toBe(200);
+        expect((await row(host.hostId))?.tunnel_id).toBe(orphan);
+        expect(cf.tunnels.size).toBe(1);
+    });
+
+    it('同時に 2 回呼ばれても、トンネルは 1 つだけ残る', async () => {
+        const { cookie } = await newUser();
+        const host = await registeredHost(cookie);
+        const [a, b] = await Promise.all([hostCall(host, '/pair/tunnel', {}), hostCall(host, '/pair/tunnel', {})]);
+        // どちらかは名前の重複で 502 になってもよいが、残るトンネルは 1 つで、DB と一致する
+        expect([a.status, b.status]).toContain(200);
+        expect(cf.tunnels.size).toBe(1);
+        expect(cf.tunnels.has((await row(host.hostId))?.tunnel_id ?? '')).toBe(true);
+        expect((await hostCall(host, '/pair/tunnel', {})).status).toBe(200);
+    });
 });
 
 describe('ホストの一覧と管理（#161）', () => {
@@ -288,12 +318,31 @@ describe('トンネルを消す', () => {
         return { ...user, host };
     }
 
-    it('ホストの「クラウドから外す」（/pair/unpair）', async () => {
+    it('ホストの「クラウドから外す」（/pair/unpair）。DNS → 接続 → トンネルの順に消す', async () => {
         const { host } = await withTunnel();
+        const tunnelId = (await row(host.hostId))?.tunnel_id;
+        cf.calls = [];
         expect((await hostCall(host, '/pair/unpair', {})).status).toBe(200);
         expect(cf.tunnels.size).toBe(0);
         expect(cf.dns.size).toBe(0);
         expect(await row(host.hostId)).toBeNull();
+        expect(cf.calls.filter((c) => c.startsWith('DELETE')).map((c) => c.replace(/[0-9a-f-]{36}/g, 'ID'))).toEqual([
+            'DELETE /zones/zone/dns_records/ID',
+            'DELETE /accounts/acct/cfd_tunnel/ID/connections',
+            'DELETE /accounts/acct/cfd_tunnel/ID',
+        ]);
+        expect(tunnelId).toBeTruthy();
+    });
+
+    it('他人のホストは画面から外せない', async () => {
+        const { host } = await withTunnel();
+        const bob = await newUser();
+        const res = await SELF.fetch(`${ORIGIN}/me/hosts/${host.hostId}`, {
+            method: 'DELETE',
+            headers: { Cookie: bob.cookie, Origin: ORIGIN },
+        });
+        expect(res.status).toBe(404);
+        expect(cf.tunnels.size).toBe(1);
     });
 
     it('画面から外す（DELETE /me/hosts/:id）', async () => {
