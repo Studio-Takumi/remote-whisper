@@ -59,11 +59,14 @@ async function hosts(env: Env, userId: string): Promise<Response> {
 
 // 画面からホストを外す。トンネルと DNS レコードを消すのは #159 で足す
 async function removeHost(env: Env, userId: string, hostId: string): Promise<Response> {
-    const res = await env.DB.prepare('DELETE FROM hosts WHERE id = ? AND user_id = ?').bind(hostId, userId).run();
+    // 同じトランザクションで消す。申請の行は、そのユーザーが承認したものだけ
+    const [res] = await env.DB.batch([
+        env.DB.prepare('DELETE FROM hosts WHERE id = ? AND user_id = ?').bind(hostId, userId),
+        env.DB.prepare('DELETE FROM pairing_requests WHERE host_id = ? AND user_id = ?').bind(hostId, userId),
+    ]);
     if (res.meta.changes === 0) {
         return error(404, 'そのホストはありません');
     }
-    await env.DB.prepare('DELETE FROM pairing_requests WHERE host_id = ?').bind(hostId).run();
     return hosts(env, userId);
 }
 

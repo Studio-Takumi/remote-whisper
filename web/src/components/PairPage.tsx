@@ -12,14 +12,21 @@ type View =
     | { kind: 'loading' }
     | { kind: 'error'; message: string }
     | { kind: 'ask'; request: PairRequest }
-    | { kind: 'done'; message: string };
+    | { kind: 'done'; message: string }
+    | { kind: 'error'; message: string };
 
-function settled(request: PairRequest): View | null {
+export function settled(request: PairRequest): View | null {
     if (request.status === 'approved') {
-        return { kind: 'done', message: `${request.hostName} は登録済みです` };
+        // ほかの人が先に承認していたら、コードが漏れたかもしれない
+        return request.answeredByMe === false
+            ? {
+                  kind: 'error',
+                  message: `${request.hostName} は、ほかのアカウントで承認されています。心当たりがなければ、PC のトレイから「クラウドから外す」を選んでください`,
+              }
+            : { kind: 'done', message: `${request.hostName} は登録済みです` };
     }
     if (request.status === 'rejected') {
-        return { kind: 'done', message: 'この登録は拒否されました' };
+        return { kind: 'done', message: 'この登録は拒否されたか、取り消されました' };
     }
     return null;
 }
