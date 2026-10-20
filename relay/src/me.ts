@@ -102,7 +102,11 @@ async function removeIdentity(env: Env, userId: string, identityId: string): Pro
     if ((count?.n ?? 0) <= 1) {
         return error(409, '最後のログイン手段は外せません');
     }
-    const res = await env.DB.prepare('DELETE FROM auth_identities WHERE id = ? AND user_id = ?')
+    // 同時に 2 つ外されても 0 にならないよう、数えるのと消すのを 1 つの文にする
+    const res = await env.DB.prepare(
+        `DELETE FROM auth_identities WHERE id = ?1 AND user_id = ?2
+           AND (SELECT COUNT(*) FROM auth_identities WHERE user_id = ?2) > 1`,
+    )
         .bind(identityId, userId)
         .run();
     if (res.meta.changes === 0) {

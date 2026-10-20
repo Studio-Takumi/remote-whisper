@@ -111,6 +111,8 @@ async function login(request: Request, env: Env, provider: Provider): Promise<Re
             now + STATE_TTL_MS,
         )
         .run();
+    // ついでに、期限切れのログインセッションも消す
+    await env.DB.prepare('DELETE FROM web_sessions WHERE expires_at <= ?').bind(now).run();
     const authorize = new URL(config.authorizeUrl);
     authorize.search = new URLSearchParams({
         response_type: 'code',
@@ -121,7 +123,27 @@ async function login(request: Request, env: Env, provider: Provider): Promise<Re
         code_challenge: challenge,
         code_challenge_method: 'S256',
     }).toString();
-    return redirect(authorize.toString());
+    // state をこのブラウザにも持たせ、戻ってきたときに同じブラウザかを確かめる（ログイン CSRF の対策。
+    // ほかの人が始めたログインの続きの URL を踏ませて、その人のアカウントにログインさせる・手段を足させるのを防ぐ）
+    return redirect(authorize.toString(), { 'Set-Cookie': stateCookie(state, STATE_TTL_MS / 1000) });
+}
+
+const STATE_COOKIE = '__Host-rw_oauth_state';
+
+function stateCookie(value: string, maxAgeSec: number): string {
+    return `${STATE_COOKIE}=${value}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAgeSec}`;
+}
+
+// 長さを漏らさずに比べる
+function sameString(a: string, b: string): boolean {
+    if (a.length !== b.length) {
+        return false;
+    }
+    let diff = 0;
+    for (let i = 0; i < a.length; i++) {
+        diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+    }
+    return diff === 0;
 }
 
 async function callback(request: Request, env: Env, provider: Provider): Promise<Response> {
@@ -130,6 +152,11 @@ async function callback(request: Request, env: Env, provider: Provider): Promise
     const code = url.searchParams.get('code');
     if (!state) {
         return error(400, 'ログインをやり直してください（state がありません）');
+    }
+    // ログインを始めたのと同じブラウザか
+    const browserState = getCookie(request, STATE_COOKIE);
+    if (!browserState || !sameString(browserState, state)) {
+        return error(400, 'ログインをやり直してください（このブラウザで始めたログインではありません）');
     }
     // state は 1 回だけ使える（読んだら消す）
     const row = await env.DB.prepare('DELETE FROM oauth_states WHERE state_hash = ? RETURNING *')
@@ -144,14 +171,30 @@ async function callback(request: Request, env: Env, provider: Provider): Promise
     if (!row || row.provider !== provider || row.expires_at <= Date.now()) {
         return error(400, 'ログインをやり直してください（期限が切れたか、使い終わった state です）');
     }
+    const clearState = { 'Set-Cookie': stateCookie('', 0) };
     if (!code) {
         // プロバイダの画面で断った
-        return redirect(row.return_to);
+        return redirect(row.return_to, clearState);
+    }
+    if (row.link_user_id) {
+        // 手段を足すのは、始めた人がまだ同じユーザーでログインしているときだけ
+        const user = await currentUser(request, env);
+        if (user?.userId !== row.link_user_id) {
+            return error(400, 'ログインをやり直してください（ログインしているユーザーが変わりました）');
+        }
     }
     let profile: Profile;
     try {
         const token = await exchangeCode(provider, env, code, row.code_verifier, callbackUrl(request, provider));
         profile = await CONFIGS[provider].profile(token);
+        // ID のない返事を、"undefined" という ID のユーザーにしない
+        if (
+            typeof profile.subject !== 'string' ||
+            !/^[\w.-]{1,128}$/.test(profile.subject) ||
+            profile.subject === 'undefined'
+        ) {
+            throw new Error('no subject');
+        }
     } catch {
         return error(502, 'ログインできませんでした。もう一度試してください');
     }
@@ -161,7 +204,7 @@ async function callback(request: Request, env: Env, provider: Provider): Promise
     }
     if (row.link_user_id) {
         // 足しただけ。今のログインセッションのまま
-        return redirect(row.return_to);
+        return redirect(row.return_to, clearState);
     }
     const token = randomToken();
     const now = Date.now();
@@ -170,7 +213,10 @@ async function callback(request: Request, env: Env, provider: Provider): Promise
     )
         .bind(crypto.randomUUID(), result.userId, await sha256(token), now, now + SESSION_TTL_MS, now)
         .run();
-    return redirect(row.return_to, { 'Set-Cookie': sessionCookie(token, SESSION_TTL_MS / 1000) });
+    const headers = new Headers({ Location: row.return_to });
+    headers.append('Set-Cookie', sessionCookie(token, SESSION_TTL_MS / 1000));
+    headers.append('Set-Cookie', stateCookie('', 0));
+    return new Response(null, { status: 302, headers });
 }
 
 // プロバイダの ID から、ユーザーを決める（なければ作る。足すときは今のユーザーに付ける）
