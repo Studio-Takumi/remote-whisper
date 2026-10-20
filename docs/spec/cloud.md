@@ -343,6 +343,11 @@ erDiagram
 ## 10.11 初回の表示と規約の改定
 
 - クラウド版で初めてログインしたとき、利用規約とプライバシーポリシーへの同意（文面は LP に置く。リンクを出す）と、データ収集の許可（既定はオフ）を聞く。同意しなければ先に進めない（ログアウトはできる）
+- API（`relay/src/consent.ts`。状態を変えるものは Origin を確かめる、10.7 節）:
+  - `GET /me` に、今の規約の版 `tosCurrent`・リンク先 `termsUrl`/`privacyUrl`・データ収集の今の許可 `dataCollection`（consents の `data_collection` の最後の行。なければ `false`）を含める。同意の画面を出すのは `tosVersion` が `null` のときだけ
+  - `POST /me/consent` `{"tosVersion", "dataCollection"}`: `tosVersion` が今の版（`TOS_VERSION`）と同じときだけ受け付け、違えば 409。`users.tos_version` を入れ、consents に `tos`（granted=1）と `data_collection` を 1 つのバッチで追記する
+  - `PUT /me/consents/data_collection` `{"granted"}`: 設定から変える。変えるたび（同じ値でも）consents に追記する。規約に同意していなければ 409
+  - consents の `version` は、`tos` では規約の版、`data_collection` では説明文の版（`DATA_COLLECTION_VERSION`）。規約の版が上がっても `tos_version` は更新しない
 - 規約の改定: 同意は取り直さず、施行日の前にお知らせで知らせる（10.12 節）。データ収集の目的を変えるときだけ、同意を取り直す
 
 ## 10.12 お知らせ

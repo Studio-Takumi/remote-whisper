@@ -55,7 +55,7 @@ const cases = [
             await page.getByRole('button', { name: /書斎の PC/ }).click();
             await step(page.getByText('書斎の PC につないでいます').waitFor(), '選んだホストにつなぐ');
             // 選び直せる
-            await page.getByRole('button', { name: 'ホストを切り替える' }).click();
+            await page.getByRole('button', { name: '書斎の PC につないでいます' }).click();
             await step(page.locator('[data-hosts=choose]').waitFor(), '切り替えで選ぶ画面に戻る');
         },
     },
@@ -64,6 +64,17 @@ const cases = [
         hosts: [host(A, '書斎の PC', true), host(B, 'ノート PC', true)],
         remembered: B,
         check: (page) => page.getByText('ノート PC につないでいます').waitFor(),
+    },
+    {
+        name: '一覧の読み込みに失敗しても、もう一度で先に進む',
+        hosts: [host(A, '書斎の PC', true)],
+        failFirst: true,
+        check: async (page, self) => {
+            await step(page.locator('[data-hosts=error]').waitFor(), '失敗を出す');
+            self.retried = true;
+            await page.getByRole('button', { name: 'もう一度' }).click();
+            await step(page.getByText('書斎の PC につないでいます').waitFor(), 'もう一度でつなぐ');
+        },
     },
     {
         name: '1 台でオフラインなら、選ぶ画面で知らせる',
@@ -80,11 +91,16 @@ for (const c of cases) {
     }
     const page = await context.newPage();
     await page.route('**/me', (route) => route.fulfill({ json: me }));
-    await page.route('**/me/hosts', (route) => route.fulfill({ json: { hosts: c.hosts } }));
+    // failFirst: 「もう一度」を押すまでは失敗させる（開発モードでは effect が 2 回走るので、回数では決めない）
+    await page.route('**/me/hosts', (route) =>
+        c.failFirst && !c.retried
+            ? route.fulfill({ status: 500, json: { detail: 'boom' } })
+            : route.fulfill({ json: { hosts: c.hosts } }),
+    );
     await page.route('**/h/**', (route) => route.fulfill({ status: 503, json: { detail: 'offline' } }));
     try {
         await page.goto(`http://localhost:${port}/`);
-        await c.check(page);
+        await c.check(page, c);
         console.log(`ok   ${c.name}`);
     } catch (e) {
         failed++;

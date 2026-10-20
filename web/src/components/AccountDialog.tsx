@@ -11,6 +11,7 @@ import {
     fetchMe,
     loginHref,
     logout,
+    putDataCollection,
     removeIdentity,
     useAccountStore,
 } from '@/account';
@@ -18,11 +19,14 @@ import { useCloudStore } from '@/cloud';
 import { HostsSection } from '@/components/HostsSection';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 
 export function AccountDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
     const { me, setMe } = useAccountStore();
     const dispatch = useCloudStore((s) => s.dispatch);
     const [confirmDelete, setConfirmDelete] = useState(false);
+    const [saving, setSaving] = useState(false);
 
     // 開いたときに取り直す（ほかのタブで足した手段も出すため）
     useEffect(() => {
@@ -45,6 +49,20 @@ export function AccountDialog({ open, onOpenChange }: { open: boolean; onOpenCha
             setMe(await removeIdentity(id));
         } catch (e) {
             toast.error(`外せません: ${(e as Error).message}`);
+        }
+    };
+
+    const changeDataCollection = async (granted: boolean) => {
+        setSaving(true);
+        try {
+            await putDataCollection(granted);
+            if (me) {
+                setMe({ ...me, dataCollection: granted });
+            }
+        } catch (e) {
+            toast.error(`変更できません: ${(e as Error).message}`);
+        } finally {
+            setSaving(false);
         }
     };
 
@@ -108,6 +126,23 @@ export function AccountDialog({ open, onOpenChange }: { open: boolean; onOpenCha
                             </div>
                         </section>
                         <HostsSection open={open} />
+                        <section className='flex flex-col gap-1 border-t pt-3'>
+                            <div className='flex items-center justify-between gap-2'>
+                                <Label htmlFor='account-data-collection' className='font-medium'>
+                                    データ収集を許可する
+                                </Label>
+                                <Switch
+                                    id='account-data-collection'
+                                    aria-describedby='account-data-collection-desc'
+                                    disabled={saving}
+                                    checked={me.dataCollection}
+                                    onCheckedChange={(v) => void changeDataCollection(v)}
+                                />
+                            </div>
+                            <p id='account-data-collection-desc' className='text-xs text-muted-foreground'>
+                                現在は収集していません。収集を始めるときは、何を何に使うかをここに書きます。
+                            </p>
+                        </section>
                         <section className='flex flex-wrap items-center justify-between gap-2 border-t pt-3'>
                             <Button size='sm' variant='outline' onClick={() => void signOut()}>
                                 ログアウト

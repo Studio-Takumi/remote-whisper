@@ -15,8 +15,7 @@ export function CloudHostBadge() {
         <button
             type='button'
             onClick={() => dispatch({ type: 'changeHost' })}
-            aria-label='ホストを切り替える'
-            title='ホストを切り替える'
+            title='押すとホストを切り替える'
             className='flex h-8 max-w-48 items-center gap-1.5 rounded-lg px-2 text-xs text-muted-foreground outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50'
             data-cloud-host={hostId}
         >

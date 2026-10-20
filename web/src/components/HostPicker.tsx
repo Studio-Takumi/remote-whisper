@@ -8,33 +8,35 @@ import { useCloudStore } from '@/cloud';
 import { Button } from '@/components/ui/button';
 import { type Host, pickHost, rememberHost, rememberedHost, selectable, useHostsStore } from '@/hosts';
 
-// 自動でつなぐのは、開いて最初の 1 回だけ（「切り替える」やホストを外して戻ってきたときは選ばせる）
-let autoPicked = false;
-
 export function HostPicker() {
     const dispatch = useCloudStore((s) => s.dispatch);
     const { hosts, error, load } = useHostsStore();
     const [choosing, setChoosing] = useState(false);
 
     const connect = (host: Host) => {
-        // 一度つないだら、そのあとは自動でつながない
-        autoPicked = true;
+        // 一度つないだら、そのあとは自動でつながない（「切り替える」やホストを外して戻ってきたときは選ばせる。
+        // ログアウトすると戻る）
+        useHostsStore.setState({ autoPicked: true });
         rememberHost(host.id);
         dispatch({ type: 'hostSelected', hostId: host.id });
     };
 
+    // 一覧を読み、どうするかを決める（開いたときと、失敗のあとの「もう一度」）
+    const start = async () => {
+        const list = await load();
+        if (!list) {
+            return;
+        }
+        const pick = pickHost(list, rememberedHost());
+        if (pick.kind === 'connect' && !useHostsStore.getState().autoPicked) {
+            connect(pick.host);
+        } else {
+            setChoosing(true);
+        }
+    };
+
     useEffect(() => {
-        void load().then((list) => {
-            if (!list) {
-                return;
-            }
-            const pick = pickHost(list, rememberedHost());
-            if (pick.kind === 'connect' && !autoPicked) {
-                connect(pick.host);
-            } else {
-                setChoosing(true);
-            }
-        });
+        void start();
         // 開いたときに 1 回だけ
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
@@ -43,15 +45,21 @@ export function HostPicker() {
         return (
             <div className='flex flex-col gap-2' data-hosts='error'>
                 <h1 className='text-xl font-semibold'>ホストの選択</h1>
-                <p className='text-sm text-destructive'>ホストの一覧を読めませんでした: {error}</p>
-                <Button variant='outline' onClick={() => void load()}>
+                <p role='alert' className='text-sm text-destructive'>
+                    ホストの一覧を読めませんでした: {error}
+                </p>
+                <Button variant='outline' onClick={() => void start()}>
                     もう一度
                 </Button>
             </div>
         );
     }
     if (hosts === null || (!choosing && hosts.length > 0)) {
-        return <p className='text-sm text-muted-foreground'>ホストを確かめています…</p>;
+        return (
+            <p role='status' className='text-sm text-muted-foreground'>
+                ホストを確かめています…
+            </p>
+        );
     }
     if (hosts.length === 0) {
         return (

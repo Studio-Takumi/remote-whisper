@@ -7,11 +7,15 @@ import { useCloudStore } from '@/cloud';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { type Host, removeHost, renameHost, useHostsStore } from '@/hosts';
+import { useAppStore } from '@/store';
 
 function HostRow({ host }: { host: Host }) {
     const setHosts = useHostsStore((s) => s.set);
     const currentHostId = useCloudStore((s) => s.cloud.hostId);
     const dispatch = useCloudStore((s) => s.dispatch);
+    // 録音中は、つないでいるホストを外せない（録音が途中で切れるため）
+    const recording = useAppStore((s) => s.recordingState !== 'idle');
+    const locked = recording && host.id === currentHostId;
     const [editing, setEditing] = useState(false);
     const [name, setName] = useState(host.name);
     const [confirming, setConfirming] = useState(false);
@@ -74,6 +78,7 @@ function HostRow({ host }: { host: Host }) {
                         <Button
                             size='sm'
                             variant='ghost'
+                            aria-label={`${host.name} の名前を変える`}
                             onClick={() => {
                                 setName(host.name);
                                 setEditing(true);
@@ -81,7 +86,14 @@ function HostRow({ host }: { host: Host }) {
                         >
                             名前
                         </Button>
-                        <Button size='sm' variant='ghost' onClick={() => setConfirming(true)}>
+                        <Button
+                            size='sm'
+                            variant='ghost'
+                            aria-label={`${host.name} を外す`}
+                            disabled={locked}
+                            title={locked ? '録音中は、つないでいるホストを外せません' : undefined}
+                            onClick={() => setConfirming(true)}
+                        >
                             外す
                         </Button>
                     </span>

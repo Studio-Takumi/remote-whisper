@@ -72,6 +72,9 @@ export const removeHost = (id: string) =>
 type HostsStore = {
     hosts: Host[] | null;
     error: string | null;
+    // 自動でホストにつないだか（開いて最初の 1 回だけ自動でつなぐ。ログアウトで戻す）
+    autoPicked: boolean;
+    reset: () => void;
     load: () => Promise<Host[] | null>;
     set: (hosts: Host[]) => void;
 };
@@ -79,6 +82,8 @@ type HostsStore = {
 export const useHostsStore = create<HostsStore>((set) => ({
     hosts: null,
     error: null,
+    autoPicked: false,
+    reset: () => set({ hosts: null, error: null, autoPicked: false }),
     load: async () => {
         try {
             const hosts = await fetchHosts();
