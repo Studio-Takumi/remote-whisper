@@ -1,5 +1,6 @@
 // 自分のアカウント（#155）: /me（ログインしているか・ログイン手段の一覧）、ログイン手段を外す、退会
 import { currentUser } from './auth';
+import { PRIVACY_URL, TERMS_URL, TOS_VERSION, dataCollectionGranted, postConsent, putDataCollection } from './consent';
 import { clearSessionCookie, error, json, sameOrigin } from './http';
 import type { Env } from './index';
 import { PROVIDERS } from './providers';
@@ -19,6 +20,12 @@ export async function handleMe(request: Request, env: Env, path: string): Promis
     }
     if (path === '/me' && request.method === 'DELETE') {
         return deleteAccount(env, user.userId);
+    }
+    if (path === '/me/consent' && request.method === 'POST') {
+        return postConsent(request, env, user.userId);
+    }
+    if (path === '/me/consents/data_collection' && request.method === 'PUT') {
+        return putDataCollection(request, env, user.userId);
     }
     const m = /^\/me\/identities\/([^/]+)$/.exec(path);
     if (m && request.method === 'DELETE') {
@@ -91,6 +98,10 @@ async function me(env: Env, userId: string): Promise<Response> {
         id: user.id,
         displayName: user.display_name,
         tosVersion: user.tos_version,
+        tosCurrent: TOS_VERSION,
+        termsUrl: TERMS_URL,
+        privacyUrl: PRIVACY_URL,
+        dataCollection: await dataCollectionGranted(env, userId),
         identities: identities.results.map((i) => ({
             id: i.id,
             provider: i.provider,
