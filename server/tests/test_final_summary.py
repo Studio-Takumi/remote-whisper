@@ -121,7 +121,7 @@ def test_ollama_unavailable_keeps_the_live_summary(client, project, fake_ollama)
         error = receive_until(ws, of_type("error"))[-1]
     finished(client, sid)
     assert error["code"] == "ollama_unavailable"
-    assert "最終の要約" in error["message"]
+    assert "最終要約" in error["message"]
     assert (d / ".tmp" / sid / "live-summary.md").exists()
     assert list(d.glob(f"summary-{sid}-*.md")) == []
     # 失敗したことを記録する（後で作り直せるように。spec 6.7）
@@ -178,11 +178,11 @@ def test_long_transcript_is_summarized_in_parts(home, fake, monkeypatch):
     sections = [
         f"## 00:00:{i:02d}〜00:00:{i + 1 if i < 5 else 5:02d}\n\n要約です" for i in range(6)
     ]
-    assert text == "## 全体の概要\n\n要約です\n\n" + "\n\n".join(sections)
+    assert text == "## 全体概要\n\n要約です\n\n" + "\n\n".join(sections)
     # タイトルは概要から作る
     assert gist == "要約です"
     # 送るのは概要（見出しは本文と一緒に）と、そのあとの部分ごとの要約。つなげると保存するものと同じ
-    assert sent[0]["text"] == "## 全体の概要\n\n要約です"
+    assert sent[0]["text"] == "## 全体概要\n\n要約です"
     assert len(sent) == 7
     assert "".join(m["text"] for m in sent) == text
     assert all(m["kind"] == "final" for m in sent)
@@ -285,7 +285,7 @@ def test_long_summary_is_saved_and_titled_from_the_overview(home, fake, tmp_path
     asyncio.run(summarizer.run(writer, send))
     _, _, text, _ = writer.saved
     assert text == (
-        "## 全体の概要\n\n概要です\n\n## 00:00:00〜00:10:00\n\n一\n\n## 00:10:00〜00:10:00\n\n二"
+        "## 全体概要\n\n概要です\n\n## 00:00:00〜00:10:00\n\n一\n\n## 00:10:00〜00:10:00\n\n二"
     )
     # タイトルは、詳細を含まない概要から作る
     title = [b for b in fake.bodies("/api/chat") if b.get("format")][0]
