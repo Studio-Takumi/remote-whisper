@@ -15,6 +15,8 @@ dependencies = [
     "nvidia-cudnn-cu12==9.*; sys_platform == 'win32' or sys_platform == 'linux'",
     "pypdf[crypto]>=5",
     "nvidia-ml-py>=13.615.71",
+    # クラウド版のホストの鍵（Ed25519）と署名（#158）。pypdf[crypto] でも入っているが、直接使うので書く
+    "cryptography>=44",
     # タスクトレイ（Windows。#135）とメニューバー（Mac。#136）
     "pystray>=0.19; sys_platform == 'win32' or sys_platform == 'darwin'",
     "pillow>=10; sys_platform == 'win32' or sys_platform == 'darwin'",
