@@ -60,6 +60,40 @@ const cases = [
         },
     },
     {
+        name: '別のホストに切り替えたら、読み込み直してそのホストにつなぐ（#222）',
+        hosts: [host(A, '書斎の PC', true), host(B, 'ノート PC', true)],
+        check: async (page) => {
+            let loads = 0;
+            page.on('load', () => loads++);
+            await page.locator('[data-hosts=choose]').waitFor();
+            await page.getByRole('button', { name: /書斎の PC/ }).click();
+            await step(page.getByText('書斎の PC につないでいます').waitFor(), 'A につなぐ');
+            await page.getByRole('button', { name: '書斎の PC につないでいます' }).click();
+            await page.getByRole('button', { name: /ノート PC/ }).click();
+            await step(page.getByText('ノート PC につないでいます').waitFor(), '読み込み直して B につなぐ');
+            if (loads < 1) {
+                throw new Error('読み込み直していない');
+            }
+        },
+    },
+    {
+        name: '同じホストを選び直したら、読み込み直さない',
+        hosts: [host(A, '書斎の PC', true), host(B, 'ノート PC', true)],
+        check: async (page) => {
+            let loads = 0;
+            page.on('load', () => loads++);
+            await page.locator('[data-hosts=choose]').waitFor();
+            await page.getByRole('button', { name: /書斎の PC/ }).click();
+            await page.getByText('書斎の PC につないでいます').waitFor();
+            await page.getByRole('button', { name: '書斎の PC につないでいます' }).click();
+            await page.getByRole('button', { name: /書斎の PC/ }).click();
+            await page.getByText('書斎の PC につないでいます').waitFor();
+            if (loads > 0) {
+                throw new Error('読み込み直した');
+            }
+        },
+    },
+    {
         name: '前に選んだホストがあれば、それにつなぐ',
         hosts: [host(A, '書斎の PC', true), host(B, 'ノート PC', true)],
         remembered: B,

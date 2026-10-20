@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { type Host, pickHost } from '@/hosts';
+import { type Host, needsReload, pickHost } from '@/hosts';
 
 const host = (id: string, online: boolean | null = true): Host => ({
     id,
@@ -28,5 +28,13 @@ describe('pickHost', () => {
         expect(pickHost(hosts, null)).toEqual({ kind: 'choose' });
         expect(pickHost(hosts, 'c')).toEqual({ kind: 'choose' });
         expect(pickHost(hosts, 'gone')).toEqual({ kind: 'choose' });
+    });
+});
+
+describe('needsReload', () => {
+    it('このページで前に別のホストにつないでいたときだけ、読み込み直す', () => {
+        expect(needsReload(null, 'a')).toBe(false);
+        expect(needsReload('a', 'a')).toBe(false);
+        expect(needsReload('a', 'b')).toBe(true);
     });
 });
