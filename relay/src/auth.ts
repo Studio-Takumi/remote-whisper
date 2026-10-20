@@ -19,6 +19,7 @@ import {
     SESSION_COOKIE,
 } from './http';
 import type { Env } from './index';
+import { rememberUser } from './metrics';
 import { CONFIGS, exchangeCode, isProvider, type Profile, type Provider } from './providers';
 
 // ログインを始めてから戻ってくるまでに待つ時間
@@ -56,6 +57,8 @@ export async function currentUser(request: Request, env: Env): Promise<SessionUs
     if (now - row.last_seen_at > TOUCH_INTERVAL_MS) {
         await env.DB.prepare('UPDATE web_sessions SET last_seen_at = ? WHERE id = ?').bind(now, row.id).run();
     }
+    // 計測（#163）で、このリクエストのユーザーとして使う
+    rememberUser(request, row.user_id);
     return { userId: row.user_id, sessionId: row.id };
 }
 
