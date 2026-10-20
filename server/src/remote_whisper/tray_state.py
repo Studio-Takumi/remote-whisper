@@ -8,6 +8,7 @@ OS ごとに違う部分（アイコンの出し方・確認のダイアログ�
 from dataclasses import dataclass
 from typing import Literal
 
+from remote_whisper.cloud import CloudView
 from remote_whisper.hub import ServerStatus
 
 Color = Literal["gray", "blue", "red", "orange"]
@@ -38,6 +39,14 @@ TOOLTIP_MAX = 127
 MENU_OPEN = "画面を開く"
 MENU_LOGS = "ログのフォルダを開く"
 MENU_QUIT = "終了"
+# クラウド版のホストの登録（#158。spec/cloud.md 10.6）。状態に合うものだけを出す
+MENU_CLOUD_LOGIN = "クラウドにログイン"
+MENU_CLOUD_CANCEL = "登録をやめる"
+MENU_CLOUD_UNPAIR = "クラウドから外す"
+CLOUD_UNPAIR_CONFIRM = (
+    "この PC をクラウドから外しますか？ "
+    "外すと、クラウドの画面からこの PC につなげなくなります（録音やファイルは消えません）。"
+)
 
 
 @dataclass(frozen=True)
@@ -45,14 +54,49 @@ class TrayState:
     color: Color
     # 状態の文（「録音中 1件 / 待ち 3件 / 実行中: 文字起こし」など）。Mac ではメニューの一番上に出す
     text: str
+    # クラウドの状態の文（「クラウド: 登録していない」など。#158）。空ならクラウドの行を出さない
+    cloud: str = ""
 
     @property
     def tooltip(self) -> str:
-        """マウスを乗せたときの文（Windows）"""
-        return _truncate(f"{APP_NAME}: {self.text}", TOOLTIP_MAX)
+        """マウスを乗せたときの文（Windows）。クラウドの状態は 2 行目に出す"""
+        cloud = f"\n{self.cloud}" if self.cloud else ""
+        return _truncate(f"{APP_NAME}: {self.text}", TOOLTIP_MAX - len(cloud)) + cloud
 
 
-def tray_state(status: ServerStatus) -> TrayState:
+@dataclass(frozen=True)
+class CloudMenu:
+    """クラウドの項目のうち、どれを出すか"""
+
+    login: bool
+    cancel: bool
+    unpair: bool
+
+
+def cloud_text(view: CloudView | None) -> str:
+    """クラウドの状態の文。つながっているかが分かるまで（#159・#161）は、登録済みならつながっているとする"""
+    if view is None:
+        return ""
+    if view.status == "pairing":
+        return f"クラウド: 登録中（コード {view.code}）" if view.code else "クラウド: 登録中…"
+    if view.status == "unpairing":
+        return "クラウド: 外しています…"
+    if view.status == "registered":
+        return f"クラウド: {'つながっていない' if view.connected is False else 'つながっている'}"
+    return "クラウド: 登録していない"
+
+
+def cloud_menu(view: CloudView | None) -> CloudMenu:
+    if view is None:
+        return CloudMenu(False, False, False)
+    return CloudMenu(
+        login=view.status == "unregistered",
+        cancel=view.status == "pairing",
+        unpair=view.status == "registered",
+    )
+
+
+def tray_state(status: ServerStatus, cloud: CloudView | None = None) -> TrayState:
     jobs = status.jobs or {}
     running = jobs.get("running")
     waiting = sum(int(w.get("count", 1)) for w in jobs.get("waiting") or [])
@@ -80,7 +124,7 @@ def tray_state(status: ServerStatus) -> TrayState:
         if running or waiting
         else "gray"
     )
-    return TrayState(color, " / ".join(parts + problems))
+    return TrayState(color, " / ".join(parts + problems), cloud_text(cloud))
 
 
 def quit_confirmation(status: ServerStatus) -> str | None:
