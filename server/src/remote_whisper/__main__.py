@@ -14,6 +14,7 @@ import uvicorn
 
 from remote_whisper import cloud, logs, tray
 from remote_whisper.app import create_app
+from remote_whisper.cloudflared import CloudflaredRunner
 from remote_whisper.mock import MockTiming
 from remote_whisper.settings import default_home
 from remote_whisper.tunnel import TunnelPort
@@ -59,6 +60,13 @@ def main() -> None:
         # 8000 番と同じイベントループで動かす。ループは app の lifespan が渡す
         tunnel = TunnelPort(app, home)
         app.state.tunnel = tunnel
+        # 8001 番が開いてから、cloudflared を子プロセスで動かす（#159）。登録済みのときだけ
+        runner = CloudflaredRunner(
+            home,
+            cloudflared_path=lambda: app.state.ctx.settings.get().cloud.cloudflared_path,
+            port_ready=lambda: tunnel.is_open,
+        )
+        app.state.cloudflared = runner
         if args.no_tray or not tray.available():
             server.run()
             return
@@ -68,12 +76,22 @@ def main() -> None:
         if ":" in host:
             host = f"[{host}]"  # IPv6 のアドレスは URL では [] で囲む
         cloud_host = cloud.CloudHost(
-            home, relay_url=lambda: app.state.ctx.settings.get().cloud.relay_url
+            home,
+            relay_url=lambda: app.state.ctx.settings.get().cloud.relay_url,
+            # 解除のときに cloudflared を止める。トレイには状態を出す
+            stop_tunnel=runner.stop,
+            tunnel_state=lambda: runner.state,
         )
-        # 登録したら 8001 番を開き、解除したら閉じる
-        cloud_host.on_registration_change = tunnel.sync
-        # ポートが使えなかったら、トレイの通知で知らせる
+
+        def on_registration_change() -> None:
+            # 登録したら 8001 番を開いて cloudflared を動かし、解除したら止めて閉じる
+            tunnel.sync()
+            runner.sync()
+
+        cloud_host.on_registration_change = on_registration_change
+        # ポートが使えなかった・cloudflared がなかったら、トレイの通知で知らせる
         tunnel.on_error = lambda message: cloud_host.on_notice(message)
+        runner.on_notice = lambda message: cloud_host.on_notice(message)
         icon = tray.Tray(
             status=lambda: app.state.ctx.hub.status,
             url=f"http://{host}:{args.port}/",

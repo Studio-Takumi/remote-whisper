@@ -256,6 +256,8 @@ class CloudSettings(_Model):
     # 中間サーバー（Worker）の URL。ホストの登録（#158）で使う。開発ではローカルの
     # wrangler dev（http://localhost:8787）にもできる。https か、この PC の中への http だけ
     relay_url: str = DEFAULT_RELAY_URL
+    # cloudflared の実行ファイル（#159）。空なら PATH の `cloudflared`。ダウンロードや同梱は #168
+    cloudflared_path: str = Field(default="", min_length=0)
 
     @field_validator("relay_url")
     @classmethod
