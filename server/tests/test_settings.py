@@ -402,3 +402,27 @@ def test_project_order_can_be_saved_while_recording(client, app):
     res = client.patch("/api/settings", json={"projectOrder": ["a", "b"]})
     assert res.status_code == 200
     assert res.json()["projectOrder"] == ["a", "b"]
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        r"\\host\share\cloudflared.exe",
+        "//host/share/cloudflared",
+        "cloudflared",
+        "bin/cloudflared",
+        "/opt/x/evil",
+        "/opt/../cloudflared",
+        r"C:\x\cloudflared.exe.bat",
+    ],
+)
+def test_cloudflared_path_rejects_unsafe_values(client, path):
+    res = client.patch("/api/settings", json={"cloud": {"cloudflaredPath": path}})
+    assert res.status_code == 422
+
+
+def test_cloudflared_path_accepts_empty_and_absolute_cloudflared(client):
+    for path in (r"C:\tools\cloudflared.exe", "/usr/local/bin/CloudFlared", ""):
+        res = client.patch("/api/settings", json={"cloud": {"cloudflaredPath": path}})
+        assert res.status_code == 200
+        assert res.json()["cloud"]["cloudflaredPath"] == path

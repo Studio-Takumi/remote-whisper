@@ -3,6 +3,7 @@
 import json
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import replace
 
@@ -17,7 +18,7 @@ from remote_whisper.cloud import (
     save_credentials,
     verify_header,
 )
-from remote_whisper.cloudflared import NOT_FOUND_NOTICE, CloudflaredRunner
+from remote_whisper.cloudflared import INVALID_PATH_NOTICE, NOT_FOUND_NOTICE, CloudflaredRunner
 from remote_whisper.tray_state import cloud_text
 
 RELAY = "https://relay.example.test"
@@ -92,6 +93,7 @@ class Env:
         self.worker.key = public_key_from_b64(credentials.public_key)
         save_credentials(tmp_path, replace(credentials, relay_key="relay-key", registered_at=1))
         self.ready = port_ready
+        self.polled = threading.Event()
         self.found = found
         self.path = path
         self.which_args: list[str] = []
@@ -99,18 +101,21 @@ class Env:
         self.runner = CloudflaredRunner(
             tmp_path,
             cloudflared_path=lambda: self.path,
-            port_ready=lambda: self.ready,
+            port_ready=self.port_ready,
             transport=httpx.MockTransport(self.worker.handler),
             popen=self.popen,
             which=self.which,
             initial_backoff=0.05,
             max_backoff=0.2,
             stable=1000.0,
-            port_wait=0.3,
             terminate_wait=0.05,
             poll_interval=0.01,
         )
         self.runner.on_notice = self.notices.append
+
+    def port_ready(self):
+        self.polled.set()
+        return self.ready
 
     def popen(self, args, **kwargs):
         proc = FakeProc(args, kwargs.get("env", {}), kwargs)
@@ -279,9 +284,10 @@ def test_unpair_stops_the_child(tmp_path):
 def test_sync_twice_runs_one_child(env):
     env.runner.sync()
     env.runner.sync()
-    assert wait_for(lambda: env.procs)
-    time.sleep(0.1)
+    assert wait_for(lambda: env.procs and env.runner.state == "connected")
+    env.runner.sync()
     assert len(env.procs) == 1
+    assert env.worker.count == 1
 
 
 def test_not_registered_does_not_start(tmp_path):
@@ -292,23 +298,95 @@ def test_not_registered_does_not_start(tmp_path):
     assert e.procs == []
 
 
-def test_does_not_start_when_the_tunnel_port_is_closed(tmp_path):
+def test_waits_for_the_tunnel_port_and_starts_once_it_opens(tmp_path):
     e = Env(tmp_path, port_ready=False)
-    e.runner.sync()
-    assert wait_for(lambda: not e.runner.running)
-    assert e.procs == []
-    assert e.worker.count == 0
-
-
-def test_starts_once_the_tunnel_port_opens(tmp_path):
-    e = Env(tmp_path, port_ready=False)
-    e.runner.port_wait = 3.0
     try:
         e.runner.sync()
-        time.sleep(0.1)
-        assert e.procs == []
+        assert e.polled.wait(5)
+        # 開くまでは、トークンも取らず、起動もしない（待つのは諦めない）
+        assert e.procs == [] and e.worker.count == 0
+        assert e.runner.running
+        assert e.runner.state == "connecting"
         e.ready = True
         assert wait_for(lambda: len(e.procs) == 1)
+    finally:
+        e.runner.stop()
+
+
+def test_stop_while_waiting_for_the_port(tmp_path):
+    e = Env(tmp_path, port_ready=False)
+    e.runner.sync()
+    assert e.polled.wait(5)
+    e.runner.stop()
+    assert not e.runner.running
+    assert e.procs == []
+
+
+def test_stop_during_token_fetch_does_not_start_a_child(tmp_path):
+    e = Env(tmp_path)
+    in_fetch, release = threading.Event(), threading.Event()
+
+    def handler(request):
+        in_fetch.set()
+        assert release.wait(5)
+        return e.worker.handler(request)
+
+    e.runner.transport = httpx.MockTransport(handler)
+    e.runner.sync()
+    assert in_fetch.wait(5)
+    e.runner._stop.set()  # 取っている最中に止める合図
+    release.set()
+    assert wait_for(lambda: not e.runner.running)
+    assert e.procs == []
+
+
+def test_unexpected_error_does_not_end_the_runner(tmp_path):
+    e = Env(tmp_path)
+    calls = []
+
+    def handler(request):
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("unexpected")
+        return e.worker.handler(request)
+
+    e.runner.transport = httpx.MockTransport(handler)
+    try:
+        e.runner.sync()
+        assert wait_for(lambda: len(e.procs) == 1)
+        assert len(calls) == 2
+    finally:
+        e.runner.stop()
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        r"\\attacker\share\cloudflared.exe",
+        "//attacker/share/cloudflared",
+        "cloudflared",
+        "bin/cloudflared",
+        r"..\cloudflared.exe",
+        "/opt/other/evil",
+        "/opt/cf/../cloudflared",
+        r"C:\tools\cloudflared.exe.bat",
+    ],
+)
+def test_refuses_an_unacceptable_configured_path(tmp_path, path):
+    e = Env(tmp_path, path=path)
+    e.runner.sync()
+    assert wait_for(lambda: not e.runner.running)
+    assert e.notices == [INVALID_PATH_NOTICE]
+    assert e.procs == [] and e.worker.count == 0 and e.which_args == []
+
+
+@pytest.mark.parametrize("path", [r"C:\tools\CloudFlared.EXE", "/usr/local/bin/cloudflared"])
+def test_accepts_a_configured_path(tmp_path, path):
+    e = Env(tmp_path, path=path)
+    try:
+        e.runner.sync()
+        assert wait_for(lambda: len(e.procs) == 1)
+        assert e.procs[0].args[0] == path
     finally:
         e.runner.stop()
 

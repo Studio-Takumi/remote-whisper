@@ -29,6 +29,7 @@ from remote_whisper.cloud import (
     RelayClient,
     load_credentials,
 )
+from remote_whisper.settings import is_valid_cloudflared_path
 from remote_whisper.version import app_version
 
 log = logging.getLogger("remote_whisper")
@@ -37,8 +38,6 @@ INITIAL_BACKOFF_SEC = 5.0
 MAX_BACKOFF_SEC = 300.0
 # これだけ動き続けたら「正常」とみなして、間隔を元に戻す
 STABLE_SEC = 60.0
-# 8001 番が開くのを待つ時間
-PORT_WAIT_SEC = 15.0
 # 止めるとき、terminate してから kill するまで待つ時間
 TERMINATE_WAIT_SEC = 5.0
 # stop() が待つ時間の上限
@@ -47,6 +46,10 @@ STOP_JOIN_SEC = 20.0
 NOT_FOUND_NOTICE = (
     "cloudflared が見つかりません。インストールして PATH に通すか、"
     "設定の cloud.cloudflaredPath に場所を書いてください"
+)
+
+INVALID_PATH_NOTICE = (
+    "cloud.cloudflaredPath は、cloudflared への絶対パス（ネットワークのパスは不可）にしてください"
 )
 
 TunnelState = Literal["connected", "connecting", "stopped"]
@@ -71,7 +74,6 @@ class CloudflaredRunner:
         initial_backoff: float = INITIAL_BACKOFF_SEC,
         max_backoff: float = MAX_BACKOFF_SEC,
         stable: float = STABLE_SEC,
-        port_wait: float = PORT_WAIT_SEC,
         terminate_wait: float = TERMINATE_WAIT_SEC,
         poll_interval: float = 0.2,
     ):
@@ -85,7 +87,6 @@ class CloudflaredRunner:
         self.initial_backoff = initial_backoff
         self.max_backoff = max_backoff
         self.stable = stable
-        self.port_wait = port_wait
         self.terminate_wait = terminate_wait
         self.poll_interval = poll_interval
         # 通知を出す（トレイが差し替える）
@@ -132,9 +133,12 @@ class CloudflaredRunner:
         if thread is not None and thread is not threading.current_thread():
             thread.join(STOP_JOIN_SEC)
             if thread.is_alive():
+                # 待ちきれなかった。合図は出してあるので、切り離して次の sync() で動かせるようにする
                 log.warning("cloudflared did not stop in time")
-        if thread is None or not thread.is_alive():
-            self._state = "stopped"
+                with self._lock:
+                    if self._thread is thread:
+                        self._thread = None
+        self._state = "stopped"
 
     def _notice(self, message: str) -> None:
         try:
@@ -143,15 +147,24 @@ class CloudflaredRunner:
             log.warning("failed to show a cloudflared notice", exc_info=True)
 
     def _executable(self) -> str | None:
+        """実行ファイルの場所。設定が正しい形でない・見つからないときは通知して None"""
         configured = self.cloudflared_path().strip()
-        return self.which(configured or "cloudflared")
+        # 設定の検証（settings.py）を、実行の直前にもう一度する（settings.json を直接書いたとき）
+        if not is_valid_cloudflared_path(configured):
+            log.warning("cloud.cloudflaredPath is not acceptable; not starting cloudflared")
+            self._notice(INVALID_PATH_NOTICE)
+            return None
+        exe = self.which(configured or "cloudflared")
+        if exe is None:
+            log.warning("cloudflared not found")
+            self._notice(NOT_FOUND_NOTICE)
+        return exe
 
     def _wait_port(self, stop: threading.Event) -> bool:
-        deadline = self.monotonic() + self.port_wait
+        """8001 番が開くのを、止められるまで待つ（諦めない。開けない知らせは TunnelPort が出す）"""
         while not self.port_ready():
-            if stop.is_set() or self.monotonic() >= deadline:
+            if stop.wait(self.poll_interval):
                 return False
-            stop.wait(0.1)
         return not stop.is_set()
 
     def _fetch_token(self) -> str:
@@ -171,18 +184,15 @@ class CloudflaredRunner:
         except Exception:  # noqa: BLE001 何があってもサーバーは止めない
             log.exception("cloudflared runner crashed")
         finally:
-            self._state = "stopped"
+            # 切り離された古いスレッドが、あとから動かし直した側の状態を上書きしない
+            if self._stop is stop:
+                self._state = "stopped"
 
     def _loop(self, stop: threading.Event) -> None:
         if not self._wait_port(stop):
-            # 8001 番が開かなければ動かさない（開けなかった知らせは TunnelPort が出す）
-            if not stop.is_set():
-                log.warning("the tunnel port is not open; not starting cloudflared")
             return
         exe = self._executable()
         if exe is None:
-            log.warning("cloudflared not found")
-            self._notice(NOT_FOUND_NOTICE)
             return
         backoff = self.initial_backoff
         while not stop.is_set():
@@ -190,15 +200,19 @@ class CloudflaredRunner:
             started: float | None = None
             try:
                 token = self._fetch_token()
+                # 取っている間に止められたら、トークンを渡した子を作らない
+                if stop.is_set():
+                    return
+                started = self.monotonic()
+                self._serve_once(exe, token, stop)
+                token = ""
             except RegistrationGone as e:
                 log.info("cloudflared stops: %s", e)
                 return
             except CloudError as e:
                 log.info("cannot get the tunnel token, retrying: %s", e)
-            else:
-                started = self.monotonic()
-                self._serve_once(exe, token, stop)
-                token = ""
+            except Exception:  # noqa: BLE001 想定外でも落とさず、間隔を空けて続ける
+                log.exception("cloudflared runner failed, retrying")
             if stop.is_set():
                 return
             if started is not None and self.monotonic() - started >= self.stable:

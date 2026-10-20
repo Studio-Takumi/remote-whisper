@@ -5,7 +5,7 @@ import os
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Literal
 
 import httpx
@@ -250,6 +250,24 @@ class DisplaySettings(_Model):
 DEFAULT_RELAY_URL = "https://rw-dev.studio-takumi.dev"
 
 
+def is_valid_cloudflared_path(value: str) -> bool:
+    """cloudflared の場所として受け付けるか。空、または絶対パスで UNC でなく、
+    ファイル名が cloudflared / cloudflared.exe（大文字小文字は無視）のもの。存在は実行時に見る
+
+    設定は認証なしの API から変えられるため、任意の実行ファイルや他のマシンのパスは通さない
+    """
+    if value == "":
+        return True
+    if "\0" in value or value.startswith(("\\\\", "//")):
+        return False
+    if not (PureWindowsPath(value).is_absolute() or PurePosixPath(value).is_absolute()):
+        return False
+    parts = value.replace("\\", "/").split("/")
+    if ".." in parts:
+        return False
+    return parts[-1].lower() in ("cloudflared", "cloudflared.exe")
+
+
 class CloudSettings(_Model):
     """クラウド版（spec/cloud.md 10 章）。録音中も変えられる"""
 
@@ -258,6 +276,16 @@ class CloudSettings(_Model):
     relay_url: str = DEFAULT_RELAY_URL
     # cloudflared の実行ファイル（#159）。空なら PATH の `cloudflared`。ダウンロードや同梱は #168
     cloudflared_path: str = Field(default="", min_length=0)
+
+    @field_validator("cloudflared_path")
+    @classmethod
+    def _cloudflared_path(cls, value: str) -> str:
+        if not is_valid_cloudflared_path(value):
+            raise ValueError(
+                "空か、cloudflared（cloudflared.exe）への絶対パスにしてください"
+                "（ネットワークのパス \\\\ や // は使えません）"
+            )
+        return value
 
     @field_validator("relay_url")
     @classmethod
