@@ -13,24 +13,77 @@ export function rememberUser(request: Request, userId: string) {
     userOf.set(request, userId);
 }
 
-const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const HOST_PATH = /^\/h\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\//;
 
-// パスの ID を伏せる。UUID と、数字や長い英数字の区切りは :id にする。区切りは 6 つまで、長さは 96 文字まで
+// パスに残してよい語（許可リスト）。Worker のパスと、ホストの API（server/src/remote_whisper/routes/）の語。
+// ここにない区切りは、プロジェクト ID（フォルダ名から作る）や用語などの本文かもしれないので残さない
+const KNOWN_SEGMENTS = new Set([
+    // Worker
+    'h',
+    'auth',
+    'login',
+    'callback',
+    'logout',
+    'google',
+    'discord',
+    'github',
+    'me',
+    'identities',
+    'hosts',
+    'metrics',
+    'recording',
+    'consent',
+    'consents',
+    'data_collection',
+    'pair',
+    'start',
+    'poll',
+    'unpair',
+    'tunnel',
+    'request',
+    'approve',
+    'reject',
+    // ホストの API
+    'api',
+    'ws',
+    'projects',
+    'sessions',
+    'settings',
+    'version',
+    'fs',
+    'mock',
+    'context-set',
+    'context-sets',
+    'corrections',
+    'disconnect',
+    'final-transcripts',
+    'health',
+    'move',
+    'options',
+    'selection',
+    'status',
+    'summaries',
+    'terms',
+    'transcript',
+    'upload',
+]);
+
+const METHODS = new Set(['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']);
+
+// パスを伏せる。許可リストの語だけ残し、UUID・数字・長い英数字は :id、ほかは :v にする。区切りは 6 つまで、96 文字まで
 export function normalizePath(path: string): string {
     const segments = path
         .split('/')
         .slice(1, 7)
         .map((s) => {
-            const plain = s.replace(UUID, ':id');
-            if (plain !== s) {
-                return plain.length > 3 + 1 ? ':id' : plain;
+            if (KNOWN_SEGMENTS.has(s)) {
+                return s;
             }
-            if (/^\d+$/.test(s) || /^[A-Za-z0-9_%.-]{16,}$/.test(s)) {
+            if (UUID.test(s) || /^\d+$/.test(s) || /^[A-Za-z0-9_%.-]{16,}$/.test(s)) {
                 return ':id';
             }
-            // 用語の削除などで本文がパスに入るものは、文字を残さない
-            return /^[a-z][a-z0-9-]{0,31}$/.test(s) ? s : ':v';
+            return s === '' ? '' : ':v';
         });
     return `/${segments.join('/')}`.slice(0, 96);
 }
@@ -82,7 +135,7 @@ export function httpDataPoint(request: Request, response: Response, ms: number):
         // 1 種類 2 メソッド 3 パス 4 国 5 ブラウザ 6 OS 7 ユーザー ID 8 ホスト ID 9 WebSocket か
         blobs: [
             kindOf(url.pathname),
-            /^[A-Z]{3,7}$/.test(request.method) ? request.method : 'OTHER',
+            METHODS.has(request.method) ? request.method : 'OTHER',
             normalizePath(url.pathname),
             country,
             browserOf(ua),

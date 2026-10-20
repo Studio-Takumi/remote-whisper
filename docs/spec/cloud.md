@@ -340,7 +340,7 @@ Worker は、`/healthz` 以外のすべての HTTP（ホストへの中継・ロ
 |---|---|
 | `blob1` | 種類（`relay`・`auth`・`pair`・`me`・`other`） |
 | `blob2` | メソッド |
-| `blob3` | パス。UUID・数字・16 文字以上の英数字は `:id`、見慣れない区切り（用語など）は `:v` に伏せる。クエリは書かない。区切り 6 つ・96 文字まで |
+| `blob3` | パス。決まった語（許可リスト）だけ残し、UUID・数字・16 文字以上の英数字は `:id`、ほか（プロジェクト ID・用語など）は `:v` に伏せる。クエリは書かない。区切り 6 つ・96 文字まで |
 | `blob4` | 国（`cf.country`。分からなければ `XX`） |
 | `blob5`・`blob6` | ブラウザ（`chrome`・`edge`・`firefox`・`safari`・`opera`・`other`）・OS（`windows`・`macos`・`ios`・`android`・`linux`・`other`） |
 | `blob7`・`blob8` | ユーザー ID（ログインしていれば）・ホスト ID（`/h/<id>/` のとき） |
@@ -348,9 +348,12 @@ Worker は、`/healthz` 以外のすべての HTTP（ホストへの中継・ロ
 | `double1`〜`double4` | ステータス・かかった ms・リクエストの本文の大きさ・応答の本文の大きさ（`Content-Length`。なければ -1） |
 | `index1` | ユーザー ID（ログインしていなければ種類）。サンプリングの単位 |
 
-ログイン・登録の回数は、パス（`/auth/callback/:v` の 302、`/pair/approve` の 200）で数える。IP アドレス・Cookie・本文は書かない（テストで確かめている）。
+- パスに残すのは、Worker と ホストの API の決まった語（`relay/src/metrics.ts` の `KNOWN_SEGMENTS`）だけ。ほかは `:id`（UUID・数字・16 文字以上の英数字）か `:v`。プロジェクト ID（フォルダ名から作る）や用語が残らないように、許可リストにしている。ホストの API に語を足したら、ここにも足す
+- メソッドは `GET`・`HEAD`・`POST`・`PUT`・`PATCH`・`DELETE`・`OPTIONS` だけ、ほかは `OTHER`
+- ログイン・登録の回数は、パス（`/auth/callback/<provider>` の 302、`/pair/approve` の 200）で数える。IP アドレス・Cookie・本文は書かない（テストで確かめている）
+- ログインした直後（callback）や、ログインしていないリクエストは、`blob7` が空になる
 
-よく使う集計（Analytics Engine の SQL API。サンプリングされるので、件数は `_sample_interval` を足す）:
+よく使う集計（Analytics Engine の SQL API。サンプリングされるので、件数は `_sample_interval` を足す。`count(DISTINCT …)` はサンプリングで少なめに出る）:
 
 ```sql
 -- 日ごとの、ログインしている人の数と WebSocket をつないだ回数
@@ -358,22 +361,22 @@ SELECT toStartOfDay(timestamp) AS day,
        count(DISTINCT blob7) AS users,
        sumIf(_sample_interval, blob9 = 'ws' AND double1 = 101) AS ws_connects
 FROM remote_whisper_staging
-WHERE timestamp > NOW() - INTERVAL '30' DAY
+WHERE timestamp > now() - INTERVAL '30' DAY
 GROUP BY day ORDER BY day;
 
 -- 中継した API の遅さ（パスごとの 50%・95%）
 SELECT blob3 AS path,
-       quantileWeighted(0.5)(double2, _sample_interval) AS p50_ms,
-       quantileWeighted(0.95)(double2, _sample_interval) AS p95_ms,
+       quantileExactWeighted(0.5)(double2, _sample_interval) AS p50_ms,
+       quantileExactWeighted(0.95)(double2, _sample_interval) AS p95_ms,
        sum(_sample_interval) AS requests
 FROM remote_whisper_staging
-WHERE blob1 = 'relay' AND timestamp > NOW() - INTERVAL '7' DAY
+WHERE blob1 = 'relay' AND timestamp > now() - INTERVAL '7' DAY
 GROUP BY path ORDER BY requests DESC LIMIT 20;
 
 -- エラーの多いところ（4xx・5xx）
 SELECT blob1 AS kind, blob3 AS path, double1 AS status, sum(_sample_interval) AS n
 FROM remote_whisper_staging
-WHERE double1 >= 400 AND timestamp > NOW() - INTERVAL '1' DAY
+WHERE double1 >= 400 AND timestamp > now() - INTERVAL '1' DAY
 GROUP BY kind, path, status ORDER BY n DESC LIMIT 20;
 ```
 

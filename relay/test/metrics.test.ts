@@ -2,7 +2,8 @@
 import { SELF, env } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
 
-import type { Env } from '../src/index';
+import { sha256 } from '../src/http';
+import worker, { type Env } from '../src/index';
 import { browserOf, httpDataPoint, normalizePath, osOf, recordHttp, rememberUser } from '../src/metrics';
 
 const ORIGIN = 'https://rw-dev.example';
@@ -18,6 +19,14 @@ describe('パスの ID を伏せる', () => {
         // 用語などの本文がパスに入っても、文字は残さない
         expect(normalizePath(`/h/${HOST}/api/terms/%E5%BF%83%E7%90%86`)).toBe('/h/:id/api/terms/:id');
         expect(normalizePath(`/h/${HOST}/api/terms/Kubernetes`)).toBe('/h/:id/api/terms/:v');
+        // 許可リストにない語は、小文字でも残さない（プロジェクト ID はフォルダ名から作る）
+        expect(normalizePath(`/h/${HOST}/api/projects/my-secret-lab`)).toBe('/h/:id/api/projects/:v');
+        expect(normalizePath(`/h/${HOST}/api/terms/kubernetes`)).toBe('/h/:id/api/terms/:v');
+        expect(normalizePath('/me/hosts/abc123')).toBe('/me/hosts/:v');
+        // 短い日本語・7 つ以上の区切り・末尾のスラッシュ
+        expect(normalizePath(`/h/${HOST}/api/terms/%E5%BF%83`)).toBe('/h/:id/api/terms/:v');
+        expect(normalizePath('/me/a/b/c/d/e/f/g')).toBe('/me/:v/:v/:v/:v/:v');
+        expect(normalizePath(`/h/${HOST}/`)).toBe('/h/:id/');
     });
 
     it('ブラウザと OS は大まかな種類だけ', () => {
@@ -68,6 +77,62 @@ describe('書く 1 行', () => {
         expect(point.blobs[8]).toBe('ws');
         expect(point.blobs[6]).toBe('');
         expect(point.indexes).toEqual(['relay']);
+    });
+});
+
+describe('Worker の結線', () => {
+    function fakeMetrics() {
+        const points: { blobs?: string[]; doubles?: number[] }[] = [];
+        const dataset = { writeDataPoint: (p: (typeof points)[number]) => points.push(p) };
+        return { points, dataset: dataset as unknown as AnalyticsEngineDataset };
+    }
+
+    it('答えたものごとに 1 行書く。/healthz は書かない。ログインしていればユーザー ID が入る', async () => {
+        const { points, dataset } = fakeMetrics();
+        const e = { ...env, METRICS: dataset } as Env;
+        await worker.fetch(new Request(`${ORIGIN}/healthz`), e);
+        expect(points).toHaveLength(0);
+        await worker.fetch(new Request(`${ORIGIN}/nope`), e);
+        expect(points).toHaveLength(1);
+        expect(points[0].blobs?.slice(0, 3)).toEqual(['other', 'GET', '/:v']);
+        expect(points[0].doubles?.[0]).toBe(404);
+
+        const userId = crypto.randomUUID();
+        const token = crypto.randomUUID();
+        const now = Date.now();
+        await env.DB.batch([
+            env.DB.prepare('INSERT INTO users (id, display_name, created_at) VALUES (?, ?, ?)').bind(userId, 'x', now),
+            env.DB.prepare(
+                'INSERT INTO web_sessions (id, user_id, token_hash, created_at, expires_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?)',
+            ).bind(crypto.randomUUID(), userId, await sha256(token), now, now + 3_600_000, now),
+        ]);
+        const res = await worker.fetch(
+            new Request(`${ORIGIN}/me`, { headers: { Cookie: `__Host-rw_session=${token}` } }),
+            e,
+        );
+        expect(res.status).toBe(200);
+        expect(points[1].blobs?.[6]).toBe(userId);
+    });
+
+    it('途中で例外になったら 500 として書き、例外はそのまま伝える', async () => {
+        const { points, dataset } = fakeMetrics();
+        const brokenDb = {
+            prepare: () => {
+                throw new Error('db down');
+            },
+        } as unknown as D1Database;
+        const e = { ...env, DB: brokenDb, METRICS: dataset } as Env;
+        await expect(
+            worker.fetch(new Request(`${ORIGIN}/me`, { headers: { Cookie: '__Host-rw_session=x' } }), e),
+        ).rejects.toThrow('db down');
+        expect(points[0].doubles?.[0]).toBe(500);
+    });
+
+    it('国は 2 文字の英大文字だけ（T1 などは XX）', () => {
+        const withCountry = (country: string) =>
+            new Request(`${ORIGIN}/me`, { cf: { country } } as unknown as RequestInit);
+        expect(httpDataPoint(withCountry('JP'), new Response(null), 1).blobs[3]).toBe('JP');
+        expect(httpDataPoint(withCountry('T1'), new Response(null), 1).blobs[3]).toBe('XX');
     });
 });
 
