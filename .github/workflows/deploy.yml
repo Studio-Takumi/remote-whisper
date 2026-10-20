@@ -62,6 +62,9 @@ jobs:
     concurrency:
       group: deploy-${{ needs.target.outputs.env }}
       cancel-in-progress: false
+    # GitHub の Environments（staging・production）。production は Deployment branches を main だけにしておく
+    # （docs/deploy.md）。ブランチ側の workflow を書き換えられても、本番には main からしか出せない
+    environment: ${{ needs.target.outputs.env }}
     env:
       DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
       TARGET: ${{ needs.target.outputs.env }}
@@ -92,11 +95,18 @@ jobs:
           # CI が通ったコミット。手動のときはその実行のコミット
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
+      # 本番に出すのは main だけ（手動でほかのブランチを選んでも止める）。
       # 本番の D1 の ID が仮のまま（本番の環境をまだ用意していない）なら、本番には出さずに止める
       - name: Check production config
         if: steps.secrets.outputs.enabled == 'true' && env.TARGET == 'production'
+        env:
+          REF: ${{ github.event.workflow_run.head_branch || github.ref_name }}
         run: |
-          if grep -q '"database_id": "00000000-0000-0000-0000-000000000001"' relay/wrangler.jsonc; then
+          if [ "$REF" != "main" ]; then
+            echo "::error title=Not main::本番に出せるのは main だけ（選んだのは $REF）"
+            exit 1
+          fi
+          if grep -qF '00000000-0000-0000-0000-000000000001' relay/wrangler.jsonc; then
             echo "::error title=Production not ready::relay/wrangler.jsonc の本番の D1 の ID が仮のまま（docs/deploy.md の「本番を用意する」）"
             exit 1
           fi

@@ -43,7 +43,7 @@
 
 ブランチを staging で確かめるときは、Actions → Deploy → Run workflow でブランチを選び、行き先を `staging` にする。
 
-本番の D1 の ID が仮のまま（`00000000-0000-0000-0000-000000000001`）だと、本番へのデプロイは「Production not ready」で止まる。
+本番の D1 の ID が仮のまま（`00000000-0000-0000-0000-000000000001`）だと、本番へのデプロイは「Production not ready」で止まる。本番に出せるのは main だけ（手動でほかのブランチを選ぶと「Not main」で止まる。下の GitHub の Environments でも守る）。
 
 ## 本番を一から用意する
 
@@ -51,18 +51,20 @@
 
 1. **D1**: `cd relay && npx wrangler d1 create remote-whisper` を動かし、出てきた `database_id` を `relay/wrangler.jsonc` の `env.production.d1_databases` に書いて PR を出す（ID は秘密ではない）
 2. **OAuth のクライアント**: Google・Discord は、今のクライアントのリダイレクト URI に `https://rw.studio-takumi.dev/auth/callback/<provider>` を足す（別のクライアントを作ってもよい）。GitHub は本番用の OAuth App を新しく作る
-3. **Worker の secret**: 上の表の Worker の secret を `--env production` で入れる。`CF_API_TOKEN` は staging と同じトークンでよい（トンネルの名前と接頭辞が環境で分かれている）
-4. **Analytics Engine**: アカウントで有効にしてあれば、`env.production` の `analytics_engine_datasets` を戻す（有効でないとデプロイが code 10089 で落ちる）
-5. **最初のデプロイ**: Actions → Deploy → Run workflow で、main・行き先 `production` を選ぶ。カスタムドメイン `rw.studio-takumi.dev` は `routes` の `custom_domain` で Worker が付ける（DNS を手で作らなくてよい）。`https://rw.studio-takumi.dev/healthz` が `{"ok":true,"env":"production",...}` を返すのを確かめる
-6. **自動デプロイを本番に替える**: GitHub → Settings → Secrets and variables → Actions → Variables に `PRODUCTION_READY` = `true` を足す
-7. **ホストの既定の接続先を本番にする**: `server/src/remote_whisper/settings.py` の `DEFAULT_RELAY_URL` と `web/src/settings.ts` の既定の `relayUrl` を `https://rw.studio-takumi.dev` にして PR を出す（すでに staging に登録したホストは、cloud.json の `relayUrl` を使い続ける）
+3. **GitHub の Environments**: GitHub → Settings → Environments で `production` を開き（デプロイを 1 回動かすと自動でできる。なければ New environment）、**Deployment branches and tags** を **Selected branches** にして `main` だけを足す。ブランチ側で workflow を書き換えられても、本番には main からしか出せなくなる。あわせて、本番だけ別の `CLOUDFLARE_API_TOKEN` を使うなら、その Environment の secret に入れる（Environment の secret はリポジトリの secret より先に使われる）
+4. **Worker の secret**: 上の表の Worker の secret を `--env production` で入れる。Worker がまだないと「新しく作るか」を聞かれるので、手順 6 の最初のデプロイのあとに入れてもよい（その間はログインできない）。`CF_API_TOKEN` は staging と同じトークンでも動く（トンネルの名前と接頭辞が環境で分かれている）が、漏れたときの影響を分けるなら環境ごとにトークンを作る
+5. **Analytics Engine**: アカウントで有効にしてあれば、`env.production` の `analytics_engine_datasets` を戻す（有効でないとデプロイが code 10089 で落ちる）
+6. **最初のデプロイ**: Actions → Deploy → Run workflow で、main・行き先 `production` を選ぶ。カスタムドメイン `rw.studio-takumi.dev` は `routes` の `custom_domain` で Worker が付ける（DNS のレコードを手で作らなくてよい。デプロイ用のトークンに Zone ／ Workers Routes ／ Edit が要る。断られたら DNS の権限も見る）。`https://rw.studio-takumi.dev/healthz` が `{"ok":true,"env":"production",...}` を返すのを確かめる
+7. **自動デプロイを本番に替える**: GitHub → Settings → Secrets and variables → Actions → Variables に `PRODUCTION_READY` = `true` を足す
+8. **ホストの既定の接続先を本番にする**: `server/src/remote_whisper/settings.py` の `DEFAULT_RELAY_URL` と `web/src/settings.ts` の既定の `relayUrl` を `https://rw.studio-takumi.dev` にして PR を出す（すでに staging に登録したホストは、cloud.json の `relayUrl` を使い続ける）
 
 ## 戻し方
 
 ### まずい版を出したとき
 
-- Worker を前の版に戻す: `cd relay && npx wrangler deployments list --env production` で版を見て、`npx wrangler rollback <版の ID> --env production`（ID を省くと 1 つ前）。画面（静的アセット）も一緒に戻る
-- 戻したあと、直した PR を main に入れれば、自動デプロイで新しい版が出る
+- Worker を前の版に戻す: `cd relay && npx wrangler deployments list --env production` で版を見て、`npx wrangler rollback <版の ID> --env production --message "<理由>"`（ID を省くと 1 つ前。確認を飛ばすなら `-y`）。画面（静的アセット）も一緒に戻る
+- 戻らないもの: D1 のマイグレーション（足すだけなので、古い版でも動く）と secret
+- 戻した版は main とずれる。直した PR を main に入れれば、自動デプロイで新しい版が出て、ずれもなくなる
 
 ### デプロイに失敗したとき
 
@@ -71,6 +73,6 @@
 
 ### D1 のデータを戻すとき（Time Travel）
 
-- D1 は 30 日分の任意の時点に戻せる。`npx wrangler d1 time-travel info remote-whisper --env production` で今の bookmark を控えてから、`npx wrangler d1 time-travel restore remote-whisper --env production --timestamp <UNIX 秒か RFC3339>` で戻す
+- D1 は保持期間の中の任意の時点に戻せる（期間はプランによる。無料プランは短い（7 日）ので、Cloudflare のドキュメントで今の値を確かめる）。`npx wrangler d1 time-travel info remote-whisper --env production` で今の bookmark を控えてから、`npx wrangler d1 time-travel restore remote-whisper --env production --timestamp <UNIX 秒か RFC3339>` で戻す
 - 戻すとその時点より後の書き込み（ログイン・登録・同意）は消える。ユーザーに影響するので、戻す前に Worker を止める（`wrangler rollback` で古い版にする、など）かを決める
 - staging で手順を一度試してから本番でやる

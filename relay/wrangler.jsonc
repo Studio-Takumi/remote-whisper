@@ -1,8 +1,8 @@
 // クラウド版の中間サーバー（仕様書 spec/cloud.md 10 章）。環境は dev（ローカル）・staging・production（#167）
-// 秘密情報（OAuth のクライアント・API トークン）はここに書かない。ローカルは .dev.vars、staging は wrangler secret
+// 秘密情報（OAuth のクライアント・API トークン）はここに書かない。ローカルは .dev.vars、staging・本番は wrangler secret
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  // 上の段はローカル（wrangler dev）用。デプロイは --env staging（本番の env は #167 で足す）
+  // 上の段はローカル（wrangler dev）用。デプロイは --env staging か --env production（docs/deploy.md）
   "name": "remote-whisper-dev",
   "main": "src/index.ts",
   "compatibility_date": "2026-09-01",
