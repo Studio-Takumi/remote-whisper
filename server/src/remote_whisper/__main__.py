@@ -9,7 +9,6 @@
 import argparse
 import logging
 import threading
-import time
 
 import uvicorn
 
@@ -48,7 +47,6 @@ def main() -> None:
     home = default_home()
     # ログは <データのルート>/log/server.log にも書く（#134）。uvicorn のログもそこに入れ、
     # アクセスログは自前（API のリクエストだけ。app.py）で書く
-    tunnel: TunnelPort | None = None
     path = logs.setup(home)
     log.info("writing logs to %s", path)
     try:
@@ -58,10 +56,9 @@ def main() -> None:
         )
         server = uvicorn.Server(config)
         # トンネル専用の 8001 番（#160）。クラウドに登録しているときだけ開く
+        # 8000 番と同じイベントループで動かす。ループは app の lifespan が渡す
         tunnel = TunnelPort(app, home)
-        threading.Thread(
-            target=_open_tunnel_when_started, args=(server, tunnel), name="tunnel-open", daemon=True
-        ).start()
+        app.state.tunnel = tunnel
         if args.no_tray or not tray.available():
             server.run()
             return
@@ -75,6 +72,8 @@ def main() -> None:
         )
         # 登録したら 8001 番を開き、解除したら閉じる
         cloud_host.on_registration_change = tunnel.sync
+        # ポートが使えなかったら、トレイの通知で知らせる
+        tunnel.on_error = lambda message: cloud_host.on_notice(message)
         icon = tray.Tray(
             status=lambda: app.state.ctx.hub.status,
             url=f"http://{host}:{args.port}/",
@@ -94,22 +93,8 @@ def main() -> None:
         finally:
             icon.stop()
     finally:
-        if tunnel is not None:
-            tunnel.close()
         log.info("server stopped")
         logs.shutdown()
-
-
-def _open_tunnel_when_started(server: uvicorn.Server, tunnel: TunnelPort) -> None:
-    """8000 番が立ち上がってから（アプリの起動を終えてから）、登録済みなら 8001 番を開く"""
-    while not server.started:
-        if server.should_exit:
-            return
-        time.sleep(0.1)
-    try:
-        tunnel.sync()
-    except Exception:  # noqa: BLE001 8001 番が開けなくても、8000 番は動かし続ける
-        log.exception("failed to open the tunnel port")
 
 
 def _serve_with_tray_on_main_thread(server: uvicorn.Server, icon: "tray.Tray") -> None:

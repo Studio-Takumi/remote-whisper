@@ -5,10 +5,12 @@
 - 8001 番は 127.0.0.1 だけで、登録済み（cloud.json に relayKey がある）のときだけ開く
 """
 
+import asyncio
+import concurrent.futures
 import hmac
 import json
 import logging
-import threading
+import re
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -32,6 +34,9 @@ RELAY_HEADER = "X-RW-Relay"
 MAX_SKEW_SEC = 60
 # WebSocket を断るときの終了コード（アプリ独自の 4401）
 WS_CLOSE_UNAUTHORIZED = 4401
+TS_PATTERN = re.compile(r"[0-9]{1,12}")
+# 閉じるときに、つながっている接続を待つ時間（秒）。過ぎたら強制的に切る
+CLOSE_TIMEOUT_SEC = 10.0
 
 
 def relay_canonical(user_id: str, host_id: str, ts: int, method: str, path: str) -> bytes:
@@ -66,7 +71,8 @@ def verify_relay(
     if fields["host"] != host_id:
         return None
     ts_text = fields["ts"]
-    if not ts_text.isascii() or not ts_text.isdigit():
+    # 1〜12 桁の ASCII の数字だけ（長すぎる値で int() が例外を出さないように）
+    if not TS_PATTERN.fullmatch(ts_text):
         return None
     ts = int(ts_text)
     if abs(now - ts) > MAX_SKEW_SEC:
@@ -91,16 +97,25 @@ def _raw_path(scope: dict) -> str:
     return raw.decode("latin-1")
 
 
-def _is_api_path(path: str) -> bool:
-    """8001 番で出すのは `/api/` の下と `/ws` だけ"""
-    return path == "/ws" or path.startswith("/api/")
+def _is_api_path(raw: str, decoded: str) -> bool:
+    """8001 番で出すのは `/api/` の下と `/ws` だけ。`..` や `%2F`・`%5C`・`%2e` を含むものは出さない
+
+    Worker は、こういうパスには署名しない。ホスト側でも、画面（SPA の静的ファイル）に
+    抜けられないように断る（署名が合っていても）
+    """
+    lowered = raw.lower()
+    if any(token in lowered for token in ("%2f", "%5c", "%2e", "\\")):
+        return False
+    if any(segment in (".", "..") for segment in decoded.split("/")):
+        return False
+    return all(p == "/ws" or p.startswith("/api/") for p in (raw, decoded))
 
 
 class RelayAuthApp:
     """アプリを包み、署名のないリクエストを断る ASGI アプリ（8001 番だけに使う）
 
     `credentials` は (ホスト ID, 中継の鍵) を返す。登録していなければ None（すべて 401）。
-    鍵は都度読む（登録・解除に追従するため）
+    登録・解除に追従するため、`TunnelPort.sync()` が cloud.json を読み直してこれを差し替える
     """
 
     def __init__(
@@ -126,7 +141,7 @@ class RelayAuthApp:
         if scope["type"] not in ("http", "websocket") or not self._authorized(scope):
             await self._reject(scope, receive, send)
             return
-        if not (_is_api_path(_raw_path(scope)) and _is_api_path(scope["path"])):
+        if not _is_api_path(_raw_path(scope), scope["path"]):
             # 署名が合っていても、画面（SPA の静的ファイル）は 8001 番では出さない
             await self._not_found(scope, receive, send)
             return
@@ -213,6 +228,10 @@ def stored_credentials(home: Path) -> Callable[[], tuple[str, bytes] | None]:
 class TunnelPort:
     """トンネル専用のポートを、登録・解除に合わせて開け閉めする
 
+    8000 番と同じイベントループの上で動かす（アプリの GPU キュー・ハブ・asyncio.Lock などは
+    8000 番のループに結びついているため、別のループで動かすと固まる）。ループは
+    `attach()` で受け取る（アプリの lifespan から呼ぶ）。`sync()` はどのスレッドからでも呼べる
+
     `sync()` を、起動時・登録したとき・解除したときに呼ぶ。登録済みなら開き、そうでなければ閉じる
     """
 
@@ -224,69 +243,137 @@ class TunnelPort:
         host: str = TUNNEL_HOST,
         port: int = TUNNEL_PORT,
         clock: Callable[[], float] = time.time,
+        on_error: Callable[[str], None] | None = None,
     ):
         self.home = home
         self.host = host
         self.port = port
-        self._wrapped = RelayAuthApp(app, stored_credentials(home), clock)
-        self._lock = threading.Lock()
+        # ポートが開けなかったときの知らせ（トレイの通知）
+        self.on_error: Callable[[str], None] = on_error or (lambda message: None)
+        # sync() が読み直す。RelayAuthApp はこれを見る（リクエストのたびにファイルは読まない）
+        self._creds: tuple[str, bytes] | None = None
+        self._wrapped = RelayAuthApp(app, lambda: self._creds, clock)
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._lock: asyncio.Lock | None = None
+        self._closed = False
         self._server: uvicorn.Server | None = None
-        self._thread: threading.Thread | None = None
+        self._task: asyncio.Task[None] | None = None
 
     @property
     def is_open(self) -> bool:
-        return self._thread is not None and self._thread.is_alive()
+        return self._task is not None and not self._task.done()
 
-    def sync(self) -> None:
-        if stored_credentials(self.home)() is not None:
-            self.open()
-        else:
-            self.close()
+    def attach(self, loop: asyncio.AbstractEventLoop) -> None:
+        """8000 番のループを受け取り、登録済みなら開く（ループの上から呼ぶ）"""
+        self._loop = loop
+        self._lock = asyncio.Lock()
+        self.sync()
 
-    def open(self) -> None:
-        with self._lock:
-            if self.is_open:
-                return
-            config = uvicorn.Config(
-                self._wrapped,
-                host=self.host,
-                port=self.port,
-                log_config=None,
-                access_log=False,
-                lifespan="off",
-            )
-            server = uvicorn.Server(config)
-            thread = threading.Thread(
-                target=self._run, args=(server,), name="tunnel-port", daemon=True
-            )
-            self._server = server
-            self._thread = thread
-            thread.start()
-            log.info("tunnel port opening on %s:%s", self.host, self.port)
+    def sync(self) -> concurrent.futures.Future[None] | None:
+        """cloud.json を読み直し、登録済みなら開き、そうでなければ閉じる（どのスレッドからでも）
 
-    def close(self) -> None:
-        with self._lock:
-            server, thread = self._server, self._thread
-            self._server = self._thread = None
-        if server is None or thread is None:
+        開け閉めはループに頼む。戻り値はその完了を待つ Future（ループがまだなければ None）
+        """
+        self._creds = stored_credentials(self.home)()
+        loop = self._loop
+        if loop is None:
+            return None
+        try:
+            return asyncio.run_coroutine_threadsafe(self._apply(), loop)
+        except RuntimeError:  # ループが閉じている（終了中）
+            return None
+
+    async def aclose(self) -> None:
+        """終了時に、二度と開かないようにして閉じる（8000 番の後片付けより先に呼ぶ）"""
+        self._closed = True
+        self._creds = None
+        if self._lock is not None:
+            await self._apply()
+
+    async def _apply(self) -> None:
+        assert self._lock is not None
+        async with self._lock:
+            want = self._creds is not None and not self._closed
+            try:
+                if want and not self.is_open:
+                    await self._open()
+                elif not want and self.is_open:
+                    await self._close()
+            except Exception:  # noqa: BLE001 開け閉めに失敗しても、8000 番は動かし続ける
+                log.exception("failed to update the tunnel port")
+
+    async def _open(self) -> None:
+        config = uvicorn.Config(
+            self._wrapped,
+            host=self.host,
+            port=self.port,
+            log_config=None,
+            access_log=False,
+            lifespan="off",
+            # cloudflared が付ける X-Forwarded-* を信じない
+            proxy_headers=False,
+            forwarded_allow_ips="",
+            timeout_graceful_shutdown=int(CLOSE_TIMEOUT_SEC / 2),
+        )
+        server = uvicorn.Server(config)
+        started: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
+        self._server = server
+        self._task = asyncio.create_task(self._serve(server, started), name="tunnel-port")
+        if await started:
+            log.info("tunnel port opened on %s:%s", self.host, self.port)
+            return
+        self._server = self._task = None
+        message = (
+            f"トンネル専用のポート（{self.port} 番）を開けませんでした。"
+            "ほかのプログラムが使っていないか確かめてください"
+        )
+        log.warning(message)
+        try:
+            self.on_error(message)
+        except Exception:  # noqa: BLE001
+            log.warning("failed to show a tunnel notice", exc_info=True)
+
+    @staticmethod
+    async def _serve(server: uvicorn.Server, started: "asyncio.Future[bool]") -> None:
+        """uvicorn.Server.serve() の代わり。シグナルのハンドラーは触らない（8000 番が受け持つ）"""
+        try:
+            server.config.load()
+            server.lifespan = server.config.lifespan_class(server.config)
+            await server.startup()
+        except (Exception, SystemExit):
+            # uvicorn は bind に失敗すると、ログを出して SystemExit を投げる
+            log.warning("tunnel port could not start", exc_info=True)
+            started.set_result(False)
+            return
+        started.set_result(True)
+        try:
+            await server.main_loop()
+        finally:
+            await server.shutdown()
+
+    async def _close(self) -> None:
+        server, task = self._server, self._task
+        if server is None or task is None:
             return
         server.should_exit = True
-        thread.join(10)
+        done, _ = await asyncio.wait({task}, timeout=CLOSE_TIMEOUT_SEC)
+        if not done:
+            log.warning("tunnel port did not close in time; forcing it")
+            server.force_exit = True
+            done, _ = await asyncio.wait({task}, timeout=CLOSE_TIMEOUT_SEC)
+        if not done:
+            # 閉じきれなかった。状態は残し（is_open のまま）、次の sync() でもう一度閉じにいく
+            log.warning("tunnel port is still open")
+            return
+        self._server = self._task = None
         log.info("tunnel port closed")
 
     def wait_started(self, timeout: float = 10.0) -> bool:
-        """開くのを待つ（テスト用）"""
-        server = self._server
+        """開くのを待つ（テスト用。別のスレッドから呼ぶ）"""
         deadline = time.monotonic() + timeout
-        while server is not None and not server.started and time.monotonic() < deadline:
-            if not self.is_open:
-                return False
+        while time.monotonic() < deadline:
+            server = self._server
+            if server is not None and server.started:
+                return True
             time.sleep(0.01)
-        return server is not None and server.started
-
-    @staticmethod
-    def _run(server: uvicorn.Server) -> None:
-        try:
-            server.run()
-        except BaseException:  # noqa: BLE001 uvicorn は bind に失敗すると SystemExit を投げる
-            log.exception("tunnel port stopped")
+        return False

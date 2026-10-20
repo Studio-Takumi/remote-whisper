@@ -120,8 +120,15 @@ def create_app(
         # 音声の受信量と送ったメッセージの数を、1 分ごとにまとめてログに書く（#134）
         traffic_task = asyncio.create_task(traffic.run())
         log.info("server started (version %s, data in %s)", app_version(), home)
+        # トンネル専用の 8001 番（#160）は、このアプリと同じイベントループの上で動かす
+        tunnel = app.state.tunnel
+        if tunnel is not None:
+            tunnel.attach(asyncio.get_running_loop())
         yield
         log.info("server stopping")
+        if tunnel is not None:
+            # 片付ける前に、8001 番からの新しいリクエストを止める
+            await tunnel.aclose()
         traffic_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await traffic_task
@@ -148,6 +155,8 @@ def create_app(
         home=home, settings=SettingsStore(home), projects=ProjectStore(home), mock=mock
     )
     app.state.ctx = ctx
+    # トンネル専用のポート（tunnel.TunnelPort。__main__ が入れる）
+    app.state.tunnel = None
     janitor = Janitor(ctx.projects, ctx.settings)
     gpu_stats = GpuStats(lambda stats: ctx.hub.set_status(gpu=stats))
     # 結果を待たないタスク（途中で回収されないように持っておく）
