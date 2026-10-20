@@ -4,12 +4,12 @@ Cloudflare Workers で動く、クラウド版の中間サーバー。画面（`
 
 ## 構成
 
-|                  |                                                                                                                                               |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/index.ts`   | Worker の入口。`run_worker_first` のパス（`/h/`・`/auth/`・`/me/`・`/pair`・`/healthz`）だけここに来る。ほかは静的アセット（`web/dist`、SPA） |
-| `migrations/`    | D1 のマイグレーション（足すだけにする。列や表を消す・名前を変えるものは 2 回に分けて出す）                                                    |
-| `test/`          | Vitest（`@cloudflare/vitest-plugin`。Workers の実行環境の中で、ローカルの D1 ごと動かす）                                                     |
-| `wrangler.jsonc` | 環境ごとの設定。上の段はローカル用、`--env staging` は `rw-dev.studio-takumi.dev`                                                             |
+|                  |                                                                                                                                                                                             |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/index.ts`   | Worker の入口。`run_worker_first` のパス（`/h/`・`/auth/`・`/me`・`/pair/`・`/healthz`）だけここに来る。ほかは静的アセット（`web/dist`、SPA。登録の確認画面 `/pair?code=...` も画面が出す） |
+| `migrations/`    | D1 のマイグレーション（足すだけにする。列や表を消す・名前を変えるものは 2 回に分けて出す）                                                                                                  |
+| `test/`          | Vitest（`@cloudflare/vitest-plugin`。Workers の実行環境の中で、ローカルの D1 ごと動かす）                                                                                                   |
+| `wrangler.jsonc` | 環境ごとの設定。上の段はローカル用、`--env staging` は `rw-dev.studio-takumi.dev`                                                                                                           |
 
 ## 開発
 
@@ -31,7 +31,7 @@ main に入ったら自動でデプロイする（#170）。手で出すとき�
 
 ```sh
 cd web && npm run build && cd ../relay
-npm run migrate:staging   # 本番の D1 に足すだけのマイグレーションを当てる
+npm run migrate:staging   # staging の D1 にマイグレーションを当てる（足すだけにする）
 npm run deploy:staging    # https://rw-dev.studio-takumi.dev
 curl https://rw-dev.studio-takumi.dev/healthz
 ```

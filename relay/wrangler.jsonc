@@ -7,6 +7,7 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-09-01",
   "workers_dev": false,
+  "preview_urls": false,
   "dev": { "port": 8787 },
   // 画面（web/dist）は同じオリジンで配る。run_worker_first のパスだけ Worker が答え、ほかは静的アセット
   // （画面の URL は SPA なので、ないパスは index.html を返す）
@@ -14,7 +15,7 @@
     "directory": "../web/dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/h/*", "/auth/*", "/me/*", "/pair", "/pair/*", "/healthz"],
+    "run_worker_first": ["/h/*", "/auth/*", "/me", "/me/*", "/pair/*", "/healthz"],
   },
   "d1_databases": [
     {
@@ -30,6 +31,7 @@
     "staging": {
       "name": "remote-whisper-staging",
       "workers_dev": false,
+      "preview_urls": false,
       // workers.dev は使わない（画面がクラウド版と判定しないため。10.15 節）
       "routes": [{ "pattern": "rw-dev.studio-takumi.dev", "custom_domain": true }],
       "d1_databases": [

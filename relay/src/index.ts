@@ -1,7 +1,7 @@
 // クラウド版の中間サーバー（Cloudflare Workers）。仕様書 spec/cloud.md 10 章
 //
 // 画面（web/dist）は静的アセットとして配る（wrangler.jsonc の assets）。ここに来るのは、
-// run_worker_first に書いたパス（/h/・/auth/・/me/・/pair・/healthz）だけ。
+// run_worker_first に書いたパス（/h/・/auth/・/me・/pair/・/healthz）だけ（登録の確認画面 /pair?code= は画面が出す）。
 // ログイン（#155）・ホストの登録（#157）・中継（#160）は、それぞれの Issue で足す
 
 export interface Env {
