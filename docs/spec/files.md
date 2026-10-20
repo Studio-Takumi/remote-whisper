@@ -313,7 +313,7 @@ baseContextSet: 20261009-090501  # 作り直したとき、元の（資料全体
 
 `appVersion` は、そのファイルを書いたサーバーのバージョン。バージョン番号は運用しないので、git のコミットハッシュ（短いもの）をバージョンとして扱う。サーバーを起動したときに `git rev-parse --short HEAD` で取り、コミットしていない変更（追跡しているファイルの変更）があれば `+dirty` を付ける（例: `2b23d9b+dirty`）。git が使えなければ `unknown`。項目のない古いファイルも読める。
 
-**要約 `summary-<ID>-<生成 ID>.md`**
+**要約 `summary-<ID>-<版 ID>.md`**
 
 ```markdown
 ---
@@ -337,7 +337,7 @@ detailDensity: 3
 （要約の本文）
 ```
 
-**浄書済み文字起こし `transcript-final-<ID>-<生成 ID>.md`**（6.9 節）
+**浄書済み文字起こし `transcript-final-<ID>-<版 ID>.md`**（6.9 節）
 
 ```markdown
 ---
