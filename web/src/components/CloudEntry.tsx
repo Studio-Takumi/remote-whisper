@@ -2,10 +2,10 @@
 // 同意とホストの選択の画面はまだなく、何が入るかだけを出す
 import { useEffect } from 'react';
 
-import { PROVIDER_LABELS, type Provider, fetchMe, loginHref, logout, useAccountStore } from '@/account';
+import { fetchMe, logout, useAccountStore } from '@/account';
 import { useCloudStore } from '@/cloud';
 import type { CloudStage } from '@/cloud';
-import { Button } from '@/components/ui/button';
+import { LoginButtons } from '@/components/LoginButtons';
 
 const PLACEHOLDERS: Record<Exclude<CloudStage, 'login'>, { title: string; body: string }> = {
     consent: {
@@ -15,8 +15,6 @@ const PLACEHOLDERS: Record<Exclude<CloudStage, 'login'>, { title: string; body: 
     hosts: { title: 'ホストの選択', body: '使うホスト（文字起こしをするマシン）を選ぶ画面が入ります（#161）。' },
     ready: { title: 'ホストにつながっています', body: '' },
 };
-
-const PROVIDERS: Provider[] = ['google', 'discord', 'github'];
 
 export function CloudEntry() {
     const stage = useCloudStore((s) => s.cloud.stage);
@@ -50,20 +48,7 @@ export function CloudEntry() {
             {stage === 'login' ? (
                 <>
                     <h1 className='text-xl font-semibold'>ログイン</h1>
-                    {checked ? (
-                        <div className='flex flex-col gap-2'>
-                            {PROVIDERS.map((p) => (
-                                <Button key={p} variant='outline' asChild>
-                                    {/* ログインのあとは、今開いている画面に戻る */}
-                                    <a href={loginHref(p, { returnTo: location.pathname + location.search })}>
-                                        {PROVIDER_LABELS[p]} でログイン
-                                    </a>
-                                </Button>
-                            ))}
-                        </div>
-                    ) : (
-                        <p className='text-sm text-muted-foreground'>確かめています…</p>
-                    )}
+                    {checked ? <LoginButtons /> : <p className='text-sm text-muted-foreground'>確かめています…</p>}
                 </>
             ) : (
                 <>

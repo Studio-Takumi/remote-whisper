@@ -23,7 +23,48 @@ export async function handleMe(request: Request, env: Env, path: string): Promis
     if (m && request.method === 'DELETE') {
         return removeIdentity(env, user.userId, m[1]);
     }
+    if (path === '/me/hosts' && request.method === 'GET') {
+        return hosts(env, user.userId);
+    }
+    const h = /^\/me\/hosts\/([^/]+)$/.exec(path);
+    if (h && request.method === 'DELETE') {
+        return removeHost(env, user.userId, h[1]);
+    }
     return error(404, 'Not found');
+}
+
+// 自分のホスト（#157）。中継の鍵や公開鍵は出さない
+async function hosts(env: Env, userId: string): Promise<Response> {
+    const rows = await env.DB.prepare(
+        'SELECT id, name, app_version, created_at, last_seen_at FROM hosts WHERE user_id = ? ORDER BY created_at',
+    )
+        .bind(userId)
+        .all<{
+            id: string;
+            name: string;
+            app_version: string | null;
+            created_at: number;
+            last_seen_at: number | null;
+        }>();
+    return json({
+        hosts: rows.results.map((h) => ({
+            id: h.id,
+            name: h.name,
+            appVersion: h.app_version,
+            createdAt: h.created_at,
+            lastSeenAt: h.last_seen_at,
+        })),
+    });
+}
+
+// 画面からホストを外す。トンネルと DNS レコードを消すのは #159 で足す
+async function removeHost(env: Env, userId: string, hostId: string): Promise<Response> {
+    const res = await env.DB.prepare('DELETE FROM hosts WHERE id = ? AND user_id = ?').bind(hostId, userId).run();
+    if (res.meta.changes === 0) {
+        return error(404, 'そのホストはありません');
+    }
+    await env.DB.prepare('DELETE FROM pairing_requests WHERE host_id = ?').bind(hostId).run();
+    return hosts(env, userId);
 }
 
 async function me(env: Env, userId: string): Promise<Response> {

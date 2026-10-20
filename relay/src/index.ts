@@ -2,9 +2,10 @@
 //
 // 画面（web/dist）は静的アセットとして配る（wrangler.jsonc の assets）。ここに来るのは、
 // run_worker_first に書いたパス（/h/・/auth/・/me・/pair/・/healthz）だけ（登録の確認画面 /pair?code= は画面が出す）。
-// ホストの登録（#157）・中継（#160）は、それぞれの Issue で足す
+// 中継（#160）は、その Issue で足す
 import { handleAuth } from './auth';
 import { handleMe } from './me';
+import { handlePairing } from './pairing';
 
 export interface Env {
     DB: D1Database;
@@ -31,6 +32,9 @@ export default {
         }
         if (path === '/me' || path.startsWith('/me/')) {
             return handleMe(request, env, path);
+        }
+        if (path.startsWith('/pair/')) {
+            return handlePairing(request, env, path);
         }
         return new Response('Not found', { status: 404 });
     },
