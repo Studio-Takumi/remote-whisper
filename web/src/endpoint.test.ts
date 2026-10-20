@@ -37,6 +37,7 @@ describe('URL の組み立て', () => {
     });
     it('クラウド版でホストが未選択ならエラー', () => {
         expect(() => apiUrl('/api/projects', 'cloud', null)).toThrow();
+        expect(() => apiUrl('/api/projects', 'cloud', '')).toThrow();
         expect(() => wsUrl({ protocol: 'https:', host: 'x' }, 'cloud', null)).toThrow();
     });
     it('ホスト ID はエスケープする', () => {

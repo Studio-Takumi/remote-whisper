@@ -21,7 +21,7 @@ export function detectMode(hostname: string, cloudHosts: string[]): Mode {
 export const mode: Mode = detectMode(location.hostname, parseCloudHosts(import.meta.env.VITE_CLOUD_HOSTS));
 export const isCloud = mode === 'cloud';
 
-// 今つないでいるホスト（クラウド版のみ）。cloud.ts が、ホストを選んだときに入れる
+// 今つないでいるホスト（クラウド版のみ）。setHostId は cloud.ts の dispatch からだけ呼ぶ（ほかから直接呼ばない）
 let currentHostId: string | null = null;
 
 export function setHostId(hostId: string | null) {
