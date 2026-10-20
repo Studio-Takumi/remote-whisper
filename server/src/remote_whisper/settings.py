@@ -246,6 +246,32 @@ class DisplaySettings(_Model):
     show_speakers: bool = False
 
 
+# 中間サーバー（Worker）の URL の既定。今は staging。本番ができたら（#167）本番のドメインにする
+DEFAULT_RELAY_URL = "https://rw-dev.studio-takumi.dev"
+
+
+class CloudSettings(_Model):
+    """クラウド版（spec/cloud.md 10 章）。録音中も変えられる"""
+
+    # 中間サーバー（Worker）の URL。ホストの登録（#158）で使う。開発ではローカルの
+    # wrangler dev（http://localhost:8787）にもできる。https か、この PC の中への http だけ
+    relay_url: str = DEFAULT_RELAY_URL
+
+    @field_validator("relay_url")
+    @classmethod
+    def _relay_url(cls, value: str) -> str:
+        try:
+            url = httpx.URL(value)
+        except httpx.InvalidURL as e:
+            raise ValueError(f"URL として読めません: {e}") from e
+        local = url.host in ("localhost", "127.0.0.1", "::1")
+        if not (url.scheme == "https" or (url.scheme == "http" and local)) or not url.host:
+            raise ValueError("https:// の URL（ローカルの開発なら http://localhost）にしてください")
+        if url.query or url.fragment or url.path not in ("", "/"):
+            raise ValueError("パスのない URL（https://example.com）にしてください")
+        return value.rstrip("/")
+
+
 class Settings(_Model):
     version: int = SETTINGS_VERSION
     whisper: WhisperSettings = Field(default_factory=WhisperSettings)
@@ -254,6 +280,7 @@ class Settings(_Model):
     retention_days: RetentionDays = Field(default_factory=RetentionDays)
     materials: MaterialsSettings = Field(default_factory=MaterialsSettings)
     display: DisplaySettings = Field(default_factory=DisplaySettings)
+    cloud: CloudSettings = Field(default_factory=CloudSettings)
     # サイドバーのプロジェクトの並び順（プロジェクト ID。#173）。
     # ここにないプロジェクトは先頭に出す。消えたプロジェクトの ID が残っていても読むときに無視する。
     # 録音中も変えられる（#133）
