@@ -211,7 +211,7 @@ def test_invalid_pid_is_rejected(home):
         assert e.value.status == 404
 
 
-# --- project.json の作り直し（spec 5.4） ---
+# --- project.json の作り直し（spec/files.md 5.4） ---
 
 
 def _populate(store: ProjectStore, pid: str, path: str) -> ProjectFile:

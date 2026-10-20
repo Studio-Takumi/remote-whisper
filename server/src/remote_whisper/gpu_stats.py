@@ -1,4 +1,4 @@
-"""GPU の使用率と VRAM を数秒おきに取って、status の gpu で送る。spec 7.2
+"""GPU の使用率と VRAM を数秒おきに取って、status の gpu で送る。spec/api.md 7.2
 
 NVIDIA の GPU がない・ドライバがない・nvidia-ml-py が入っていない環境では何もしない
 （status の gpu は null のまま。サーバーはそのまま動く）。

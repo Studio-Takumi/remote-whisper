@@ -8,7 +8,7 @@ import { jobKindLabel } from '@/status';
 import { useAppStore } from '@/store';
 import { formatElapsed } from '@/time';
 
-// 上のバーに小さく出す GPU の状態（使用率と、GPU キューのジョブの数）。押すとジョブの一覧が開く（spec 6.3・8）
+// 上のバーに小さく出す GPU の状態（使用率と、GPU キューのジョブの数）。押すとジョブの一覧が開く（spec/flows.md 6.3・spec/ui.md 8）
 // 録音中でも見られるよう、設定のロックの外に置く
 export function GpuIndicator() {
     const jobs = useAppStore((s) => s.server.jobs);

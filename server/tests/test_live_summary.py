@@ -213,7 +213,7 @@ def test_short_retry_keeps_the_longer_of_the_two(home, fake, monkeypatch):
 
 
 def test_closed_sections_survive_a_failure(home, fake, monkeypatch):
-    # 区間を確定させた後に失敗しても、確定した区間は残し、次の回は続きから作る（spec 6.4）
+    # 区間を確定させた後に失敗しても、確定した区間は残し、次の回は続きから作る（spec/flows.md 6.4）
     monkeypatch.setattr(live_summary, "CHUNK_CHARS", 60)
 
     async def main():

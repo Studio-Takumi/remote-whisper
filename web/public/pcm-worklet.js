@@ -1,4 +1,4 @@
-// AudioWorklet。マイクの音声を 16kHz・モノラル・Int16 の PCM にして、メインスレッドに送る（spec 7.2）
+// AudioWorklet。マイクの音声を 16kHz・モノラル・Int16 の PCM にして、メインスレッドに送る（spec/api.md 7.2）
 // AudioContext のサンプルレート（48kHz など）から 16kHz へは、ローパスをかけてから線形補間で間引く
 //
 // メインスレッドからのメッセージ:

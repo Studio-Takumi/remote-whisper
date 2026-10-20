@@ -420,7 +420,7 @@ function FinalTranscriptBar({ session, making }: { session: Session; making: boo
 }
 
 // 最終の要約。既定は、今選んでいるモデルの要約のうちいちばん新しいもの。なければモデルを問わずいちばん新しいもの。
-// 世代が複数あれば切り替えられる（spec 6.5）
+// 世代が複数あれば切り替えられる（spec/flows.md 6.5）
 function SummaryPanel({
     session,
     models,
@@ -507,7 +507,7 @@ function SummaryPanel({
         </div>
     );
 
-    // 最終の要約を作れなかったこと（spec 6.7）。Ollama が戻っていれば、作り直しを勧める
+    // 最終の要約を作れなかったこと（spec/flows.md 6.7）。Ollama が戻っていれば、作り直しを勧める
     const failure = session.summaryFailed && session.status !== 'recording' && (
         <div
             role='alert'
@@ -618,7 +618,7 @@ function lineAt(starts: number[], sec: number) {
     return lo > 0 ? lo - 1 : null;
 }
 
-// 保存期間を過ぎて、ファイルが消えているか（spec 6.8）。サーバーから取ったセッションだけ判定できる
+// 保存期間を過ぎて、ファイルが消えているか（spec/flows.md 6.8）。サーバーから取ったセッションだけ判定できる
 // 要約は「まだ作っていない」と区別できないので、文字起こしも消えているときだけ期限切れとみなす
 function expired(session: Session, what: 'transcript' | 'summary') {
     const files = session.files;

@@ -1,4 +1,4 @@
-// 画面で扱うデータの形。サーバーの API（spec 7.1）から作る
+// 画面で扱うデータの形。サーバーの API（spec/api.md 7.1）から作る
 import type { MaterialRange, SessionFiles } from '@/api';
 import type { Correction } from '@/corrections';
 
@@ -7,7 +7,7 @@ export type TranscriptLine = {
     text: string;
 };
 
-// 最終の要約。作り直すたびに増えていく（spec 6.5 節）
+// 最終の要約。作り直すたびに増えていく（spec/flows.md 6.5 節）
 export type Summary = {
     generationId: string;
     // 要約詳細のモデルと、全体概要のモデル（#178。ないものは model と同じ）
@@ -79,21 +79,21 @@ export type Project = {
     name: string;
     path: string;
     sessions: Session[];
-    // サーバーに保存されている、今選んでいる参考資料セット（spec 5.4 節の selection）
+    // サーバーに保存されている、今選んでいる参考資料セット（spec/files.md 5.4 節の selection）
     selection?: ContextSelection;
 };
 
-// 作成中の最終の要約。summary.delta（spec 7.2 節）で届いた分
+// 作成中の最終の要約。summary.delta（spec/api.md 7.2 節）で届いた分
 export type Generating = { sessionId: string; model: string; text: string };
 
-// 参考資料セット（spec 5.4 節の contextSets）。/api/projects/{pid}/context-sets から取る
+// 参考資料セット（spec/files.md 5.4 節の contextSets）。/api/projects/{pid}/context-sets から取る
 export type ContextSet = {
     id: string;
     status: 'generating' | 'ready' | 'failed';
     materials: string[];
 };
 
-// プロジェクトで今選んでいる状態（spec 5.4 節の selection）
+// プロジェクトで今選んでいる状態（spec/files.md 5.4 節の selection）
 export type ContextSelection = {
     setId: string | null;
     useHotwords: boolean;

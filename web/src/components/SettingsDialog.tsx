@@ -85,7 +85,7 @@ export function SettingsDialog({
     );
 }
 
-// 録音中に変えられない項目（#133・spec 5.3）は、今の設定の値に戻す。
+// 録音中に変えられない項目（#133・spec/files.md 5.3）は、今の設定の値に戻す。
 // 開いている間に録音が始まっても、変えた値を送って断られないように
 function keepLocked(draft: Settings, current: Settings): Settings {
     const { model, computeType, silenceMs, maxSegmentSec, speechThreshold, speechDbfs } = current.whisper;

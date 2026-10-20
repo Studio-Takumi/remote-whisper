@@ -1,4 +1,4 @@
-"""ファイルシステムへのアクセスを materials.roots の中に限る。spec 7.3"""
+"""ファイルシステムへのアクセスを materials.roots の中に限る。spec/api.md 7.3"""
 
 import os
 from collections.abc import Iterable

@@ -1,4 +1,4 @@
-// WebSocket /ws の接続（spec 7.2）。接続は1本で、録音とサーバーの状態の通知の両方に使う
+// WebSocket /ws の接続（spec/api.md 7.2）。接続は1本で、録音とサーバーの状態の通知の両方に使う
 import type { ClientMessage, ServerMessage } from '@/protocol';
 
 type Listener = (message: ServerMessage) => void;

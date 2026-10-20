@@ -209,7 +209,7 @@ uv run remote-whisper  # http://127.0.0.1:8000 で画面と API を配信する
 4. 録音に使う端末のブラウザでその URL を開き、マイクの使用を許可します。
 
 - 今の転送の設定は `tailscale serve status` で見られます。止めるときは `tailscale serve --https=443 off`（または `tailscale serve reset`）。
-- `tailscale funnel` は使わないでください。インターネット全体に公開されます。このサーバーには認証がなく、tailnet の中だけで使う前提です（spec 7.4）。
+- `tailscale funnel` は使わないでください。インターネット全体に公開されます。このサーバーには認証がなく、tailnet の中だけで使う前提です（[spec/api.md 7.4](docs/spec/api.md)）。
 
 ### 3. ホーム画面に追加する（アプリとして使う）
 

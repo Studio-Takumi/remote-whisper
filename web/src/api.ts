@@ -1,4 +1,4 @@
-// サーバーの REST API（docs/spec.md 7.1 節）を呼ぶ
+// サーバーの REST API（docs/spec/api.md 7.1 節）を呼ぶ
 import type { Correction } from '@/corrections';
 
 // サーバーがエラー（4xx・5xx）を返したとき。message はサーバーの detail（日本語）
@@ -77,7 +77,7 @@ export type SessionJson = {
     // 録音の長さ（秒）。録音中と、これを記録する前のセッションは null
     durationSec?: number | null;
     contextSet: string | null;
-    // 最終の要約を作れなかった（spec 6.7）。作り直して作れたら false に戻る
+    // 最終の要約を作れなかった（spec/flows.md 6.7）。作り直して作れたら false に戻る
     summaryFailed?: boolean;
     // 音声ファイルをアップロードして作ったセッション（#180）は upload
     source?: 'upload' | null;

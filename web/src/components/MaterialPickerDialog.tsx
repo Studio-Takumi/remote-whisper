@@ -23,7 +23,7 @@ import {
 } from '@/components/ui/dialog';
 import { useDirListing } from '@/hooks/useDirListing';
 
-// 参考資料にするファイルを選ぶ。選べるのは「読み込めるフォルダ」の中の、読み込める拡張子のファイルだけ（spec 7.3 節）
+// 参考資料にするファイルを選ぶ。選べるのは「読み込めるフォルダ」の中の、読み込める拡張子のファイルだけ（spec/api.md 7.3 節）
 // 拡張子で絞るのはサーバー（GET /api/fs）。extensions は説明に出すだけ
 export function MaterialPickerDialog({
     open,

@@ -1,4 +1,4 @@
-"""設定で選べる値の API。spec 7.1"""
+"""設定で選べる値の API。spec/api.md 7.1"""
 
 from typing import Annotated, Any
 

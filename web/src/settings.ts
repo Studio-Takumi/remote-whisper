@@ -1,4 +1,4 @@
-// Ollama を使う処理ごとのモデル（#178。spec 5.3）
+// Ollama を使う処理ごとのモデル（#178。spec/files.md 5.3）
 export type OllamaModels = {
     materialTerms: string;
     context: string;
@@ -21,7 +21,7 @@ export function finalModelLabel(models: OllamaModels) {
     return models.overview === models.detail ? models.detail : `${models.overview} / ${models.detail}`;
 }
 
-// setting.json の中身（docs/spec.md 5.3 節）。後で GET /api/settings から取り、PATCH /api/settings で保存する
+// setting.json の中身（docs/spec/files.md 5.3 節）。後で GET /api/settings から取り、PATCH /api/settings で保存する
 export type Settings = {
     version: 1;
     whisper: {

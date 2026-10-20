@@ -1,8 +1,8 @@
-"""最終の要約とタイトル。spec 6.3・6.5
+"""最終の要約とタイトル。spec/flows.md 6.3・6.5
 
 録音を終えたあと、GPU キュー（優先度 3）から呼ばれる。
 
-1. ほかに録音中のセッションがなければ、Whisper を VRAM から下ろす（spec 6.3）
+1. ほかに録音中のセッションがなければ、Whisper を VRAM から下ろす（spec/flows.md 6.3）
 2. 文字起こし全体が num_ctx に収まれば一度に要約する。収まらなければ部分ごとに要約し、
    「全体の概要」（部分ごとの要約を凝縮したもの）のあとに、部分ごとの要約を時間の順に
    そのまま並べる（#92。長い録音ほど要約が凝縮されすぎないように）。
@@ -139,7 +139,7 @@ class FinalSummarizer:
         send: Callable[[dict[str, Any]], Awaitable[None]],
         models: FinalModels | None,
     ) -> str | None:
-        # 生成 ID は、生成を始めた時刻（spec 5.2）
+        # 生成 ID は、生成を始めた時刻（spec/files.md 5.2）
         started = now()
         if self.whisper is not None and not self.recording():
             # 要約の前に Whisper を下ろして、VRAM を Ollama に空ける。失敗しても要約は作る
@@ -200,7 +200,7 @@ class FinalSummarizer:
                 raise OllamaUnavailable("要約が空でした")
         except OllamaUnavailable as e:
             log.warning("final summary of %s failed: %s", writer.id, e)
-            # 失敗したことを記録して、後で作り直せるようにする（spec 6.7。UI は #17）
+            # 失敗したことを記録して、後で作り直せるようにする（spec/flows.md 6.7。UI は #17）
             _mark_failed(writer, True)
             await send(ollama_error("最終要約"))
             return None

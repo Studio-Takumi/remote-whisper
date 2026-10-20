@@ -1,6 +1,6 @@
-"""録音中の音声を区間に分ける（spec 6.2）。partial を確定部分と未確定部分に分ける（LocalAgreement）
+"""録音中の音声を区間に分ける。partial を確定部分と未確定部分に分ける（LocalAgreement）
 
-GPU に依存しない部品だけを置く。文字起こしを呼ぶのは live_transcriber.py。
+spec/flows.md 6.2。GPU に依存しない部品だけを置く。文字起こしを呼ぶのは live_transcriber.py。
 ここの Segmenter は音量のしきい値で切り出す（設定が manual のとき）。
 auto のときは vad_segmenter.py の VadSegmenter を使う（#88）。
 """

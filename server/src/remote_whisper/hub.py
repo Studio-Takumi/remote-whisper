@@ -1,4 +1,4 @@
-"""WebSocket の接続と、全員に送るサーバーの状態（status）。spec 7.2"""
+"""WebSocket の接続と、全員に送るサーバーの状態（status）。spec/api.md 7.2"""
 
 import asyncio
 import logging
@@ -23,7 +23,7 @@ class ServerStatus:
     ollama: OllamaState = "ready"
     recordings: int = 0
     queue: int = 0
-    # GPU キューの実行中のジョブと待っているジョブ（GpuQueue.snapshot）。spec 6.3
+    # GPU キューの実行中のジョブと待っているジョブ（GpuQueue.snapshot）。spec/flows.md 6.3
     jobs: dict[str, Any] = field(default_factory=lambda: {"running": None, "waiting": []})
     # GPU の使用率と VRAM（gpu_stats.GpuStats）。取れない環境では None
     gpu: dict[str, Any] | None = None

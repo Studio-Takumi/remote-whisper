@@ -1,4 +1,4 @@
-"""話していないのに Whisper が作った文（ハルシネーション）を見分ける。spec 6.2（#81）
+"""話していないのに Whisper が作った文（ハルシネーション）を見分ける。spec/flows.md 6.2（#81）
 
 無音や弱い雑音を渡すと、Whisper は「ご視聴ありがとうございました」などの定番の文を作ることがある。
 区間ごとの信頼度（no_speech_prob・avg_logprob・compression_ratio）で見分ける。
