@@ -1,11 +1,11 @@
 // クラウド版の入口。ログイン（#155）→ 同意（#162）→ ホストの選択（#161）の順に進む。
-// ホストの選択の画面はまだなく、何が入るかだけを出す
 import { useEffect } from 'react';
 
 import { fetchMe, logout, useAccountStore } from '@/account';
 import { useCloudStore } from '@/cloud';
 import type { CloudStage } from '@/cloud';
 import { ConsentForm } from '@/components/ConsentForm';
+import { HostPicker } from '@/components/HostPicker';
 import { LoginButtons } from '@/components/LoginButtons';
 
 const PLACEHOLDERS: Record<Exclude<CloudStage, 'login' | 'consent'>, { title: string; body: string }> = {
@@ -53,6 +53,8 @@ export function CloudEntry() {
                 ) : (
                     <p className='text-sm text-muted-foreground'>確かめています…</p>
                 )
+            ) : stage === 'hosts' ? (
+                <HostPicker />
             ) : (
                 <>
                     <h1 className='text-xl font-semibold'>{PLACEHOLDERS[stage].title}</h1>

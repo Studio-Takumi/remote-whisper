@@ -16,6 +16,7 @@ import {
     useAccountStore,
 } from '@/account';
 import { useCloudStore } from '@/cloud';
+import { HostsSection } from '@/components/HostsSection';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
@@ -124,6 +125,7 @@ export function AccountDialog({ open, onOpenChange }: { open: boolean; onOpenCha
                                 ))}
                             </div>
                         </section>
+                        <HostsSection open={open} />
                         <section className='flex flex-col gap-1 border-t pt-3'>
                             <div className='flex items-center justify-between gap-2'>
                                 <Label htmlFor='account-data-collection' className='font-medium'>

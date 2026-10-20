@@ -25,11 +25,18 @@ export function tunnelHostname(env: Env, hostId: string): string {
     return `${env.TUNNEL_PREFIX}${hostId.replace(/-/g, '').slice(0, 12)}.${env.TUNNEL_DOMAIN}`;
 }
 
-async function cf<T>(env: Env, method: string, path: string, body?: unknown): Promise<CfResponse<T>> {
+async function cf<T>(
+    env: Env,
+    method: string,
+    path: string,
+    body?: unknown,
+    signal?: AbortSignal,
+): Promise<CfResponse<T>> {
     const res = await fetch(`${API}${path}`, {
         method,
         headers: { Authorization: `Bearer ${env.CF_API_TOKEN}`, 'Content-Type': 'application/json' },
         body: body === undefined ? undefined : JSON.stringify(body),
+        signal,
     });
     const data = (await res.json().catch(() => null)) as CfResponse<T> | null;
     return data ?? { success: false, result: null as T, errors: [{ code: res.status, message: 'not json' }] };
@@ -167,6 +174,30 @@ export async function deleteTunnel(env: Env, host: HostTunnel): Promise<void> {
                 `failed to delete the ${name} of host ${host.id} (tunnel ${host.tunnel_id ?? '-'}, ${host.tunnel_hostname ?? '-'}): ${(e as Error).message}`,
             );
         }
+    }
+}
+
+// トンネルに cloudflared がつながっているか（#161 のホストの一覧）。healthy・degraded ならつながっている。
+// API が使えない・失敗したときは null（分からない）
+export async function tunnelOnline(env: Env, tunnelId: string): Promise<boolean | null> {
+    if (!configured(env)) {
+        return null;
+    }
+    try {
+        // 一覧はホストの数だけ並べて聞くので、遅いときは 3 秒で諦めて null にする（一覧全体を待たせない）
+        const res = await cf<{ status?: string }>(
+            env,
+            'GET',
+            `/accounts/${env.CF_ACCOUNT_ID}/cfd_tunnel/${tunnelId}`,
+            undefined,
+            AbortSignal.timeout(3000),
+        );
+        if (!res.success || !res.result?.status) {
+            return null;
+        }
+        return res.result.status === 'healthy' || res.result.status === 'degraded';
+    } catch {
+        return null;
     }
 }
 

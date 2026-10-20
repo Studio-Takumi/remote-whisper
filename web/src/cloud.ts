@@ -4,6 +4,7 @@
 import { create } from 'zustand';
 
 import { setHostId } from '@/endpoint';
+import { useHostsStore } from '@/hosts';
 
 export type CloudStage = 'login' | 'consent' | 'hosts' | 'ready';
 
@@ -49,6 +50,10 @@ export const useCloudStore = create<CloudStore>((set, get) => ({
         const next = cloudReducer(get().cloud, event);
         // API・WebSocket の URL に使うホストも、ここで合わせる
         setHostId(isReady(next) ? (next.hostId ?? null) : null);
+        // ログアウトしたら、ホストの一覧と「自動でつないだ」を忘れる（次にログインした人は自動でつなぐ）
+        if (event.type === 'loggedOut') {
+            useHostsStore.getState().reset();
+        }
         set({ cloud: next });
     },
 }));

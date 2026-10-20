@@ -65,6 +65,9 @@ function fakeCloudflare(input: RequestInfo | URL, init?: RequestInit) {
                 t.connections = false;
                 return ok({});
             }
+            if (!m[2] && req.method === 'GET') {
+                return ok({ id: m[1], status: t.connections ? 'healthy' : 'down' });
+            }
             if (!m[2] && req.method === 'DELETE') {
                 if (t.connections) {
                     return ng(400);
@@ -252,6 +255,57 @@ describe('トンネルを用意する（POST /pair/tunnel）', () => {
         expect(cf.tunnels.size).toBe(1);
         expect(cf.tunnels.has((await row(host.hostId))?.tunnel_id ?? '')).toBe(true);
         expect((await hostCall(host, '/pair/tunnel', {})).status).toBe(200);
+    });
+});
+
+describe('ホストの一覧と管理（#161）', () => {
+    const list = async (cookie: string) =>
+        (await (await SELF.fetch(`${ORIGIN}/me/hosts`, { headers: { Cookie: cookie } })).json()) as {
+            hosts: { id: string; name: string; online: boolean | null; appVersion: string | null }[];
+        };
+
+    it('オンラインかどうかはトンネルの状態から出す。トンネルがまだないものは null', async () => {
+        const { cookie } = await newUser();
+        const a = await registeredHost(cookie);
+        const b = await registeredHost(cookie);
+        await hostCall(a, '/pair/tunnel', { appVersion: '0.9.0' });
+        await hostCall(b, '/pair/tunnel', {});
+        const c = await registeredHost(cookie);
+        // b の cloudflared は切れた
+        const bTunnel = (await row(b.hostId))?.tunnel_id ?? '';
+        const t = cf.tunnels.get(bTunnel);
+        if (t) {
+            t.connections = false;
+        }
+        const { hosts } = await list(cookie);
+        expect(hosts.map((h) => [h.id, h.online])).toEqual([
+            [a.hostId, true],
+            [b.hostId, false],
+            [c.hostId, null],
+        ]);
+        expect(hosts[0].appVersion).toBe('0.9.0');
+        // Cloudflare の API が使えなければ null（一覧は出す）
+        cf.fail = 'GET /accounts';
+        expect((await list(cookie)).hosts.map((h) => h.online)).toEqual([null, null, null]);
+    });
+
+    it('名前を変えられる（自分のホストだけ・書式の文字は除く・長さの制限）', async () => {
+        const alice = await newUser();
+        const bob = await newUser();
+        const host = await registeredHost(alice.cookie);
+        const rename = (cookie: string, name: unknown, origin: string | null = ORIGIN) =>
+            SELF.fetch(`${ORIGIN}/me/hosts/${host.hostId}`, {
+                method: 'PATCH',
+                headers: { Cookie: cookie, 'Content-Type': 'application/json', ...(origin ? { Origin: origin } : {}) },
+                body: JSON.stringify({ name }),
+            });
+        expect((await rename(alice.cookie, ' 書斎の‮PC ')).status).toBe(200);
+        expect((await list(alice.cookie)).hosts[0].name).toBe('書斎のPC');
+        expect((await rename(bob.cookie, 'x')).status).toBe(404);
+        expect((await rename(alice.cookie, 'x', 'https://evil.example')).status).toBe(403);
+        expect((await rename(alice.cookie, '')).status).toBe(400);
+        expect((await rename(alice.cookie, 'x'.repeat(65))).status).toBe(400);
+        expect((await rename(alice.cookie, 3)).status).toBe(400);
     });
 });
 
