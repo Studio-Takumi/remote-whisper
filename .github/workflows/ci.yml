@@ -61,3 +61,27 @@ jobs:
         run: npm run build
       - name: Test
         run: npm test
+
+  # クラウド版の中間サーバー（#154）。Workers の実行環境（workerd）の中で、ローカルの D1 ごとテストする
+  relay:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: relay
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: relay/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Format
+        run: npm run format:check
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Test
+        run: npm test

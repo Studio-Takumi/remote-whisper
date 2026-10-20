@@ -1,0 +1,48 @@
+// クラウド版の中間サーバー（仕様書 spec/cloud.md 10 章）。環境は dev（ローカル）・staging・production（#167）
+// 秘密情報（OAuth のクライアント・API トークン）はここに書かない。ローカルは .dev.vars、staging は wrangler secret
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // 上の段はローカル（wrangler dev）用。デプロイは --env staging（本番の env は #167 で足す）
+  "name": "remote-whisper-dev",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "workers_dev": false,
+  "preview_urls": false,
+  "dev": { "port": 8787 },
+  // 画面（web/dist）は同じオリジンで配る。run_worker_first のパスだけ Worker が答え、ほかは静的アセット
+  // （画面の URL は SPA なので、ないパスは index.html を返す）
+  "assets": {
+    "directory": "../web/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/h/*", "/auth/*", "/me", "/me/*", "/pair/*", "/healthz"],
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "remote-whisper-dev",
+      // ローカルだけで使う（wrangler dev と テスト）。リモートの DB はない
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations",
+    },
+  ],
+  "vars": { "CLOUD_ENV": "dev" },
+  "env": {
+    "staging": {
+      "name": "remote-whisper-staging",
+      "workers_dev": false,
+      "preview_urls": false,
+      // workers.dev は使わない（画面がクラウド版と判定しないため。10.15 節）
+      "routes": [{ "pattern": "rw-dev.studio-takumi.dev", "custom_domain": true }],
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "remote-whisper-staging",
+          "database_id": "ec650d6d-b6d2-4354-99ed-41e5720d3267",
+          "migrations_dir": "migrations",
+        },
+      ],
+      "vars": { "CLOUD_ENV": "staging" },
+    },
+  },
+}

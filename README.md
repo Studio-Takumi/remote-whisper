@@ -54,6 +54,7 @@ flowchart LR
 |---|---|
 | `server/` | GPU マシンで動く文字起こしサーバー（Python / faster-whisper） |
 | `web/` | ブラウザ側のフロントエンド（Vite + React + TypeScript / Tailwind CSS / shadcn/ui） |
+| `relay/` | クラウド版の中間サーバー（Cloudflare Workers / D1。作っている途中。[relay/README.md](relay/README.md)） |
 
 ## サーバーのセットアップ
 

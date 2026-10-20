@@ -1,0 +1,6 @@
+# ローカルの秘密情報（OAuth のクライアントなど）。git に入れない
+.dev.vars
+.dev.vars.*
+# wrangler dev のローカルの D1 など
+.wrangler/
+node_modules/
