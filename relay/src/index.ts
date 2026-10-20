@@ -2,20 +2,35 @@
 //
 // 画面（web/dist）は静的アセットとして配る（wrangler.jsonc の assets）。ここに来るのは、
 // run_worker_first に書いたパス（/h/・/auth/・/me・/pair/・/healthz）だけ（登録の確認画面 /pair?code= は画面が出す）。
-// ログイン（#155）・ホストの登録（#157）・中継（#160）は、それぞれの Issue で足す
+// ホストの登録（#157）・中継（#160）は、それぞれの Issue で足す
+import { handleAuth } from './auth';
+import { handleMe } from './me';
 
 export interface Env {
     DB: D1Database;
     ASSETS: Fetcher;
     // dev（ローカル）・staging・production
     CLOUD_ENV: string;
+    // OAuth のクライアント（secret。ローカルは .dev.vars）。ないプロバイダではログインできない
+    GOOGLE_CLIENT_ID?: string;
+    GOOGLE_CLIENT_SECRET?: string;
+    DISCORD_CLIENT_ID?: string;
+    DISCORD_CLIENT_SECRET?: string;
+    GITHUB_CLIENT_ID?: string;
+    GITHUB_CLIENT_SECRET?: string;
 }
 
 export default {
     async fetch(request, env): Promise<Response> {
-        const url = new URL(request.url);
-        if (url.pathname === '/healthz') {
+        const path = new URL(request.url).pathname;
+        if (path === '/healthz') {
             return healthz(env);
+        }
+        if (path.startsWith('/auth/')) {
+            return handleAuth(request, env, path);
+        }
+        if (path === '/me' || path.startsWith('/me/')) {
+            return handleMe(request, env, path);
         }
         return new Response('Not found', { status: 404 });
     },

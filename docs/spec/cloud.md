@@ -185,12 +185,14 @@ sequenceDiagram
 - 1 人が複数の手段でログインしても、1 人のユーザーにまとめる。同じプロバイダの同じ ID なら同じユーザー。**メールアドレスで自動に紐付けはしない**（別の手段を足すのは、ログインしている状態で設定から）
 - ログインセッション（`web_sessions`）は Cookie（`__Host-` 接頭辞・HttpOnly・Secure・SameSite=Lax）。DB にはトークンのハッシュだけを置き、期限を設ける。ログアウトで失効させる
 - 状態を変える API は、Cookie に加えて Origin を確かめる（CSRF の対策。#166）。**`/h/<hostId>/ws` の WebSocket と、`/h/` 以下の GET 以外のリクエストも、Origin が自分のオリジンでなければ断る**。staging・本番は `studio-takumi.dev` のサブドメインで、兄弟のサブドメイン（ポートフォリオなど）は same-site なので、SameSite=Lax の Cookie が WebSocket にも付いてしまうため
-- 退会: ユーザー・ログイン手段・ログインセッション・ホスト（とトンネル）を消す。同意の履歴（consents）は、法令上残す必要があるかを決めてから扱う（未決）
+- ログインを始めるとき、state を D1（ハッシュだけ）と、このブラウザの短命の Cookie（`__Host-rw_oauth_state`、10 分）の両方に置く。コールバックでは両方が合うときだけ進める（ほかの人が始めたログインの続きの URL を踏ませて、その人のアカウントにログインさせる・手段を足させる、ログイン CSRF の対策）。手段を足す（`?link=1`）ときは、さらにコールバックの時点でも始めたユーザーでログインしていることを確かめる
+- ログインのあとに戻るパス（`?return=`）は、同じオリジンのパスだけ。`//`・`\`・制御文字（ブラウザが読み飛ばすタブ・改行）を含むものは `/` にする
+- 退会: ユーザー・ログイン手段・ログインセッション・ホスト（とトンネル）・同意の履歴（consents）を消す。**同意の履歴も当面は消す**（持つデータを減らす。法令上残す必要があるとわかったら、ユーザーと切り離して残す形に変える。10.16 節）
 - OAuth のコールバックは `/auth/callback/google`・`/auth/callback/discord`・`/auth/callback/github`。クライアント ID とシークレットは secret（10.15 節）
 
 ## 10.8 データベース（D1）
 
-最低限の 6 つだけ。音声・文字起こし・要約・プロジェクト名は置かない。
+最低限の 7 つだけ（6 つと、ログインの途中の状態の `oauth_states`）。音声・文字起こし・要約・プロジェクト名は置かない。
 
 ```mermaid
 erDiagram
@@ -199,6 +201,7 @@ erDiagram
     users ||--o{ hosts : "持つ"
     users ||--o{ consents : "同意の履歴"
     users |o--o{ pairing_requests : "承認する"
+    users |o--o{ oauth_states : "手段を足す途中"
 
     users {
         text id PK "UUID"
@@ -253,6 +256,15 @@ erDiagram
         int granted "1・0"
         text version "同意した文面の版"
         int created_at
+    }
+    oauth_states {
+        text state_hash PK "state のハッシュ"
+        text provider
+        text code_verifier "PKCE"
+        text return_to "ログインのあとに戻るパス"
+        text link_user_id FK "手段を足すときの今のユーザー"
+        int created_at
+        int expires_at "10 分。1 回使ったら消す"
     }
 ```
 
@@ -346,7 +358,7 @@ erDiagram
 | データ収集をするか | する場合は 10.10 節の条件で。何を何に使うか |
 | 利用規約・プライバシーポリシーの文面 | LP に置く（別の計画）。広告を出していること・広告のスクリプトが動くことも書く（#165） |
 | 本番のサブドメイン | `studio-takumi.dev` のサブドメイン（例: `rw`）。#167 で決める |
-| 退会したときの同意の履歴 | 残す必要があるか |
+| 退会したときの同意の履歴 | 当面は消す（10.7 節）。法令上残す必要があるか |
 | 中継の鍵の置き方 | D1 にそのまま置くか、暗号化するか、都度導出するか（10.8 節） |
 | 素通しの WebSocket が長い録音で切られないか | staging で確かめる（10.14 節） |
 | 広告 | 後回し（10.13 節・#165） |
