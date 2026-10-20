@@ -307,6 +307,10 @@ describe('戻る先', () => {
         expect(safeReturnTo('/\t/evil.example')).toBe('/');
         expect(safeReturnTo('/\n/evil.example')).toBe('/');
         expect(safeReturnTo('/s/abc?x=1#y')).toBe('/s/abc?x=1#y');
+        // . や .. を畳むと // で始まるもの
+        expect(safeReturnTo('/.//evil.example')).toBe('/');
+        expect(safeReturnTo('/%2e//evil.example')).toBe('/');
+        expect(safeReturnTo('/x/..//evil.example')).toBe('/');
         expect(safeReturnTo(null)).toBe('/');
     });
 });

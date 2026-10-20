@@ -60,7 +60,9 @@ export async function sha256(text: string): Promise<string> {
 
 // ログインのあとに戻ってよいパスか（同じオリジンのパスだけ。//evil.example などを弾く）。
 // ブラウザは URL の中のタブ・改行を読み飛ばす（/\t/evil.example は //evil.example になる）ので、
-// 制御文字を弾いたうえで、URL として読んでもオリジンが変わらないことを確かめる
+// 制御文字を弾いたうえで、URL として読んでもオリジンが変わらないことを確かめる。
+// 返すのは確かめた元の値（. や .. を畳んだ値は //evil.example になることがあるので返さない）。
+// 畳んだパスが // で始まるものも、念のため弾く
 export function safeReturnTo(value: string | null): string {
     // oxlint-disable-next-line no-control-regex -- 制御文字を弾くための正規表現
     if (!value || !value.startsWith('/') || value.startsWith('//') || /[\\\u0000-\u001f\u007f]/.test(value)) {
@@ -69,7 +71,7 @@ export function safeReturnTo(value: string | null): string {
     const base = 'https://return.invalid';
     try {
         const url = new URL(value, base);
-        return url.origin === base ? url.pathname + url.search + url.hash : '/';
+        return url.origin === base && !url.pathname.startsWith('//') ? value : '/';
     } catch {
         return '/';
     }
