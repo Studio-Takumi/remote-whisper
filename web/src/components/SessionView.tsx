@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 
 import {
     AudioLinesIcon,
+    CopyIcon,
     FileAudioIcon,
     FolderPlusIcon,
     MicIcon,
@@ -9,6 +10,7 @@ import {
     SearchXIcon,
     TriangleAlertIcon,
 } from 'lucide-react';
+import { toast } from 'sonner';
 
 import { AudioDropZone, AudioUploadButton, UploadProgress } from '@/components/AudioUpload';
 import { LiveSummary } from '@/components/LiveSummary';
@@ -22,6 +24,7 @@ import { TranscriptCorrection } from '@/components/TranscriptCorrection';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { copyText } from '@/copyMarkdown';
 import { pickFinalTranscript } from '@/data';
 import { describeMaterialRange } from '@/materialRange';
 import { recordingLocks } from '@/recording';
@@ -592,6 +595,22 @@ function SummaryPanel({
                     </Select>
                 ) : (
                     <p className='text-xs text-muted-foreground'>{label(summary)}</p>
+                )}
+                {summary.text && (
+                    <Button
+                        variant='outline'
+                        size='sm'
+                        title='要約を Markdown のままコピーします'
+                        onClick={() =>
+                            copyText(summary.text ?? '').then(
+                                () => toast.success('要約をコピーしました'),
+                                () => toast.error('要約をコピーできませんでした'),
+                            )
+                        }
+                    >
+                        <CopyIcon />
+                        コピー
+                    </Button>
                 )}
                 {regenerateButton}
             </div>
