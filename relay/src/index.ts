@@ -19,6 +19,13 @@ export interface Env {
     DISCORD_CLIENT_SECRET?: string;
     GITHUB_CLIENT_ID?: string;
     GITHUB_CLIENT_SECRET?: string;
+    // トンネルの作成・削除（#159）。API トークン・アカウント・ゾーンは secret、ドメインと接頭辞は vars。
+    // どれかがなければ、トンネルは作らない（/pair/tunnel は 503）
+    CF_API_TOKEN?: string;
+    CF_ACCOUNT_ID?: string;
+    CF_ZONE_ID?: string;
+    TUNNEL_DOMAIN?: string;
+    TUNNEL_PREFIX?: string;
 }
 
 export default {

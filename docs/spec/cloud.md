@@ -172,6 +172,10 @@ sequenceDiagram
   - ホストは `401` と、`408`・`429` 以外の 4xx を受けたら聞き直さずにやめる（時計のずれは 10 分待たせずに知らせる）。`429` のあいだは間隔を倍にしていく（上限 30 秒）
   - `code` は英数字とハイフン（4〜32 文字）。ホストはそれ以外の形なら受け付けない（通知に変な文を出さないため）
   - `url` は Worker と同じオリジンのものだけをホストが開く。違えば（または無ければ）ホストが `<中間サーバーの URL>/pair?code=<code>` を組み立てて開く
+- **トンネル（#159）**: `POST /pair/tunnel`（署名つき。本文 `{"appVersion": "<版>"}`、appVersion は任意）→ `200 {"token": "<cloudflared のトークン>", "hostname": "<公開ホスト名>"}`。登録済みのホストが**起動のたびに**呼ぶ（トークンをホストに長く置かない）。`last_seen_at` と `app_version` も更新する
+  - Worker は、トンネルがなければここで作る（承認のときではない）。手順は「トンネルを作る（`config_src: cloudflare`）→ `hosts.tunnel_id` に残す → 転送先の設定（公開ホスト名 → `http://127.0.0.1:8001`、ほかは 404）と DNS の CNAME（`<tunnel_id>.cfargotunnel.com`、プロキシあり）→ `hosts.tunnel_hostname` に残す」。途中で失敗しても、次に呼ばれたときに続きから作る（トンネルを作り直さない）
+  - 返事: 登録していないホストは `404`、署名が合わなければ `401`、トンネルの API の設定（secret・vars）がなければ `503`、Cloudflare の API で失敗したら `502`
+  - 解除（`/pair/unpair`・画面から外す・退会）のときは、DNS のレコード → トンネルの接続 → トンネルの順に消してから行を消す。Cloudflare で消せなくても行は消す（残ったものはログに出す）
 - **確認の画面とブラウザの API（#157）**: どれもログインセッションが要る（なければ `401`）。`POST` は Origin が自分のオリジンのときだけ（違えば `403`）
   - 画面 `/pair?code=…`: ログインしていなければログインのボタンを出し、ログインのあとはこの画面に戻る。「〇〇（PC 名）を △△ のアカウントに登録しますか？」とコードを大きく出し、トレイの通知と同じかを確かめさせてから承認・拒否させる
   - `GET /pair/request?code=` → `{"code", "hostName", "status", "expiresAt"}`。見つからない・期限切れは `404`
@@ -365,8 +369,8 @@ erDiagram
 | `wrangler dev` のポート | 8787 |
 | ホストのトンネル専用のポート | 8001（127.0.0.1 だけ） |
 | OAuth のコールバック | `/auth/callback/google`・`/auth/callback/discord`・`/auth/callback/github` |
-| Worker の secret | `GOOGLE_CLIENT_ID`・`GOOGLE_CLIENT_SECRET`・`DISCORD_CLIENT_ID`・`DISCORD_CLIENT_SECRET`・`GITHUB_CLIENT_ID`・`GITHUB_CLIENT_SECRET`・`CF_API_TOKEN`（トンネルの操作と、`studio-takumi.dev` の DNS の編集だけの権限） |
-| Worker の vars（秘密でない） | Cloudflare の Account ID、クラウド用のドメイン |
+| Worker の secret | `GOOGLE_CLIENT_ID`・`GOOGLE_CLIENT_SECRET`・`DISCORD_CLIENT_ID`・`DISCORD_CLIENT_SECRET`・`GITHUB_CLIENT_ID`・`GITHUB_CLIENT_SECRET`・`CF_API_TOKEN`（トンネルの操作と、`studio-takumi.dev` の DNS の編集だけの権限）・`CF_ACCOUNT_ID`・`CF_ZONE_ID`（秘密ではないが、公開のリポジトリに置かないため secret にする。#159） |
+| Worker の vars（秘密でない） | `TUNNEL_DOMAIN`（`studio-takumi.dev`）・`TUNNEL_PREFIX`（dev は `rwt-local-`、staging は `rwt-dev-`、本番は `rwt-`。#159） |
 | GitHub Actions の secret（自動デプロイ。#170） | `CLOUDFLARE_API_TOKEN`（デプロイ用）・`CLOUDFLARE_ACCOUNT_ID`（秘密ではないが、workflow ではここから読む） |
 
 - 環境は dev（ローカル。`wrangler dev`）・staging（`rw-dev.studio-takumi.dev`）・prod（本番のサブドメイン。#167）。OAuth のリダイレクト URI は、localhost と staging のドメインのものをクライアントに足す

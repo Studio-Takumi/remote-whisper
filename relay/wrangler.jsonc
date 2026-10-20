@@ -26,7 +26,8 @@
       "migrations_dir": "migrations",
     },
   ],
-  "vars": { "CLOUD_ENV": "dev" },
+  // トンネルの公開ホスト名は <TUNNEL_PREFIX><ホスト ID の頭 12 文字>.<TUNNEL_DOMAIN>（#159。1 段のサブドメイン）
+  "vars": { "CLOUD_ENV": "dev", "TUNNEL_DOMAIN": "studio-takumi.dev", "TUNNEL_PREFIX": "rwt-local-" },
   "env": {
     "staging": {
       "name": "remote-whisper-staging",
@@ -42,7 +43,7 @@
           "migrations_dir": "migrations",
         },
       ],
-      "vars": { "CLOUD_ENV": "staging" },
+      "vars": { "CLOUD_ENV": "staging", "TUNNEL_DOMAIN": "studio-takumi.dev", "TUNNEL_PREFIX": "rwt-dev-" },
     },
   },
 }
