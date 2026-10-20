@@ -11,7 +11,7 @@ import type { TranscriptLine } from '@/types';
 // seeks はシークした回数（シークしたら、また再生位置を追う）
 export type Playback = { index: number | null; playing: boolean; seeks: number };
 
-// 文字起こしの本文。確定した行（final）と、文字起こし中の区間（partial）を出す（spec 6.2・8）
+// 文字起こしの本文。確定した行（final）と、文字起こし中の区間（partial）を出す（spec/flows.md 6.2・spec/ui.md 8）
 export function Transcript({
     sessionId,
     lines,

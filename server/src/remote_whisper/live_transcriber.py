@@ -1,4 +1,4 @@
-"""録音中の文字起こし。区間に分け、partial と final を送る。spec 6.2
+"""録音中の文字起こし。区間に分け、partial と final を送る。spec/flows.md 6.2
 
 - 話している間は partialIntervalSec ごとに今の区間を文字起こしし、LocalAgreement で
   確定部分と未確定部分に分けて送る
@@ -34,7 +34,7 @@ STALL_LOUD_SEC = 60.0
 
 
 def load_hotwords(project_dir: Path, set_id: str | None) -> str | None:
-    """用語リスト（hotwords-<ID>.md）を「、」でつないで1行にする（spec 5.5）"""
+    """用語リスト（hotwords-<ID>.md）を「、」でつないで1行にする（spec/files.md 5.5）"""
     if set_id is None:
         return None
     try:

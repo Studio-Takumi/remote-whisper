@@ -1,4 +1,7 @@
-"""セッションのファイル（文字起こし・要約・録音）を読む。spec 5.1・5.5・6.5"""
+"""セッションのファイル（文字起こし・要約・録音）を読む
+
+spec/files.md 5.1・5.5・spec/flows.md 6.5
+"""
 
 import re
 from pathlib import Path
@@ -144,7 +147,7 @@ def same_models(summary: SummaryMeta, overview: str, detail: str) -> bool:
 
 def pick_latest(summaries: list[SummaryMeta], overview: str, detail: str) -> SummaryMeta | None:
     """表示する最終の要約。今の全体概要と要約詳細のモデルの組で作ったうちいちばん新しいもの。
-    その組のものがなければ、モデルを問わずいちばん新しいもの（spec 6.5）"""
+    その組のものがなければ、モデルを問わずいちばん新しいもの（spec/flows.md 6.5）"""
     same = [s for s in summaries if same_models(s, overview, detail)]
     pool = same or summaries
     return max(pool, key=lambda s: s.generation_id) if pool else None

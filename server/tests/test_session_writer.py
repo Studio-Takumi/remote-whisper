@@ -72,7 +72,7 @@ def test_full_session(project):
     assert (summary.title, summary.model, summary.think) == ("リリース計画", "qwen3.5:4b", True)
     assert summary.transcript == f"transcript-{SID}.md"
     assert text == "## 要約\n"
-    # 最終の要約を保存できたら、途中の要約は消す（spec 6.4）
+    # 最終の要約を保存できたら、途中の要約は消す（spec/flows.md 6.4）
     assert not w.files.live_summary.exists()
 
     entry = store.load(pid).sessions[0]

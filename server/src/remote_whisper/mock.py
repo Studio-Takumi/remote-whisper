@@ -1,4 +1,6 @@
-"""モックの録音。Whisper と Ollama の代わりに、台本からダミーの partial・final・要約を流す。spec 9.4
+"""モックの録音。Whisper と Ollama の代わりに、台本からダミーの partial・final・要約を流す
+
+spec/notes.md 9.4
 
 GPU のない環境でフロントを開発するためのもの。届いた音声は ack を返すだけで、中身は使わない。
 """

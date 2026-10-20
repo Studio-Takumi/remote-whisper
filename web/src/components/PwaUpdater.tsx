@@ -9,7 +9,7 @@ import { webVersion } from '@/version';
 // 1時間ごとに、新しい版の画面がないかを確かめる
 const CHECK_INTERVAL_MS = 60 * 60 * 1000;
 
-// PWA の service worker を登録し、新しい版の画面が入ったら知らせて読み込み直す（#104・spec 8）。
+// PWA の service worker を登録し、新しい版の画面が入ったら知らせて読み込み直す（#104・spec/ui.md 8）。
 // サーバーのバージョン（#97）が画面と違ったら（サーバーを更新した）、すぐに確かめる
 export function PwaUpdater() {
     const registration = useRef<ServiceWorkerRegistration | null>(null);

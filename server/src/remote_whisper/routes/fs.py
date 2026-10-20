@@ -1,4 +1,4 @@
-"""ディレクトリ一覧の API。新規プロジェクトや参考資料を選ぶのに使う。spec 7.1・7.3"""
+"""ディレクトリ一覧の API。新規プロジェクトや参考資料を選ぶのに使う。spec/api.md 7.1・7.3"""
 
 import os
 from pathlib import Path

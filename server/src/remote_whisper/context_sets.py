@@ -1,4 +1,4 @@
-"""参考資料セットの作成。spec 6.6・5.4・5.5
+"""参考資料セットの作成。spec/flows.md 6.6・spec/files.md 5.4・5.5
 
 参考資料から、用語リスト（Whisper 用）とコンテキスト（Ollama 用）を1組で作る。
 
@@ -333,7 +333,7 @@ class ContextSetService:
         meta = ContextSetMeta(
             id=set_id,
             project=project.path,
-            # 作成日時は作り始めた時刻（ID と同じ。保存期間はここから数える: spec 6.8）
+            # 作成日時は作り始めた時刻（ID と同じ。保存期間はここから数える: spec/flows.md 6.8）
             created_at=iso(started),
             model=model,
             think=think,

@@ -1,6 +1,6 @@
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
-// 要約度（要約の細かさ。spec 3・5.3）の選択。1（ごく短く要点だけ）〜5（できるだけ省かず細かく）
+// 要約度（要約の細かさ。spec/README.md 3・spec/files.md 5.3）の選択。1（ごく短く要点だけ）〜5（できるだけ省かず細かく）
 const LEVELS = [
     { value: 1, label: '1 ごく短く' },
     { value: 2, label: '2 短め' },

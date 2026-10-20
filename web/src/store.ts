@@ -38,18 +38,18 @@ import type { ContextSelection, ContextSet, Generating, Project, Session } from 
 import { uploadAudio } from '@/upload';
 import type { VersionJson } from '@/version';
 
-// 画面の状態をまとめて持つストア。プロジェクト・セッション・設定はサーバーの API から取る（spec 7.1）
+// 画面の状態をまとめて持つストア。プロジェクト・セッション・設定はサーバーの API から取る（spec/api.md 7.1）
 
 type Selection = { projectId: string | null; sessionId: string | null };
 
-// partial（spec 7.2）。committed は確定した部分、tentative はまだ変わるかもしれない部分
+// partial（spec/api.md 7.2）。committed は確定した部分、tentative はまだ変わるかもしれない部分
 export type LivePartial = { sessionId: string; segment: number; committed: string; tentative: string };
 
 type AppState = {
     projects: Project[];
     selection: Selection;
     recordingState: RecordingState;
-    // 録音中のセッション。録音を始めたときに作る（spec 5.2・6.2）
+    // 録音中のセッション。録音を始めたときに作る（spec/files.md 5.2・spec/flows.md 6.2）
     recordingSessionId: string | null;
     // 録音の経過時間（秒）。録音した音声の長さで、一時停止中は止まる
     elapsed: number;
@@ -197,7 +197,7 @@ function finishDemoSummary(s: AppState, sessionId: string): Partial<AppState> {
     };
 }
 
-// 録音した（サーバーに送る）サンプルの数。経過時間はこれから出す（spec 6.2）
+// 録音した（サーバーに送る）サンプルの数。経過時間はこれから出す（spec/flows.md 6.2）
 // サーバーは受け取ったサンプルの数から文字起こしの時刻を出すので、同じ時計になる。
 // setInterval で数えると、裏に回したタブでタイマーが間引かれてずれていく
 let recordedSamples = 0;
@@ -441,7 +441,7 @@ export const useAppStore = create<AppState>()((set, get) => {
             return;
         }
 
-        // セッションは録音を始めたときに作る。ID はサーバーが決めた、録音を始めた時刻（spec 5.2）
+        // セッションは録音を始めたときに作る。ID はサーバーが決めた、録音を始めた時刻（spec/files.md 5.2）
         const created: Session = {
             id: reply.session,
             uuid: reply.sessionUuid ?? undefined,
@@ -492,7 +492,7 @@ export const useAppStore = create<AppState>()((set, get) => {
         }
     }
 
-    // 録音中に切れた接続がつながり直したら、resume を送って続きから録音する（spec 6.7・7.2）
+    // 録音中に切れた接続がつながり直したら、resume を送って続きから録音する（spec/flows.md 6.7・spec/api.md 7.2）
     // 切れている間もマイクは止めず、音声は ack されるまで手元に溜めておく
     async function resumeAfterReconnect() {
         const sessionId = get().recordingSessionId ?? stoppedWhileOffline;
@@ -1297,7 +1297,7 @@ export const useAppStore = create<AppState>()((set, get) => {
             );
         },
 
-        // サーバーにつなぎ続け、状態（status）とエラーを受け取る（spec 7.2）
+        // サーバーにつなぎ続け、状態（status）とエラーを受け取る（spec/api.md 7.2）
         // 接続が切れているかどうかは status に含まれないので、ブラウザ側で判定する
         connectServer: () => {
             if (serverSubscribed) {
@@ -1462,7 +1462,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                                 ? null
                                 : s.liveDraft,
                     }));
-                    // 最終の要約の失敗はサーバーが記録している（spec 6.7）。手元で決めつけず、取り直して記録に合わせる
+                    // 最終の要約の失敗はサーバーが記録している（spec/flows.md 6.7）。手元で決めつけず、取り直して記録に合わせる
                     // （録音を終えた直後の途中の要約や音声の失敗を、要約の失敗と取り違えないように）
                     if (get().recordingSessionId !== m.session) {
                         void get().loadProjects();
@@ -1512,7 +1512,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                 const { projectOrder: _order, ...patch } = next;
                 set({ settings: await api.patch<Settings>('/api/settings', patch) });
                 // 最終の要約のモデル（全体概要か要約詳細。#178）を変えたら、開いているセッションにその組の要約が
-                // なければ作り直す（spec 6.5）。録音中は作り直さない（録音中の文字起こしが止まるため。#133）
+                // なければ作り直す（spec/flows.md 6.5）。録音中は作り直さない（録音中の文字起こしが止まるため。#133）
                 const models = get().settings.ollama.models;
                 const session = currentSession(get());
                 if (
@@ -1673,7 +1673,7 @@ export const useAppStore = create<AppState>()((set, get) => {
         },
 
         // 資料を送ってセットの作成を始める（POST .../context-sets）。できたかは contextSet で届く。
-        // 同じ資料の組み合わせのセットがあれば、サーバーが使い回す（spec 6.6 節）
+        // 同じ資料の組み合わせのセットがあれば、サーバーが使い回す（spec/flows.md 6.6 節）
         createContextSet: async (materials) => {
             const s = get();
             const project = currentProject(s);

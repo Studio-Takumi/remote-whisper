@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/dialog';
 import { useDirListing } from '@/hooks/useDirListing';
 
-// プロジェクトにするフォルダを選ぶ。選べるのは設定の「読み込めるフォルダ」の中だけ（spec 7.3 節）
+// プロジェクトにするフォルダを選ぶ。選べるのは設定の「読み込めるフォルダ」の中だけ（spec/api.md 7.3 節）
 export function NewProjectDialog({
     open,
     onOpenChange,

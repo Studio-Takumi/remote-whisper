@@ -1,4 +1,4 @@
-"""WebSocket `/ws`。録音とサーバーの状態の通知に使う。spec 7.2"""
+"""WebSocket `/ws`。録音とサーバーの状態の通知に使う。spec/api.md 7.2"""
 
 import json
 import logging

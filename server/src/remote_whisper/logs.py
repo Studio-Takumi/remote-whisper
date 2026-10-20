@@ -1,4 +1,4 @@
-"""サーバーのログ（#134）。spec 6.10
+"""サーバーのログ（#134）。spec/flows.md 6.10
 
 - `<データのルート>/log/server.log` に書き、日付が変わったら切り替えて 10 日分残す
   （`TimedRotatingFileHandler`）。コンソールにも今まで通り出す

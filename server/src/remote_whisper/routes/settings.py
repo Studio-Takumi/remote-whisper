@@ -1,4 +1,4 @@
-"""全体設定の API。spec 7.1"""
+"""全体設定の API。spec/api.md 7.1"""
 
 from typing import Annotated, Any
 
@@ -21,7 +21,7 @@ async def patch_settings(
     patch: Annotated[dict[str, Any], Body()],
     ctx: Annotated[AppContext, Depends(get_ctx)],
 ) -> dict[str, Any]:
-    # 録音中は、文字起こしのモデル・区切り・マイクの処理だけ変えられない（spec 5.3）
+    # 録音中は、文字起こしのモデル・区切り・マイクの処理だけ変えられない（spec/files.md 5.3）
     locked = RECORDING_LOCKED if ctx.is_recording else ()
     before = ctx.settings.get().project_order
     try:

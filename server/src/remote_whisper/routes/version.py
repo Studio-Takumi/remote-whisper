@@ -1,4 +1,4 @@
-"""バージョンの API。spec 7.1"""
+"""バージョンの API。spec/api.md 7.1"""
 
 from typing import Any
 

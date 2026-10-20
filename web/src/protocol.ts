@@ -1,4 +1,4 @@
-// WebSocket /ws でやりとりするメッセージ（docs/spec.md 7.2 節）。サーバーの server/src/remote_whisper/routes/ws.py と合わせる
+// WebSocket /ws でやりとりするメッセージ（docs/spec/api.md 7.2 節）。サーバーの server/src/remote_whisper/routes/ws.py と合わせる
 
 // ブラウザ → サーバー（制御）。音声はバイナリで、先頭4バイトが連番（uint32 LE）、続きが 16kHz・モノラル・Int16 の PCM
 export type ClientMessage =
@@ -13,7 +13,7 @@ export type ClientMessage =
 
 export type SummaryKind = 'live' | 'final';
 
-// GPU キューのジョブ（status の jobs。spec 6.3・7.2）。秒数はサーバーが送った時点のもの
+// GPU キューのジョブ（status の jobs。spec/flows.md 6.3・spec/api.md 7.2）。秒数はサーバーが送った時点のもの
 export type GpuJobKind =
     | 'transcribe'
     | 'whisperLoad'

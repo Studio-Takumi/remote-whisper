@@ -1,4 +1,4 @@
-"""録音中に文字起こしから用語を拾い、用語リスト（hotwords）に足す。spec 6.2・6.6（#103）
+"""録音中に文字起こしから用語を拾い、用語リスト（hotwords）に足す。spec/flows.md 6.2・6.6（#103）
 
 - 途中の要約と同じ間隔（liveSummaryIntervalMin。録音した長さで数える）で、前回から増えた
   文字起こしから、固有名詞・専門用語を Ollama で抜き出す（JSON Schema。思考モードはオフ）
@@ -35,7 +35,7 @@ MIN_LINES = 2
 MIN_CHARS = 2
 MAX_CHARS = 20
 # Whisper に渡す用語リストの長さの上限（文字）。hotwords と initial_prompt を合わせて約 224 トークン
-# （spec 6.6）なので、日本語の 1 文字を 1 トークンとみて余裕を残す
+# （spec/flows.md 6.6）なので、日本語の 1 文字を 1 トークンとみて余裕を残す
 HOTWORDS_MAX_CHARS = 200
 # 用語として足すのは、語のうちカタカナ（3 文字以上）かラテン文字（2 文字以上）が続くところだけ
 _DISTINCT_RUN = re.compile(r"[ァ-ヺー・]{3,}|[A-Za-z][A-Za-z0-9.+\-]+")

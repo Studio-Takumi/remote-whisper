@@ -1,4 +1,4 @@
-// マイクの音声を AudioWorklet で 16kHz・モノラル・Int16 の PCM にする（spec 7.2）
+// マイクの音声を AudioWorklet で 16kHz・モノラル・Int16 の PCM にする（spec/api.md 7.2）
 
 // AudioWorklet の本体は public/ に置き、ビルドでもそのままの名前で配信する（data URL に埋め込まれないように）
 const workletUrl = `${import.meta.env.BASE_URL}pcm-worklet.js`;

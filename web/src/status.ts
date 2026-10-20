@@ -1,7 +1,7 @@
 import type { GpuJobKind, GpuJobs, GpuStats } from '@/protocol';
 import type { RecordingState } from '@/recording';
 
-// サーバーとブラウザの状態。whisper・ollama・jobs・gpu は WebSocket の status メッセージ（spec 7.2 節）から、
+// サーバーとブラウザの状態。whisper・ollama・jobs・gpu は WebSocket の status メッセージ（spec/api.md 7.2 節）から、
 // connection は WebSocket がつながっているか、microphone はマイクの許可から、ブラウザ側で決める
 export type ServerStatus = {
     whisper: 'unloaded' | 'loading' | 'ready' | 'error';
@@ -97,7 +97,7 @@ export function transcriptStatus(state: RecordingState, server: ServerStatus, se
     if (server.whisper === 'error') {
         return { tone: 'error', text: '文字起こしが止まっています。音声は保存しているので、後から作り直せます' };
     }
-    // GPU は1つずつしか使えず、実行中の要約は途中で止めないので、終わるまで文字起こしが待たされる（spec 6.3）
+    // GPU は1つずつしか使えず、実行中の要約は途中で止めないので、終わるまで文字起こしが待たされる（spec/flows.md 6.3）
     // モデルの読み込みもその後ろで待つので、読み込み中の表示より先に見る
     const blocking = transcriptWaitingFor(server.jobs, sessionId);
     if (blocking) {

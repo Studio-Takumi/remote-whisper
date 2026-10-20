@@ -1,4 +1,4 @@
-"""Ollama とのやりとり。spec 6.3・7.1・9.3
+"""Ollama とのやりとり。spec/flows.md 6.3・spec/api.md 7.1・spec/notes.md 9.3
 
 - モデルの一覧（/api/tags）と、それぞれが思考モードに対応しているか（/api/show の capabilities）
 - 要約などの生成（/api/chat）。思考モードに対応していないモデルはオフで実行する
@@ -158,7 +158,7 @@ class OllamaClient:
         return alternative
 
     async def supports_thinking(self, model: str) -> bool:
-        """`ollama show` の capabilities に thinking が含まれるか（spec 9.3）
+        """`ollama show` の capabilities に thinking が含まれるか（spec/notes.md 9.3）
 
         分からなければ False"""
         if model not in self._thinking:
