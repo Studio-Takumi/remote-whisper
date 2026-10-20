@@ -46,7 +46,8 @@ CREATE TABLE hosts (
     -- Ed25519 の公開鍵（ホストから Worker への API の署名を確かめる）
     public_key TEXT NOT NULL,
     -- 中継の鍵（Worker からホストへの署名。10.5 節）
-    relay_key TEXT NOT NULL,
+    -- 置き方は未決（D1 に置く・暗号化する・都度導出する。10.8 節）なので NULL を許す
+    relay_key TEXT,
     tunnel_id TEXT,
     tunnel_hostname TEXT UNIQUE,
     app_version TEXT,
@@ -69,6 +70,7 @@ CREATE TABLE pairing_requests (
     expires_at INTEGER NOT NULL
 );
 CREATE INDEX pairing_requests_expires ON pairing_requests (expires_at);
+CREATE INDEX pairing_requests_host ON pairing_requests (host_id);
 
 -- 同意の履歴（追記だけ）。今の状態は、その種類の最後の行
 CREATE TABLE consents (
