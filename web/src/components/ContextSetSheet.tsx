@@ -52,7 +52,7 @@ export function ContextSetSheet() {
                 <SheetHeader>
                     <SheetTitle>参考資料</SheetTitle>
                     <SheetDescription>
-                        選んだ資料から用語リストとコンテキストを作り、文字起こしと要約に使います。セットはプロジェクトごとに持ちます。
+                        選んだ資料から用語リストとコンテキストを作り、文字起こしと要約に使います。参考資料はプロジェクトごとに持ちます。
                     </SheetDescription>
                 </SheetHeader>
                 {project ? (
