@@ -3,6 +3,7 @@ import { currentUser } from './auth';
 import { clearSessionCookie, error, json, sameOrigin } from './http';
 import type { Env } from './index';
 import { PROVIDERS } from './providers';
+import { type HostTunnel, deleteTunnel, deleteUserTunnels } from './tunnel';
 
 export async function handleMe(request: Request, env: Env, path: string): Promise<Response> {
     const user = await currentUser(request, env);
@@ -57,12 +58,16 @@ async function hosts(env: Env, userId: string): Promise<Response> {
     });
 }
 
-// 画面からホストを外す。トンネルと DNS レコードを消すのは #159 で足す
+// 画面からホストを外す。トンネルと DNS レコードも消す（#159）
 async function removeHost(env: Env, userId: string, hostId: string): Promise<Response> {
-    const res = await env.DB.prepare('DELETE FROM hosts WHERE id = ? AND user_id = ?').bind(hostId, userId).run();
-    if (res.meta.changes === 0) {
+    const host = await env.DB.prepare('SELECT id, tunnel_id, tunnel_hostname FROM hosts WHERE id = ? AND user_id = ?')
+        .bind(hostId, userId)
+        .first<HostTunnel>();
+    if (!host) {
         return error(404, 'そのホストはありません');
     }
+    await deleteTunnel(env, host);
+    await env.DB.prepare('DELETE FROM hosts WHERE id = ? AND user_id = ?').bind(hostId, userId).run();
     await env.DB.prepare('DELETE FROM pairing_requests WHERE host_id = ?').bind(hostId).run();
     return hosts(env, userId);
 }
@@ -116,8 +121,9 @@ async function removeIdentity(env: Env, userId: string, identityId: string): Pro
 }
 
 // 退会: ユーザー・ログイン手段・ログインセッション・ホスト・同意の履歴を消す（外部キーの CASCADE）。
-// ホストのトンネルを消すのは #159 で足す
+// ホストのトンネルと DNS レコードは、行を消す前に消す（#159）
 async function deleteAccount(env: Env, userId: string): Promise<Response> {
+    await deleteUserTunnels(env, userId);
     await env.DB.prepare('DELETE FROM users WHERE id = ?').bind(userId).run();
     return json({ ok: true }, 200, { 'Set-Cookie': clearSessionCookie() });
 }

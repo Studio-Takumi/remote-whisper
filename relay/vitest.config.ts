@@ -16,6 +16,10 @@ export default defineConfig({
                     DISCORD_CLIENT_SECRET: 'discord-secret',
                     GITHUB_CLIENT_ID: 'github-id',
                     GITHUB_CLIENT_SECRET: 'github-secret',
+                    // トンネルの API（偽物に差し替える）
+                    CF_API_TOKEN: 'cf-token',
+                    CF_ACCOUNT_ID: 'acct',
+                    CF_ZONE_ID: 'zone',
                 },
             },
         })),

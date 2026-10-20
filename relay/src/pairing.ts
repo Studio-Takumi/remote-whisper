@@ -3,13 +3,15 @@
 // ホスト（トレイ）から（X-RW-Host の署名つき）:
 // - POST /pair/start: 申請。登録コード（10 分有効）を返す。DB にはコードのハッシュだけ
 // - POST /pair/poll: 承認されたかを聞く。承認されていれば中継の鍵を返す（期限までは何度でも同じもの）
-// - POST /pair/unpair: 登録をやめる（申請中なら申請を消す）
+// - POST /pair/unpair: 登録をやめる（申請中なら申請を消す）。トンネルも消す
+// - POST /pair/tunnel: 起動のたびに cloudflared のトークンをもらう（#159。トンネルがなければ作る）
 // ブラウザから（ログインセッション）:
 // - GET /pair/request?code=: 確認の画面に出す申請（PC 名など）
 // - POST /pair/approve・/pair/reject {code}: 承認・拒否。承認したときに hosts に入れる
 import { currentUser } from './auth';
 import { error, json, randomToken, sameOrigin, sha256 } from './http';
 import type { Env } from './index';
+import { type HostTunnel, TunnelUnavailable, deleteTunnel, ensureTunnel } from './tunnel';
 
 export const PAIR_TTL_MS = 10 * 60 * 1000;
 // 署名の時刻のずれの許し（10.5 節）
@@ -41,6 +43,8 @@ export async function handlePairing(request: Request, env: Env, path: string): P
             return poll(request, env);
         case 'POST /pair/unpair':
             return unpair(request, env);
+        case 'POST /pair/tunnel':
+            return tunnel(request, env);
         case 'GET /pair/request':
         case 'POST /pair/approve':
         case 'POST /pair/reject':
@@ -270,9 +274,9 @@ async function unpair(request: Request, env: Env): Promise<Response> {
         return error(401, 'bad signature');
     }
     const hostId = signed.header.hostId;
-    const host = await env.DB.prepare('SELECT public_key FROM hosts WHERE id = ?')
+    const host = await env.DB.prepare('SELECT id, public_key, tunnel_id, tunnel_hostname FROM hosts WHERE id = ?')
         .bind(hostId)
-        .first<{ public_key: string }>();
+        .first<HostTunnel & { public_key: string }>();
     const pending = host
         ? null
         : await env.DB.prepare('SELECT public_key FROM pairing_requests WHERE host_id = ?')
@@ -285,12 +289,47 @@ async function unpair(request: Request, env: Env): Promise<Response> {
     if (!(await verifyHost(signed.header, publicKey, request, signed.body))) {
         return error(401, 'bad signature');
     }
-    // トンネルと DNS レコードを消すのは #159 で足す
+    if (host) {
+        await deleteTunnel(env, host);
+    }
     await env.DB.batch([
         env.DB.prepare('DELETE FROM hosts WHERE id = ?').bind(hostId),
         env.DB.prepare('DELETE FROM pairing_requests WHERE host_id = ?').bind(hostId),
     ]);
     return json({ ok: true });
+}
+
+// 登録済みのホストが、起動のたびに cloudflared のトークンをもらう（#159）。トンネルがなければ作る。
+// 本文の appVersion（任意）は、ホストの一覧（#161）に出す
+async function tunnel(request: Request, env: Env): Promise<Response> {
+    const signed = await signedRequest(request);
+    if (!signed) {
+        return error(401, 'bad signature');
+    }
+    const host = await env.DB.prepare('SELECT id, public_key, tunnel_id, tunnel_hostname FROM hosts WHERE id = ?')
+        .bind(signed.header.hostId)
+        .first<HostTunnel & { public_key: string }>();
+    if (!host) {
+        return error(404, 'no such host');
+    }
+    if (!(await verifyHost(signed.header, host.public_key, request, signed.body))) {
+        return error(401, 'bad signature');
+    }
+    const data = parseJson(signed.body);
+    const appVersion =
+        typeof data?.appVersion === 'string' && /^[\w.+-]{1,32}$/.test(data.appVersion) ? data.appVersion : null;
+    await env.DB.prepare('UPDATE hosts SET last_seen_at = ?, app_version = COALESCE(?, app_version) WHERE id = ?')
+        .bind(Date.now(), appVersion, host.id)
+        .run();
+    try {
+        return json(await ensureTunnel(env, host));
+    } catch (e) {
+        if (e instanceof TunnelUnavailable) {
+            return error(503, 'tunnel is not available');
+        }
+        console.warn(`failed to prepare the tunnel of host ${host.id}: ${(e as Error).message}`);
+        return error(502, 'failed to prepare the tunnel');
+    }
 }
 
 // --- ブラウザから ---
