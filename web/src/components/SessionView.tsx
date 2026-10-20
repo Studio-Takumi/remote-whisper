@@ -26,6 +26,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { copyText } from '@/copyMarkdown';
 import { pickFinalTranscript } from '@/data';
+import { apiUrl } from '@/endpoint';
 import { describeMaterialRange } from '@/materialRange';
 import { recordingLocks } from '@/recording';
 import { isScrolledToBottom, scrollToBottom } from '@/scroll';
@@ -88,7 +89,7 @@ export function SessionView() {
     // 録音を終えていて、録音ファイルが残っているセッションだけ再生できる（消えた・変換前なら出さない）
     const url =
         session && session.status !== 'recording' && session.files?.recording
-            ? `/api/projects/${project.id}/sessions/${session.id}/recording`
+            ? apiUrl(`/api/projects/${project.id}/sessions/${session.id}/recording`)
             : null;
     const recordingUrl = url !== failedRecording ? url : null;
     const onTime = (sec: number, playing: boolean, seeked: boolean) => {

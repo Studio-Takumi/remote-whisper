@@ -1,5 +1,6 @@
 // サーバーの REST API（docs/spec/api.md 7.1 節）を呼ぶ
 import type { Correction } from '@/corrections';
+import { apiUrl } from '@/endpoint';
 
 // サーバーがエラー（4xx・5xx）を返したとき。message はサーバーの detail（日本語）
 export class ApiError extends Error {
@@ -14,7 +15,7 @@ export class ApiError extends Error {
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
     let res: Response;
     try {
-        res = await fetch(path, {
+        res = await fetch(apiUrl(path), {
             method,
             headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
             body: body === undefined ? undefined : JSON.stringify(body),
