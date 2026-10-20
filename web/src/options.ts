@@ -26,7 +26,7 @@ export function isMissing(options: SettingsOptions, key: keyof OllamaModels, mod
     return names.length > 0 ? !names.includes(model) : (options.ollama.missing?.includes(key) ?? false);
 }
 
-// 思考モードを使う処理（最終の要約・参考資料セット）の説明。対応していないモデルはオフで実行する（spec 5.3・9.3）
+// 思考モードを使う処理（最終の要約・参考資料セット）の説明。対応していないモデルはオフで実行する（spec/files.md 5.3・spec/notes.md 9.3）
 export function thinkingNote(options: SettingsOptions, model: string) {
     const thinking = options.ollama.models.find((m) => m.name === model)?.thinking;
     if (thinking === false) {

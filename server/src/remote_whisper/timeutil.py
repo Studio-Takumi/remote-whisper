@@ -1,4 +1,4 @@
-"""日時と ID。spec 5.2・5.5"""
+"""日時と ID。spec/files.md 5.2・5.5"""
 
 from datetime import datetime
 

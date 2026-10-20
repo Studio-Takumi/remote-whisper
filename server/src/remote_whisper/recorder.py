@@ -1,4 +1,6 @@
-"""録音マネージャ。WebSocket で届いた音声を受け取って保存する。spec 6.1・6.2・9.1
+"""録音マネージャ。WebSocket で届いた音声を受け取って保存する
+
+spec/flows.md 6.1・6.2・spec/notes.md 9.1
 
 GPU に依存させない（Whisper や Ollama が止まっていても、音声の受信と保存は続ける）。
 
@@ -720,7 +722,7 @@ class RecordingManager:
             picking = self.settings.get().ollama.pick_terms and session.writer.pick_terms
             if self.ollama is not None and picking:
                 session.start_picking(self.ollama, self.gpu, self.settings)
-            # Whisper は録音を始めたときに読み込む（読み込み済みなら何もしない）。spec 6.2
+            # Whisper は録音を始めたときに読み込む（読み込み済みなら何もしない）。spec/flows.md 6.2
             # 読み込み中に届いた音声の区間は、キューの後ろで待って、読み込み後に文字起こしする
             loading = self.gpu.submit(
                 Priority.TRANSCRIBE, self.whisper.ensure_loaded, kind="whisperLoad", session=sid
@@ -753,7 +755,8 @@ class RecordingManager:
     async def context_set_ready(self, pid: str, set_id: str) -> None:
         """参考資料セットができた。そのセットを選んで録音中のセッションは、次の区間から使う
 
-        （spec 6.6。作成中に録音を始めたときは、用語リストとコンテキストなしで始まっている）"""
+        （spec/flows.md 6.6。作成中に録音を始めたときは、
+        用語リストとコンテキストなしで始まっている）"""
         for session in self.active():
             writer = session.writer
             if writer.pid != pid or writer.meta.context_set != set_id:

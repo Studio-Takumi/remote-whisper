@@ -1,4 +1,4 @@
-"""録音の WAV を mp3（モノラル・64kbps）に変換する。spec 9.1
+"""録音の WAV を mp3（モノラル・64kbps）に変換する。spec/notes.md 9.1
 
 変換には faster-whisper が内部で使っている PyAV を使う。mp3 のエンコーダーがない配布版なら
 m4a（AAC）にする（#36 で確かめる）。CPU で動くので、GPU キューには積まない。

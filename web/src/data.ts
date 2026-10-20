@@ -136,7 +136,7 @@ export async function fetchFinalTranscripts(projectId: string, sessionId: string
 }
 
 // 表示する最終の文字起こしの世代。今の全体設定の Whisper のモデルで作ったうちいちばん新しいもの。
-// そのモデルのものがなければ、モデルを問わずいちばん新しいもの（要約と同じ。spec 6.5）
+// そのモデルのものがなければ、モデルを問わずいちばん新しいもの（要約と同じ。spec/flows.md 6.5）
 export function pickFinalTranscript(infos: FinalTranscriptInfo[], model: string) {
     return infos.findLast((x) => x.model === model) ?? infos.at(-1);
 }

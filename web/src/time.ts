@@ -1,4 +1,4 @@
-// ID と表示用の日時。ID の形式は spec 5.2 節の YYYYMMDD-HHMMSS
+// ID と表示用の日時。ID の形式は spec/files.md 5.2 節の YYYYMMDD-HHMMSS
 function pad(n: number) {
     return String(n).padStart(2, '0');
 }

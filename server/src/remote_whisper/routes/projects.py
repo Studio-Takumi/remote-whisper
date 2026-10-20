@@ -1,4 +1,4 @@
-"""プロジェクトの API。spec 7.1"""
+"""プロジェクトの API。spec/api.md 7.1"""
 
 from typing import Annotated, Any
 
@@ -80,7 +80,9 @@ async def create_context_set(
 def change_selection(
     pid: Pid, body: SelectionBody, ctx: Annotated[AppContext, Depends(get_ctx)]
 ) -> dict[str, Any]:
-    """使うセットと、用語リスト・コンテキストそれぞれを使うか。録音中は 409（spec 5.3・8）"""
+    """使うセットと、用語リスト・コンテキストそれぞれを使うか。録音中は 409
+
+    （spec/files.md 5.3・spec/ui.md 8）"""
     ctx.ensure_not_recording()
     changes = body.model_dump(exclude_unset=True)
 

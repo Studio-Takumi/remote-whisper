@@ -1,4 +1,4 @@
-// 録音中に画面がスリープしないようにする（Screen Wake Lock API。spec 6.7、#102）
+// 録音中に画面がスリープしないようにする（Screen Wake Lock API。spec/flows.md 6.7、#102）
 // タブを裏に回すとブラウザが外すので、表に戻ったら取り直す。使えないブラウザでは何もしない
 
 let wanted = false;

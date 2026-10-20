@@ -1,4 +1,4 @@
-"""プロジェクトの登録と project.json。spec 5.2・5.4"""
+"""プロジェクトの登録と project.json。spec/files.md 5.2・5.4"""
 
 import hashlib
 import json
@@ -153,7 +153,7 @@ class ProjectFile(_Model):
 
 
 def rebuild_project_file(project_dir: Path) -> ProjectFile | None:
-    """同じディレクトリのファイルのフロントマターから project.json の中身を作る。spec 5.4
+    """同じディレクトリのファイルのフロントマターから project.json の中身を作る。spec/files.md 5.4
 
     プロジェクトのパスはフロントマターの `project` から取る（ID がディレクトリ名と合うものだけ）。
     どのファイルにもなければ作れない（None）。

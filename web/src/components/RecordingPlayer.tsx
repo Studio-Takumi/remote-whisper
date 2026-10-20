@@ -1,6 +1,6 @@
 import type { RefObject, SyntheticEvent } from 'react';
 
-// 録音の再生バー（spec 8）。ブラウザの audio をそのまま使う（シークは Range リクエスト。spec 7.1）
+// 録音の再生バー（spec/ui.md 8）。ブラウザの audio をそのまま使う（シークは Range リクエスト。spec/api.md 7.1）
 // 読み込めなかったら（保存期間を過ぎて消えた直後など）onError を呼ぶ。出すかどうかは呼ぶ側が決める
 // onTime は再生位置が変わったとき（再生中は 1 秒に数回）。seeked はシークしたとき（#122）
 export function RecordingPlayer({

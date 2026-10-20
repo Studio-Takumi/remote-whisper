@@ -124,7 +124,7 @@ def test_ollama_unavailable_keeps_the_live_summary(client, project, fake_ollama)
     assert "最終の要約" in error["message"]
     assert (d / ".tmp" / sid / "live-summary.md").exists()
     assert list(d.glob(f"summary-{sid}-*.md")) == []
-    # 失敗したことを記録する（後で作り直せるように。spec 6.7）
+    # 失敗したことを記録する（後で作り直せるように。spec/flows.md 6.7）
     meta, _ = read_doc(d / f"transcript-{sid}.md", TranscriptMeta)
     assert meta.summary_failed is True
     url = f"/api/projects/{pid}/sessions/{sid}"
@@ -514,7 +514,7 @@ def run_summary(home, fake, tmp_path, whisper, recording):
 def test_whisper_is_kept_while_another_session_is_recording(home, fake, tmp_path):
     whisper = StubWhisper()
     gid, _, _ = run_summary(home, fake, tmp_path, whisper, recording=True)
-    # ほかに録音中のセッションがあるので、Whisper は下ろさない（spec 6.3）
+    # ほかに録音中のセッションがあるので、Whisper は下ろさない（spec/flows.md 6.3）
     assert whisper.unloaded == 0
     assert gid == "20261010-100100"
     whisper = StubWhisper()
@@ -528,7 +528,7 @@ def test_summary_is_made_even_if_unloading_or_copying_fails(home, fake, tmp_path
     assert gid == "20261010-100100"
     model, think, text, generated = writer.saved
     assert (model, think, text) == ("qwen3.5:4b", True, "要約です")
-    # 生成 ID は、生成を始めた時刻（spec 5.2）
+    # 生成 ID は、生成を始めた時刻（spec/files.md 5.2）
     assert before <= generated <= final_summary.now()
     # 選んだディレクトリにコピーできなくても、タイトルは送る
     assert sent[-1] == {"type": "title", "title": "リリース計画の確認", "provisional": False}

@@ -1,4 +1,7 @@
-"""プロジェクトのディレクトリに置くファイルの名前と、フロントマターの読み書き。spec 5.1・5.5"""
+"""プロジェクトのディレクトリに置くファイルの名前と、フロントマターの読み書き
+
+spec/files.md 5.1・5.5
+"""
 
 import re
 from pathlib import Path
@@ -156,7 +159,8 @@ class TranscriptMeta(_Meta):
     context_set: str | None = None
     use_hotwords: bool = False
     recording: str | None = None
-    # 最終の要約を作れなかった（Ollama につながらないなど）。作れたら false に戻す（spec 6.7）
+    # 最終の要約を作れなかった（Ollama につながらないなど）。作れたら false に戻す。
+    # spec/flows.md 6.7
     summary_failed: bool = False
     # 録音したサーバーのバージョン（コミットハッシュ）。以前のファイルにはない
     app_version: str | None = None

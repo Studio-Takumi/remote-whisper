@@ -8,7 +8,7 @@ import { VitePWA } from 'vite-plugin-pwa';
 // 開発中は /api と /ws をサーバーへ転送する。本番はサーバーが web/dist を配信するので同じオリジンになる
 const server = process.env.REMOTE_WHISPER_SERVER ?? 'http://localhost:8000';
 
-// 画面のバージョン。サーバーと同じく git のコミットハッシュで、コミットしていない変更があれば +dirty（spec 7.1）
+// 画面のバージョン。サーバーと同じく git のコミットハッシュで、コミットしていない変更があれば +dirty（spec/api.md 7.1）
 function appVersion() {
     const git = (...args: string[]) => execFileSync('git', args, { encoding: 'utf8', timeout: 5000 }).trim();
     try {

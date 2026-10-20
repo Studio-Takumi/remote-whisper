@@ -1,4 +1,4 @@
-"""データのルートと全体設定（setting.json）。spec 5.1・5.3"""
+"""データのルートと全体設定（setting.json）。spec/files.md 5.1・5.3"""
 
 import json
 import os
@@ -22,14 +22,14 @@ class SettingsError(Exception):
 
 
 class SettingsLockedError(Exception):
-    """録音中は変えられない項目を変えようとした（spec 5.3）。fields は変えようとした項目"""
+    """録音中は変えられない項目を変えようとした（spec/files.md 5.3）。fields は変えようとした項目"""
 
     def __init__(self, fields: list[str]):
         super().__init__(", ".join(fields))
         self.fields = fields
 
 
-# 録音中は変えられない項目（setting.json のキー。spec 5.3）。
+# 録音中は変えられない項目（setting.json のキー。spec/files.md 5.3）。
 # 文字起こしのモデルは変えると読み込み直しになり、その間の文字起こしが止まる。
 # 区切りの設定は録音を始めたときに決まるので、今の録音には効かない。
 # マイクの処理は、ブラウザが録音を始めるときにマイクに設定する
@@ -100,7 +100,7 @@ RECOMMENDED_MODELS = {
 
 
 class OllamaModels(_Model):
-    """Ollama を使う処理ごとのモデル（#178。spec 5.3）"""
+    """Ollama を使う処理ごとのモデル（#178。spec/files.md 5.3）"""
 
     # 参考資料: 用語リスト（資料抽出）・コンテキスト・範囲の判断（#182）
     material_terms: str = RECOMMENDED_MODELS["materialTerms"]
@@ -208,7 +208,7 @@ class OllamaSettings(_Model):
 class RecordingSettings(_Model):
     max_concurrent: int = Field(1, ge=1)
     # ブラウザとの接続が切れてから、つながり直すのを待つ時間（分）。過ぎたら interrupted にする
-    # （interrupted になっても、続きから録音できる。spec 6.7、#101）
+    # （interrupted になっても、続きから録音できる。spec/flows.md 6.7、#101）
     resume_timeout_min: float = Field(10, gt=0)
     # 普通に録音を終えた（done）あと、同じセッションの続きを録音できる時間（分。#174）。
     # この間は録音を WAV のまま残し、過ぎてから mp3 に変換する。0 なら続けられない（すぐ変換する）

@@ -53,7 +53,9 @@ class AppContext:
         return self.recordings > 0
 
     def ensure_not_recording(self) -> None:
-        """録音中は参考資料の選択を変えられない（spec 5.4・8。全体設定は項目ごと。spec 5.3）"""
+        """録音中は参考資料の選択を変えられない
+
+        （spec/files.md 5.4・spec/ui.md 8。全体設定は項目ごと。spec/files.md 5.3）"""
         if self.is_recording:
             raise HTTPException(status_code=409, detail="録音中は変更できません")
 

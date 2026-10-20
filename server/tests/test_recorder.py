@@ -407,7 +407,7 @@ def test_keeps_the_live_summary_when_removing_the_wav(client, project):
         sid = start(ws, pid)
         ws.send_bytes(chunk(0))
         receive_until(ws, of_type("ack", seq=0))
-        # 途中の要約は、最終の要約を保存できるまで残す（spec 6.4）
+        # 途中の要約は、最終の要約を保存できるまで残す（spec/flows.md 6.4）
         (d / ".tmp" / sid / "live-summary.md").write_text("途中の要約", encoding="utf-8")
         ws.send_json({"type": "stop"})
         receive_until(ws, of_type("status", recordings=0))
@@ -437,7 +437,7 @@ def test_falls_back_to_m4a_without_an_mp3_encoder(client, project, monkeypatch):
 
 
 def test_recording_continues_without_ollama(client, project, fake_ollama):
-    """Ollama につながらなくても、録音と文字起こしは続く（spec 6.7）"""
+    """Ollama につながらなくても、録音と文字起こしは続く（spec/flows.md 6.7）"""
     pid, d = project
     fake_ollama.up = False
     body = client.get("/api/settings/options").json()

@@ -98,7 +98,7 @@ def create_app(
             # 前に動いていたときに作っている途中だった参考資料セットを failed に直す
             ctx.context_sets.recover()
         # 前に動いていたサーバーが落ちていたら、録音中のままの文字起こしを interrupted に直し、
-        # 残っている WAV を変換する（変換は時間がかかるので後ろで。spec 6.7）
+        # 残っている WAV を変換する（変換は時間がかかるので後ろで。spec/flows.md 6.7）
         found = find_leftovers(ctx.projects, ctx.settings.get().retention_days.summary)
         quick = Leftovers(
             recording=found.recording, unsummarized=found.unsummarized, partials=found.partials

@@ -1,4 +1,4 @@
-"""セッション・文字起こし・要約を読む API。spec 7.1・6.5・6.8
+"""セッション・文字起こし・要約を読む API。spec/api.md 7.1・spec/flows.md 6.5・6.8
 
 ファイルがないものは、保存期間を過ぎて消えたものとして 410 Gone を返す。
 セッション自体がなければ 404。
@@ -86,7 +86,7 @@ async def upload(
     name: Annotated[str, Query(min_length=1, max_length=255)],
     last_modified: Annotated[float | None, Query(alias="lastModified")] = None,
 ) -> dict[str, Any]:
-    """音声ファイルをアップロードして、新しいセッションを作る（#180。spec 6.11）
+    """音声ファイルをアップロードして、新しいセッションを作る（#180。spec/flows.md 6.11）
 
     本文はファイルそのもの（`curl --data-binary @a.m4a`）。name は元のファイル名、
     lastModified はファイルの更新日時（ミリ秒）。作ったセッションをすぐ返し、最終の文字起こしと
@@ -423,7 +423,7 @@ def _corrections_json(writer: SessionWriter, terms: dict[str, Any]) -> dict[str,
 
 @router.post("/{sid}/corrections")
 async def add_correction(pid: Pid, sid: str, body: CorrectionBody, ctx: Ctx) -> dict[str, Any]:
-    """文字起こしの「間違った文字列 → 正しい語」の置き換えを足す（#176。spec 6.13）
+    """文字起こしの「間違った文字列 → 正しい語」の置き換えを足す（#176。spec/flows.md 6.13）
 
     正しい語は手で足した用語（#175）にも足す。録音中の文字起こしは、ファイルの中身を直し、以後に出る
     行にも当てる。最終の文字起こしは、表示するときと要約の入力にするときに当てる。
@@ -500,7 +500,9 @@ def list_summaries(pid: Pid, sid: str, ctx: Ctx) -> list[dict[str, Any]]:
 
 @router.post("/{sid}/summaries", status_code=202)
 async def regenerate_summary(pid: Pid, sid: str, ctx: Ctx) -> dict[str, Any]:
-    """今の全体設定で最終の要約を作り直す（spec 6.5）。GPU キュー（優先度 3）に積んで、すぐ返す
+    """今の全体設定で最終の要約を作り直す。GPU キュー（優先度 3）に積んで、すぐ返す
+
+    spec/flows.md 6.5
 
     結果は WebSocket で全員に送る（`summary.delta`（final）・`summary.done`・`title`、失敗なら
     `error`）。既存の要約は上書きせず、新しい生成 ID のファイルにする
@@ -560,7 +562,7 @@ def _log_failure(future: asyncio.Future) -> None:
 
 @router.get("/{sid}/summaries/{gid}")
 def get_summary(pid: Pid, sid: str, gid: str, ctx: Ctx) -> dict[str, Any]:
-    """`latest` は表示する要約（spec 6.5）。最終の要約がまだなければ、途中の要約を返す"""
+    """`latest` は表示する要約（spec/flows.md 6.5）。最終の要約がまだなければ、途中の要約を返す"""
     _, files = _session(ctx, pid, sid)
     if gid == "latest":
         models = ctx.settings.get().ollama.models

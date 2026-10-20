@@ -1,4 +1,6 @@
-"""録音中のセッションのファイル（文字起こし・要約）と project.json を書く。spec 5.4・5.5・6.2
+"""録音中のセッションのファイル（文字起こし・要約）と project.json を書く
+
+spec/files.md 5.4・5.5・spec/flows.md 6.2
 
 録音マネージャ（本物とモックの両方）から使う。音声ファイル（WAV・mp3）は扱わない。
 """
@@ -83,7 +85,7 @@ class SessionWriter:
         self.uuid: str | None = None
         project = store.load(pid)
         selection = project.effective_selection()
-        # そのセッションで使った設定値は、フロントマターに記録する（spec 6.2）
+        # そのセッションで使った設定値は、フロントマターに記録する（spec/flows.md 6.2）
         self.meta = TranscriptMeta(
             id=sid,
             project=project.path,
@@ -296,7 +298,7 @@ class SessionWriter:
     ) -> str:
         """最終の要約を新しい生成 ID のファイルに保存して、途中の要約を消す。生成 ID を返す
 
-        generated は生成を始めた時刻（生成 ID になる。spec 5.2）。省略すると今。
+        generated は生成を始めた時刻（生成 ID になる。spec/files.md 5.2）。省略すると今。
         overview_density・detail_density は使った要約度（#100）。
         model は要約詳細のモデル、overview_model は全体概要のモデル（#178。省くと model と同じ）
         """
@@ -333,7 +335,7 @@ class SessionWriter:
         return gid
 
     def copy_summary(self, gid: str) -> Path:
-        """最終の要約を、選んだディレクトリにコピーする（spec 5.1）
+        """最終の要約を、選んだディレクトリにコピーする（spec/files.md 5.1）
 
         名前は `summary-YYYYMMDD-<タイトル>.md`。同じ名前のファイルがあれば `-2` のような
         番号を付ける。コピーしたパスを返す

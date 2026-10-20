@@ -5,7 +5,7 @@ import { ChevronRightIcon } from 'lucide-react';
 import { Markdown } from '@/components/Markdown';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 
-// 途中の要約の表示（spec 6.4・8）。サーバーは長くなると「## ここまでの概要」と、
+// 途中の要約の表示（spec/flows.md 6.4・spec/ui.md 8）。サーバーは長くなると「## ここまでの概要」と、
 // 時刻の範囲を見出し（## 00:00:00〜00:12:34）にした区間ごとの要約を並べて送る（#93）。
 // 確定した区間（終わりの時刻があるもの）は畳んでおき、開けば読める。続いている区間（00:12:34〜）は開いておく
 // 見出しのない要約（短い録音・前のサーバーで作ったもの）は、そのまま出す
