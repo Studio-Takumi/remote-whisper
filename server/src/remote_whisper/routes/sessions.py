@@ -371,16 +371,31 @@ async def _add_manual_term(ctx: AppContext, pid: str, sid: str, term: str) -> di
     return _terms_json(picked, rejected, manual)
 
 
+@router.delete("/{sid}/terms")
+async def reject_term_by_query(
+    pid: Pid, sid: str, term: Annotated[str, Query(min_length=1, max_length=200)], ctx: Ctx
+) -> dict[str, Any]:
+    """用語リストから語を外す（語はクエリの term で渡す。#219）
+
+    語をパスに入れると、「\\」「..」「%」などを含む語が、クラウド版の中継（#215・#216）や
+    URL の正規化で弾かれて外せない。画面はこちらを使う
+    """
+    return await _reject_term(ctx, pid, sid, term)
+
+
 @router.delete("/{sid}/terms/{term}")
 async def reject_term(pid: Pid, sid: str, term: str, ctx: Ctx) -> dict[str, Any]:
-    """用語リストから語を外す
+    """用語リストから語を外す（古い形。語をパスに入れる。新しい画面は ?term= の形を使う）"""
+    # term はパスの一部なので「/」を含む語は外せない
+    # （拾う語・手で足す語は「/」を含まない: term_picker._DISTINCT_RUN、add_term）
+    return await _reject_term(ctx, pid, sid, term)
 
-    手で足した語（#175）は、外すだけ（以後足さない語としては記録しない）。
+
+async def _reject_term(ctx: AppContext, pid: str, sid: str, term: str) -> dict[str, Any]:
+    """手で足した語（#175）は、外すだけ（以後足さない語としては記録しない）。
     録音中に拾った語は、以後そのセッションでは足さない（#103）。
     録音中なら、録音中の用語リストからもすぐ外す（次の区間から効く）
     """
-    # term はパスの一部なので「/」を含む語は外せない
-    # （拾う語・手で足す語は「/」を含まない: term_picker._DISTINCT_RUN、add_term）
     session, writer = _terms_writer(ctx, pid, sid)
     manual = list(writer.meta.manual_terms)
     if term in manual:

@@ -1047,8 +1047,9 @@ export const useAppStore = create<AppState>()((set, get) => {
                 return;
             }
             try {
+                // 語はクエリで渡す（パスに入れると「\」「..」「%」を含む語がクラウド版の中継で弾かれる。#219）
                 const res = await api.delete<TermsJson>(
-                    `/api/projects/${project.id}/sessions/${sessionId}/terms/${encodeURIComponent(term)}`,
+                    `/api/projects/${project.id}/sessions/${sessionId}/terms?${new URLSearchParams({ term }).toString()}`,
                 );
                 set((s) => ({
                     projects: updateSession(s.projects, sessionId, (x) => ({
