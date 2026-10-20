@@ -4,6 +4,7 @@ import { PRIVACY_URL, TERMS_URL, TOS_VERSION, dataCollectionGranted, postConsent
 import { clearSessionCookie, error, json, sameOrigin } from './http';
 import type { Env } from './index';
 import { PROVIDERS } from './providers';
+import { postRecordingMetrics } from './recordingMetrics';
 import { type HostTunnel, deleteTunnel, deleteUserTunnels, tunnelOnline } from './tunnel';
 
 export async function handleMe(request: Request, env: Env, path: string): Promise<Response> {
@@ -14,6 +15,9 @@ export async function handleMe(request: Request, env: Env, path: string): Promis
     // 状態を変えるものは、同じオリジンの画面からだけ（CSRF の対策）
     if (request.method !== 'GET' && !sameOrigin(request)) {
         return error(403, 'Forbidden');
+    }
+    if (path === '/me/metrics/recording' && request.method === 'POST') {
+        return postRecordingMetrics(request, env, user.userId);
     }
     if (path === '/me' && request.method === 'GET') {
         return me(env, user.userId);
