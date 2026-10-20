@@ -9,7 +9,6 @@ on:
   workflow_dispatch:
   push:
     tags: ["v*"]
-    branches: [feature/168-windows-installer] # TEMP: remove before merge
   pull_request:
     paths:
       - packaging/**
