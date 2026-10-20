@@ -5,6 +5,7 @@
 // ホストの登録（#157）・中継（#160）は、それぞれの Issue で足す
 import { handleAuth } from './auth';
 import { handleMe } from './me';
+import { handleHostRelay } from './relay';
 
 export interface Env {
     DB: D1Database;
@@ -25,6 +26,10 @@ export default {
         const path = new URL(request.url).pathname;
         if (path === '/healthz') {
             return healthz(env);
+        }
+        // ホストへの中継（#160）
+        if (path.startsWith('/h/')) {
+            return handleHostRelay(request, env, path);
         }
         if (path.startsWith('/auth/')) {
             return handleAuth(request, env, path);

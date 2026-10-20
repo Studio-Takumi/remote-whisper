@@ -85,7 +85,14 @@ cloudflared はホストの中から 127.0.0.1 でつないでくるので、IP 
 - 8001 番では、**Worker の署名がないリクエストは 401** で断る。WebSocket も同じ（つなぐ前に確かめる）
 - 署名: Worker が「ユーザー ID・ホスト ID・時刻（UNIX 秒）・メソッド・パス」をホストごとの鍵で HMAC-SHA256 し、ヘッダーに付けて転送する。ホストは、自分のホスト ID か・時刻が許容幅（60 秒）の中か・署名が合うかを確かめる（比べるのは定数時間で）
   - パスは、Worker が `/h/<hostId>` を外したあとのホスト側のパス（クエリを含む）
-  - ヘッダーの形（案）: `X-RW-Relay: v1;user=<userId>;host=<hostId>;ts=<秒>;sig=<base64url>`。ブラウザから来た同じ名前のヘッダーは Worker が捨てる
+  - ヘッダーの形: `X-RW-Relay: v1;user=<userId>;host=<hostId>;ts=<秒>;sig=<base64url>`（5 項目ちょうど、この順だけ）。ブラウザから来た同じ名前のヘッダーは Worker が捨てる
+  - **署名の決定版（#160）**: HMAC-SHA256。鍵は中継の鍵（base64url）をデコードしたバイト列。対象は `v1`・userId・hostId・ts（10 進）・METHOD（大文字。WebSocket の Upgrade は `GET`）・path（`/h/<hostId>` を外したホスト側のパス。クエリがあれば `?` 以降も）の 6 つを LF でつないだ UTF-8（末尾に改行なし）。Worker は `relay/src/relay.ts` の `signRelay`。固定値（鍵 = バイト 0〜31、user=`u-1`、host=`11111111-2222-4333-8444-555555555555`、ts=`1800000000`、`GET`、`/api/projects?x=1`）の `sig=` は `sAXwWExaGr2NlUMM5nFRLnVnCvzea-rPM05fI6k4Dso`。両側のテストでこの値を確かめる
+  - 中継するのは `/h/<hostId>/api/...` と `/h/<hostId>/ws` だけ。ほかは `404`。ログインしていなければ `401`、他人のホスト・ないホストは `403`（あるかどうかも教えない）、トンネルか中継の鍵がまだないホストは `503`、ホストにつながらなければ `502`
+  - 中継先は `hosts.tunnel_hostname`（`rwt-<12 桁>.<ドメイン>` の形のものだけ）。リダイレクトには従わず、ホストの `Set-Cookie` と 3xx の `Location` は落としてブラウザに返す。`Expect` も落とす（1xx の応答で落ちるため）。`Accept-Encoding` はブラウザのものをそのまま渡す
+  - 接続元を名乗るヘッダー（`X-Forwarded-*`・`Forwarded`・`X-Real-IP`・`True-Client-IP`・`CDN-Loop`）も落とす。uvicorn は 127.0.0.1 からの `X-Forwarded-For` を信じるので、ブラウザが付けた値がホストの接続元になってしまうため
+  - エンコードした `/`・`\`（`%2F`・`%5C`）を含むパスは `404`（URL の正規化で畳まれず、ホストでデコードされて `/api/../` になるため）
+  - ホストの応答から `Set-Cookie`・`Location`・`Refresh`・`Clear-Site-Data`・`Service-Worker-Allowed`・`Access-Control-*` を落とし、`X-Content-Type-Options: nosniff` を足す。WebSocket の 101 の応答も同じ
+  - **ホスト側で守ること**: 署名を確かめるパスは、デコードする前の形（ASGI の `raw_path` と `query_string`）で組み立てる。メソッドは大文字にしてから比べる。8001 番では Origin を見ない（Worker が確かめる）。8001 番には画面（SPA）を出さない
   - WebSocket は、つなぐとき（Upgrade のリクエスト）に 1 回だけ確かめる。つないだあとのメッセージには署名しない
   - ホストごとの鍵（中継の鍵）は、登録を承認したときに Worker が作り、D1 に置き、`/pair/poll` の返事でホストに渡す（10.6 節）。ホストは秘密のファイル（10.6 節）に置く
   - トンネルの URL が漏れても、署名がなければ入れない。署名つきのリクエストを盗まれても、60 秒で使えなくなる
