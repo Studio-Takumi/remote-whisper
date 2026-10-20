@@ -895,6 +895,14 @@ def test_reject_a_term_after_recording(client, project):
     }
     meta, _ = read_doc(d / f"transcript-{sid}.md", TranscriptMeta)
     assert (meta.picked_terms, meta.rejected_terms) == (["フォトンリンク"], ["ケルビン同期"])
+    # 語をクエリで渡す形（#219）。「\」「..」「%」を含む語も外せる
+    for term in ("C:\\Windows", "..", "100%"):
+        session.writer.set_terms(["フォトンリンク", term], [])
+        if session.picker is not None:
+            session.picker.picked = ["フォトンリンク", term]
+        res = client.delete(f"/api/projects/{pid}/sessions/{sid}/terms", params={"term": term})
+        assert res.status_code == 200, term
+        assert res.json()["pickedTerms"] == ["フォトンリンク"], term
     # セッション詳細にも出る（画面は開いたときにここから読む）
     detail = client.get(f"/api/projects/{pid}/sessions/{sid}").json()
     assert detail["transcriptMeta"]["pickedTerms"] == ["フォトンリンク"]
