@@ -73,13 +73,14 @@ Type: filesandordirs; Name: "{app}"
 
 [Code]
 // Stop the server and cloudflared that run from the install folder, so that files can be replaced or removed.
+// The uninstaller itself (unins*.exe) also lives there, so it must be left alone.
 procedure StopRunningApp();
 var
   ResultCode: Integer;
   Command: String;
 begin
   Command := '-NoProfile -NonInteractive -Command "Get-CimInstance Win32_Process | ' +
-    'Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith(''' + ExpandConstant('{app}') + '\'', ' +
+    'Where-Object { $_.ExecutablePath -and $_.Name -notlike ''unins*'' -and $_.ExecutablePath.StartsWith(''' + ExpandConstant('{app}') + '\'', ' +
     '[System.StringComparison]::OrdinalIgnoreCase) } | ' +
     'ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"';
   Exec('powershell.exe', Command, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
