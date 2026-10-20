@@ -267,9 +267,17 @@ class CloudSettings(_Model):
         local = url.host in ("localhost", "127.0.0.1", "::1")
         if not (url.scheme == "https" or (url.scheme == "http" and local)) or not url.host:
             raise ValueError("https:// の URL（ローカルの開発なら http://localhost）にしてください")
+        if url.userinfo:
+            # https://本物のドメイン@別のホスト のような、見た目と接続先が違う URL を通さない
+            # （パスワードが通知やログに出ることも防ぐ）
+            raise ValueError("ユーザー名やパスワードを含まない URL にしてください")
         if url.query or url.fragment or url.path not in ("", "/"):
             raise ValueError("パスのない URL（https://example.com）にしてください")
-        return value.rstrip("/")
+        # 書き方の違い（大文字・:443・末尾の / ? #）をそろえる
+        host = f"[{url.host}]" if ":" in url.host else url.host
+        default_port = {"https": 443, "http": 80}[url.scheme]
+        port = f":{url.port}" if url.port not in (None, default_port) else ""
+        return f"{url.scheme}://{host}{port}"
 
 
 class Settings(_Model):

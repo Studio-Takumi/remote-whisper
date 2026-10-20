@@ -190,7 +190,20 @@ def test_cloud_relay_url(client):
     )
     res = client.patch("/api/settings", json={"cloud": {"relayUrl": "http://localhost:8787/"}})
     assert res.json()["cloud"]["relayUrl"] == "http://localhost:8787"
-    for bad in ("http://example.com", "ftp://example.com", "https://example.com/x", "nope"):
+    # 書き方の違いはそろえる
+    res = client.patch(
+        "/api/settings", json={"cloud": {"relayUrl": "HTTPS://Relay.Example.COM:443/?#"}}
+    )
+    assert res.json()["cloud"]["relayUrl"] == "https://relay.example.com"
+    for bad in (
+        "http://example.com",
+        "ftp://example.com",
+        "https://example.com/x",
+        "nope",
+        # 見た目は本物のドメインでも、接続先は evil.test になる
+        "https://rw-dev.studio-takumi.dev@evil.test",
+        "https://user:secret@relay.example.com",
+    ):
         res = client.patch("/api/settings", json={"cloud": {"relayUrl": bad}})
         assert res.status_code == 422, bad
 

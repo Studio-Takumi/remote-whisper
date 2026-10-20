@@ -134,6 +134,15 @@ def test_signature_verifies_with_the_public_key():
     # ほかのホストの鍵では通らない
     other = public_key_from_b64(new_credentials(RELAY).public_key)
     assert verify_header(other, header, "POST", "/pair/poll", b"{}") is None
+    # 形が違うヘッダー（重複・余計な項目・順番違い）は通さない
+    host, ts, sig = header.split(";")[1:]
+    for bad in (
+        f"v1;{host};{host};{ts};{sig}",
+        f"v1;{host};{ts};{sig};x=1",
+        f"v1;{ts};{host};{sig}",
+        f"v2;{host};{ts};{sig}",
+    ):
+        assert verify_header(public, bad, "POST", "/pair/poll", b"{}") is None, bad
 
 
 def test_new_credentials_are_fresh_each_time():
@@ -226,6 +235,29 @@ def test_pairing_retries_network_errors_while_polling(tmp_path):
 
     host, _ = make_host(tmp_path, worker)
     host.transport = httpx.MockTransport(flaky)
+    host.start_pairing()
+    host.wait(10)
+    assert host.view.status == "registered"
+
+
+@pytest.mark.parametrize(
+    ("status", "notice"),
+    [(401, "時計が合っているか"), (400, "HTTP 400"), (403, "HTTP 403")],
+)
+def test_pairing_stops_at_once_when_the_worker_refuses(tmp_path, status, notice):
+    # 署名が通らない（時計のずれなど）は聞き直しても変わらないので、10 分待たずにやめる
+    worker = FakeWorker(answers=("pending", status, "approved"))
+    host, notices = make_host(tmp_path, worker)
+    host.start_pairing()
+    host.wait(10)
+    assert host.view.status == "unregistered"
+    assert notice in notices[-1]
+    assert worker.calls.count("/pair/poll") == 2
+    assert not (tmp_path / "cloud.json").exists()
+
+
+def test_pairing_keeps_waiting_while_throttled(tmp_path):
+    host, _ = make_host(tmp_path, FakeWorker(answers=(429, 429, "approved")))
     host.start_pairing()
     host.wait(10)
     assert host.view.status == "registered"

@@ -50,6 +50,7 @@ HOST_HEADER = "X-RW-Host"
 # 承認を待つ長さ（登録コードの有効期間と同じ 10 分）と、聞きに行く間隔
 PAIR_TIMEOUT_SEC = 600.0
 POLL_INTERVAL_SEC = 3.0
+MAX_POLL_INTERVAL_SEC = 30.0
 REQUEST_TIMEOUT_SEC = 10.0
 # 登録コードとして受け付ける形（例: ABCD-1234）。通知やメニューに変な文を出さないように
 CODE_PATTERN = re.compile(r"^[A-Za-z0-9-]{4,32}$")
@@ -63,6 +64,10 @@ CloudStatus = Literal["unregistered", "pairing", "registered", "unpairing"]
 
 class CloudError(Exception):
     """中間サーバーとのやり取りに失敗した。メッセージはそのまま通知に出す"""
+
+
+class CloudRefused(CloudError):
+    """聞き直しても変わらない断り（署名が通らない・申請の形が違うなど）。待たずにやめる"""
 
 
 # --- 鍵と署名 ---
@@ -101,9 +106,16 @@ def verify_header(
     public_key: Ed25519PublicKey, header: str, method: str, path: str, body: bytes
 ) -> str | None:
     """X-RW-Host を確かめる（Worker と同じ手順。テストの偽の Worker で使う）。合えばホスト ID"""
-    fields = dict(part.split("=", 1) for part in header.split(";")[1:] if "=" in part)
-    if not header.startswith(f"{SIGNATURE_VERSION};") or not {"host", "ts", "sig"} <= set(fields):
+    # v1;host=;ts=;sig= の 4 つちょうど、この順だけ（重複・余計な項目・空の値は断る）
+    parts = header.split(";")
+    if len(parts) != 4 or parts[0] != SIGNATURE_VERSION:
         return None
+    fields: dict[str, str] = {}
+    for name, part in zip(("host", "ts", "sig"), parts[1:], strict=True):
+        key, sep, value = part.partition("=")
+        if key != name or not sep or not value:
+            return None
+        fields[name] = value
     try:
         message = canonical_string(fields["host"], int(fields["ts"]), method, path, body)
         public_key.verify(b64url_decode(fields["sig"]), message)
@@ -305,11 +317,14 @@ class RelayClient:
             # 申請が見つからない（期限が切れて消された）
             return {"status": "expired"}
         if res.status_code == 429:
-            return {"status": "pending"}
+            # 聞きすぎ。呼ぶ側が間隔を延ばす
+            return {"status": "pending", "throttled": True}
         if res.status_code == 401:
-            raise CloudError(
+            raise CloudRefused(
                 "署名を確かめてもらえませんでした。PC の時計が合っているか確かめてください"
             )
+        if 400 <= res.status_code < 500 and res.status_code != 408:
+            raise CloudRefused(f"登録の状態を確かめられませんでした（HTTP {res.status_code}）")
         return _json_or_error(res, "登録の状態を確かめられませんでした")
 
     def unpair(self) -> bool:
@@ -487,15 +502,25 @@ class CloudHost:
                 log.warning("failed to open %s", ticket.url, exc_info=True)
             log.info("pairing page: %s", ticket.url)
             deadline = min(ticket.expires_at, self.clock() + PAIR_TIMEOUT_SEC)
-            while not self._cancel.wait(self.poll_interval):
+            interval = self.poll_interval
+            while not self._cancel.wait(interval):
                 if self.clock() >= deadline:
                     return EXPIRED_NOTICE
                 try:
                     answer = client.poll()
+                except CloudRefused:
+                    # 署名が通らないなどは、待っても変わらないのですぐ知らせる
+                    raise
                 except CloudError as e:
                     # 一時的なつながらなさは、期限まで聞き直す
                     log.info("cloud poll failed, retrying: %s", e)
                     continue
+                # 429 のあいだは間隔を倍にしていく（上限 30 秒）。通ったら元に戻す
+                interval = (
+                    min(max(interval, 1.0) * 2, MAX_POLL_INTERVAL_SEC)
+                    if answer.get("throttled") and self.poll_interval > 0
+                    else self.poll_interval
+                )
                 status = answer.get("status")
                 if status == "approved":
                     relay_key = answer.get("relayKey")
