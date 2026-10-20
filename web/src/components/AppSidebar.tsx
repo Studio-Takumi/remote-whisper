@@ -1,5 +1,8 @@
-import { PlusIcon, SettingsIcon } from 'lucide-react';
+import { useState } from 'react';
 
+import { PlusIcon, SettingsIcon, UserIcon } from 'lucide-react';
+
+import { AccountDialog } from '@/components/AccountDialog';
 import { ProjectList } from '@/components/ProjectList';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import {
@@ -14,6 +17,7 @@ import {
     SidebarTrigger,
     useSidebar,
 } from '@/components/ui/sidebar';
+import { isCloud } from '@/endpoint';
 import { moveBlocker } from '@/move';
 import { useAppStore, visibleProjects } from '@/store';
 
@@ -26,6 +30,7 @@ export function AppSidebar() {
     const selectSession = useAppStore((s) => s.selectSession);
     const newSession = useAppStore((s) => s.newSession);
     const moveSession = useAppStore((s) => s.moveSession);
+    const [accountOpen, setAccountOpen] = useState(false);
     const reorderProjects = useAppStore((s) => s.reorderProjects);
     // セッションを移せるか（#172）を見るのに使う
     const server = useAppStore((s) => s.server);
@@ -106,7 +111,23 @@ export function AppSidebar() {
                             <span>設定</span>
                         </SidebarMenuButton>
                     </SidebarMenuItem>
+                    {/* クラウド版のときだけ、アカウント（#155） */}
+                    {isCloud && (
+                        <SidebarMenuItem>
+                            <SidebarMenuButton
+                                tooltip='アカウント'
+                                onClick={() => {
+                                    setOpenMobile(false);
+                                    setAccountOpen(true);
+                                }}
+                            >
+                                <UserIcon />
+                                <span>アカウント</span>
+                            </SidebarMenuButton>
+                        </SidebarMenuItem>
+                    )}
                 </SidebarMenu>
+                {isCloud && <AccountDialog open={accountOpen} onOpenChange={setAccountOpen} />}
             </SidebarFooter>
         </Sidebar>
     );
