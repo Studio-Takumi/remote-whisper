@@ -688,9 +688,9 @@ export const useAppStore = create<AppState>()((set, get) => {
         }
         if (requested) {
             // 要約は勝手に作り直さず、聞くだけにする（#124）
-            toast.success('最終の文字起こしを作り直しました', {
+            toast.success('浄書済み文字起こしを再生成しました', {
                 duration: 15000,
-                action: { label: '要約も作り直す', onClick: () => void get().regenerateSummary(sessionId) },
+                action: { label: '要約も再生成する', onClick: () => void get().regenerateSummary(sessionId) },
             });
         }
     }
@@ -1276,7 +1276,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                 // 流れている途中で終えると summary.done（live）が来ないので、書きかけの途中の要約は捨てる
                 liveDraft: null,
                 projects: sessionId
-                    ? // 長さはサーバーと同じ時計の経過時間。取り直すまでの間も、左メニューに秒まで出せるように
+                    ? // 長さはサーバーと同じ時計の経過時間。取り直すまでの間も、サイドバーに秒まで出せるように
                       updateSession(s.projects, sessionId, (x) => ({
                           ...x,
                           status: 'done',
@@ -1487,9 +1487,9 @@ export const useAppStore = create<AppState>()((set, get) => {
                         },
                     }));
                     if (known.status === 'generating' && m.status === 'ready') {
-                        toast.success('参考資料セットができました');
+                        toast.success('参考資料ができました');
                     } else if (known.status === 'generating' && m.status === 'failed') {
-                        toast.error('参考資料セットを作れませんでした（資料を読めないか、Ollama に接続できません）');
+                        toast.error('参考資料を作れませんでした（資料を読めないか、Ollama に接続できません）');
                     }
                 }
                 if (m.type === 'error' && !starting && !resuming) {
@@ -1539,7 +1539,7 @@ export const useAppStore = create<AppState>()((set, get) => {
 
         regenerateFinalTranscript: async (sessionId) => {
             if (isDemo) {
-                toast.info('デモでは文字起こしを作り直せません');
+                toast.info('デモでは文字起こしを再生成できません');
                 return;
             }
             if (get().recordingState !== 'idle') {
@@ -1558,11 +1558,11 @@ export const useAppStore = create<AppState>()((set, get) => {
             } catch (e) {
                 regeneratingTranscripts.delete(sessionId);
                 if (e instanceof ApiError && e.status === 409) {
-                    toast.error('録音中か、録音を終えた直後のセッションです。少し待ってから作り直してください');
+                    toast.error('録音中か、録音を終えた直後のセッションです。少し待ってから再生成してください');
                 } else if (e instanceof ApiError && e.status === 410) {
-                    toast.error('録音ファイルが保存期間を過ぎて消えているため、文字起こしを作り直せません');
+                    toast.error('録音ファイルが保存期間を過ぎて消えているため、文字起こしを再生成できません');
                 } else {
-                    toast.error(`文字起こしを作り直せません: ${(e as Error).message}`);
+                    toast.error(`文字起こしを再生成できません: ${(e as Error).message}`);
                 }
             }
         },
@@ -1584,7 +1584,7 @@ export const useAppStore = create<AppState>()((set, get) => {
 
         regenerateSummary: async (sessionId) => {
             if (isDemo) {
-                toast.info('デモでは要約を作り直せません');
+                toast.info('デモでは要約を再生成できません');
                 return;
             }
             if (get().recordingState !== 'idle') {
@@ -1622,11 +1622,11 @@ export const useAppStore = create<AppState>()((set, get) => {
                 }));
             } catch (e) {
                 if (e instanceof ApiError && e.status === 409) {
-                    toast.error('録音中か、録音を終えた直後のセッションです。少し待ってから作り直してください');
+                    toast.error('録音中か、録音を終えた直後のセッションです。少し待ってから再生成してください');
                 } else if (e instanceof ApiError && e.status === 410) {
-                    toast.error('文字起こしが保存期間を過ぎて消えているため、要約を作り直せません');
+                    toast.error('文字起こしが保存期間を過ぎて消えているため、要約を再生成できません');
                 } else {
-                    toast.error(`要約を作り直せません: ${(e as Error).message}`);
+                    toast.error(`要約を再生成できません: ${(e as Error).message}`);
                 }
             }
         },
@@ -1696,18 +1696,18 @@ export const useAppStore = create<AppState>()((set, get) => {
                         return { contextSets: { ...st.contextSets, [pid]: sorted } };
                     });
                     if (created.reused) {
-                        toast.info('同じ資料で作ったセットがあるので、それを使います');
+                        toast.info('同じ資料で作った参考資料があるので、それを使います');
                     }
                     await get().changeContextSelection({ ...selection, setId: created.id });
                 } catch (e) {
-                    toast.error(`参考資料セットを作れません: ${(e as Error).message}`);
+                    toast.error(`参考資料を作れません: ${(e as Error).message}`);
                 }
                 return;
             }
             const same = currentContextSets(s).find((x) => x.materials.join('\n') === materials.join('\n'));
             if (same) {
                 get().changeContextSelection({ ...selection, setId: same.id });
-                toast.info('同じ資料で作ったセットがあるので、それを使います');
+                toast.info('同じ資料で作った参考資料があるので、それを使います');
                 return;
             }
             const created: ContextSet = { id: newId(), status: 'generating', materials };
@@ -1722,7 +1722,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                         ),
                     },
                 }));
-                toast.success('参考資料セットができました');
+                toast.success('参考資料ができました');
             }, 4000);
         },
 

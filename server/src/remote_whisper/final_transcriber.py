@@ -137,7 +137,7 @@ class FinalTranscriber:
                     "type": "error",
                     "code": "final_transcript_failed",
                     "session": files.id,
-                    "message": "最終の文字起こしを作れませんでした（サーバーのログを見てください）",
+                    "message": "浄書できませんでした（サーバーのログを見てください）",
                 }
             )
 

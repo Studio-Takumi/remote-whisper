@@ -62,7 +62,9 @@ export function LiveSummary({ text, streaming = false }: { text: string; streami
                             />
                             {block.heading}
                             {!block.closed && (
-                                <span className='text-xs font-normal text-muted-foreground'>（続いている区間）</span>
+                                <span className='text-xs font-normal text-muted-foreground'>
+                                    （続いている要約区間）
+                                </span>
                             )}
                         </CollapsibleTrigger>
                         <CollapsibleContent className='px-3 pb-3'>

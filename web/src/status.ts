@@ -34,22 +34,22 @@ export const initialServerStatus: ServerStatus = {
 export const jobKindLabel: Record<GpuJobKind, string> = {
     transcribe: '文字起こし',
     whisperLoad: '文字起こしのモデルの読み込み',
-    liveSummary: '途中の要約',
-    finalSummary: '最終の要約',
-    contextSet: '参考資料セットの作成',
+    liveSummary: 'リアルタイム要約',
+    finalSummary: '最終要約',
+    contextSet: '参考資料の作成',
     terms: '文字起こしからの用語の抽出',
-    finalTranscript: '最終の文字起こし',
+    finalTranscript: '浄書済み文字起こし',
     materialRange: '扱った範囲での参考資料の作り直し',
     other: 'その他',
 };
 
 // 文字起こしを待たせている理由
 const blockingReason: Partial<Record<GpuJobKind, string>> = {
-    liveSummary: '途中の要約の生成中',
-    finalSummary: '最終の要約の生成中',
-    contextSet: '参考資料セットの作成中',
+    liveSummary: 'リアルタイム要約の生成中',
+    finalSummary: '最終要約の生成中',
+    contextSet: '参考資料の作成中',
     terms: '用語の抽出中',
-    finalTranscript: '最終の文字起こしの作成中',
+    finalTranscript: '浄書中',
     materialRange: '参考資料の作り直し中',
 };
 
@@ -95,7 +95,7 @@ export function transcriptStatus(state: RecordingState, server: ServerStatus, se
         return { tone: 'paused', text: '一時停止中' };
     }
     if (server.whisper === 'error') {
-        return { tone: 'error', text: '文字起こしが止まっています。音声は保存しているので、後から作り直せます' };
+        return { tone: 'error', text: '文字起こしが止まっています。音声は保存しているので、後から再生成できます' };
     }
     // GPU は1つずつしか使えず、実行中の要約は途中で止めないので、終わるまで文字起こしが待たされる（spec/flows.md 6.3）
     // モデルの読み込みもその後ろで待つので、読み込み中の表示より先に見る
@@ -121,10 +121,10 @@ export function summaryStatus(state: RecordingState, server: ServerStatus, inter
         return { tone: 'warning', text: 'サーバーに再接続しています…（録音は続けています）' };
     }
     if (server.ollama === 'error') {
-        return { tone: 'error', text: 'Ollama に接続できないため、要約を作れません。録音が終わった後に作り直せます' };
+        return { tone: 'error', text: 'Ollama に接続できないため、要約を作れません。録音が終わった後に再生成できます' };
     }
     if (state === 'paused') {
         return { tone: 'paused', text: '一時停止中。再開すると要約の更新も再開します' };
     }
-    return { tone: 'active', text: `録音中。${intervalMin} 分おきに途中の要約を更新します…` };
+    return { tone: 'active', text: `録音中。${intervalMin} 分おきにリアルタイム要約を更新します…` };
 }

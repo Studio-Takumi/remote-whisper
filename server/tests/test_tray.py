@@ -31,7 +31,7 @@ def test_idle_is_gray():
 def test_gpu_work_is_blue():
     state = tray_state(status(jobs=jobs("finalSummary", [("contextSet", 2)]), queue=3))
     assert state.color == "blue"
-    assert state.text == "待ち 2件 / 実行中: 最終の要約"
+    assert state.text == "待ち 2件 / 実行中: 最終要約"
 
 
 def test_recording_is_red():
@@ -101,7 +101,7 @@ def test_tray_updates_only_when_the_state_changes(monkeypatch):
     t.update(tray_state(status(jobs=jobs("liveSummary"))))
     t.update(tray_state(status(jobs=jobs("finalSummary"))))
     assert t._icon.icons == 2
-    assert t._icon.title == "remote-whisper: 実行中: 最終の要約"
+    assert t._icon.title == "remote-whisper: 実行中: 最終要約"
 
 
 def test_status_line_is_rewritten_on_mac(monkeypatch):

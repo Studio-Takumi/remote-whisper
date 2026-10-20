@@ -97,7 +97,7 @@ def test_recording_flow(mock_client):
         live = "".join(
             m["text"] for m in seen if m["type"] == "summary.delta" and m["kind"] == "live"
         )
-        assert live.startswith("## 途中の要約") and SCRIPT[0] in live
+        assert live.startswith("## リアルタイム要約") and SCRIPT[0] in live
         assert any(of_type("summary.done", kind="live")(m) for m in seen)
         assert seen[-1] == {
             "type": "title",

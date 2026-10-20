@@ -101,7 +101,7 @@ export function ModelsPage({
                 </Row>
                 {ollamaRow('transcriptTerms', '用語リスト（文字起こし抽出）')}
             </Section>
-            <Section title='浄書済み文字起こし' description='録音を終えたあと、録音全体から作り直す'>
+            <Section title='浄書済み文字起こし' description='録音を終えたあと、録音全体から再生成する'>
                 <Row id='model-final-transcript' label='文字起こし'>
                     <Fixed>WhisperX（Whisper: {whisperModel}。リアルタイム文字起こしと同じ）</Fixed>
                 </Row>

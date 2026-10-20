@@ -33,7 +33,7 @@ def main() -> None:
         "--mock-live-summary-sec",
         type=float,
         default=MockTiming.live_summary,
-        help="モックで途中の要約を送る間隔（秒）",
+        help="モックでリアルタイム要約を送る間隔（秒）",
     )
     parser.add_argument(
         "--no-tray",

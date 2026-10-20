@@ -241,13 +241,13 @@ def get_final_transcript(pid: Pid, sid: str, gid: str, ctx: Ctx) -> dict[str, An
     finals = files.final_transcripts()
     if gid == "latest":
         if not finals:
-            raise _gone("最終の文字起こし")
+            raise _gone("浄書済み文字起こし")
         gid = finals[-1].generation_id
     elif not ID_RE.fullmatch(gid):
-        raise HTTPException(status_code=404, detail="最終の文字起こしがありません")
+        raise HTTPException(status_code=404, detail="浄書済み文字起こしがありません")
     path = files.final_transcript(gid)
     if not path.is_file():
-        raise _gone("最終の文字起こし")
+        raise _gone("浄書済み文字起こし")
     try:
         meta, body = read_doc(path, FinalTranscriptMeta)
     except (OSError, ValueError) as e:
@@ -271,11 +271,12 @@ async def regenerate_final_transcript(pid: Pid, sid: str, ctx: Ctx) -> dict[str,
     final = ctx.final_transcriber
     if final is None or not final.available():
         raise HTTPException(
-            status_code=503, detail="このサーバーには最終の文字起こしの機能（WhisperX）がありません"
+            status_code=503,
+            detail="このサーバーには浄書済み文字起こしの機能（WhisperX）がありません",
         )
     if entry.status == "recording" or _still_finishing(ctx, sid):
         raise HTTPException(
-            status_code=409, detail="録音中のセッションの文字起こしは作り直せません"
+            status_code=409, detail="録音中のセッションの文字起こしは再生成できません"
         )
     if sid in ctx.hub.status.transcribing:
         # 連打やほかの端末から頼まれても、同じものを重ねて作らない（数分 GPU を使うため）
@@ -439,7 +440,7 @@ async def add_correction(pid: Pid, sid: str, body: CorrectionBody, ctx: Ctx) -> 
     if wrong == right:
         raise HTTPException(status_code=400, detail="直す文字列と正しい語が同じです")
     if body.line is not None and body.line.transcript == "final" and not body.line.generation:
-        raise HTTPException(status_code=400, detail="最終の文字起こしの版を指定してください")
+        raise HTTPException(status_code=400, detail="浄書済み文字起こしの版を指定してください")
     terms = await _add_manual_term(ctx, pid, sid, right)
     session, writer = _terms_writer(ctx, pid, sid)
     correction = Correction(wrong=wrong, right=right, line=body.line)
@@ -512,7 +513,7 @@ async def regenerate_summary(pid: Pid, sid: str, ctx: Ctx) -> dict[str, Any]:
         raise HTTPException(status_code=503, detail="このサーバーでは要約を作れません")
     if entry.status == "recording" or _still_finishing(ctx, sid):
         # 止めた直後（残りの文字起こし・変換・最終の要約の途中）も、最後の区間が抜けないように断る
-        raise HTTPException(status_code=409, detail="録音中のセッションの要約は作り直せません")
+        raise HTTPException(status_code=409, detail="録音中のセッションの要約は再生成できません")
     if not files.transcript.is_file():
         raise _gone("文字起こし")
     try:
@@ -590,5 +591,5 @@ def _live_summary(files: SessionFiles) -> dict[str, Any]:
     try:
         text = path.read_text(encoding="utf-8")
     except (OSError, ValueError) as e:
-        raise HTTPException(status_code=500, detail=f"途中の要約を読み込めません: {e}") from e
+        raise HTTPException(status_code=500, detail=f"リアルタイム要約を読み込めません: {e}") from e
     return {"kind": "live", "text": text}
