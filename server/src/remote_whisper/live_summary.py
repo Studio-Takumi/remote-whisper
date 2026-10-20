@@ -207,7 +207,7 @@ class LiveSummarizer:
                 )
         except OllamaUnavailable as e:
             log.warning("live summary of %s failed: %s", self.writer.id, e)
-            await self.send(ollama_error("途中の要約"))
+            await self.send(ollama_error("リアルタイム要約"))
             return
         text = self._compose(overview, line_time(current_lines[0]), current)
         # 概要と、続いている区間の見出しの付け方を整えた全体で置き換える

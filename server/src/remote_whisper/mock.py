@@ -205,9 +205,9 @@ class MockSession:
                 continue
             done = len(self.finals)
             if self.recorder.hub.status.ollama != "ready":
-                await self.send(ollama_error("途中の要約"))
+                await self.send(ollama_error("リアルタイム要約"))
                 continue
-            text = "## 途中の要約\n" + "".join(f"- {t}\n" for t in self.finals)
+            text = "## リアルタイム要約\n" + "".join(f"- {t}\n" for t in self.finals)
             await self._stream("live", text)
             self.live_summary = text
             if self.writer:
@@ -278,7 +278,7 @@ class MockSession:
         if self.recorder.hub.status.ollama != "ready":
             if self.writer:
                 self.writer.set_summary_failed(True)
-            await self.send(ollama_error("最終の要約"))
+            await self.send(ollama_error("最終要約"))
             return
         await self._stream("final", FINAL_SUMMARY)
         if self.writer:
@@ -384,7 +384,7 @@ class MockFinalSummarizer:
     ) -> str | None:
         if self.hub.status.ollama != "ready":
             writer.set_summary_failed(True)
-            await send(ollama_error("最終の要約"))
+            await send(ollama_error("最終要約"))
             return None
         models = models or self.settings.get().ollama.models.final()
         for i in range(0, len(FINAL_SUMMARY), 6):

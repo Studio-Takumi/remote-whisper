@@ -48,7 +48,7 @@ from remote_whisper.timeutil import now
 
 log = logging.getLogger(__name__)
 
-OVERVIEW_HEADING = "全体の概要"
+OVERVIEW_HEADING = "全体概要"
 
 
 @dataclass(frozen=True)
@@ -128,7 +128,7 @@ class FinalSummarizer:
                 {
                     "type": "error",
                     "code": "summary_failed",
-                    "message": "最終の要約を作る途中でエラーになりました",
+                    "message": "最終要約を作る途中でエラーになりました",
                 }
             )
             return None
@@ -157,7 +157,7 @@ class FinalSummarizer:
                 {
                     "type": "error",
                     "code": "summary_skipped",
-                    "message": "文字起こしを読み込めないので、最終の要約は作りませんでした",
+                    "message": "文字起こしを読み込めないので、最終要約は作りませんでした",
                 }
             )
             return None
@@ -167,7 +167,7 @@ class FinalSummarizer:
                 {
                     "type": "error",
                     "code": "summary_skipped",
-                    "message": "文字起こしが空なので、最終の要約は作りませんでした",
+                    "message": "文字起こしが空なので、最終要約は作りませんでした",
                 }
             )
             return None
@@ -202,7 +202,7 @@ class FinalSummarizer:
             log.warning("final summary of %s failed: %s", writer.id, e)
             # 失敗したことを記録して、後で作り直せるようにする（spec 6.7。UI は #17）
             _mark_failed(writer, True)
-            await send(ollama_error("最終の要約"))
+            await send(ollama_error("最終要約"))
             return None
         await send({"type": "summary.done", "kind": "final"})
         log.info(
@@ -248,7 +248,7 @@ class FinalSummarizer:
                 {
                     "type": "error",
                     "code": "write_failed",
-                    "message": "最終の要約を保存できませんでした",
+                    "message": "最終要約を保存できませんでした",
                 }
             )
             return None

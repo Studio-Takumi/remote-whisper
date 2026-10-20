@@ -51,7 +51,7 @@ class SelectionBody(BaseModel):
 
 def _service(ctx: AppContext) -> ContextSetService:
     if ctx.context_sets is None:
-        raise HTTPException(status_code=503, detail="このサーバーでは参考資料セットを作れません")
+        raise HTTPException(status_code=503, detail="このサーバーでは参考資料を作れません")
     return ctx.context_sets
 
 
@@ -90,7 +90,7 @@ def change_selection(
             set_id = changes["context_set"]
             entry = next((s for s in project.context_sets if s.id == set_id), None)
             if set_id is not None and (entry is None or entry.status == "failed"):
-                raise HTTPException(status_code=400, detail=f"使えない参考資料セットです: {set_id}")
+                raise HTTPException(status_code=400, detail=f"使えない参考資料です: {set_id}")
             selection.context_set = set_id
         if changes.get("use_hotwords") is not None:
             selection.use_hotwords = changes["use_hotwords"]

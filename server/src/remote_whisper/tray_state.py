@@ -24,11 +24,11 @@ DOT_COLORS: dict[Color, tuple[int, int, int]] = {
 JOB_NAMES = {
     "transcribe": "文字起こし",
     "whisperLoad": "文字起こしのモデルの読み込み",
-    "liveSummary": "途中の要約",
-    "finalSummary": "最終の要約",
-    "contextSet": "参考資料セットの作成",
+    "liveSummary": "リアルタイム要約",
+    "finalSummary": "最終要約",
+    "contextSet": "参考資料の作成",
     "terms": "文字起こしからの用語の抽出",
-    "finalTranscript": "最終の文字起こし",
+    "finalTranscript": "浄書済み文字起こし",
 }
 
 APP_NAME = "remote-whisper"
