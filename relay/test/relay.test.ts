@@ -23,9 +23,27 @@ beforeEach(() => {
         if (req.headers.get('Upgrade') === 'websocket') {
             const pair = new WebSocketPair();
             pair[1].accept();
-            return new Response(null, { status: 101, webSocket: pair[0] });
+            return new Response(null, {
+                status: 101,
+                webSocket: pair[0],
+                headers: { 'Set-Cookie': '__Host-rw_session=evil; Path=/; Secure' },
+            });
         }
-        return Response.json({ ok: true }, { headers: { 'Set-Cookie': 'evil=1; Path=/', 'X-From-Host': '1' } });
+        if (new URL(req.url).pathname === '/api/redirect') {
+            return new Response(null, { status: 302, headers: { Location: 'https://evil.example/' } });
+        }
+        return Response.json(
+            { ok: true },
+            {
+                headers: {
+                    'Set-Cookie': 'evil=1; Path=/',
+                    'X-From-Host': '1',
+                    Refresh: '0;url=https://evil.example/',
+                    'Access-Control-Allow-Origin': '*',
+                    'Clear-Site-Data': '"*"',
+                },
+            },
+        );
     });
 });
 afterEach(() => {
@@ -119,17 +137,32 @@ describe('中継', () => {
                 'X-RW-Host': 'forged',
                 'CF-Connecting-IP': '203.0.113.1',
                 Expect: '100-continue',
+                'X-Forwarded-For': '10.0.0.1',
+                'X-Real-IP': '10.0.0.1',
+                Forwarded: 'for=10.0.0.1',
                 'Accept-Language': 'ja',
             },
         });
         expect(res.status).toBe(200);
-        // ホストが置こうとした Cookie は、このオリジンに置かせない
-        expect(res.headers.get('Set-Cookie')).toBeNull();
+        // ホストが置こうとした Cookie・リダイレクト・CORS・サイトのデータの消去は、このオリジンでさせない
+        for (const name of ['Set-Cookie', 'Refresh', 'Access-Control-Allow-Origin', 'Clear-Site-Data']) {
+            expect(res.headers.get(name), name).toBeNull();
+        }
+        expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff');
         expect(res.headers.get('X-From-Host')).toBe('1');
         expect(forwarded).toHaveLength(1);
         const req = forwarded[0];
         expect(req.url).toBe(`https://${tunnel}/api/projects?x=1`);
-        for (const name of ['Cookie', 'Authorization', 'X-RW-Host', 'CF-Connecting-IP', 'Expect']) {
+        for (const name of [
+            'Cookie',
+            'Authorization',
+            'X-RW-Host',
+            'CF-Connecting-IP',
+            'Expect',
+            'X-Forwarded-For',
+            'X-Real-IP',
+            'Forwarded',
+        ]) {
             expect(req.headers.get(name), name).toBeNull();
         }
         expect(req.headers.get('Accept-Language')).toBe('ja');
@@ -162,6 +195,24 @@ describe('中継', () => {
         res.webSocket?.close();
         expect(forwarded[0].url).toBe(`https://${tunnel}/ws`);
         expect(forwarded[0].headers.get('X-RW-Relay')).toMatch(/^v1;user=/);
+        // ホストが WebSocket の応答でログインセッションを上書きできない
+        expect(res.headers.get('Set-Cookie')).toBeNull();
+    });
+
+    it('ホストのリダイレクトには従わず、Location も返さない', async () => {
+        const { userId, cookie } = await newUser();
+        const { hostId } = await newHost(userId);
+        const res = await call(`/h/${hostId}/api/redirect`, { cookie });
+        expect(res.status).toBe(302);
+        expect(res.headers.get('Location')).toBeNull();
+        expect(forwarded).toHaveLength(1);
+    });
+
+    it('staging の接頭辞のついたトンネル名にも送る', async () => {
+        const { userId, cookie } = await newUser();
+        const { hostId } = await newHost(userId, { tunnel: 'rwt-dev-0123456789ab.example.dev' });
+        expect((await call(`/h/${hostId}/api/projects`, { cookie })).status).toBe(200);
+        expect(forwarded[0].url).toBe('https://rwt-dev-0123456789ab.example.dev/api/projects');
     });
 });
 
@@ -196,13 +247,38 @@ describe('断るもの（どれもホストに届かない）', () => {
         expect(
             (await call(`/h/${hostId}/ws`, { cookie, origin: null, headers: { Upgrade: 'websocket' } })).status,
         ).toBe(403);
+        expect(
+            (await call(`/h/${hostId}/api/projects`, { cookie, method: 'POST', origin: null, body: '{}' })).status,
+        ).toBe(403);
+        expect((await call(`/h/${hostId}/api/projects`, { cookie, method: 'OPTIONS', origin: evil })).status).toBe(403);
         expect(forwarded).toHaveLength(0);
     });
 
-    it('API と WebSocket 以外のパス・形の違うホスト ID', async () => {
+    it('ほかの人の Cookie での WebSocket', async () => {
+        const alice = await newUser();
+        const bob = await newUser();
+        const { hostId } = await newHost(alice.userId);
+        const res = await call(`/h/${hostId}/ws`, { cookie: bob.cookie, headers: { Upgrade: 'websocket' } });
+        expect(res.status).toBe(403);
+        expect(forwarded).toHaveLength(0);
+    });
+
+    it('API と WebSocket 以外のパス・形の違うホスト ID・エンコードした / や \\ で抜けるもの', async () => {
         const { userId, cookie } = await newUser();
         const { hostId } = await newHost(userId);
-        for (const path of [`/h/${hostId}/`, `/h/${hostId}/docs`, `/h/${hostId}`, '/h/not-a-uuid/api/x']) {
+        for (const path of [
+            `/h/${hostId}/`,
+            `/h/${hostId}/docs`,
+            `/h/${hostId}`,
+            '/h/not-a-uuid/api/x',
+            `/h/${hostId.toUpperCase()}/api/x`,
+            // 畳むと /h/<id>/index.html になる
+            `/h/${hostId}/api/../index.html`,
+            // ホストでデコードされると /api/../index.html になる
+            `/h/${hostId}/api/..%2Findex.html`,
+            `/h/${hostId}/api/..%2findex.html`,
+            `/h/${hostId}/api/..%5Cindex.html`,
+        ]) {
             expect((await call(path, { cookie })).status, path).toBe(404);
         }
         expect(forwarded).toHaveLength(0);
@@ -210,7 +286,12 @@ describe('断るもの（どれもホストに届かない）', () => {
 
     it('トンネルや中継の鍵がまだない・トンネルの名前がおかしいホストは 503', async () => {
         const { userId, cookie } = await newUser();
-        for (const opts of [{ tunnel: null }, { relayKey: null }, { tunnel: 'evil.example.com' }]) {
+        for (const opts of [
+            { tunnel: null },
+            { relayKey: null },
+            { tunnel: 'evil.example.com' },
+            { relayKey: '%%%' },
+        ]) {
             const { hostId } = await newHost(userId, opts);
             expect((await call(`/h/${hostId}/api/projects`, { cookie })).status).toBe(503);
         }
