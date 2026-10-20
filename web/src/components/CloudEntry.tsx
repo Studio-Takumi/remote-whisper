@@ -1,17 +1,14 @@
 // クラウド版の入口。ログイン（#155）→ 同意（#162）→ ホストの選択（#161）の順に進む。
-// 同意とホストの選択の画面はまだなく、何が入るかだけを出す
+// ホストの選択の画面はまだなく、何が入るかだけを出す
 import { useEffect } from 'react';
 
 import { fetchMe, logout, useAccountStore } from '@/account';
 import { useCloudStore } from '@/cloud';
 import type { CloudStage } from '@/cloud';
+import { ConsentForm } from '@/components/ConsentForm';
 import { LoginButtons } from '@/components/LoginButtons';
 
-const PLACEHOLDERS: Record<Exclude<CloudStage, 'login'>, { title: string; body: string }> = {
-    consent: {
-        title: '利用規約への同意',
-        body: '初めて使うときに、利用規約とプライバシーポリシーに同意する画面が入ります（#162）。',
-    },
+const PLACEHOLDERS: Record<Exclude<CloudStage, 'login' | 'consent'>, { title: string; body: string }> = {
     hosts: { title: 'ホストの選択', body: '使うホスト（文字起こしをするマシン）を選ぶ画面が入ります（#161）。' },
     ready: { title: 'ホストにつながっています', body: '' },
 };
@@ -50,6 +47,12 @@ export function CloudEntry() {
                     <h1 className='text-xl font-semibold'>ログイン</h1>
                     {checked ? <LoginButtons /> : <p className='text-sm text-muted-foreground'>確かめています…</p>}
                 </>
+            ) : stage === 'consent' ? (
+                me ? (
+                    <ConsentForm me={me} onSignOut={() => void signOut()} />
+                ) : (
+                    <p className='text-sm text-muted-foreground'>確かめています…</p>
+                )
             ) : (
                 <>
                     <h1 className='text-xl font-semibold'>{PLACEHOLDERS[stage].title}</h1>
