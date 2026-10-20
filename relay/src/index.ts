@@ -2,10 +2,10 @@
 //
 // 画面（web/dist）は静的アセットとして配る（wrangler.jsonc の assets）。ここに来るのは、
 // run_worker_first に書いたパス（/h/・/auth/・/me・/pair/・/healthz）だけ（登録の確認画面 /pair?code= は画面が出す）。
-// 中継（#160）は、その Issue で足す
 import { handleAuth } from './auth';
 import { handleMe } from './me';
 import { handlePairing } from './pairing';
+import { handleHostRelay } from './relay';
 
 export interface Env {
     DB: D1Database;
@@ -33,6 +33,10 @@ export default {
         const path = new URL(request.url).pathname;
         if (path === '/healthz') {
             return healthz(env);
+        }
+        // ホストへの中継（#160）
+        if (path.startsWith('/h/')) {
+            return handleHostRelay(request, env, path);
         }
         if (path.startsWith('/auth/')) {
             return handleAuth(request, env, path);
