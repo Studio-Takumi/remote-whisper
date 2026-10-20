@@ -44,8 +44,10 @@
         },
       ],
       "vars": { "CLOUD_ENV": "staging", "TUNNEL_DOMAIN": "studio-takumi.dev", "TUNNEL_PREFIX": "rwt-dev-" },
-      // HTTP の計測（#163）。ローカルでは束縛を付けない（書かない）
-      "analytics_engine_datasets": [{ "binding": "METRICS", "dataset": "remote_whisper_staging" }],
+      // HTTP の計測（#163）。ローカルでは束縛を付けない（書かない）。
+      // アカウントで Analytics Engine を有効にするまで、束縛を付けるとデプロイが断られる（code 10089）ので外してある。
+      // 有効にしたら（CLOUD_TODO の 14）、次の行を戻す。束縛がなくても Worker は書かずに動く
+      // "analytics_engine_datasets": [{ "binding": "METRICS", "dataset": "remote_whisper_staging" }],
     },
   },
 }
