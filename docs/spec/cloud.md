@@ -113,6 +113,7 @@ sequenceDiagram
     Note over W: hosts に入れる・中継の鍵を作る・<br/>トンネルと公開ホスト名を作る（10.17 節・#159）
     W-->>T: 承認された・中継の鍵
     T->>W: トンネルのトークンをもらう（起動のたび。秘密鍵で署名）
+    W-->>T: トンネルのトークン
     Note over T: cloudflared を起動する
 ```
 
@@ -122,7 +123,8 @@ sequenceDiagram
 - サーバーには公開鍵だけを置く。秘密鍵はホストから出さない
 - 登録コードは 10 分有効・1 回だけ。DB にはコードのハッシュを置く。トレイとブラウザに同じコードを出し、同じことを確かめてから承認させる（ほかの人の PC を自分のアカウントに登録させる乗っ取りの対策）
 - 申請とポーリングには回数の制限を付ける。期限切れの申請は消す
-- 解除（画面から・トレイの「クラウドから外す」・退会）: hosts から消し、トンネルを消し、ホストは資格情報を消して cloudflared を止める
+- 解除（画面から・トレイの「クラウドから外す」・退会）: hosts から消し、トンネルと公開ホスト名の DNS レコードを消し、ホストは資格情報を消して cloudflared を止める。トンネルが消えるので、つながっている WebSocket も切れる
+- ログアウトしても、つながっている WebSocket はそのまま（素通しなので Worker から切れない）。閉じたときに切れ、つなぎ直すときにログインを確かめる。これは許容する
 - **つなげるのは自分のホストだけ**。画面では、0 台なら登録の案内、1 台なら選ぶ画面を出さずにそのままつなぎ「〇〇につないでいます」と出す、2 台以上なら選ぶ（#161）
 
 ## 10.7 ログイン
@@ -130,7 +132,7 @@ sequenceDiagram
 - Google・Discord・GitHub の OAuth（コードフロー、state・PKCE つき）。使う範囲は ID・表示名・メールだけ
 - 1 人が複数の手段でログインしても、1 人のユーザーにまとめる。同じプロバイダの同じ ID なら同じユーザー。**メールアドレスで自動に紐付けはしない**（別の手段を足すのは、ログインしている状態で設定から）
 - ログインセッション（`web_sessions`）は Cookie（`__Host-` 接頭辞・HttpOnly・Secure・SameSite=Lax）。DB にはトークンのハッシュだけを置き、期限を設ける。ログアウトで失効させる
-- 状態を変える API は、Cookie に加えて Origin を確かめる（CSRF の対策。#166）。**`/h/<hostId>/ws` の WebSocket と、`/h/` 以下の GET 以外のリクエストも、Origin が自分のオリジンでなければ断る**。本番のドメインは匠のポートフォリオと同じドメインのサブドメインを想定していて、兄弟のサブドメインは same-site なので、SameSite=Lax の Cookie が WebSocket にも付いてしまうため
+- 状態を変える API は、Cookie に加えて Origin を確かめる（CSRF の対策。#166）。**`/h/<hostId>/ws` の WebSocket と、`/h/` 以下の GET 以外のリクエストも、Origin が自分のオリジンでなければ断る**。staging・本番は `studio-takumi.dev` のサブドメインで、兄弟のサブドメイン（ポートフォリオなど）は same-site なので、SameSite=Lax の Cookie が WebSocket にも付いてしまうため
 - 退会: ユーザー・ログイン手段・ログインセッション・ホスト（とトンネル）を消す。同意の履歴（consents）は、法令上残す必要があるかを決めてから扱う（未決）
 - OAuth のコールバックは `/auth/callback/google`・`/auth/callback/discord`・`/auth/callback/github`。クライアント ID とシークレットは secret（10.15 節）
 
@@ -214,7 +216,7 @@ erDiagram
 **数値だけ**を Analytics Engine に書く。WebSocket は素通しなので（10.3 節）、次の 2 つから取る。ホストから計測のために何かを送ることはしない。
 
 1. **Worker が中継する HTTP**（#163）: ユーザー ID・ホスト ID、メソッド・パス（ID は `:id` に伏せる）・ステータス・かかった ms・本文の大きさ、WebSocket をつないだ回数（つなぐときは HTTP なので）、ログイン・登録の回数、国、ブラウザ・OS の大まかな種類
-2. **画面が録音ごとに送る数字**（#206）: クラウド版のときだけ、録音 1 回につき 1 回、最終要約ができたとき（ページを閉じたときは `sendBeacon` でその時点まで）に `POST /me/metrics/recording` で送る。ユーザーとホストは Worker がログインの情報と URL から付ける
+2. **画面が録音ごとに送る数字**（#206）: クラウド版のときだけ、録音 1 回につき 1 回、最終要約ができたとき（ページを閉じたときは `sendBeacon` でその時点まで）に `POST /me/metrics/recording` で送る。ユーザーは Worker がログインの情報から付け、ホストは本文の `hostId` を受け取って、Worker がそのユーザーの（解除していない）ホストかを確かめる（違えば捨てる）。送られる数字は偽れる前提で扱い、回数の制限を付ける（1 ユーザーあたり 1 時間に数十件まで など）
 
 | まとまり | 録音ごとに送る項目 |
 |---|---|
@@ -271,19 +273,19 @@ erDiagram
 | | 名前 |
 |---|---|
 | ドメイン | `studio-takumi.dev`（Cloudflare で取ったもの。2026-10-20） |
-| Worker | `remote-whisper-staging`（`--env staging`。カスタムドメイン `rw-dev.studio-takumi.dev`。workers.dev の URL も残る）・`remote-whisper`（本番。サブドメインは #167 で決める。例: `rw.studio-takumi.dev`） |
-| トンネルの公開ホスト名 | `rwt-<ホスト ID の頭 12 文字>.studio-takumi.dev` のように **1 段のサブドメイン**にする（無料の証明書は `*.studio-takumi.dev` にしか効かないため。2 段にすると証明書が有料になる）。staging と本番は前置きを変える（例: staging は `rwt-dev-…`） |
+| Worker | `remote-whisper-staging`（`--env staging`。カスタムドメイン `rw-dev.studio-takumi.dev`。workers.dev の URL は使わない（`workers_dev: false`。画面がクラウド版と判定せず、Cookie とオリジンも分かれるため））・`remote-whisper`（本番。サブドメインは #167 で決める。例: `rw.studio-takumi.dev`） |
+| トンネルの公開ホスト名 | `rwt-<ホスト ID からハイフンを除いた頭 12 文字>.studio-takumi.dev` のように **1 段のサブドメイン**にする（同じ名前がすでにあれば、文字数を足して作り直す）（無料の証明書は `*.studio-takumi.dev` にしか効かないため。2 段にすると証明書が有料になる）。staging と本番は前置きを変える（例: staging は `rwt-dev-…`） |
 | `wrangler dev` のポート | 8787 |
 | ホストのトンネル専用のポート | 8001（127.0.0.1 だけ） |
 | OAuth のコールバック | `/auth/callback/google`・`/auth/callback/discord`・`/auth/callback/github` |
-| Worker の secret | `GOOGLE_CLIENT_ID`・`GOOGLE_CLIENT_SECRET`・`DISCORD_CLIENT_ID`・`DISCORD_CLIENT_SECRET`・`GITHUB_CLIENT_ID`・`GITHUB_CLIENT_SECRET`・`CF_API_TOKEN`（トンネルの操作だけの権限） |
+| Worker の secret | `GOOGLE_CLIENT_ID`・`GOOGLE_CLIENT_SECRET`・`DISCORD_CLIENT_ID`・`DISCORD_CLIENT_SECRET`・`GITHUB_CLIENT_ID`・`GITHUB_CLIENT_SECRET`・`CF_API_TOKEN`（トンネルの操作と、`studio-takumi.dev` の DNS の編集だけの権限） |
 | Worker の vars（秘密でない） | Cloudflare の Account ID、クラウド用のドメイン |
 | GitHub Actions の secret（自動デプロイ。#170） | `CLOUDFLARE_API_TOKEN`（デプロイ用）・`CLOUDFLARE_ACCOUNT_ID`（秘密ではないが、workflow ではここから読む） |
 
 - 環境は dev（ローカル。`wrangler dev`）・staging（`rw-dev.studio-takumi.dev`）・prod（本番のサブドメイン。#167）。OAuth のリダイレクト URI は、localhost と staging のドメインのものをクライアントに足す
 - 秘密情報は `wrangler secret`。ローカルは `relay/.dev.vars`（git に入れない。MEGA で同期されるので、localhost 専用の OAuth のクライアントだけを入れる）
 - デプロイは main に入ったときの自動デプロイ（#170）。本番ができるまでは staging に出す
-- 匠が用意するもの（アカウント・OAuth のクライアント・API トークン・ドメイン）は、リポジトリの外の手順書にある
+- 匠が用意するもの（アカウント・OAuth のクライアント・API トークン）は、リポジトリの外の手順書にある
 
 ## 10.16 まだ決めていないこと
 
@@ -312,7 +314,7 @@ erDiagram
   - Worker が受け取れるリクエストの本文は 100MB まで（無料・Pro）。16kHz・モノラルの WAV は 1 時間で約 115MB になる（m4a・mp3 なら十分小さい）
 - **Worker からホストのトンネルへの届け方**:
   - 名前つきのトンネルの公開ホスト名には、Cloudflare に置いたドメインが要る（workers.dev では作れない）
-  - **ドメイン（`studio-takumi.dev`）ができたので、最初から名前つきのトンネルにする**（2026-10-20）。登録を承認したとき、Worker が Cloudflare の API でホスト用のトンネルと公開ホスト名（`rwt-<ホスト ID の頭 12 文字>.studio-takumi.dev`。10.15 節）を作り、転送先をホストの `http://127.0.0.1:8001` にする。ホストは起動のたびにトンネルのトークンを Worker からもらって cloudflared を起動する（#159）
+  - **ドメイン（`studio-takumi.dev`）ができたので、最初から名前つきのトンネルにする**（2026-10-20）。登録を承認したとき、Worker が Cloudflare の API でホスト用のトンネルと公開ホスト名（`rwt-<ホスト ID の頭 12 文字>.studio-takumi.dev`。10.15 節。DNS の CNAME も作る）を作り、転送先をホストの `http://127.0.0.1:8001` にする。ホストは起動のたびにトンネルのトークンを Worker からもらって cloudflared を起動する（#159）
   - Worker は、中継先のホスト名を `hosts.tunnel_hostname`（自分で作ったもの）から取る。ホストから URL を受け取らない（Worker を踏み台にして、ほかのサイトへ署名つきのリクエストを出させないため）。中継のときはリダイレクトに従わない
   - 公開ホスト名は誰でも引けるが、8001 番は Worker の署名がなければ断るので入れない
   - quick tunnel（`cloudflared tunnel --url`）は、試作と開発のときだけ使う（本番向けではない。同時のリクエスト数の上限があり、保証もない）
