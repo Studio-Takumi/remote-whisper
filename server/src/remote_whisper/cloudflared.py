@@ -23,6 +23,7 @@ from typing import Any, Literal
 
 import httpx
 
+from remote_whisper import bundle
 from remote_whisper.cloud import (
     CloudError,
     RegistrationGone,
@@ -70,6 +71,7 @@ class CloudflaredRunner:
         transport: httpx.BaseTransport | None = None,
         popen: Callable[..., Any] = subprocess.Popen,
         which: Callable[[str], str | None] = shutil.which,
+        bundled: Callable[[], Path | None] = bundle.bundled_cloudflared,
         monotonic: Callable[[], float] = time.monotonic,
         initial_backoff: float = INITIAL_BACKOFF_SEC,
         max_backoff: float = MAX_BACKOFF_SEC,
@@ -83,6 +85,7 @@ class CloudflaredRunner:
         self.transport = transport
         self.popen = popen
         self.which = which
+        self.bundled = bundled
         self.monotonic = monotonic
         self.initial_backoff = initial_backoff
         self.max_backoff = max_backoff
@@ -154,6 +157,11 @@ class CloudflaredRunner:
             log.warning("cloud.cloudflaredPath is not acceptable; not starting cloudflared")
             self._notice(INVALID_PATH_NOTICE)
             return None
+        if not configured:
+            # 設定が空なら、配布用のビルドに同梱の cloudflared（#168）を先に使う。なければ PATH
+            bundled = self.bundled()
+            if bundled is not None:
+                return str(bundled)
         exe = self.which(configured or "cloudflared")
         if exe is None:
             log.warning("cloudflared not found")
