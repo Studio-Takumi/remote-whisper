@@ -26,6 +26,9 @@ Tailscale・uv・Ollama などを自分で入れられる人だけでなく、�
 | 広告 | 出さない | 出す（10.13 節） |
 
 - 画面は `location.hostname` がクラウド用のドメイン（ビルド時の設定で渡す。staging の workers.dev も含める）ならクラウド版として動く。コードと設定の値は `cloud`・`direct`
+  - ビルド時の設定は環境変数 `VITE_CLOUD_HOSTS`（カンマ区切り）。渡さなければ staging の `rw-dev.studio-takumi.dev` だけ。本番のドメインは、決まったら足す
+  - 画面の URL の組み立ては `web/src/endpoint.ts` の 1 か所に集め、入口の状態（`login`・`consent`・`hosts`・`ready`）は `web/src/cloud.ts` に持つ。`ready` でホストが決まるまで、今の画面は出さない
+  - PWA は API・WebSocket をキャッシュせず、`/h/`・`/auth/`・`/me/`・`/pair`・`/healthz` は画面の読み込み直しの代わり（navigateFallback）にしない
 - ダイレクト版の挙動は変えない。クラウド版のために足す画面（ログイン・同意・ホストの選択・広告・お知らせ）は、ダイレクト版では出さず、そのためのスクリプトも読まない
 
 ## 10.3 構成
