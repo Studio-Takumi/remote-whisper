@@ -1,0 +1,125 @@
+# main が変わったら、CI が通ったあとに relay と画面を staging へデプロイする（#170）
+name: Deploy
+
+on:
+  # CI が main への push で成功したときだけ動く。
+  # push で直接起動せず workflow_run にするのは、CI が赤いコミットを出さないため
+  # （同じ push で並べて走らせると、CI の結果を待たずにデプロイしてしまう）。
+  # CI を通ったコミットそのもの（head_sha）を取り出すので、あとから main が進んでいても食い違わない
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  # 手で出すとき（Actions の画面から。ブランチを選べば、そのブランチを出す）
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  staging:
+    # 自動のときは「CI が成功した main への push」だけ。手動はいつでも
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # デプロイを重ねない。実行中のものは止めず（途中で止めるとマイグレーションだけ当たった状態になる）、待たせる
+    concurrency:
+      group: deploy-staging
+      cancel-in-progress: false
+    env:
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+    steps:
+      # secret がなければ、赤くせずに終わる（フォークや、まだ登録していないとき）。
+      # 値は渡さず、あるかないか（true/false）だけを渡す
+      - name: Check secrets
+        id: secrets
+        env:
+          HAS_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
+          HAS_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID != '' }}
+        run: |
+          if [ "$HAS_API_TOKEN" != "true" ] || [ "$HAS_ACCOUNT_ID" != "true" ]; then
+            msg="secret がないのでデプロイしない（CLOUD_TODO の 8）"
+            echo "$msg"
+            echo "::notice title=Deploy skipped::$msg"
+            echo "$msg" >> "$GITHUB_STEP_SUMMARY"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.secrets.outputs.enabled == 'true'
+        with:
+          persist-credentials: false
+          # CI が通ったコミット。手動のときはその実行のコミット
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - uses: actions/setup-node@v4
+        if: steps.secrets.outputs.enabled == 'true'
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            web/package-lock.json
+            relay/package-lock.json
+
+      # 画面（relay/wrangler.jsonc の assets が ../web/dist を配る）
+      - name: Build web
+        if: steps.secrets.outputs.enabled == 'true'
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Install relay
+        if: steps.secrets.outputs.enabled == 'true'
+        working-directory: relay
+        run: npm ci
+
+      # D1 のマイグレーションは足すだけにする（列や表を消す・名前を変えるものは 2 回に分けて出す）。
+      # デプロイの前に当てるので、古い Worker が動いているあいだも壊れない形にしておく
+      - name: Apply D1 migrations
+        if: steps.secrets.outputs.enabled == 'true'
+        working-directory: relay
+        # secret は wrangler を動かすステップにだけ渡す（ログには出さない）
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          RAW_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        # Account ID の secret に空白・改行・引用符が混じっていても通るよう、16 進の文字だけを残す
+        # （混じっていると wrangler が Invalid account ID で落ちた）
+        run: |
+          CLOUDFLARE_ACCOUNT_ID="$(printf '%s' "$RAW_ACCOUNT_ID" | tr -cd '0-9a-fA-F')" npx wrangler d1 migrations apply DB --env staging --remote
+
+      - name: Deploy
+        if: steps.secrets.outputs.enabled == 'true'
+        working-directory: relay
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          RAW_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          CLOUDFLARE_ACCOUNT_ID="$(printf '%s' "$RAW_ACCOUNT_ID" | tr -cd '0-9a-fA-F')" npx wrangler deploy --env staging
+
+      # 反映まで少しかかることがあるので、何回か試す
+      - name: Health check
+        if: steps.secrets.outputs.enabled == 'true'
+        run: |
+          for i in $(seq 1 12); do
+            if curl --fail --silent --show-error --max-time 10 https://rw-dev.studio-takumi.dev/healthz; then
+              echo
+              exit 0
+            fi
+            echo "healthz が通らない（$i 回目）。10 秒待つ"
+            sleep 10
+          done
+          exit 1
+
+      # 失敗の通知は GitHub のものが基本。DISCORD_WEBHOOK_URL の secret があるときだけ Discord にも送る
+      - name: Notify Discord on failure
+        if: failure() && env.DISCORD_WEBHOOK_URL != ''
+        run: |
+          curl --silent --show-error -H "Content-Type: application/json" \
+            -d "{\"content\":\"staging のデプロイに失敗: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}\"}" \
+            "$DISCORD_WEBHOOK_URL" || true

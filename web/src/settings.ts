@@ -81,6 +81,10 @@ export type Settings = {
         // 最終の文字起こしに、話者（「話者 1」など）と世代の選択肢の話者の数を出すか。保存するファイルは変えない
         showSpeakers: boolean;
     };
+    // クラウド版の中間サーバーの URL（#158）。ホストのトレイの「クラウドにログイン」が使う。画面では変えない
+    cloud: {
+        relayUrl: string;
+    };
     // サイドバーのプロジェクトの並び順（プロジェクト ID。#173）。ここにないものは先頭。
     // 一覧（GET /api/projects）はこの順で返ってくる。変えるのは並び替えのときだけ（changeSettings は送らない）
     projectOrder: string[];
@@ -143,6 +147,9 @@ export const defaultSettings: Settings = {
         sessionMeta: false,
         showPickedTerms: false,
         showSpeakers: false,
+    },
+    cloud: {
+        relayUrl: 'https://rw-dev.studio-takumi.dev',
     },
     projectOrder: [],
 };

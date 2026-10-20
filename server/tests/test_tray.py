@@ -146,6 +146,77 @@ def test_quit_asks_while_recording(monkeypatch):
     assert quits == [1]
 
 
+class FakeCloud:
+    """CloudHost の代わり（トレイの配線だけを見る）"""
+
+    def __init__(self, status="unregistered"):
+        from remote_whisper.cloud import CloudView
+
+        self.view = CloudView(status)
+        self.on_notice = None
+        self.calls = []
+
+    def start_pairing(self):
+        from remote_whisper.cloud import CloudView
+
+        self.calls.append("start")
+        self.view = CloudView("pairing", code="ABCD-1234")
+
+    def cancel_pairing(self):
+        self.calls.append("cancel")
+
+    def unpair(self):
+        self.calls.append("unpair")
+
+
+def test_cloud_menu_is_rewritten_when_the_cloud_state_changes(monkeypatch):
+    # Windows でも、クラウドの状態が変わったらメニュー（出す項目・登録コード）を出し直す（#158）
+    pytest.importorskip("PIL")
+    from remote_whisper import tray
+
+    monkeypatch.setattr(tray, "shows_status_line", lambda: False)
+
+    class FakeIcon:
+        icon = None
+        title = None
+        menus = 0
+        HAS_NOTIFICATION = True
+        notices: list = []
+
+        def update_menu(self):
+            self.menus += 1
+
+        def notify(self, message, title):
+            self.notices.append(message)
+
+    cloud = FakeCloud()
+    t = tray.Tray(status=ServerStatus, url="", log_dir=None, on_quit=None, cloud=cloud)
+    t._icon = FakeIcon()
+    t.update(t._state())
+    assert t._cloud_text() == "クラウド: 登録していない" and t._menu().login
+    t.update(t._state())
+    assert t._icon.menus == 0
+    t._cloud_login()
+    assert cloud.calls == ["start"] and t._icon.menus == 1
+    assert t._cloud_text() == "クラウド: 登録中（コード ABCD-1234）" and t._menu().cancel
+    # 登録のスレッドからの通知は、トレイの通知に出す
+    cloud.on_notice("登録コード: ABCD-1234")
+    assert t._icon.notices == ["登録コード: ABCD-1234"]
+
+
+def test_cloud_unpair_asks_first(monkeypatch):
+    from remote_whisper import tray
+
+    answers = [False, True]
+    monkeypatch.setattr(tray, "confirm", lambda message, ok_label="終了": answers.pop(0))
+    cloud = FakeCloud("registered")
+    t = tray.Tray(status=ServerStatus, url="", log_dir=None, on_quit=None, cloud=cloud)
+    t._cloud_unpair()
+    assert cloud.calls == []
+    t._cloud_unpair()
+    assert cloud.calls == ["unpair"]
+
+
 def test_setup_stops_when_already_stopped():
     # run() の直前にサーバーが止まって stop() が空振りしても、アイコンを出さずに止める
     from remote_whisper import tray

@@ -120,6 +120,9 @@
     "showPickedTerms": false,
     "showSpeakers": false
   },
+  "cloud": {
+    "relayUrl": "https://rw-dev.studio-takumi.dev"
+  },
   "projectOrder": []
 }
 ```
@@ -157,6 +160,7 @@
 - `display.sessionMeta` は、サイドバーのセッションのタイトルの下に、録音日時と長さを出すか（8 章）。既定は出さない。
 - `display.showPickedTerms` は、文字起こしのタブに、用語リスト（文字起こし抽出）の一覧（`PickedTerms`）を出すか（#147）。既定は出さない。用語を拾うか（`ollama.pickTerms`）とは別の設定で、オフでも用語リスト（文字起こし抽出）は今までどおり hotwords に使う。
 - `display.showSpeakers` は、浄書済み文字起こしの行の頭の「話者 1」などの札と、版の選択肢の「話者 N 人」を出すか（#146）。話者分けの精度がまだ低いので、既定は出さない。話者分け（`whisper.diarize`）の処理と保存するファイル（行の「話者 1: 」を含む）は変えず、画面の表示だけが変わる。文字起こしの書き出しの機能はない。
+- `cloud.relayUrl` は、クラウド版の中間サーバー（Worker）の URL（#158。10.6 節）。トレイの「クラウドにログイン」で申請する先。既定は staging の `https://rw-dev.studio-takumi.dev`（本番ができたら #167 で本番のドメインにする）。`https://` の URL か、ローカルの開発用の `http://localhost`（`127.0.0.1`）だけを受け付け、パス・クエリは付けられない（末尾の `/` は取る）。登録済みのホストは、登録したときの URL（`cloud.json`）を使い続ける。録音中も変えられる。
 - `projectOrder` は、サイドバーのプロジェクトの並び順（プロジェクト ID の配列、既定は空。#173）。端末をまたいで同じ並びにするため、クライアントではなくここに持つ。
   - 一覧（`GET /api/projects`）はこの順で返す（画面は並べ替えない）。`projectOrder` にないプロジェクト（新しく作ったもの・並び順を保存する前からあるもの）は先頭に置き、その中は ID の順。`projectOrder` にあって存在しない ID（消えたプロジェクト）は無視する（ファイルからは消さない）。同じ ID が重なっていたら最初のものだけ残す。
   - 画面でプロジェクトを並び替えたら、新しい並びをすべての ID で保存する（`PATCH /api/settings` に `{"projectOrder": [...]}` だけを送る）。並びが変わったら WebSocket で全員に `projectOrder` を送り、各端末は設定を取り直して、手元の一覧を並べ直す（知らないプロジェクトがあれば一覧ごと取り直す。7.2 節）。画面の全体設定の保存（`changeSettings`）は `projectOrder` を送らない（古い設定で、ほかの端末の並び替えを上書きしないため）。

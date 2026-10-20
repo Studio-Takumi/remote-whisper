@@ -27,7 +27,9 @@ npm run lint && npm run format:check && npm run typecheck
 
 ## staging にデプロイする
 
-main に入ったら自動でデプロイする（#170）。手で出すとき（ブランチを確かめるときだけ）:
+main に入ると、CI が通ったあとに自動でデプロイする（`.github/workflows/deploy.yml`。マイグレーション → デプロイ → `/healthz` の確認の順。#170）。GitHub の Secrets に `CLOUDFLARE_API_TOKEN` と `CLOUDFLARE_ACCOUNT_ID` が要る（なければデプロイせずに緑で終わる）。失敗を Discord にも送るなら `DISCORD_WEBHOOK_URL` を足す。Actions の画面から手で動かすこともできる（`workflow_dispatch`）。
+
+手元から出すのは、ブランチを確かめるときだけ:
 
 ```sh
 cd web && npm run build && cd ../relay
