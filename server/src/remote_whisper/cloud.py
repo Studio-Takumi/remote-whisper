@@ -413,6 +413,8 @@ class CloudHost:
         self.stop_tunnel = stop_tunnel
         # 通知を出す（トレイが差し替える）
         self.on_notice: Callable[[str], None] = lambda message: None
+        # 登録した・解除したあとに呼ぶ（トンネル専用のポートの開け閉め。#160）
+        self.on_registration_change: Callable[[], None] = lambda: None
         self._lock = threading.Lock()
         self._cancel = threading.Event()
         self._thread: threading.Thread | None = None
@@ -458,6 +460,12 @@ class CloudHost:
 
     def _busy(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
+
+    def _registration_changed(self) -> None:
+        try:
+            self.on_registration_change()
+        except Exception:  # noqa: BLE001 ポートの開け閉めに失敗しても続ける
+            log.warning("failed to update the tunnel port", exc_info=True)
 
     def _notice(self, message: str) -> None:
         try:
@@ -531,6 +539,7 @@ class CloudHost:
                         replace(credentials, relay_key=relay_key, registered_at=int(self.clock())),
                     )
                     self._view = CloudView("registered")
+                    self._registration_changed()
                     log.info("cloud pairing approved (host %s)", credentials.host_id)
                     return "クラウドに登録しました"
                 if status == "rejected":
@@ -566,6 +575,7 @@ class CloudHost:
             self._notice("クラウドから外せませんでした。ログを確かめてください")
             return
         self._view = CloudView("unregistered")
+        self._registration_changed()
         log.info("cloud unpaired (relay told: %s)", told)
         if told:
             self._notice("クラウドから外しました")

@@ -9,6 +9,7 @@
 import argparse
 import logging
 import threading
+import time
 
 import uvicorn
 
@@ -16,6 +17,7 @@ from remote_whisper import cloud, logs, tray
 from remote_whisper.app import create_app
 from remote_whisper.mock import MockTiming
 from remote_whisper.settings import default_home
+from remote_whisper.tunnel import TunnelPort
 
 log = logging.getLogger("remote_whisper")
 
@@ -46,6 +48,7 @@ def main() -> None:
     home = default_home()
     # ログは <データのルート>/log/server.log にも書く（#134）。uvicorn のログもそこに入れ、
     # アクセスログは自前（API のリクエストだけ。app.py）で書く
+    tunnel: TunnelPort | None = None
     path = logs.setup(home)
     log.info("writing logs to %s", path)
     try:
@@ -54,6 +57,11 @@ def main() -> None:
             app, host=args.host, port=args.port, log_config=None, access_log=False
         )
         server = uvicorn.Server(config)
+        # トンネル専用の 8001 番（#160）。クラウドに登録しているときだけ開く
+        tunnel = TunnelPort(app, home)
+        threading.Thread(
+            target=_open_tunnel_when_started, args=(server, tunnel), name="tunnel-open", daemon=True
+        ).start()
         if args.no_tray or not tray.available():
             server.run()
             return
@@ -62,6 +70,11 @@ def main() -> None:
         host = "127.0.0.1" if args.host in ("0.0.0.0", "::") else args.host
         if ":" in host:
             host = f"[{host}]"  # IPv6 のアドレスは URL では [] で囲む
+        cloud_host = cloud.CloudHost(
+            home, relay_url=lambda: app.state.ctx.settings.get().cloud.relay_url
+        )
+        # 登録したら 8001 番を開き、解除したら閉じる
+        cloud_host.on_registration_change = tunnel.sync
         icon = tray.Tray(
             status=lambda: app.state.ctx.hub.status,
             url=f"http://{host}:{args.port}/",
@@ -69,9 +82,7 @@ def main() -> None:
             # 止めるとき（lifespan の後片付け）を経てから止まる
             on_quit=lambda: setattr(server, "should_exit", True),
             # クラウド版のホストの登録（#158）。中間サーバーの URL は、押したときの設定を読む
-            cloud=cloud.CloudHost(
-                home, relay_url=lambda: app.state.ctx.settings.get().cloud.relay_url
-            ),
+            cloud=cloud_host,
         )
         if tray.must_run_on_main_thread():
             _serve_with_tray_on_main_thread(server, icon)
@@ -83,8 +94,22 @@ def main() -> None:
         finally:
             icon.stop()
     finally:
+        if tunnel is not None:
+            tunnel.close()
         log.info("server stopped")
         logs.shutdown()
+
+
+def _open_tunnel_when_started(server: uvicorn.Server, tunnel: TunnelPort) -> None:
+    """8000 番が立ち上がってから（アプリの起動を終えてから）、登録済みなら 8001 番を開く"""
+    while not server.started:
+        if server.should_exit:
+            return
+        time.sleep(0.1)
+    try:
+        tunnel.sync()
+    except Exception:  # noqa: BLE001 8001 番が開けなくても、8000 番は動かし続ける
+        log.exception("failed to open the tunnel port")
 
 
 def _serve_with_tray_on_main_thread(server: uvicorn.Server, icon: "tray.Tray") -> None:
