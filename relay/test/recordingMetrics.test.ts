@@ -75,7 +75,12 @@ function direct(env: Env, userId: string, body: unknown, bytes?: string) {
 
 describe('許可リスト', () => {
     it('知らない項目は捨てる', () => {
-        const clean = sanitizeRecording({ recordingSec: 60, transcript: 'こんにちは', sessionId: '2026-10-20_1', x: 1 });
+        const clean = sanitizeRecording({
+            recordingSec: 60,
+            transcript: 'こんにちは',
+            sessionId: '2026-10-20_1',
+            x: 1,
+        });
         expect(clean).toEqual({ numbers: { recordingSec: 60 }, flags: {}, strings: {}, errors: {} });
     });
 
@@ -107,12 +112,17 @@ describe('許可リスト', () => {
     });
 
     it('真偽はそのまま、真偽でないものは捨てる', () => {
-        const clean = sanitizeRecording({ upload: true, continued: false, noiseSuppression: 'true', autoGainControl: 1 });
+        const clean = sanitizeRecording({
+            upload: true,
+            continued: false,
+            noiseSuppression: 'true',
+            autoGainControl: 1,
+        });
         expect(clean.flags).toEqual({ upload: true, continued: false });
     });
 
     it('error の code は形が合うものだけ、10 種類まで', () => {
-        const errors: Record<string, number> = { write_failed: 2, 'Bad Code': 1, 'こんにちは': 1, x1: 1, neg: -1 };
+        const errors: Record<string, number> = { write_failed: 2, 'Bad Code': 1, こんにちは: 1, x1: 1, neg: -1 };
         for (let i = 0; i < 20; i++) {
             errors[`code_${'abcdefghijklmnopqrst'[i]}`] = 1;
         }
@@ -162,7 +172,7 @@ describe('書く行', () => {
 });
 
 describe('POST /me/metrics/recording', () => {
-  it('ログインしていなければ 401、Origin が違えば 403', async () => {
+    it('ログインしていなければ 401、Origin が違えば 403', async () => {
         expect((await post({ hostId: 'x' })).status).toBe(401);
         const { cookie, hostId } = await newUser();
         expect((await post({ hostId }, cookie, 'https://evil.example')).status).toBe(403);
@@ -181,7 +191,7 @@ describe('POST /me/metrics/recording', () => {
         const { points, env: fake } = recorder();
         expect((await direct(fake, me.userId, { hostId: me.hostId, recordingSec: 5 })).status).toBe(204);
         expect(points.length).toBe(2);
-        expect(points[0].blobs.slice(0, 5)).toEqual(['recording', 'other', 'other', me.userId, me.hostId]);
+        expect(points[0].blobs.slice(0, 5)).toEqual(['recording', 'chrome', 'macos', me.userId, me.hostId]);
 
         points.length = 0;
         await direct(fake, me.userId, { hostId: other.hostId, recordingSec: 5 });
