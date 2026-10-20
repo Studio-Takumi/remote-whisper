@@ -9,6 +9,7 @@
 ```
 ~/.remote-whisper/
 ├─ setting.json
+├─ cloud.json                 # クラウド版に登録したときだけ。ホスト ID・鍵・中継の鍵（10.6 節。権限は本人だけ）
 ├─ log/
 │  ├─ server.log              # サーバーのログ（6.10 節）
 │  └─ server.log.YYYY-MM-DD   # 前の日の分（10 日分）
