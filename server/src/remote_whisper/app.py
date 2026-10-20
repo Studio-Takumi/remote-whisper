@@ -124,8 +124,15 @@ def create_app(
         tunnel = app.state.tunnel
         if tunnel is not None:
             tunnel.attach(asyncio.get_running_loop())
+        # 登録済みなら cloudflared を動かす（8001 番が開くのを待つのは専用のスレッド。#159）
+        cloudflared = app.state.cloudflared
+        if cloudflared is not None:
+            cloudflared.sync()
         yield
         log.info("server stopping")
+        if cloudflared is not None:
+            # 子プロセスを残さない（待つ間もイベントループは止めない）
+            await asyncio.to_thread(cloudflared.stop)
         if tunnel is not None:
             # 片付ける前に、8001 番からの新しいリクエストを止める
             await tunnel.aclose()
@@ -157,6 +164,8 @@ def create_app(
     app.state.ctx = ctx
     # トンネル専用のポート（tunnel.TunnelPort。__main__ が入れる）
     app.state.tunnel = None
+    # cloudflared の子プロセス（cloudflared.CloudflaredRunner。__main__ が入れる。#159）
+    app.state.cloudflared = None
     janitor = Janitor(ctx.projects, ctx.settings)
     gpu_stats = GpuStats(lambda stats: ctx.hub.set_status(gpu=stats))
     # 結果を待たないタスク（途中で回収されないように持っておく）

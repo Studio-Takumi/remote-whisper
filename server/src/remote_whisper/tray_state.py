@@ -82,6 +82,11 @@ def cloud_text(view: CloudView | None) -> str:
     if view.status == "unpairing":
         return "クラウド: 外しています…"
     if view.status == "registered":
+        if view.tunnel is not None:
+            label = {"connected": "つながっている", "connecting": "つないでいます"}.get(
+                view.tunnel, "止まっている"
+            )
+            return f"クラウド: 登録済み / トンネル: {label}"
         return f"クラウド: {'つながっていない' if view.connected is False else 'つながっている'}"
     return "クラウド: 登録していない"
 
