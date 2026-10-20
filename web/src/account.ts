@@ -24,6 +24,12 @@ export type Me = {
     displayName: string;
     // 初めに同意した利用規約の版。同意する前は null（#162）
     tosVersion: string | null;
+    // 今の利用規約の版と、規約・プライバシーポリシーのリンク先
+    tosCurrent: string;
+    termsUrl: string;
+    privacyUrl: string;
+    // データ収集の今の許可（既定はオフ）
+    dataCollection: boolean;
     identities: Identity[];
     providers: Provider[];
 };
@@ -39,6 +45,16 @@ export function loginHref(provider: Provider, opts: { link?: boolean; returnTo?:
     }
     const query = params.toString();
     return query ? `${authLoginUrl(provider)}?${query}` : authLoginUrl(provider);
+}
+
+// 初回の同意で送る本文（今の規約の版に同意する）
+export function consentPayload(me: Me, dataCollection: boolean) {
+    return { tosVersion: me.tosCurrent, dataCollection };
+}
+
+// 「同意して進む」を押せるか（規約にチェックを入れていて、送っている途中でないとき）
+export function canSubmitConsent(agreed: boolean, busy: boolean) {
+    return agreed && !busy;
 }
 
 // まだ足していないログインの手段
@@ -79,6 +95,15 @@ export async function fetchMe(): Promise<Me | null> {
 export const logout = () => request<{ ok: boolean }>(authLogoutUrl(), { method: 'POST' });
 export const removeIdentity = (id: string) =>
     request<Me>(meUrl(`/identities/${encodeURIComponent(id)}`), { method: 'DELETE' });
+const jsonInit = (method: string, body: unknown): RequestInit => ({
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+});
+export const postConsent = (me: Me, dataCollection: boolean) =>
+    request<{ ok: boolean }>(meUrl('/consent'), jsonInit('POST', consentPayload(me, dataCollection)));
+export const putDataCollection = (granted: boolean) =>
+    request<{ ok: boolean; dataCollection: boolean }>(meUrl('/consents/data_collection'), jsonInit('PUT', { granted }));
 export const deleteAccount = () => request<{ ok: boolean }>(meUrl(), { method: 'DELETE' });
 
 type AccountStore = {
