@@ -181,7 +181,15 @@ sequenceDiagram
   - `GET /pair/request?code=` → `{"code", "hostName", "status", "expiresAt"}`。見つからない・期限切れは `404`
   - `POST /pair/approve {"code"}` → hosts に入れ（中継の鍵を作る）、申請を `approved` にする（同じトランザクション）。`pending` で期限内のものだけ。ほかの人が承認済みのコードは `404`
   - `POST /pair/reject {"code"}` → 申請を `rejected` にする
-- **ホストの管理（#157。画面は #161）**: `GET /me/hosts` → `{"hosts": [{"id", "name", "appVersion", "createdAt", "lastSeenAt"}]}`（鍵は出さない）。`DELETE /me/hosts/<id>` → 自分のホストだけ消せる（ほかの人のものは `404`）。消したホストがポーリングしても中継の鍵は返さない
+- **ホストの管理（#157・#161）**: `GET /me/hosts` → `{"hosts": [{"id", "name", "appVersion", "createdAt", "lastSeenAt", "online"}]}`（鍵は出さない）。`DELETE /me/hosts/<id>` → 自分のホストだけ消せる（ほかの人のものは `404`）。消したホストがポーリングしても中継の鍵は返さない
+  - `online` はトンネルの状態（Cloudflare の API の `cfd_tunnel` の `status` が `healthy`・`degraded` なら `true`、ほかは `false`）。トンネルがまだない・API が使えないときは `null`（分からない）。一覧を開くたびにホストの数だけ API を呼ぶ
+  - `PATCH /me/hosts/<id> {"name"}` → 名前を変える（PC 名と同じく制御文字と書式の文字を除いて 1〜64 文字。自分のホストだけ）。返事は一覧
+- **ホストの選択の画面（#161）**: ログインと同意のあと
+  - 0 台なら、トレイから登録する手順の案内
+  - 選べるもの（`online` が `false` でない）が 1 台だけ、または前に選んだホスト（この端末の localStorage）が選べるなら、選ぶ画面を出さずにつなぐ。ほかは選ぶ画面（オフラインのものは押せない）
+  - 自動でつなぐのは開いて最初の 1 回だけ。つないだあとは上部に「〇〇 につないでいます」を出し、押すと選び直せる（録音中は押せない）
+  - アカウントの画面で、ホストの名前を変える・外す（外すとトンネルも消える）
+  - 確かめ方: `cd web && npm run check:cloud-hosts`（偽の Worker で 0 台・1 台・2 台以上・オフライン・前に選んだもの）
 - **ホスト（トレイ）の動き（#158）**
   - 「クラウドにログイン」を押すと、新しいホスト ID と鍵のペアを作って `cloud.json` に書き（`relayKey` は `null`）、`/pair/start` を呼ぶ。返ってきた URL をブラウザで開き、登録コードをトレイの通知とメニューの行に出す
   - 3 秒ごとに `/pair/poll` を呼ぶ。`approved` なら `relayKey` を `cloud.json` に足して登録済みにする。`rejected`・`expired`・`404`・10 分たった・「登録をやめる」を押した・`401` などの断り（上の箇条）のどれかなら、`cloud.json` を消して登録していない状態に戻す（次は新しいホスト ID で申請する）。つながらない・`5xx`・`429` のときは、期限まで聞き直す
