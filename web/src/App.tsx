@@ -2,7 +2,9 @@ import { useEffect } from 'react';
 
 import { toast } from 'sonner';
 
+import { isReady, useCloudStore } from '@/cloud';
 import { AppSidebar } from '@/components/AppSidebar';
+import { CloudEntry } from '@/components/CloudEntry';
 import { DevPanel } from '@/components/DevPanel';
 import { MicButton } from '@/components/MicButton';
 import { NewProjectDialog } from '@/components/NewProjectDialog';
@@ -13,10 +15,18 @@ import { TopBar } from '@/components/TopBar';
 import { UnsentAlert } from '@/components/UnsentAlert';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { Toaster } from '@/components/ui/sonner';
+import { isCloud } from '@/endpoint';
 import { startRouter } from '@/router';
 import { useAppStore } from '@/store';
 
+// クラウド版は、ログイン・同意・ホストの選択（#156）がすんでホストにつながるまで、今のアプリを出さない。
+// ダイレクト版は常にそのまま出す
 function App() {
+    const ready = useCloudStore((s) => isReady(s.cloud));
+    return !isCloud || ready ? <AppMain /> : <CloudEntry />;
+}
+
+function AppMain() {
     const settings = useAppStore((s) => s.settings);
     const changeSettings = useAppStore((s) => s.changeSettings);
     const settingsOpen = useAppStore((s) => s.settingsOpen);
