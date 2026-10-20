@@ -167,7 +167,8 @@ async function start(request: Request, env: Env): Promise<Response> {
         return error(400, 'bad request');
     }
     const { hostId, hostName, publicKey } = data;
-    const name = typeof hostName === 'string' ? hostName.replace(/\p{Cc}/gu, '').trim() : '';
+    // 制御文字と書式の文字（右から左への上書き・ゼロ幅の文字など）を除く。確認の画面で名前を偽って見せられないように
+    const name = typeof hostName === 'string' ? hostName.replace(/[\p{Cc}\p{Cf}]/gu, '').trim() : '';
     if (
         typeof hostId !== 'string' ||
         !UUID.test(hostId) ||
@@ -289,9 +290,13 @@ async function unpair(request: Request, env: Env): Promise<Response> {
     if (!(await verifyHost(signed.header, publicKey, request, signed.body))) {
         return error(401, 'bad signature');
     }
-    if (host) {
-        await deleteTunnel(env, host);
+    if (!host) {
+        // 申請中なら、行は消さずに取り消し済み（rejected）にして期限まで残す。消すと、申請と取り消しを
+        // 繰り返して接続元ごとの回数の制限を抜けられるため。このあとの承認は pending でないので断られる
+        await env.DB.prepare("UPDATE pairing_requests SET status = 'rejected' WHERE host_id = ?").bind(hostId).run();
+        return json({ ok: true });
     }
+    await deleteTunnel(env, host);
     await env.DB.batch([
         env.DB.prepare('DELETE FROM hosts WHERE id = ?').bind(hostId),
         env.DB.prepare('DELETE FROM pairing_requests WHERE host_id = ?').bind(hostId),
@@ -357,14 +362,21 @@ async function fromBrowser(request: Request, env: Env, path: string): Promise<Re
     const now = Date.now();
     if (path === '/pair/request') {
         const row = await env.DB.prepare(
-            'SELECT host_name, status, expires_at FROM pairing_requests WHERE code_hash = ? AND expires_at > ?',
+            'SELECT host_name, status, user_id, expires_at FROM pairing_requests WHERE code_hash = ? AND expires_at > ?',
         )
             .bind(codeHash, now)
-            .first<{ host_name: string; status: string; expires_at: number }>();
+            .first<{ host_name: string; status: string; user_id: string | null; expires_at: number }>();
         if (!row) {
             return error(404, '登録の申請が見つかりません（期限が切れたかもしれません）');
         }
-        return json({ code, hostName: row.host_name, status: row.status, expiresAt: row.expires_at });
+        return json({
+            code,
+            hostName: row.host_name,
+            status: row.status,
+            // 承認・拒否したのが自分か（ほかの人が先に承認していたら、画面で知らせる）
+            answeredByMe: row.user_id === null ? null : row.user_id === user.userId,
+            expiresAt: row.expires_at,
+        });
     }
     if (path === '/pair/reject') {
         const res = await env.DB.prepare(

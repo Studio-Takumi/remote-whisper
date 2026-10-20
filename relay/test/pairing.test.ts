@@ -293,13 +293,35 @@ describe('回数の制限', () => {
 });
 
 describe('解除', () => {
-    it('申請中に /pair/unpair が来たら申請を消し、そのあとの承認は断る', async () => {
+    it('申請中に /pair/unpair が来たら申請を取り消し、そのあとの承認は断る', async () => {
         const host = await newHost();
         const { code } = await startPairing(host);
         expect((await hostCall(host, '/pair/unpair', {})).status).toBe(200);
         const { cookie } = await newUser();
         expect((await approve(cookie, code)).status).toBe(404);
         expect(await hostRow(host.hostId)).toBeNull();
+        // 行は期限まで残す（申請と取り消しを繰り返して、回数の制限を抜けられないように）
+        const row = await env.DB.prepare('SELECT status FROM pairing_requests WHERE host_id = ?')
+            .bind(host.hostId)
+            .first<{ status: string }>();
+        expect(row?.status).toBe('rejected');
+    });
+
+    it('ほかの人が先に承認したことが、確認の画面でわかる。PC 名から書式の文字を除く', async () => {
+        const host = await newHost();
+        const res = await hostCall(host, '/pair/start', {
+            hostId: host.hostId,
+            hostName: 'MY‮-PC​',
+            publicKey: host.publicKey,
+        });
+        const { code } = (await res.json()) as { code: string };
+        const alice = await newUser();
+        const bob = await newUser();
+        await approve(bob.cookie, code);
+        const seenByAlice = await (await browser(alice.cookie, `/pair/request?code=${code}`)).json();
+        expect(seenByAlice).toMatchObject({ hostName: 'MY-PC', status: 'approved', answeredByMe: false });
+        const seenByBob = await (await browser(bob.cookie, `/pair/request?code=${code}`)).json();
+        expect(seenByBob).toMatchObject({ answeredByMe: true });
     });
 
     it('登録済みのホストは /pair/unpair で消える。ほかの鍵では消せない', async () => {

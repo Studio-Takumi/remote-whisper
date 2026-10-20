@@ -6,6 +6,8 @@ export type PairRequest = {
     code: string;
     hostName: string;
     status: 'pending' | 'approved' | 'rejected';
+    // 承認・拒否したのが自分か（まだなら null）
+    answeredByMe: boolean | null;
     expiresAt: number;
 };
 

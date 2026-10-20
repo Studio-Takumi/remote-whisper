@@ -67,8 +67,11 @@ async function removeHost(env: Env, userId: string, hostId: string): Promise<Res
         return error(404, 'そのホストはありません');
     }
     await deleteTunnel(env, host);
-    await env.DB.prepare('DELETE FROM hosts WHERE id = ? AND user_id = ?').bind(hostId, userId).run();
-    await env.DB.prepare('DELETE FROM pairing_requests WHERE host_id = ?').bind(hostId).run();
+    // 同じトランザクションで消す。申請の行は、そのユーザーが承認したものだけ
+    await env.DB.batch([
+        env.DB.prepare('DELETE FROM hosts WHERE id = ? AND user_id = ?').bind(hostId, userId),
+        env.DB.prepare('DELETE FROM pairing_requests WHERE host_id = ? AND user_id = ?').bind(hostId, userId),
+    ]);
     return hosts(env, userId);
 }
 

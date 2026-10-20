@@ -40,7 +40,9 @@ async function must<T>(env: Env, method: string, path: string, body?: unknown): 
     if (!res.success) {
         // トークンの値は出さない。どの API が何で失敗したかだけ
         const reason = (res.errors ?? []).map((e) => `${e.code} ${e.message}`).join(', ');
-        throw new Error(`Cloudflare API ${method} ${path.replace(/\/accounts\/[^/]+|\/zones\/[^/]+/g, '/…')}: ${reason}`);
+        throw new Error(
+            `Cloudflare API ${method} ${path.replace(/\/accounts\/[^/]+|\/zones\/[^/]+/g, '/…')}: ${reason}`,
+        );
     }
     return res.result;
 }
