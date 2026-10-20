@@ -1,4 +1,9 @@
-# main が変わったら、CI が通ったあとに relay と画面を staging へデプロイする（#170）
+# main が変わったら、CI が通ったあとに relay と画面をデプロイする（#170・#167）
+#
+# 行き先:
+# - 自動（main の CI が通ったとき）: リポジトリの変数 PRODUCTION_READY が 'true' なら本番、そうでなければ staging。
+#   本番の環境（ドメイン・D1・secret）を用意するまでは staging に出し続ける（docs/deploy.md）
+# - 手動（Actions の画面から）: 行き先を選ぶ。既定は staging（ブランチの確認用）
 name: Deploy
 
 on:
@@ -12,25 +17,55 @@ on:
     branches: [main]
   # 手で出すとき（Actions の画面から。ブランチを選べば、そのブランチを出す）
   workflow_dispatch:
+    inputs:
+      target:
+        description: 行き先
+        type: choice
+        options: [staging, production]
+        default: staging
 
 permissions:
   contents: read
 
 jobs:
-  staging:
+  # 行き先を決める（あとのジョブの concurrency と URL に使う）
+  target:
     # 自動のときは「CI が成功した main への push」だけ。手動はいつでも
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
+    outputs:
+      env: ${{ steps.pick.outputs.env }}
+      url: ${{ steps.pick.outputs.url }}
+    steps:
+      - id: pick
+        env:
+          INPUT: ${{ inputs.target }}
+          READY: ${{ vars.PRODUCTION_READY }}
+        run: |
+          if [ -n "$INPUT" ]; then target="$INPUT"
+          elif [ "$READY" = "true" ]; then target="production"
+          else target="staging"; fi
+          if [ "$target" = "production" ]; then url="https://rw.studio-takumi.dev"
+          else url="https://rw-dev.studio-takumi.dev"; fi
+          echo "env=$target" >> "$GITHUB_OUTPUT"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "行き先: $target（$url）" >> "$GITHUB_STEP_SUMMARY"
+
+  deploy:
+    needs: target
+    runs-on: ubuntu-latest
     timeout-minutes: 15
-    # デプロイを重ねない。実行中のものは止めず（途中で止めるとマイグレーションだけ当たった状態になる）、待たせる
+    # デプロイを重ねない（行き先ごと）。実行中のものは止めず（途中で止めるとマイグレーションだけ当たった状態になる）、待たせる
     concurrency:
-      group: deploy-staging
+      group: deploy-${{ needs.target.outputs.env }}
       cancel-in-progress: false
     env:
       DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      TARGET: ${{ needs.target.outputs.env }}
+      TARGET_URL: ${{ needs.target.outputs.url }}
     steps:
       # secret がなければ、赤くせずに終わる（フォークや、まだ登録していないとき）。
       # 値は渡さず、あるかないか（true/false）だけを渡す
@@ -57,6 +92,15 @@ jobs:
           # CI が通ったコミット。手動のときはその実行のコミット
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
+      # 本番の D1 の ID が仮のまま（本番の環境をまだ用意していない）なら、本番には出さずに止める
+      - name: Check production config
+        if: steps.secrets.outputs.enabled == 'true' && env.TARGET == 'production'
+        run: |
+          if grep -q '"database_id": "00000000-0000-0000-0000-000000000001"' relay/wrangler.jsonc; then
+            echo "::error title=Production not ready::relay/wrangler.jsonc の本番の D1 の ID が仮のまま（docs/deploy.md の「本番を用意する」）"
+            exit 1
+          fi
+
       - uses: actions/setup-node@v4
         if: steps.secrets.outputs.enabled == 'true'
         with:
@@ -66,10 +110,13 @@ jobs:
             web/package-lock.json
             relay/package-lock.json
 
-      # 画面（relay/wrangler.jsonc の assets が ../web/dist を配る）
+      # 画面（relay/wrangler.jsonc の assets が ../web/dist を配る）。
+      # クラウド版と判定するドメイン（VITE_CLOUD_HOSTS）は、staging と本番の両方を入れておく
       - name: Build web
         if: steps.secrets.outputs.enabled == 'true'
         working-directory: web
+        env:
+          VITE_CLOUD_HOSTS: rw-dev.studio-takumi.dev,rw.studio-takumi.dev
         run: |
           npm ci
           npm run build
@@ -91,7 +138,7 @@ jobs:
         # Account ID の secret に空白・改行・引用符が混じっていても通るよう、16 進の文字だけを残す
         # （混じっていると wrangler が Invalid account ID で落ちた）
         run: |
-          CLOUDFLARE_ACCOUNT_ID="$(printf '%s' "$RAW_ACCOUNT_ID" | tr -cd '0-9a-fA-F')" npx wrangler d1 migrations apply DB --env staging --remote
+          CLOUDFLARE_ACCOUNT_ID="$(printf '%s' "$RAW_ACCOUNT_ID" | tr -cd '0-9a-fA-F')" npx wrangler d1 migrations apply DB --env "$TARGET" --remote
 
       - name: Deploy
         if: steps.secrets.outputs.enabled == 'true'
@@ -100,14 +147,14 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           RAW_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          CLOUDFLARE_ACCOUNT_ID="$(printf '%s' "$RAW_ACCOUNT_ID" | tr -cd '0-9a-fA-F')" npx wrangler deploy --env staging
+          CLOUDFLARE_ACCOUNT_ID="$(printf '%s' "$RAW_ACCOUNT_ID" | tr -cd '0-9a-fA-F')" npx wrangler deploy --env "$TARGET"
 
       # 反映まで少しかかることがあるので、何回か試す
       - name: Health check
         if: steps.secrets.outputs.enabled == 'true'
         run: |
           for i in $(seq 1 12); do
-            if curl --fail --silent --show-error --max-time 10 https://rw-dev.studio-takumi.dev/healthz; then
+            if curl --fail --silent --show-error --max-time 10 "$TARGET_URL/healthz"; then
               echo
               exit 0
             fi
@@ -121,5 +168,5 @@ jobs:
         if: failure() && env.DISCORD_WEBHOOK_URL != ''
         run: |
           curl --silent --show-error -H "Content-Type: application/json" \
-            -d "{\"content\":\"staging のデプロイに失敗: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}\"}" \
+            -d "{\"content\":\"${TARGET} のデプロイに失敗: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}\"}" \
             "$DISCORD_WEBHOOK_URL" || true

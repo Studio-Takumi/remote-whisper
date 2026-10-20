@@ -195,7 +195,7 @@ sequenceDiagram
 - **ホスト（トレイ）の動き（#158）**
   - 「クラウドにログイン」を押すと、新しいホスト ID と鍵のペアを作って `cloud.json` に書き（`relayKey` は `null`）、`/pair/start` を呼ぶ。返ってきた URL をブラウザで開き、登録コードをトレイの通知とメニューの行に出す
   - 3 秒ごとに `/pair/poll` を呼ぶ。`approved` なら `relayKey` を `cloud.json` に足して登録済みにする。`rejected`・`expired`・`404`・10 分たった・「登録をやめる」を押した・`401` などの断り（上の箇条）のどれかなら、`cloud.json` を消して登録していない状態に戻す（次は新しいホスト ID で申請する）。つながらない・`5xx`・`429` のときは、期限まで聞き直す
-  - 中間サーバーの URL は全体設定の `cloud.relayUrl`（5.3 節。既定は staging の `https://rw-dev.studio-takumi.dev`。本番ができたら #167 で変える）。登録したときの URL を `cloud.json` の `relayUrl` に残し、その後のやり取り（解除など）はそこにする
+  - 中間サーバーの URL は全体設定の `cloud.relayUrl`（5.3 節。既定は staging の `https://rw-dev.studio-takumi.dev`。本番を用意したら `https://rw.studio-takumi.dev` に変える。docs/deploy.md の「本番を一から用意する」の 7）。登録したときの URL を `cloud.json` の `relayUrl` に残し、その後のやり取り（解除など）はそこにする
   - 「クラウドから外す」を押すと（確認を出す）、`/pair/unpair` を呼び、cloudflared を止め（#159）、`cloud.json` を消す。中間サーバーにつながらないときも、この PC の資格情報は消し、「画面のホストの管理からも外してください」と通知する。`404`・`401` は、Worker 側ではもう外れている（画面から外したなど）とみなす
   - `cloud.json` の形（権限は本人だけ。POSIX は 600、Windows は `icacls` で継承を切って今のユーザーだけにする）:
 
@@ -336,7 +336,7 @@ erDiagram
 
 ### HTTP の計測の形（#163）
 
-Worker は、`/healthz` 以外のすべての HTTP（ホストへの中継・ログイン・登録・`/me`）を答えたあとに、Analytics Engine に 1 行書く（`relay/src/metrics.ts`）。データセットは staging が `remote_whisper_staging`（本番は #167 で決める）。ローカルでは束縛を付けないので書かない。書けなくても応答は止めない。
+Worker は、`/healthz` 以外のすべての HTTP（ホストへの中継・ログイン・登録・`/me`）を答えたあとに、Analytics Engine に 1 行書く（`relay/src/metrics.ts`）。データセットは staging が `remote_whisper_staging`、本番が `remote_whisper`（どちらもアカウントで Analytics Engine を有効にしてから束縛を付ける）。ローカルでは束縛を付けないので書かない。書けなくても応答は止めない。
 
 | 列 | 中身 |
 |---|---|
@@ -426,10 +426,12 @@ GROUP BY kind, path, status ORDER BY n DESC LIMIT 20;
 
 ## 10.15 環境・名前・秘密情報
 
+本番のサブドメインは `rw.studio-takumi.dev`（#167 で決めた）。デプロイの流れ・本番を一から用意する手順・戻し方は [docs/deploy.md](../deploy.md)。
+
 | | 名前 |
 |---|---|
 | ドメイン | `studio-takumi.dev`（Cloudflare で取ったもの。2026-10-20） |
-| Worker | `remote-whisper-staging`（`--env staging`。カスタムドメイン `rw-dev.studio-takumi.dev`。workers.dev の URL は使わない（`workers_dev: false`。画面がクラウド版と判定せず、Cookie とオリジンも分かれるため））・`remote-whisper`（本番。サブドメインは #167 で決める。例: `rw.studio-takumi.dev`） |
+| Worker | `remote-whisper-staging`（`--env staging`。カスタムドメイン `rw-dev.studio-takumi.dev`。workers.dev の URL は使わない（`workers_dev: false`。画面がクラウド版と判定せず、Cookie とオリジンも分かれるため））・`remote-whisper`（本番。`--env production`。カスタムドメイン `rw.studio-takumi.dev`） |
 | トンネルの公開ホスト名 | `rwt-<ホスト ID からハイフンを除いた頭 12 文字>.studio-takumi.dev` のように **1 段のサブドメイン**にする（同じ名前がすでにあれば、文字数を足して作り直す）（無料の証明書は `*.studio-takumi.dev` にしか効かないため。2 段にすると証明書が有料になる）。staging と本番は前置きを変える（例: staging は `rwt-dev-…`） |
 | `wrangler dev` のポート | 8787 |
 | ホストのトンネル専用のポート | 8001（127.0.0.1 だけ） |
@@ -438,7 +440,7 @@ GROUP BY kind, path, status ORDER BY n DESC LIMIT 20;
 | Worker の vars（秘密でない） | `TUNNEL_DOMAIN`（`studio-takumi.dev`）・`TUNNEL_PREFIX`（dev は `rwt-local-`、staging は `rwt-dev-`、本番は `rwt-`。#159） |
 | GitHub Actions の secret（自動デプロイ。#170） | `CLOUDFLARE_API_TOKEN`（デプロイ用）・`CLOUDFLARE_ACCOUNT_ID`（秘密ではないが、workflow ではここから読む） |
 
-- 環境は dev（ローカル。`wrangler dev`）・staging（`rw-dev.studio-takumi.dev`）・prod（本番のサブドメイン。#167）。OAuth のリダイレクト URI は、localhost と staging のドメインのものをクライアントに足す
+- 環境は dev（ローカル。`wrangler dev`）・staging（`rw-dev.studio-takumi.dev`）・production（`rw.studio-takumi.dev`。#167）。OAuth のリダイレクト URI は、localhost・staging・本番のドメインのものをクライアントに足す（GitHub は環境ごとに別の App）
 - 秘密情報は `wrangler secret`。ローカルは `relay/.dev.vars`（git に入れない。MEGA で同期されるので、localhost 専用の OAuth のクライアントだけを入れる）
 - デプロイは main に入ったときの自動デプロイ（#170）。本番ができるまでは staging に出す
 - 匠が用意するもの（アカウント・OAuth のクライアント・API トークン）は、リポジトリの外の手順書にある
@@ -449,7 +451,6 @@ GROUP BY kind, path, status ORDER BY n DESC LIMIT 20;
 |---|---|
 | データ収集をするか | する場合は 10.10 節の条件で。何を何に使うか |
 | 利用規約・プライバシーポリシーの文面 | LP に置く（別の計画）。広告を出していること・広告のスクリプトが動くことも書く（#165） |
-| 本番のサブドメイン | `studio-takumi.dev` のサブドメイン（例: `rw`）。#167 で決める |
 | 退会したときの同意の履歴 | 当面は消す（10.7 節）。法令上残す必要があるか |
 | 中継の鍵の置き方 | D1 にそのまま置くか、暗号化するか、都度導出するか（10.8 節） |
 | 素通しの WebSocket が長い録音で切られないか | staging で確かめる（10.14 節） |

@@ -18,7 +18,7 @@ describe('モードの判定', () => {
         expect(detectMode('B.example.com', hosts)).toBe('cloud');
     });
     it('設定が空文字なら既定に戻る', () => {
-        expect(parseCloudHosts('')).toEqual(['rw-dev.studio-takumi.dev']);
+        expect(parseCloudHosts('')).toEqual(['rw-dev.studio-takumi.dev', 'rw.studio-takumi.dev']);
     });
 });
 
