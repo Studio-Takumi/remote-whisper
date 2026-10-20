@@ -22,3 +22,6 @@ Thumbs.db
 *.wav
 *.mp3
 *.m4a
+
+# Windows 配布用のビルド（#168）
+packaging/out/

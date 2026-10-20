@@ -58,6 +58,8 @@ flowchart LR
 
 ## サーバーのセットアップ
 
+Windows で、Python や uv を入れずに使いたいときは、インストーラがあります（[docs/install-windows.md](docs/install-windows.md)）。以下は、リポジトリから動かす（開発用の）手順です。
+
 ### 必要なもの
 - NVIDIA GPU と、それに対応したドライバ
 - Python 3.11 と [uv](https://docs.astral.sh/uv/)

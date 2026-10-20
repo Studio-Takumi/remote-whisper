@@ -1,0 +1,150 @@
+# Windows の配布用のビルドとインストーラ（#168）
+#
+# 数 GB のダウンロード・展開があるので、PR では動かさない（PR では packaging/ を変えたときの文法チェックだけ）。
+# 手で動かすとき（Actions の画面から。ブランチを選べる）と、v* のタグを push したときに動く。
+# できたインストーラは artifact に置く。タグのときは、下書きのリリースにも付ける
+name: Package
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - packaging/**
+      - .github/workflows/package.yml
+
+concurrency:
+  group: package-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # PR のときの軽い確認。スクリプトの文法だけ見る（ビルドはしない）
+  check:
+    if: github.event_name == 'pull_request'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse PowerShell scripts
+        shell: pwsh
+        run: |
+          $failed = $false
+          foreach ($file in Get-ChildItem packaging -Filter *.ps1) {
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$null, [ref]$errors) | Out-Null
+            if ($errors) { $errors | ForEach-Object { Write-Error "$($file.Name): $_" }; $failed = $true }
+            else { Write-Host "ok: $($file.Name)" }
+          }
+          if ($failed) { exit 1 }
+
+  windows:
+    if: github.event_name != 'pull_request'
+    runs-on: windows-latest
+    timeout-minutes: 90
+    permissions:
+      contents: write # タグのとき、下書きのリリースを作る
+    env:
+      # 本番のサーバー（8000 番）とは別のポート
+      SMOKE_PORT: "18168"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: server/uv.lock
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build the app folder
+        shell: pwsh
+        run: ./packaging/build.ps1 -OutDir "$env:RUNNER_TEMP/rw-build"
+
+      # インストールせずに、ビルドしたフォルダから動かして確かめる
+      - name: Smoke test (build folder)
+        shell: pwsh
+        run: ./packaging/smoke.ps1 -AppDir "$env:RUNNER_TEMP/rw-build/app" -DataDir "$env:RUNNER_TEMP/rw-data-folder" -Port $env:SMOKE_PORT
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --yes --no-progress
+
+      - name: Build the installer
+        shell: pwsh
+        run: |
+          $version = (git rev-parse --short HEAD).Trim()
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          & $iscc "/DAppVersion=$version" "/DSourceDir=$env:RUNNER_TEMP\rw-build\app" "/DOutputDir=$env:RUNNER_TEMP\rw-installer" packaging/installer.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed ($LASTEXITCODE)" }
+          Get-ChildItem "$env:RUNNER_TEMP\rw-installer" | Format-Table Name, Length
+
+      # ビルドしたフォルダはもう要らない（ディスクを空ける）
+      - name: Remove the build folder
+        shell: pwsh
+        run: Remove-Item -Recurse -Force "$env:RUNNER_TEMP/rw-build"
+
+      # インストーラを /VERYSILENT で入れ、同じ確認をして、アンインストールする
+      - name: Install silently
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem "$env:RUNNER_TEMP\rw-installer" -Filter 'remote-whisper-setup-*.exe' | Select-Object -First 1
+          $dir = "$env:RUNNER_TEMP\rw-installed"
+          $p = Start-Process $setup.FullName -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=$dir", '/TASKS=startup', "/LOG=$env:RUNNER_TEMP\setup.log") -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "setup failed ($($p.ExitCode))" }
+          if (-not (Test-Path "$dir\python\pythonw.exe")) { throw 'not installed' }
+          # 「ログオン時に起動」を選んだので、Run の値ができている
+          $run = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run').RemoteWhisper
+          Write-Host "Run: $run"
+          if (-not $run -or $run -notlike "*$dir*") { throw 'the startup entry was not created' }
+          # スタートメニューのショートカット
+          $link = Join-Path ([Environment]::GetFolderPath('Programs')) 'Remote Whisper.lnk'
+          if (-not (Test-Path $link)) { throw 'the Start menu shortcut was not created' }
+
+      - name: Smoke test (installed)
+        shell: pwsh
+        run: ./packaging/smoke.ps1 -AppDir "$env:RUNNER_TEMP/rw-installed" -DataDir "$env:RUNNER_TEMP/rw-data-installed" -Port $env:SMOKE_PORT
+
+      - name: Uninstall (the data folder must stay)
+        shell: pwsh
+        run: |
+          $dir = "$env:RUNNER_TEMP\rw-installed"
+          $p = Start-Process "$dir\unins000.exe" -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "uninstall failed ($($p.ExitCode))" }
+          # アンインストーラは一時の場所に自分をコピーして動かすので、少し待って消えるのを確かめる
+          for ($i = 0; $i -lt 30 -and (Test-Path "$dir\python"); $i++) { Start-Sleep -Seconds 1 }
+          if (Test-Path "$dir\python") { throw 'the app folder was not removed' }
+          if (-not (Test-Path "$env:RUNNER_TEMP\rw-data-installed\log\server.log")) { throw 'the data folder was removed' }
+          $run = (Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -ErrorAction SilentlyContinue).RemoteWhisper
+          if ($run) { throw 'the startup entry was not removed' }
+          Write-Host 'ok: uninstalled, the data folder is kept'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: remote-whisper-windows-installer
+          path: ${{ runner.temp }}/rw-installer/remote-whisper-setup-*.exe
+          # exe はすでに圧縮してある
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload the setup log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: setup-log
+          path: ${{ runner.temp }}/setup.log
+          if-no-files-found: ignore
+
+      - name: Draft release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $setup = Get-ChildItem "$env:RUNNER_TEMP\rw-installer" -Filter 'remote-whisper-setup-*.exe' | Select-Object -First 1
+          gh release create "${{ github.ref_name }}" $setup.FullName --draft --generate-notes --title "${{ github.ref_name }}"
