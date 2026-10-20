@@ -52,7 +52,8 @@ export function canRemove(me: Me) {
     return me.identities.length > 1;
 }
 
-async function request<T>(url: string, init: RequestInit = {}): Promise<T> {
+// 中間サーバーの API を呼ぶ（Cookie つき）。失敗したら、返事の detail を文にした Error（status つき）
+export async function request<T>(url: string, init: RequestInit = {}): Promise<T> {
     const res = await fetch(url, { credentials: 'same-origin', ...init });
     if (!res.ok) {
         const detail = await res

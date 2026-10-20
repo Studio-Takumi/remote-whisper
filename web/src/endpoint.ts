@@ -58,4 +58,6 @@ export function wsUrl(
 export const authLoginUrl = (provider: string) => `/auth/login/${encodeURIComponent(provider)}`;
 export const authLogoutUrl = () => '/auth/logout';
 export const meUrl = (path = '') => `/me${path}`;
+// ホストの登録（#157）。確認の画面の API
+export const pairUrl = (path: string) => `/pair/${path}`;
 export const healthzUrl = () => '/healthz';

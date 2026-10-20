@@ -8,6 +8,7 @@ import { CloudEntry } from '@/components/CloudEntry';
 import { DevPanel } from '@/components/DevPanel';
 import { MicButton } from '@/components/MicButton';
 import { NewProjectDialog } from '@/components/NewProjectDialog';
+import { PairPage } from '@/components/PairPage';
 import { PwaUpdater } from '@/components/PwaUpdater';
 import { SessionView } from '@/components/SessionView';
 import { SettingsDialog } from '@/components/SettingsDialog';
@@ -16,13 +17,18 @@ import { UnsentAlert } from '@/components/UnsentAlert';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { Toaster } from '@/components/ui/sonner';
 import { isCloud } from '@/endpoint';
+import { pairingCode } from '@/pairing';
 import { startRouter } from '@/router';
 import { useAppStore } from '@/store';
 
 // クラウド版は、ログイン・同意・ホストの選択（#156）がすんでホストにつながるまで、今のアプリを出さない。
-// ダイレクト版は常にそのまま出す
+// ダイレクト版は常にそのまま出す。クラウド版の /pair?code=… は、ホストの登録の確認（#157）
 function App() {
     const ready = useCloudStore((s) => isReady(s.cloud));
+    const code = isCloud ? pairingCode(location) : null;
+    if (code !== null) {
+        return <PairPage code={code} />;
+    }
     return !isCloud || ready ? <AppMain /> : <CloudEntry />;
 }
 
