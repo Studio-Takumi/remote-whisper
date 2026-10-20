@@ -9,6 +9,7 @@ on:
   workflow_dispatch:
   push:
     tags: ["v*"]
+    branches: [feature/168-windows-installer] # TEMP: remove before merge
   pull_request:
     paths:
       - packaging/**
@@ -44,8 +45,9 @@ jobs:
     if: github.event_name != 'pull_request'
     runs-on: windows-latest
     timeout-minutes: 90
+    # ビルドには書き込みの権限を付けない（リリースを作るのは、下の別のジョブ）
     permissions:
-      contents: write # タグのとき、下書きのリリースを作る
+      contents: read
     env:
       # 本番のサーバー（8000 番）とは別のポート
       SMOKE_PORT: "18168"
@@ -55,15 +57,38 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: server/uv.lock
+          # 版を固定する（ビルドを同じ道具で作り直せるように）
+          version: "0.13.4"
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
           cache-dependency-path: web/package-lock.json
 
+      # 版: タグのときはタグ名（先頭の v を除く）、そうでなければコミットの短いハッシュ
+      - name: Decide the version
+        id: version
+        shell: pwsh
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if ($env:REF_TYPE -eq 'tag') {
+            $version = $env:REF_NAME -replace '^v', ''
+          } else {
+            $version = (& git rev-parse --short HEAD)
+            if ($LASTEXITCODE -ne 0) { throw 'git rev-parse failed' }
+          }
+          $version = "$version".Trim()
+          if ($version -notmatch '^[0-9A-Za-z][0-9A-Za-z._+-]*$') { throw "invalid version: $version" }
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "version: $version"
+
       - name: Build the app folder
         shell: pwsh
-        run: ./packaging/build.ps1 -OutDir "$env:RUNNER_TEMP/rw-build"
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: ./packaging/build.ps1 -OutDir "$env:RUNNER_TEMP/rw-build" -Version $env:VERSION
 
       # インストールせずに、ビルドしたフォルダから動かして確かめる
       - name: Smoke test (build folder)
@@ -72,12 +97,14 @@ jobs:
 
       - name: Install Inno Setup
         shell: pwsh
-        run: choco install innosetup --yes --no-progress
+        run: choco install innosetup --version 6.7.1 --yes --no-progress
 
       - name: Build the installer
         shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          $version = (git rev-parse --short HEAD).Trim()
+          $version = $env:VERSION
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           & $iscc "/DAppVersion=$version" "/DSourceDir=$env:RUNNER_TEMP\rw-build\app" "/DOutputDir=$env:RUNNER_TEMP\rw-installer" packaging/installer.iss
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed ($LASTEXITCODE)" }
@@ -140,11 +167,21 @@ jobs:
           path: ${{ runner.temp }}/setup.log
           if-no-files-found: ignore
 
-      - name: Draft release (tags only)
-        if: startsWith(github.ref, 'refs/tags/v')
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $setup = Get-ChildItem "$env:RUNNER_TEMP\rw-installer" -Filter 'remote-whisper-setup-*.exe' | Select-Object -First 1
-          gh release create "${{ github.ref_name }}" $setup.FullName --draft --generate-notes --title "${{ github.ref_name }}"
+  # タグのときだけ、下書きのリリースを作る。書き込みの権限はこのジョブだけに付ける
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: windows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: remote-whisper-windows-installer
+          path: installer
+      - name: Create a draft release
+        run: gh release create "$TAG" installer/remote-whisper-setup-*.exe --draft --generate-notes --title "$TAG"

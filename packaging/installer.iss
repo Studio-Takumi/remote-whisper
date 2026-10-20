@@ -68,8 +68,12 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 Filename: "{app}\{#AppExe}"; Parameters: "{#AppArgs}"; WorkingDir: "{app}"; Description: "Start {#AppName} now"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
-; Files created after the install (byte-code caches and so on). The data folder is outside {app}.
-Type: filesandordirs; Name: "{app}"
+; Files created after the install (byte-code caches, packages added later with pip). Only the
+; folders this installer owns are removed. {app} itself is removed only when it is empty, so a
+; folder the user chose (such as an existing one) is never wiped.
+; The data folder (~/.remote-whisper) is outside {app} and is never touched.
+Type: filesandordirs; Name: "{app}\python"
+Type: filesandordirs; Name: "{app}\web"
 
 [Code]
 // Stop the server and cloudflared that run from the install folder, so that files can be replaced or removed.
@@ -77,13 +81,18 @@ Type: filesandordirs; Name: "{app}"
 procedure StopRunningApp();
 var
   ResultCode: Integer;
+  AppDir: String;
   Command: String;
 begin
+  // Double a single quote so that a user name such as O'Brien does not break the PowerShell string.
+  AppDir := ExpandConstant('{app}');
+  StringChangeEx(AppDir, '''', '''''', True);
   Command := '-NoProfile -NonInteractive -Command "Get-CimInstance Win32_Process | ' +
-    'Where-Object { $_.ExecutablePath -and $_.Name -notlike ''unins*'' -and $_.ExecutablePath.StartsWith(''' + ExpandConstant('{app}') + '\'', ' +
+    'Where-Object { $_.ExecutablePath -and $_.Name -notlike ''unins*'' -and $_.ExecutablePath.StartsWith(''' + AppDir + '\'', ' +
     '[System.StringComparison]::OrdinalIgnoreCase) } | ' +
     'ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"';
-  Exec('powershell.exe', Command, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  if not Exec('powershell.exe', Command, '', SW_HIDE, ewWaitUntilTerminated, ResultCode) or (ResultCode <> 0) then
+    Log('Could not stop the running app (exit code ' + IntToStr(ResultCode) + ')');
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
@@ -96,4 +105,50 @@ function InitializeUninstall(): Boolean;
 begin
   StopRunningApp();
   Result := True;
+end;
+
+// True if the folder exists, has something in it, and is not a previous install of this app.
+function IsForeignNonEmptyDir(Dir: String): Boolean;
+var
+  FindRec: TFindRec;
+begin
+  Result := False;
+  if not DirExists(Dir) then Exit;
+  if FileExists(AddBackslash(Dir) + 'bundle.json') then Exit;
+  if FindFirst(AddBackslash(Dir) + '*', FindRec) then
+  begin
+    try
+      repeat
+        if (FindRec.Name <> '.') and (FindRec.Name <> '..') then
+        begin
+          Result := True;
+          Exit;
+        end;
+      until not FindNext(FindRec);
+    finally
+      FindClose(FindRec);
+    end;
+  end;
+end;
+
+function NextButtonClick(CurPageID: Integer): Boolean;
+begin
+  Result := True;
+  // An existing folder that has other files: offer a sub folder instead (not asked in silent installs).
+  if (CurPageID = wpSelectDir) and IsForeignNonEmptyDir(WizardDirValue) then
+  begin
+    if MsgBox('The folder already contains other files:' + #13#10 + WizardDirValue + #13#10#13#10 +
+      'Install into a "{#AppName}" sub folder instead?', mbConfirmation, MB_YESNO) = IDYES then
+    begin
+      WizardForm.DirEdit.Text := AddBackslash(WizardDirValue) + '{#AppName}';
+      Result := False;
+    end;
+  end;
+end;
+
+// Re-installing without the "start at sign-in" task removes the entry made by an earlier install.
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if (CurStep = ssPostInstall) and not WizardIsTaskSelected('startup') then
+    RegDeleteValue(HKEY_CURRENT_USER, 'Software\Microsoft\Windows\CurrentVersion\Run', 'RemoteWhisper');
 end;

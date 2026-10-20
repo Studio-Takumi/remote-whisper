@@ -41,6 +41,12 @@ Assert-True ($LASTEXITCODE -eq 0 -and "$cfVersion" -match 'cloudflared') "cloudf
 $found = & $python -I -c "from remote_whisper import bundle; print(bundle.bundled_cloudflared())"
 Assert-True ($LASTEXITCODE -eq 0 -and "$found".Trim() -eq $cloudflared) 'the bundled cloudflared is the default'
 
+# --mock は faster_whisper・ctranslate2・トレイを読み込まないので、本番の経路の依存がそろっているかを別に見る
+& $python -I -c "import faster_whisper, ctranslate2, pystray, PIL, cryptography, nvidia.cublas, nvidia.cudnn"
+Assert-True ($LASTEXITCODE -eq 0) 'faster_whisper, ctranslate2, pystray, PIL and the CUDA libraries can be imported'
+& uv pip check --python $python
+Assert-True ($LASTEXITCODE -eq 0) 'uv pip check finds no broken dependencies'
+
 # インストール後と同じ起動（コンソールを出さない pythonw）で動かす
 $proc = Start-Process -FilePath $pythonw `
     -ArgumentList @('-m', 'remote_whisper', '--mock', '--no-tray', '--port', $Port) `
@@ -60,7 +66,8 @@ try {
     $index = Invoke-WebRequest "$base/" -UseBasicParsing
     Assert-True ($index.StatusCode -eq 200 -and $index.Content -match 'id="root"') 'the web UI is served'
 } finally {
-    if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force }
+    # 子プロセス（cloudflared・文字起こしの worker）も含めて止める（残るとアンインストールで消せない）
+    if (-not $proc.HasExited) { & taskkill /F /T /PID $proc.Id | Out-Null }
     $proc.WaitForExit(10000) | Out-Null
 }
 

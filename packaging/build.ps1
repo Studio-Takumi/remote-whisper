@@ -21,8 +21,9 @@ Set-StrictMode -Version Latest
 # SHA256 はリリースの本文の値）。上げるときは、この 2 つを一緒に変える
 $CloudflaredVersion = '2026.9.3'
 $CloudflaredSha256 = 'f096265ec2fcbe9bb6e2d64268db167ced3fcbb83d894bdb9e2fcdb26f2ea7e2'
-# 同梱する Python（server/pyproject.toml の requires-python に合わせる）。python-build-standalone を uv で取る
-$PythonSeries = '3.11'
+# 同梱する Python（server/pyproject.toml の requires-python に合わせる）。python-build-standalone を uv で取る。
+# 3.11.x まで固定して、同じコミットから同じ Python ができるようにする
+$PythonSeries = '3.11.17'
 
 $Repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $Server = Join-Path $Repo 'server'
@@ -36,13 +37,26 @@ function Invoke-Checked {
 }
 
 if (-not $Version) {
-    $Version = (git -C $Repo rev-parse --short HEAD).Trim()
+    $Version = (& git -C $Repo rev-parse --short HEAD)
+    if ($LASTEXITCODE -ne 0 -or -not $Version) { throw 'cannot get the version from git; pass -Version' }
+    $Version = "$Version".Trim()
 }
+if ($Version -notmatch '^[0-9A-Za-z][0-9A-Za-z._+-]*$') { throw "invalid version: $Version" }
 
 $OutDir = [System.IO.Path]::GetFullPath($OutDir)
 $App = Join-Path $OutDir 'app'
 $Work = Join-Path $OutDir 'work'
-if (Test-Path $OutDir) { Remove-Item -Recurse -Force $OutDir }
+if (Test-Path $OutDir) {
+    # 消してよいのは、前のビルドの出力（app/ と work/ だけがある、または空）に限る。
+    # -OutDir に誤ってリポジトリ・その親・ドライブの直下・無関係なフォルダを渡しても消さない
+    $out = $OutDir.TrimEnd('')
+    $unknown = @(Get-ChildItem $OutDir -Force | Where-Object { $_.Name -notin @('app', 'work') })
+    $isRepoOrParent = ($Repo.TrimEnd('') + '').StartsWith($out + '')
+    if ($out -eq [System.IO.Path]::GetPathRoot($OutDir).TrimEnd('') -or $isRepoOrParent -or $unknown.Count -gt 0) {
+        throw "refusing to delete $OutDir (not an output folder of this script)"
+    }
+    Remove-Item -Recurse -Force $OutDir
+}
 New-Item -ItemType Directory -Force $App, $Work | Out-Null
 
 # 1. 同梱の Python（python-build-standalone。uv の管理下に入れて、そのフォルダをそのまま写す）
@@ -50,7 +64,7 @@ Write-Host '== Python'
 $env:UV_PYTHON_INSTALL_DIR = Join-Path $Work 'uv-python'
 Invoke-Checked uv @('python', 'install', $PythonSeries)
 $py = Get-ChildItem $env:UV_PYTHON_INSTALL_DIR -Directory |
-    Where-Object { $_.Name -like "cpython-$PythonSeries.*" } | Select-Object -First 1
+    Where-Object { $_.Name -like "cpython-$PythonSeries-*" } | Select-Object -First 1
 if (-not $py) { throw "Python $PythonSeries was not installed" }
 $AppPython = Join-Path $App 'python'
 Copy-Item -Recurse $py.FullName $AppPython

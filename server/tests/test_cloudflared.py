@@ -417,6 +417,14 @@ def test_configured_path_wins_over_the_bundled_one(tmp_path):
         e.runner.stop()
 
 
+def test_invalid_configured_path_does_not_fall_back_to_the_bundled_one(tmp_path):
+    e = Env(tmp_path, path="relative/cloudflared", bundled=Path("/app/cloudflared.exe"))
+    e.runner.sync()
+    assert wait_for(lambda: not e.runner.running)
+    assert e.notices == [INVALID_PATH_NOTICE]
+    assert e.procs == [] and e.which_args == []
+
+
 def test_notifies_when_cloudflared_is_missing(tmp_path):
     e = Env(tmp_path, found=False)
     e.runner.sync()
