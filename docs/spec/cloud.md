@@ -333,6 +333,56 @@ erDiagram
 - **書かないもの**: 音声、partial・final・浄書済み文字起こし・要約・タイトル・用語の本文、プロジェクト名・ファイル名、`error` の文面、セッション ID、IP アドレス
 - 文章のログはホストのローカルの `log/`（6.10 節）だけ。クラウド版でも今まで通り書く
 
+### HTTP の計測の形（#163）
+
+Worker は、`/healthz` 以外のすべての HTTP（ホストへの中継・ログイン・登録・`/me`）を答えたあとに、Analytics Engine に 1 行書く（`relay/src/metrics.ts`）。データセットは staging が `remote_whisper_staging`（本番は #167 で決める）。ローカルでは束縛を付けないので書かない。書けなくても応答は止めない。
+
+| 列 | 中身 |
+|---|---|
+| `blob1` | 種類（`relay`・`auth`・`pair`・`me`・`other`） |
+| `blob2` | メソッド |
+| `blob3` | パス。決まった語（許可リスト）だけ残し、UUID・数字・16 文字以上の英数字は `:id`、ほか（プロジェクト ID・用語など）は `:v` に伏せる。クエリは書かない。区切り 6 つ・96 文字まで |
+| `blob4` | 国（`cf.country`。分からなければ `XX`） |
+| `blob5`・`blob6` | ブラウザ（`chrome`・`edge`・`firefox`・`safari`・`opera`・`other`）・OS（`windows`・`macos`・`ios`・`android`・`linux`・`other`） |
+| `blob7`・`blob8` | ユーザー ID（ログインしていれば）・ホスト ID（`/h/<id>/` のとき） |
+| `blob9` | `ws`（WebSocket をつないだ）か `http` |
+| `double1`〜`double4` | ステータス・かかった ms・リクエストの本文の大きさ・応答の本文の大きさ（`Content-Length`。なければ -1） |
+| `index1` | ユーザー ID（ログインしていなければ種類）。サンプリングの単位 |
+
+- パスに残すのは、Worker と ホストの API の決まった語（`relay/src/metrics.ts` の `KNOWN_SEGMENTS`）だけ。ほかは `:id`（UUID・数字・16 文字以上の英数字）か `:v`。プロジェクト ID（フォルダ名から作る）や用語が残らないように、許可リストにしている。ホストの API に語を足したら、ここにも足す
+- メソッドは `GET`・`HEAD`・`POST`・`PUT`・`PATCH`・`DELETE`・`OPTIONS` だけ、ほかは `OTHER`
+- ログイン・登録の回数は、パス（`/auth/callback/<provider>` の 302、`/pair/approve` の 200）で数える。IP アドレス・Cookie・本文は書かない（テストで確かめている）
+- ログインした直後（callback）や、ログインしていないリクエストは、`blob7` が空になる
+
+よく使う集計（Analytics Engine の SQL API。サンプリングされるので、件数は `_sample_interval` を足す。`count(DISTINCT …)` はサンプリングで少なめに出る）:
+
+```sql
+-- 日ごとの、ログインしている人の数と WebSocket をつないだ回数
+SELECT toStartOfDay(timestamp) AS day,
+       count(DISTINCT blob7) AS users,
+       sumIf(_sample_interval, blob9 = 'ws' AND double1 = 101) AS ws_connects
+FROM remote_whisper_staging
+WHERE timestamp > now() - INTERVAL '30' DAY
+GROUP BY day ORDER BY day;
+
+-- 中継した API の遅さ（パスごとの 50%・95%）
+SELECT blob3 AS path,
+       quantileExactWeighted(0.5)(double2, _sample_interval) AS p50_ms,
+       quantileExactWeighted(0.95)(double2, _sample_interval) AS p95_ms,
+       sum(_sample_interval) AS requests
+FROM remote_whisper_staging
+WHERE blob1 = 'relay' AND timestamp > now() - INTERVAL '7' DAY
+GROUP BY path ORDER BY requests DESC LIMIT 20;
+
+-- エラーの多いところ（4xx・5xx）
+SELECT blob1 AS kind, blob3 AS path, double1 AS status, sum(_sample_interval) AS n
+FROM remote_whisper_staging
+WHERE double1 >= 400 AND timestamp > now() - INTERVAL '1' DAY
+GROUP BY kind, path, status ORDER BY n DESC LIMIT 20;
+```
+
+録音ごとの数字（#206）の集計（録音の長さ・遅延の分布）は、#206 でここに足す。
+
 ## 10.10 データ収集
 
 文字起こし・要約を集めるかは**未決**。する場合は次を守る。

@@ -4,6 +4,7 @@
 // run_worker_first に書いたパス（/h/・/auth/・/me・/pair/・/healthz）だけ（登録の確認画面 /pair?code= は画面が出す）。
 import { handleAuth } from './auth';
 import { handleMe } from './me';
+import { recordHttp } from './metrics';
 import { handlePairing } from './pairing';
 import { handleHostRelay } from './relay';
 
@@ -26,6 +27,8 @@ export interface Env {
     CF_ZONE_ID?: string;
     TUNNEL_DOMAIN?: string;
     TUNNEL_PREFIX?: string;
+    // HTTP の計測（#163）。なければ書かない
+    METRICS?: AnalyticsEngineDataset;
 }
 
 export default {
@@ -34,22 +37,34 @@ export default {
         if (path === '/healthz') {
             return healthz(env);
         }
-        // ホストへの中継（#160）
-        if (path.startsWith('/h/')) {
-            return handleHostRelay(request, env, path);
+        // 答えた・中継した HTTP の数値を書く（#163）。途中で例外になったものは 500 として数える
+        const startedAt = Date.now();
+        let response: Response | undefined;
+        try {
+            response = await route(request, env, path);
+            return response;
+        } finally {
+            recordHttp(env, request, response ?? new Response(null, { status: 500 }), startedAt);
         }
-        if (path.startsWith('/auth/')) {
-            return handleAuth(request, env, path);
-        }
-        if (path === '/me' || path.startsWith('/me/')) {
-            return handleMe(request, env, path);
-        }
-        if (path.startsWith('/pair/')) {
-            return handlePairing(request, env, path);
-        }
-        return new Response('Not found', { status: 404 });
     },
 } satisfies ExportedHandler<Env>;
+
+async function route(request: Request, env: Env, path: string): Promise<Response> {
+    // ホストへの中継（#160）
+    if (path.startsWith('/h/')) {
+        return handleHostRelay(request, env, path);
+    }
+    if (path.startsWith('/auth/')) {
+        return handleAuth(request, env, path);
+    }
+    if (path === '/me' || path.startsWith('/me/')) {
+        return handleMe(request, env, path);
+    }
+    if (path.startsWith('/pair/')) {
+        return handlePairing(request, env, path);
+    }
+    return new Response('Not found', { status: 404 });
+}
 
 // 生きているか。DB に届くかも見る（届かなければ 503）
 async function healthz(env: Env): Promise<Response> {
