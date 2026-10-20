@@ -53,17 +53,34 @@ async function startLogin(provider: string, query = '', cookie?: string) {
     return res;
 }
 
-// ログインを最後まで進め、ログインセッションの Cookie を返す
-async function login(provider: string, code: string, opts: { link?: string; returnTo?: string } = {}) {
+// ログインを始めたブラウザに付く state の Cookie
+function stateCookieOf(start: Response) {
+    const set = start.headers.get('Set-Cookie') ?? '';
+    expect(set).toMatch(/^__Host-rw_oauth_state=/);
+    return set.split(';')[0];
+}
+
+function callback(provider: string, query: string, cookies: (string | undefined)[] = []) {
+    const cookie = cookies.filter(Boolean).join('; ');
+    return SELF.fetch(`${ORIGIN}/auth/callback/${provider}?${query}`, {
+        redirect: 'manual',
+        headers: cookie ? { Cookie: cookie } : {},
+    });
+}
+
+// ログインを最後まで進め、ログインセッションの Cookie を返す。
+// link は手段を足すときの今のログインセッション、callbackSession は戻ってきたときのログインセッション（既定は link と同じ）
+async function login(
+    provider: string,
+    code: string,
+    opts: { link?: string; returnTo?: string; callbackSession?: string } = {},
+) {
     const query = opts.link ? '?link=1' : opts.returnTo ? `?return=${encodeURIComponent(opts.returnTo)}` : '';
     const start = await startLogin(provider, query, opts.link);
     expect(start.status).toBe(302);
     const state = new URL(start.headers.get('Location') ?? '').searchParams.get('state');
-    const cb = await SELF.fetch(`${ORIGIN}/auth/callback/${provider}?state=${state}&code=${code}`, {
-        redirect: 'manual',
-        headers: opts.link ? { Cookie: opts.link } : {},
-    });
-    return cb;
+    const session = 'callbackSession' in opts ? opts.callbackSession : opts.link;
+    return callback(provider, `state=${state}&code=${code}`, [session, stateCookieOf(start)]);
 }
 
 function cookieOf(res: Response) {
@@ -139,27 +156,30 @@ describe('戻ってきたとき', () => {
         users.c5 = { subject: '500', name: 'さぶろう', email: null };
         const start = await startLogin('google');
         const state = new URL(start.headers.get('Location') ?? '').searchParams.get('state');
+        const browser = stateCookieOf(start);
         // 別のプロバイダの callback に持っていく
-        const wrong = await SELF.fetch(`${ORIGIN}/auth/callback/github?state=${state}&code=c5`, {
-            redirect: 'manual',
-        });
-        expect(wrong.status).toBe(400);
+        expect((await callback('github', `state=${state}&code=c5`, [browser])).status).toBe(400);
         // 一度使った（ずれでも消える）state は、もう使えない
-        const reuse = await SELF.fetch(`${ORIGIN}/auth/callback/google?state=${state}&code=c5`, {
-            redirect: 'manual',
-        });
-        expect(reuse.status).toBe(400);
+        expect((await callback('google', `state=${state}&code=c5`, [browser])).status).toBe(400);
         // 期限切れ
         const start2 = await startLogin('google');
         const state2 = new URL(start2.headers.get('Location') ?? '').searchParams.get('state');
         await env.DB.prepare('UPDATE oauth_states SET expires_at = 0').run();
-        const expired = await SELF.fetch(`${ORIGIN}/auth/callback/google?state=${state2}&code=c5`, {
-            redirect: 'manual',
-        });
-        expect(expired.status).toBe(400);
+        expect((await callback('google', `state=${state2}&code=c5`, [stateCookieOf(start2)])).status).toBe(400);
         // state なし
-        const none = await SELF.fetch(`${ORIGIN}/auth/callback/google?code=c5`, { redirect: 'manual' });
-        expect(none.status).toBe(400);
+        expect((await callback('google', 'code=c5', [browser])).status).toBe(400);
+    });
+
+    it('ほかのブラウザで始めたログインの続き（ログイン CSRF）は、ログインにならない', async () => {
+        users.c10 = { subject: '1000', name: 'こうげき', email: null };
+        const start = await startLogin('github');
+        const state = new URL(start.headers.get('Location') ?? '').searchParams.get('state');
+        // 被害者のブラウザには state の Cookie がない・別の値
+        expect((await callback('github', `state=${state}&code=c10`)).status).toBe(400);
+        const other = stateCookieOf(await startLogin('github'));
+        const res = await callback('github', `state=${state}&code=c10`, [other]);
+        expect(res.status).toBe(400);
+        expect(res.headers.get('Set-Cookie')).toBeNull();
     });
 
     it('プロバイダがコードを受け付けなければ 502 で、ログインにならない', async () => {
@@ -176,8 +196,8 @@ describe('ログイン手段を足す・外す', () => {
         const cookie = cookieOf(await login('github', 'c6'));
         const linked = await login('google', 'c7', { link: cookie });
         expect(linked.status).toBe(302);
-        // 足しただけ。新しいログインセッションは作らない
-        expect(linked.headers.get('Set-Cookie')).toBeNull();
+        // 足しただけ。新しいログインセッションは作らない（state の Cookie を消すだけ）
+        expect(linked.headers.get('Set-Cookie')).not.toContain('rw_session');
         const body = (await (await me(cookie)).json()) as { identities: { id: string; provider: string }[] };
         expect(body.identities.map((i) => i.provider).sort()).toEqual(['github', 'google']);
         const del = (id: string) =>
@@ -200,6 +220,41 @@ describe('ログイン手段を足す・外す', () => {
 
     it('ログインしていなければ、足せない', async () => {
         expect((await startLogin('google', '?link=1')).status).toBe(401);
+    });
+
+    it('手段を足す途中の URL をほかの人に踏ませても、その人の手段は付かない', async () => {
+        users.e1 = { subject: '1100', name: 'こうげき', email: null };
+        users.e2 = { subject: '1101', name: 'ひがいしゃ', email: null };
+        users.e3 = { subject: '1102', name: 'ひがいしゃ', email: null };
+        const attacker = cookieOf(await login('github', 'e1'));
+        const victim = cookieOf(await login('discord', 'e2'));
+        // 攻撃者が始めた link の続きを、被害者（別のユーザーでログイン中・ログインしていない）で開く
+        expect((await login('google', 'e3', { link: attacker, callbackSession: victim })).status).toBe(400);
+        expect((await login('google', 'e3', { link: attacker, callbackSession: undefined })).status).toBe(400);
+        const body = (await (await me(attacker)).json()) as { identities: unknown[] };
+        expect(body.identities).toHaveLength(1);
+    });
+
+    it('ほかの人のログイン手段は外せない。同じオリジンの画面からだけ', async () => {
+        users.e4 = { subject: '1200', name: 'いち', email: null };
+        users.e5 = { subject: '1201', name: 'に', email: null };
+        users.e6 = { subject: '1202', name: 'に', email: null };
+        const a = cookieOf(await login('github', 'e4'));
+        const b = cookieOf(await login('github', 'e5'));
+        await login('google', 'e6', { link: b });
+        const theirs = ((await (await me(b)).json()) as { identities: { id: string }[] }).identities[0].id;
+        const del = (cookie: string, origin?: string) =>
+            SELF.fetch(`${ORIGIN}/me/identities/${theirs}`, {
+                method: 'DELETE',
+                headers: origin ? { Cookie: cookie, Origin: origin } : { Cookie: cookie },
+            });
+        expect((await del(b)).status).toBe(403);
+        expect((await del(b, 'https://evil.example')).status).toBe(403);
+        // a には 1 つしかないので、まず数のところで 409。足してから試す
+        users.e7 = { subject: '1203', name: 'いち', email: null };
+        await login('discord', 'e7', { link: a });
+        expect((await del(a, ORIGIN)).status).toBe(404);
+        expect((await del(b, ORIGIN)).status).toBe(200);
     });
 });
 
@@ -248,6 +303,10 @@ describe('戻る先', () => {
         expect(safeReturnTo('//evil.example')).toBe('/');
         expect(safeReturnTo('https://evil.example')).toBe('/');
         expect(safeReturnTo('/\\evil.example')).toBe('/');
+        // ブラウザはタブ・改行を読み飛ばすので、/<TAB>/evil.example は //evil.example になる
+        expect(safeReturnTo('/\t/evil.example')).toBe('/');
+        expect(safeReturnTo('/\n/evil.example')).toBe('/');
+        expect(safeReturnTo('/s/abc?x=1#y')).toBe('/s/abc?x=1#y');
         expect(safeReturnTo(null)).toBe('/');
     });
 });

@@ -58,10 +58,19 @@ export async function sha256(text: string): Promise<string> {
     return base64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)));
 }
 
-// ログインのあとに戻ってよいパスか（同じオリジンのパスだけ。//evil.example などを弾く）
+// ログインのあとに戻ってよいパスか（同じオリジンのパスだけ。//evil.example などを弾く）。
+// ブラウザは URL の中のタブ・改行を読み飛ばす（/\t/evil.example は //evil.example になる）ので、
+// 制御文字を弾いたうえで、URL として読んでもオリジンが変わらないことを確かめる
 export function safeReturnTo(value: string | null): string {
-    if (!value || !value.startsWith('/') || value.startsWith('//') || value.includes('\\')) {
+    // oxlint-disable-next-line no-control-regex -- 制御文字を弾くための正規表現
+    if (!value || !value.startsWith('/') || value.startsWith('//') || /[\\\u0000-\u001f\u007f]/.test(value)) {
         return '/';
     }
-    return value;
+    const base = 'https://return.invalid';
+    try {
+        const url = new URL(value, base);
+        return url.origin === base ? url.pathname + url.search + url.hash : '/';
+    } catch {
+        return '/';
+    }
 }

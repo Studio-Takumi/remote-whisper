@@ -67,7 +67,8 @@ export const CONFIGS: Record<Provider, Config> = {
     github: {
         authorizeUrl: 'https://github.com/login/oauth/authorize',
         tokenUrl: 'https://github.com/login/oauth/access_token',
-        scope: 'read:user user:email',
+        // メールは表示用で、公開しているものだけでよい（/user/emails は呼ばないので user:email は要らない）
+        scope: 'read:user',
         clientId: (env) => env.GITHUB_CLIENT_ID,
         clientSecret: (env) => env.GITHUB_CLIENT_SECRET,
         profile: async (token) => {
