@@ -49,10 +49,11 @@ $Work = Join-Path $OutDir 'work'
 if (Test-Path $OutDir) {
     # 消してよいのは、前のビルドの出力（app/ と work/ だけがある、または空）に限る。
     # -OutDir に誤ってリポジトリ・その親・ドライブの直下・無関係なフォルダを渡しても消さない
-    $out = $OutDir.TrimEnd('')
+    $out = $OutDir.TrimEnd('\')
     $unknown = @(Get-ChildItem $OutDir -Force | Where-Object { $_.Name -notin @('app', 'work') })
-    $isRepoOrParent = ($Repo.TrimEnd('') + '').StartsWith($out + '')
-    if ($out -eq [System.IO.Path]::GetPathRoot($OutDir).TrimEnd('') -or $isRepoOrParent -or $unknown.Count -gt 0) {
+    # リポジトリそのもの、またはその親（リポジトリの中身ごと消えるもの）
+    $isRepoOrParent = ($Repo.TrimEnd('\') + '\').StartsWith($out + '\', [System.StringComparison]::OrdinalIgnoreCase)
+    if ($out -eq [System.IO.Path]::GetPathRoot($OutDir).TrimEnd('\') -or $isRepoOrParent -or $unknown.Count -gt 0) {
         throw "refusing to delete $OutDir (not an output folder of this script)"
     }
     Remove-Item -Recurse -Force $OutDir
