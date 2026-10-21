@@ -153,6 +153,7 @@ export async function ensureTunnel(env: Env, host: HostTunnel): Promise<{ token:
         await must(env, 'PUT', `/zones/${env.CF_ZONE_ID}/dns_records/${existing[0].id}`, record);
     }
     const token = await must<string>(env, 'GET', `${account}/cfd_tunnel/${tunnelId}/token`);
+    forgetOnline(tunnelId);
     return { token, hostname };
 }
 
@@ -214,9 +215,16 @@ export async function deleteTunnel(env: Env, host: HostTunnel): Promise<void> {
 export const MAX_HOSTS_PER_USER = 5;
 
 // オンラインかどうかを覚えておく時間（#166。一覧を連打されても Cloudflare の API をその数だけ呼ばない）。
-// isolate ごとの覚え方なので、ずれは最大でこの時間
+// 「つながっている」は 60 秒、「つながっていない・分からない」は 10 秒（PC を起動した直後に、長く選べないままに
+// しないため）。isolate ごとの覚え方なので、PoP を散らせばそのぶん呼べる。全体の回数は WAF で守る（docs/deploy.md）
 const ONLINE_TTL_MS = 60 * 1000;
+const OFFLINE_TTL_MS = 10 * 1000;
 const onlineCache = new Map<string, { value: boolean | null; until: number }>();
+
+// トンネルのトークンを渡した（cloudflared がこれからつなぐ）ので、覚えていた状態を捨てる
+export function forgetOnline(tunnelId: string) {
+    onlineCache.delete(tunnelId);
+}
 
 // トンネルに cloudflared がつながっているか（#161 のホストの一覧）。healthy・degraded ならつながっている。
 // API が使えない・失敗したときは null（分からない）
@@ -232,7 +240,7 @@ export async function tunnelOnline(env: Env, tunnelId: string): Promise<boolean 
     if (onlineCache.size > 1000) {
         onlineCache.clear();
     }
-    onlineCache.set(tunnelId, { value, until: Date.now() + ONLINE_TTL_MS });
+    onlineCache.set(tunnelId, { value, until: Date.now() + (value === true ? ONLINE_TTL_MS : OFFLINE_TTL_MS) });
     return value;
 }
 

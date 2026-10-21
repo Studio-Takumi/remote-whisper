@@ -20,8 +20,10 @@ const MAX_BODY_BYTES = 4096;
 // 同じ接続元からの申請は 10 分に 5 回まで。ポーリングは 1 秒に 1 回まで
 const START_LIMIT = 5;
 const POLL_MIN_INTERVAL_MS = 1000;
-// /pair/tunnel は 1 台あたり 5 秒に 1 回まで（cloudflared を起動し直す間隔は 5 秒から）
-const TUNNEL_MIN_INTERVAL_MS = 5000;
+// /pair/tunnel は 1 台あたり 60 秒に 1 回まで。1 回で Cloudflare の API を 3 回ほど呼ぶので、5 台でも
+// 5 分に 75 回ほどに収める（API の上限は 5 分に 1200 回）。ホストの cloudflared のランナーは 429 を受けても
+// 間隔を空けて聞き直す（5 秒から倍にしていく）ので、長くしても登録が止まることはない
+const TUNNEL_MIN_INTERVAL_MS = 60 * 1000;
 // 登録コードの文字（読み間違えやすい 0・O・1・I は使わない）。32 文字なので 1 バイトの下 5 ビットで偏りなく選べる
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -423,6 +425,13 @@ async function fromBrowser(request: Request, env: Env, path: string): Promise<Re
         ).bind(user.userId, codeHash, now),
     ]);
     if (!inserted.meta.changes) {
+        // 同時の承認で台数の上限に当たったのか、申請がなかったのかを分けて返す
+        const after = await env.DB.prepare('SELECT COUNT(*) AS n FROM hosts WHERE user_id = ?')
+            .bind(user.userId)
+            .first<{ n: number }>();
+        if ((after?.n ?? 0) >= MAX_HOSTS_PER_USER) {
+            return error(409, `ホストは ${MAX_HOSTS_PER_USER} 台まで登録できます。使っていないホストを外してください`);
+        }
         return error(404, '登録の申請が見つかりません');
     }
     const host = await env.DB.prepare('SELECT host_id, host_name FROM pairing_requests WHERE code_hash = ?')

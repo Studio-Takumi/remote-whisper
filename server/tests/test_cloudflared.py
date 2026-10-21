@@ -210,7 +210,7 @@ def test_stops_when_the_registration_is_gone(tmp_path, status):
     assert e.worker.count == 1
 
 
-@pytest.mark.parametrize("status", [503, 502])
+@pytest.mark.parametrize("status", [503, 502, 429])
 def test_asks_again_on_server_errors(tmp_path, status):
     e = Env(tmp_path, statuses=(status, status, 200))
     try:
