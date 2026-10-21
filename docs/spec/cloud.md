@@ -379,7 +379,7 @@ GROUP BY path ORDER BY requests DESC LIMIT 20;
 -- エラーの多いところ（4xx・5xx）
 SELECT blob1 AS kind, blob3 AS path, double1 AS status, sum(_sample_interval) AS n
 FROM remote_whisper_staging
-WHERE double1 >= 400 AND timestamp > now() - INTERVAL '1' DAY
+WHERE blob1 NOT IN ('recording', 'recording_host') AND double1 >= 400 AND timestamp > now() - INTERVAL '1' DAY
 GROUP BY kind, path, status ORDER BY n DESC LIMIT 20;
 ```
 
@@ -394,14 +394,14 @@ GROUP BY kind, path, status ORDER BY n DESC LIMIT 20;
 
 | まとまり | 項目（上限） |
 |---|---|
-| 録音 | `recordingSec`（1 日の秒数 86400。一時停止を除く）、`pauses`（10 万） |
+| 録音 | `recordingSec`（1 日の秒数 86400。一時停止を除く。続きから録音したときは、この回の分だけ）、`pauses`（10 万） |
 | 遅延 | `rttP50Ms`・`rttP90Ms`・`rttMaxMs`（1 時間の ms 3600000）、`chunksSent`・`chunksAcked`（10 万） |
 | 接続 | `reconnects`（10 万）、`offlineSec`・`maxBufferedSec`（86400） |
 | 文字起こし | `partials`・`finals`・`stalls`（10 万）、`firstFinalSec`（86400） |
 | 要約 | `liveSummaries`（10 万）、`finalSummarySec`・`finalTranscriptSec`（86400） |
 | ホストの状態 | `gpuQueueMax`（1000）、`gpuUtilAvg`・`gpuUtilMax`（100）、`vramMaxMb`（100 万）、`whisperDown`・`ollamaDown`（10 万） |
 
-- 真偽: `upload`（音声ファイルのアップロード。false ならマイク）、`continued`（続きから録音）、`noiseSuppression`・`autoGainControl`・`echoCancellation`（マイクの処理）
+- 真偽: `upload`（音声ファイルのアップロード。false ならマイク）、`continued`（続きから録音）、`noiseSuppression`・`autoGainControl`・`echoCancellation`（マイクの処理。アップロードでは送らない）、`summaryFailed`（最終の要約を作れなかった・作ったか分からない。このとき `finalSummarySec` は入れない）
 - 文字列: `whisperModel`・`summaryModel`（最終の要約の詳細のモデル）・`overviewModel`（概要のモデル）。`^[a-z0-9][a-z0-9.:_/-]{0,63}$` に合うものだけ通す（空白を含むもの・長いもの・文章は捨てる）
 - `errors`: `{ "<code>": 件数 }`。code が `^[a-z_]{1,32}$` に合うものだけ、10 種類まで。文面は送らない
 - 集められなかった数値は送らない（`-1` で書く）。アップロードでは、画面で数えられない録音・接続・文字起こしの項目は送らない
@@ -415,9 +415,14 @@ Analytics Engine の 1 行に書ける数値は 20 個までなので、録音 1
 | `blob4`・`blob5` | ユーザー ID・ホスト ID | 同じ |
 | `blob6`〜`blob8` | `whisperModel`・`summaryModel`・`overviewModel`（なければ空） | 同じ |
 | `blob9` | 空 | error の code ごとの件数（`code:件数` をコンマでつなぐ。code の順） |
-| `double1` | 真偽の束（`upload`=1・`continued`=2・`noiseSuppression`=4・`autoGainControl`=8・`echoCancellation`=16 の和） | 同じ |
-| `double2`〜`double15` | `recordingSec`・`pauses`・`rttP50Ms`・`rttP90Ms`・`rttMaxMs`・`chunksSent`・`chunksAcked`・`reconnects`・`offlineSec`・`maxBufferedSec`・`partials`・`finals`・`firstFinalSec`・`stalls` | `double2`〜`double10`: `liveSummaries`・`finalSummarySec`・`finalTranscriptSec`・`gpuQueueMax`・`gpuUtilAvg`・`gpuUtilMax`・`vramMaxMb`・`whisperDown`・`ollamaDown` |
+| `blob10` | 同じ録音の 2 行を結ぶ鍵 | 同じ |
+| `double1` | 真偽の束（`upload`=1・`continued`=2・`noiseSuppression`=4・`autoGainControl`=8・`echoCancellation`=16・`summaryFailed`=32 の和） | 同じ |
+| `double2`〜`double15` | `recordingSec`・`pauses`・`rttP50Ms`・`rttP90Ms`・`rttMaxMs`・`chunksSent`・`chunksAcked`・`reconnects`・`offlineSec`・`maxBufferedSec`・`partials`・`finals`・`firstFinalSec`・`stalls` | `double2`〜`double10`: `liveSummaries`・`finalSummarySec`・`finalTranscriptSec`・`gpuQueueMax`・`gpuUtilAvg`・`gpuUtilMax`・`vramMaxMb`・`whisperDown`・`ollamaDown`。`double11`〜`double13` は録音の行と突き合わせなくても集計できるように写した `recordingSec`・`reconnects`・`offlineSec` |
 | `index1` | ユーザー ID | 同じ |
+
+`blob10` の鍵は、Worker が録音ごとに `crypto.randomUUID()` で作る乱数で、画面からは受けない（セッション ID とは無関係）。Analytics Engine の SQL は JOIN ができないので、鍵で行を結ぶ集計は、書き出して手元で突き合わせる。SQL だけで済ませたいものは、host の行に写した `double11`〜`double13` を使う。サンプリングは `index1`（ユーザー ID）の単位なので、2 行は一緒に残ることが多いが、片方だけ残ることもある（そのときは鍵が 1 行にしかない）。
+
+アップロード（`upload`）は、録音・接続・文字起こしの数字がなく、`finalSummarySec` に文字起こしの時間も含まれるので、マイクの録音と分けて集計する。`whisperDown`・`ollamaDown`・マイクの処理もアップロードでは送らない（`-1`・flags は 0）。途中で終わった録音（接続が長く切れて続けられなくなった）は、`summaryFailed` を付けて、そのときすぐ送る。
 
 集計の例（件数は `_sample_interval` を足す。`-1` は「なし」なので除く）:
 
@@ -431,8 +436,8 @@ GROUP BY minutes_from ORDER BY minutes_from;
 
 -- 音声→ack の往復の分布（日ごとの、録音ごとの値の 50%・95%）
 SELECT toStartOfDay(timestamp) AS day,
-       quantileWeighted(0.5)(double4, _sample_interval) AS p50_of_median_ms,
-       quantileWeighted(0.95)(double5, _sample_interval) AS p95_of_p90_ms,
+       quantileExactWeighted(0.5)(double4, _sample_interval) AS p50_of_median_ms,
+       quantileExactWeighted(0.95)(double5, _sample_interval) AS p95_of_p90_ms,
        max(double6) AS worst_ms
 FROM remote_whisper_staging
 WHERE blob1 = 'recording' AND double4 >= 0 AND timestamp > NOW() - INTERVAL '30' DAY
@@ -444,13 +449,22 @@ FROM remote_whisper_staging
 WHERE blob1 = 'recording' AND double9 >= 0 AND timestamp > NOW() - INTERVAL '30' DAY
 GROUP BY browser ORDER BY reconnects_per_recording DESC;
 
--- 録音を止めてから最終の要約ができるまでの秒数の分布（モデルごと）
+-- 録音を止めてから最終の要約ができるまでの秒数の分布（モデルごと。マイクの録音のみ。失敗は入らない）
 SELECT blob7 AS summary_model,
-       quantileWeighted(0.5)(double3, _sample_interval) AS p50_sec,
-       quantileWeighted(0.95)(double3, _sample_interval) AS p95_sec
+       quantileExactWeighted(0.5)(double3, _sample_interval) AS p50_sec,
+       quantileExactWeighted(0.95)(double3, _sample_interval) AS p95_sec
 FROM remote_whisper_staging
-WHERE blob1 = 'recording_host' AND double3 >= 0 AND timestamp > NOW() - INTERVAL '30' DAY
+WHERE blob1 = 'recording_host' AND double3 >= 0 AND bitAnd(toUInt32(double1), 1) = 0 AND timestamp > NOW() - INTERVAL '30' DAY
 GROUP BY summary_model;
+
+-- 録音の長さの階級（10 分ごと）別の、最終の要約ができるまでの秒数（host の行に写した double11 を使う）
+SELECT intDiv(double11, 600) * 10 AS minutes_from,
+       quantileExactWeighted(0.5)(double3, _sample_interval) AS p50_sec,
+       sum(_sample_interval) AS recordings
+FROM remote_whisper_staging
+WHERE blob1 = 'recording_host' AND double3 >= 0 AND double11 >= 0 AND bitAnd(toUInt32(double1), 1) = 0
+  AND timestamp > NOW() - INTERVAL '30' DAY
+GROUP BY minutes_from ORDER BY minutes_from;
 ```
 
 ## 10.10 データ収集

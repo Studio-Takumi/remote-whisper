@@ -38,9 +38,10 @@ export type MetricsSettings = {
     whisperModel: string;
     summaryModel: string;
     overviewModel: string;
-    noiseSuppression: boolean;
-    autoGainControl: boolean;
-    echoCancellation: boolean;
+    // マイクの処理。アップロードでは意味がないので送らない
+    noiseSuppression?: boolean;
+    autoGainControl?: boolean;
+    echoCancellation?: boolean;
 };
 
 export type MetricsPayload = Record<string, number | boolean | string | Record<string, number>>;
@@ -54,6 +55,11 @@ export class RecordingMetrics {
     private readonly upload: boolean;
     private readonly continued: boolean;
     private readonly settings: MetricsSettings | null;
+    // 録音を始めた（アップロードした）ときのホスト。あとでホストを切り替えても、このホストの数字として送る
+    readonly hostId: string | null;
+    // 続きから録音するとき、始めた時点の経過時間（秒）。前の録音の長さを引いて、この回の録音の秒数にする
+    private readonly baseSec: number;
+    private failed = false;
 
     private startedAt: number;
     private stoppedAt: number | null = null;
@@ -93,6 +99,8 @@ export class RecordingMetrics {
             upload?: boolean;
             continued?: boolean;
             settings?: MetricsSettings;
+            hostId?: string | null;
+            baseSec?: number;
             now?: () => number;
         } = {},
     ) {
@@ -100,6 +108,8 @@ export class RecordingMetrics {
         this.upload = options.upload ?? false;
         this.continued = options.continued ?? false;
         this.settings = options.settings ?? null;
+        this.hostId = options.hostId ?? null;
+        this.baseSec = options.baseSec ?? 0;
         this.startedAt = this.now();
     }
 
@@ -108,12 +118,17 @@ export class RecordingMetrics {
         this.pauses += 1;
     }
 
-    // 録音を終えた。seconds は録音した秒数（一時停止を除く）
-    stop(seconds: number) {
+    // 録音を終えた。elapsedSec は画面の経過時間（録音した秒数。一時停止を除く。続きの録音では前の分を含む）
+    stop(elapsedSec: number) {
         if (this.stoppedAt === null) {
             this.stoppedAt = this.now();
-            this.recordingSec = seconds;
+            this.recordingSec = Math.max(0, elapsedSec - this.baseSec);
         }
+    }
+
+    // 最終の要約を作れなかった・作ったか分からない。秒数は入れない
+    summaryFailed() {
+        this.failed = true;
     }
 
     get stopped() {
@@ -128,9 +143,12 @@ export class RecordingMetrics {
 
     // --- 遅延 ---
     // チャンクを作った。bufferedSec は、そのときサーバーに届いていない音声の秒数
-    chunkSent(seq: number, bufferedSec: number) {
+    // holding は、切れていて送らずに溜めたチャンク。往復には数えない（切れていた時間が混ざるため）
+    chunkSent(seq: number, bufferedSec: number, holding = false) {
         this.chunksSent += 1;
-        this.sentAt.set(seq, this.now());
+        if (!holding) {
+            this.sentAt.set(seq, this.now());
+        }
         this.maxBufferedSec = Math.max(this.maxBufferedSec, bufferedSec);
     }
 
@@ -158,6 +176,8 @@ export class RecordingMetrics {
             if (this.offlineSince === null) {
                 this.offlineSince = this.now();
             }
+            // 切れる前に送ったチャンクの往復も、切れていた時間を含むので数えない
+            this.sentAt.clear();
             return;
         }
         if (this.offlineSince !== null) {
@@ -197,7 +217,9 @@ export class RecordingMetrics {
 
     finalSummaryDone() {
         if (this.stoppedAt !== null) {
-            this.finalSummarySec ??= sec(this.now() - this.stoppedAt);
+            if (!this.failed) {
+                this.finalSummarySec ??= sec(this.now() - this.stoppedAt);
+            }
         }
     }
 
@@ -267,10 +289,11 @@ export class RecordingMetrics {
 
     // --- 送るもの ---
     // 送る本文を作る。1 つの録音につき 1 回だけ作れる（2 回目は null）。ページを閉じるときは、その時点までを作る
-    take(hostId: string): MetricsPayload | null {
-        if (this.done) {
+    take(): MetricsPayload | null {
+        if (this.done || !this.hostId) {
             return null;
         }
+        const hostId = this.hostId;
         this.done = true;
         const offlineMs = this.offlineMs + (this.offlineSince !== null ? this.now() - this.offlineSince : 0);
         const numbers: Record<string, number | undefined> = {
@@ -293,10 +316,15 @@ export class RecordingMetrics {
             gpuUtilAvg: this.gpuUtilCount > 0 ? Math.round(this.gpuUtilSum / this.gpuUtilCount) : undefined,
             gpuUtilMax: this.gpuUtilCount > 0 ? this.gpuUtilMax : undefined,
             vramMaxMb: this.gpuUtilCount > 0 ? Math.round(this.vramMaxMb) : undefined,
-            whisperDown: this.whisperDown,
-            ollamaDown: this.ollamaDown,
+            whisperDown: this.upload ? undefined : this.whisperDown,
+            ollamaDown: this.upload ? undefined : this.ollamaDown,
         };
-        const payload: MetricsPayload = { hostId, upload: this.upload, continued: this.continued };
+        const payload: MetricsPayload = {
+            hostId,
+            upload: this.upload,
+            continued: this.continued,
+            summaryFailed: this.failed,
+        };
         for (const [key, value] of Object.entries(numbers)) {
             if (value !== undefined && Number.isFinite(value)) {
                 payload[key] = value;
@@ -320,24 +348,23 @@ export function sendRecordingMetrics(
     metrics: RecordingMetrics | null | undefined,
     where: {
         cloud: boolean;
-        hostId: string | null;
         url: string;
         beacon?: boolean;
         fetchFn?: typeof fetch;
         sendBeacon?: (url: string, data: Blob) => boolean;
     },
 ): boolean {
-    if (!where.cloud || !metrics || !where.hostId) {
+    if (!where.cloud || !metrics) {
         return false;
     }
-    const payload = metrics.take(where.hostId);
+    const payload = metrics.take();
     if (!payload) {
         return false;
     }
     const body = JSON.stringify(payload);
     try {
         if (where.beacon && where.sendBeacon) {
-            return where.sendBeacon(where.url, new Blob([body], { type: 'application/json' }));
+            return where.sendBeacon(where.url, new Blob([body], { type: 'text/plain;charset=UTF-8' }));
         }
         void (where.fetchFn ?? fetch)(where.url, {
             method: 'POST',
@@ -352,14 +379,15 @@ export function sendRecordingMetrics(
 }
 
 // 使った設定（モデル名とマイクの処理）。古いサーバーの設定に echoCancellation がなければオンとみなす
-export function metricsSettings(settings: Settings): MetricsSettings {
-    const { noiseSuppression, autoGainControl, echoCancellation = true } = settings.recording;
-    return {
+export function metricsSettings(settings: Settings, upload = false): MetricsSettings {
+    const models = {
         whisperModel: settings.whisper.model,
         summaryModel: settings.ollama.models.detail,
         overviewModel: settings.ollama.models.overview,
-        noiseSuppression,
-        autoGainControl,
-        echoCancellation,
     };
+    if (upload) {
+        return models;
+    }
+    const { noiseSuppression, autoGainControl, echoCancellation = true } = settings.recording;
+    return { ...models, noiseSuppression, autoGainControl, echoCancellation };
 }

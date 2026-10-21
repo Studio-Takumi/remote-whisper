@@ -149,8 +149,13 @@ describe('書く行', () => {
             title: secret,
             errors: { write_failed: 1, ollama_unavailable: 2 },
         });
-        const [rec, host] = recordingDataPoints(clean, { userId: 'u1', hostId: 'h1', userAgent: CHROME_MAC });
-        expect(rec.blobs).toEqual(['recording', 'chrome', 'macos', 'u1', 'h1', 'large-v3-turbo', '', '', '']);
+        const [rec, host] = recordingDataPoints(clean, {
+            userId: 'u1',
+            hostId: 'h1',
+            userAgent: CHROME_MAC,
+            key: 'k1',
+        });
+        expect(rec.blobs).toEqual(['recording', 'chrome', 'macos', 'u1', 'h1', 'large-v3-turbo', '', '', '', 'k1']);
         expect(rec.doubles).toEqual([1 + 16, 61.5, 2, 120, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1]);
         expect(host.blobs).toEqual([
             'recording_host',
@@ -162,10 +167,12 @@ describe('書く行', () => {
             '',
             '',
             'ollama_unavailable:2,write_failed:1',
+            'k1',
         ]);
-        expect(host.doubles).toEqual([1 + 16, -1, -1, -1, -1, 40, -1, -1, -1, -1]);
+        // 末尾の 3 つは recordingSec・reconnects・offlineSec の写し
+        expect(host.doubles).toEqual([1 + 16, -1, -1, -1, -1, 40, -1, -1, -1, -1, 61.5, -1, -1]);
         expect(rec.doubles.length).toBe(1 + Object.keys(RECORDING_NUMBERS).length);
-        expect(host.doubles.length).toBe(1 + Object.keys(HOST_NUMBERS).length);
+        expect(host.doubles.length).toBe(1 + Object.keys(HOST_NUMBERS).length + 3);
         expect(rec.indexes).toEqual(['u1']);
         expect(JSON.stringify([rec, host])).not.toContain(secret);
     });
@@ -206,6 +213,35 @@ describe('POST /me/metrics/recording', () => {
         expect(points).toEqual([]);
     });
 
+    it('2 行は録音ごとの同じ鍵で結ばれ、録音が違えば鍵も違う', async () => {
+        const me = await newUser();
+        const { points, env: fake } = recorder();
+        await direct(fake, me.userId, { hostId: me.hostId });
+        await direct(fake, me.userId, { hostId: me.hostId });
+        expect(points[0].blobs[9]).toBe(points[1].blobs[9]);
+        expect(points[2].blobs[9]).toBe(points[3].blobs[9]);
+        expect(points[0].blobs[9]).not.toBe(points[2].blobs[9]);
+        expect(points[0].blobs[9]).toMatch(/^[0-9a-f-]{36}$/);
+    });
+
+    it('Content-Length がなくても、8KB を超えたら 413', async () => {
+        const { env: fake, points } = recorder();
+        const stream = new ReadableStream({
+            start(controller) {
+                controller.enqueue(new TextEncoder().encode('{"x":"' + 'x'.repeat(MAX_BODY_BYTES)));
+                controller.close();
+            },
+        });
+        const request = new Request(`${ORIGIN}/me/metrics/recording`, {
+            method: 'POST',
+            body: stream,
+            duplex: 'half',
+        } as RequestInit);
+        const res = await postRecordingMetrics(request, fake, (await newUser()).userId);
+        expect(res.status).toBe(413);
+        expect(points).toEqual([]);
+    });
+
     it('本文は 8KB まで', async () => {
         const { cookie, hostId, userId } = await newUser();
         const big = JSON.stringify({ hostId, recordingSec: 1, pad: 'x'.repeat(MAX_BODY_BYTES) });
@@ -223,6 +259,10 @@ describe('POST /me/metrics/recording', () => {
         }
         expect((await post({ hostId: a.hostId }, a.cookie)).status).toBe(429);
         expect((await post({ hostId: b.hostId }, b.cookie)).status).toBe(204);
+        // 429 のときは書かない
+        const { points, env: fake } = recorder();
+        expect((await direct(fake, a.userId, { hostId: a.hostId, recordingSec: 1 })).status).toBe(429);
+        expect(points).toEqual([]);
         // 1 時間より前の分は数えない
         await env.DB.prepare('UPDATE recording_metric_posts SET posted_at = ? WHERE user_id = ?')
             .bind(Date.now() - 3_600_001, a.userId)

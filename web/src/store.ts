@@ -24,7 +24,7 @@ import { fetchOptions } from '@/options';
 import { sortByIds } from '@/projectOrder';
 import type { ServerMessage, SettingsOptions } from '@/protocol';
 import { type RecordingState, recordingLocks } from '@/recording';
-import { RecordingMetrics, metricsSettings, sendRecordingMetrics } from '@/recordingMetrics';
+import { RecordingMetrics, metricsSettings, recordedSeconds, sendRecordingMetrics } from '@/recordingMetrics';
 import { replaceUrlNext } from '@/router';
 import {
     type OllamaModels,
@@ -250,11 +250,25 @@ const awaiting = new Map<string, RecordingMetrics>();
 function sendMetrics(m: RecordingMetrics | null | undefined, beacon = false) {
     sendRecordingMetrics(m, {
         cloud: isCloud,
-        hostId: getHostId(),
         url: meUrl('/metrics/recording'),
         beacon,
         sendBeacon: (url, data) => navigator.sendBeacon(url, data),
     });
+}
+
+// 最終の要約まで待っていた録音の数字を送る。ok でなければ失敗（または分からない）として、秒数を入れずに送る
+function finishMetrics(sessionId: string, ok: boolean) {
+    const m = awaiting.get(sessionId);
+    if (!m) {
+        return;
+    }
+    awaiting.delete(sessionId);
+    if (ok) {
+        m.finalSummaryDone();
+    } else {
+        m.summaryFailed();
+    }
+    sendMetrics(m);
 }
 
 type StartedMessage = Extract<ServerMessage, { type: 'started' }>;
@@ -390,17 +404,23 @@ export const useAppStore = create<AppState>()((set, get) => {
     }
 
     // 録音ごとの数字を集め始める（クラウド版のときだけ。#206）
-    function startMetrics(continued: boolean, sessionId: string) {
+    // baseSec は、続きから録音するときの前の録音の長さ（秒）
+    function startMetrics(continued: boolean, sessionId: string, baseSec: number) {
         metrics = null;
         metricsSession = null;
         if (!isCloud || isDemo) {
             return;
         }
-        const m = new RecordingMetrics({ continued, settings: metricsSettings(get().settings) });
+        const m = new RecordingMetrics({
+            continued,
+            baseSec,
+            hostId: getHostId(),
+            settings: metricsSettings(get().settings),
+        });
         metrics = m;
         metricsSession = sessionId;
         if (sender) {
-            sender.onChunk = (seq, bufferedSec) => m.chunkSent(seq, bufferedSec);
+            sender.onChunk = (seq, bufferedSec, holding) => m.chunkSent(seq, bufferedSec, holding);
         }
     }
 
@@ -441,7 +461,11 @@ export const useAppStore = create<AppState>()((set, get) => {
         if (reply.type === 'error') {
             throw new Error(reply.message);
         }
-        startMetrics(!!continueSessionId, continueSessionId ?? reply.session);
+        startMetrics(
+            !!continueSessionId,
+            continueSessionId ?? reply.session,
+            recordedSeconds(Math.round((continueSessionId ? (reply.offsetSec ?? 0) : 0) * SAMPLE_RATE), SAMPLE_RATE),
+        );
 
         if (continueSessionId) {
             // 続きを録音する。経過時間と文字起こしの時刻は、前の録音の長さから続ける（#101）
@@ -580,6 +604,12 @@ export const useAppStore = create<AppState>()((set, get) => {
     function interruptRecording(sessionId: string) {
         resendAfterAck = false;
         stoppedWhileOffline = null;
+        // 途中で終わった録音は最終の要約が来ないので、ここまでの数字をすぐ送る（#206）
+        if (metrics && metricsSession === sessionId) {
+            metrics.stop(Math.floor(get().elapsed));
+            metrics.summaryFailed();
+            sendMetrics(metrics);
+        }
         // 切れている間に録音してサーバーに届かなかった音声は、続きを録音するときに頭に足す（#101）
         if (sender) {
             leftover = { sessionId, pcm: sender.unsent() };
@@ -640,13 +670,8 @@ export const useAppStore = create<AppState>()((set, get) => {
 
     // 最終の要約ができたら、一覧とセッションの中身をサーバーから取り直す
     async function reloadAfterFinalSummary(sessionId: string) {
-        const finished = awaiting.get(sessionId);
-        if (finished) {
-            // 録音ごとの数字を送る（#206）。同じ録音を 2 回送らない
-            awaiting.delete(sessionId);
-            finished.finalSummaryDone();
-            sendMetrics(finished);
-        }
+        // まだ送っていなければ、最終の要約ができたか分からないまま外れたもの（成功は title で送り済み）。#206
+        finishMetrics(sessionId, false);
         if (isDemo) {
             set((s) => finishDemoSummary(s, sessionId));
             return;
@@ -864,7 +889,11 @@ export const useAppStore = create<AppState>()((set, get) => {
                     set({ uploading: { projectId, name: file.name, percent } }),
                 );
                 if (isCloud) {
-                    const m = new RecordingMetrics({ upload: true, settings: metricsSettings(get().settings) });
+                    const m = new RecordingMetrics({
+                        upload: true,
+                        hostId: getHostId(),
+                        settings: metricsSettings(get().settings, true),
+                    });
                     m.awaitSummary();
                     awaiting.set(created.id, m);
                 }
@@ -1505,12 +1534,22 @@ export const useAppStore = create<AppState>()((set, get) => {
                     }));
                     // 最終のタイトルは、最終の要約を保存した後に届く。保存されたものを取り直して表示を置き換える
                     if (!m.provisional) {
+                        // 録音ごとの数字を送る（#206。最終の要約ができた）。同じ録音を 2 回送らない
+                        finishMetrics(m.session, true);
                         void reloadAfterFinalSummary(m.session);
                     }
                 }
                 if (m.type === 'error' && m.session && m.code === 'final_transcript_failed') {
                     // 作り直しを頼んだ文字起こしができなかった（知らせは下でトーストに出す）
                     regeneratingTranscripts.delete(m.session);
+                }
+                if (
+                    m.type === 'error' &&
+                    m.session &&
+                    (m.code === 'ollama_unavailable' || m.code === 'summary_skipped' || m.code === 'summary_failed')
+                ) {
+                    // 最終の要約を待っていた録音は、失敗として数字を送る（#206）
+                    finishMetrics(m.session, false);
                 }
                 if (
                     m.type === 'error' &&

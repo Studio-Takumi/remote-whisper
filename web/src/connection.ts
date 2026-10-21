@@ -163,7 +163,7 @@ export class AudioSender {
     onFrame: ((seq: number, frame: ArrayBuffer) => void) | null = null;
     onAcked: ((seq: number) => void) | null = null;
     // チャンクを作ったとき（計測用。#206）。まだ届いていない音声の秒数も渡す
-    onChunk: ((seq: number, bufferedSec: number) => void) | null = null;
+    onChunk: ((seq: number, bufferedSec: number, holding: boolean) => void) | null = null;
 
     constructor(onPendingChange: (count: number) => void = () => {}) {
         this.onPendingChange = onPendingChange;
@@ -217,7 +217,7 @@ export class AudioSender {
         if (!this.isHolding) {
             connection.sendBinary(frame);
         }
-        this.onChunk?.(this.seq, this.unsentSamples / 16000);
+        this.onChunk?.(this.seq, this.unsentSamples / 16000, this.isHolding);
         this.seq += 1;
         this.length = 0;
         this.onPendingChange(this.pending.size);

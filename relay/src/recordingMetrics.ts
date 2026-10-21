@@ -53,6 +53,8 @@ export const RECORDING_FLAGS = [
     'noiseSuppression',
     'autoGainControl',
     'echoCancellation',
+    // 最終の要約を作れなかった・作ったか分からない（最終の要約の秒数は入れない）
+    'summaryFailed',
 ] as const;
 
 // 文字列の項目（モデル名など）。この形に合うものだけ通す。空白を含むもの・長いものは捨てる
@@ -121,9 +123,10 @@ function flagsOf(flags: RecordingMetrics['flags']): number {
 // 書く 2 行を作る。blobs と doubles の並びは docs の表と合わせる（なかった数値は -1）
 export function recordingDataPoints(
     clean: RecordingMetrics,
-    who: { userId: string; hostId: string; userAgent: string },
+    who: { userId: string; hostId: string; userAgent: string; key: string },
 ): RecordingDataPoint[] {
-    // 1 種類 2 ブラウザ 3 OS 4 ユーザー ID 5 ホスト ID 6 Whisper のモデル 7 要約のモデル 8 概要のモデル 9 error の code ごとの件数
+    // 1 種類 2 ブラウザ 3 OS 4 ユーザー ID 5 ホスト ID 6 Whisper のモデル 7 要約のモデル 8 概要のモデル
+    // 9 error の code ごとの件数 10 同じ録音の 2 行を結ぶ鍵（Worker が録音ごとに作る乱数。セッション ID とは無関係）
     const blobs = (kind: string, errors: string) => [
         kind,
         browserOf(who.userAgent),
@@ -134,6 +137,7 @@ export function recordingDataPoints(
         clean.strings.summaryModel ?? '',
         clean.strings.overviewModel ?? '',
         errors,
+        who.key,
     ];
     const pick = (keys: string[]) => keys.map((k) => clean.numbers[k as NumberKey] ?? -1);
     const errors = Object.entries(clean.errors)
@@ -149,7 +153,8 @@ export function recordingDataPoints(
         },
         {
             blobs: blobs('recording_host', errors),
-            doubles: [flags, ...pick(Object.keys(HOST_NUMBERS))],
+            // 末尾の 3 つは、録音の行と突き合わせなくても「録音の長さ別」などで集計できるように写したもの
+            doubles: [flags, ...pick(Object.keys(HOST_NUMBERS)), ...pick(['recordingSec', 'reconnects', 'offlineSec'])],
             indexes: [who.userId],
         },
     ];
@@ -170,15 +175,43 @@ async function allowed(env: Env, userId: string): Promise<boolean> {
     return res.meta.changes > 0;
 }
 
+// 本文を MAX_BODY_BYTES まで読む。超えたら null（Content-Length がなくても、超えたところで読むのをやめる）
+async function readLimited(request: Request): Promise<string | null> {
+    if (Number(request.headers.get('Content-Length') ?? '0') > MAX_BODY_BYTES) {
+        return null;
+    }
+    if (!request.body) {
+        return '';
+    }
+    const reader = request.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    for (;;) {
+        const { done, value } = await reader.read();
+        if (done) {
+            break;
+        }
+        total += value.length;
+        if (total > MAX_BODY_BYTES) {
+            await reader.cancel();
+            return null;
+        }
+        chunks.push(value);
+    }
+    const all = new Uint8Array(total);
+    let offset = 0;
+    for (const c of chunks) {
+        all.set(c, offset);
+        offset += c.length;
+    }
+    return new TextDecoder().decode(all);
+}
+
 // POST /me/metrics/recording。ログインと Origin は handleMe が確かめ済み。
 // 受け取れないもの（形が違う・ほかの人のホスト・束縛がない）は、黙って捨てて 204 を返す
 export async function postRecordingMetrics(request: Request, env: Env, userId: string): Promise<Response> {
-    const length = Number(request.headers.get('Content-Length') ?? '0');
-    if (length > MAX_BODY_BYTES) {
-        return error(413, '大きすぎます');
-    }
-    const text = await request.text();
-    if (new TextEncoder().encode(text).length > MAX_BODY_BYTES) {
+    const text = await readLimited(request);
+    if (text === null) {
         return error(413, '大きすぎます');
     }
     if (!(await allowed(env, userId))) {
@@ -203,6 +236,7 @@ export async function postRecordingMetrics(request: Request, env: Env, userId: s
             userId,
             hostId,
             userAgent: request.headers.get('User-Agent') ?? '',
+            key: crypto.randomUUID(),
         });
         for (const point of points) {
             env.METRICS?.writeDataPoint(point);
