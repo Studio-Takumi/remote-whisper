@@ -6,6 +6,10 @@ on:
   push:
     branches: [main]
 
+# 読むだけ（#166）
+permissions:
+  contents: read
+
 # 同じブランチに続けて push したら、古い方の実行は止める
 concurrency:
   group: ci-${{ github.ref }}

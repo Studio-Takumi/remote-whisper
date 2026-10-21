@@ -426,3 +426,35 @@ def test_cloudflared_path_accepts_empty_and_absolute_cloudflared(client):
         res = client.patch("/api/settings", json={"cloud": {"cloudflaredPath": path}})
         assert res.status_code == 200
         assert res.json()["cloud"]["cloudflaredPath"] == path
+
+
+def test_cloud_and_materials_cannot_be_changed_through_the_tunnel(app, home):
+    """トンネル（8001 番）からは、クラウドの設定と参考資料のフォルダ・拡張子を変えさせない（#166）"""  # noqa: E501
+    from starlette.testclient import TestClient
+
+    from remote_whisper.tunnel import RELAY_HEADER, RelayAuthApp, sign_relay
+
+    host_id, key, now = "11111111-2222-4333-8444-555555555555", bytes(range(32)), 1800000000
+    tunnel = TestClient(RelayAuthApp(app, lambda: (host_id, key), clock=lambda: now))
+
+    def patch(body):
+        header = sign_relay(key, "u-1", host_id, now, "PATCH", "/api/settings")
+        return tunnel.patch("/api/settings", json=body, headers={RELAY_HEADER: header})
+
+    before = (home / "setting.json").read_text(encoding="utf-8")
+    for body in (
+        {"cloud": {"relayUrl": "https://evil.example"}},
+        {"materials": {"roots": ["C:\\"]}},
+        {"materials": {"extensions": [".env"]}},
+    ):
+        res = patch(body)
+        assert res.status_code == 403, body
+    assert (home / "setting.json").read_text(encoding="utf-8") == before
+    # ほかの項目は変えられる
+    assert patch({"display": {"sessionMeta": True}}).status_code == 200
+    # この PC（8000 番）からは変えられる
+    direct = TestClient(app)
+    assert (
+        direct.patch("/api/settings", json={"materials": {"extensions": [".md"]}}).status_code
+        == 200
+    )
