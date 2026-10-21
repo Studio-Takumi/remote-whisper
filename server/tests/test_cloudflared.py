@@ -6,6 +6,7 @@ import sys
 import threading
 import time
 from dataclasses import replace
+from pathlib import Path
 
 import httpx
 import pytest
@@ -85,7 +86,9 @@ class FakeProc:
 
 
 class Env:
-    def __init__(self, tmp_path, statuses=(200,), port_ready=True, found=True, path=""):
+    def __init__(
+        self, tmp_path, statuses=(200,), port_ready=True, found=True, path="", bundled=None
+    ):
         self.worker = FakeWorker(statuses)
         self.procs: list[FakeProc] = []
         self.home = tmp_path
@@ -96,6 +99,7 @@ class Env:
         self.polled = threading.Event()
         self.found = found
         self.path = path
+        self.bundled = bundled
         self.which_args: list[str] = []
         self.notices: list[str] = []
         self.runner = CloudflaredRunner(
@@ -105,6 +109,7 @@ class Env:
             transport=httpx.MockTransport(self.worker.handler),
             popen=self.popen,
             which=self.which,
+            bundled=lambda: self.bundled,
             initial_backoff=0.05,
             max_backoff=0.2,
             stable=1000.0,
@@ -389,6 +394,35 @@ def test_accepts_a_configured_path(tmp_path, path):
         assert e.procs[0].args[0] == path
     finally:
         e.runner.stop()
+
+
+def test_empty_setting_uses_the_bundled_cloudflared(tmp_path):
+    e = Env(tmp_path, bundled=Path("/app/cloudflared.exe"))
+    try:
+        e.runner.sync()
+        assert wait_for(lambda: len(e.procs) == 1)
+        assert e.procs[0].args[0] == str(Path("/app/cloudflared.exe"))
+        assert e.which_args == []
+    finally:
+        e.runner.stop()
+
+
+def test_configured_path_wins_over_the_bundled_one(tmp_path):
+    e = Env(tmp_path, path="/opt/cf/cloudflared", bundled=Path("/app/cloudflared.exe"))
+    try:
+        e.runner.sync()
+        assert wait_for(lambda: len(e.procs) == 1)
+        assert e.procs[0].args[0] == "/opt/cf/cloudflared"
+    finally:
+        e.runner.stop()
+
+
+def test_invalid_configured_path_does_not_fall_back_to_the_bundled_one(tmp_path):
+    e = Env(tmp_path, path="relative/cloudflared", bundled=Path("/app/cloudflared.exe"))
+    e.runner.sync()
+    assert wait_for(lambda: not e.runner.running)
+    assert e.notices == [INVALID_PATH_NOTICE]
+    assert e.procs == [] and e.which_args == []
 
 
 def test_notifies_when_cloudflared_is_missing(tmp_path):

@@ -9,6 +9,8 @@ import logging
 import subprocess
 from pathlib import Path
 
+from remote_whisper import bundle
+
 log = logging.getLogger(__name__)
 
 UNKNOWN = "unknown"
@@ -45,5 +47,8 @@ def read_version(repo: Path = REPO_DIR) -> str:
 
 @functools.cache
 def app_version() -> str:
-    """起動中のサーバーのバージョン。最初に呼んだときに一度だけ git から取る"""
-    return read_version()
+    """起動中のサーバーのバージョン。最初に呼んだときに一度だけ取る
+
+    配布用のビルド（#168）では bundle.json に書いたもの。そうでなければ git から
+    """
+    return bundle.bundled_version() or read_version()
