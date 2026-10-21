@@ -8,6 +8,11 @@ import { withSecurityHeaders } from '../src/index';
 const ORIGIN = 'https://rw-dev.example';
 
 describe('Worker が答える返事', () => {
+    it('/healthz にも付ける', async () => {
+        const res = await SELF.fetch(`${ORIGIN}/healthz`);
+        expect(res.headers.get('X-Frame-Options')).toBe('DENY');
+    });
+
     it('iframe に入れさせず、型を推測させず、アカウント・登録・ログインはキャッシュさせない', async () => {
         for (const path of ['/me', '/pair/request?code=ABCD-EFGH', '/auth/login/nope']) {
             const res = await SELF.fetch(`${ORIGIN}${path}`, { redirect: 'manual' });
@@ -18,10 +23,22 @@ describe('Worker が答える返事', () => {
         }
     });
 
-    it('ヘッダーを変えられない返事も作り直して付ける。WebSocket（101）はそのまま', async () => {
-        const frozen = await fetch('data:text/plain,x').catch(() => null);
-        const res = withSecurityHeaders(frozen ?? new Response('x'), '/me');
+    it('ヘッダーを変えられない返事も作り直して付ける（Set-Cookie は残す）。WebSocket（101）はそのまま', async () => {
+        // Response.redirect のヘッダーは変えられない
+        const frozen = Response.redirect(`${ORIGIN}/`, 302);
+        expect(() => frozen.headers.set('X', '1')).toThrow();
+        const res = withSecurityHeaders(frozen, '/auth/callback/github');
+        expect(res).not.toBe(frozen);
+        expect(res.status).toBe(302);
+        expect(res.headers.get('Location')).toBe(`${ORIGIN}/`);
         expect(res.headers.get('X-Frame-Options')).toBe('DENY');
+        // 変えられる返事は、そのまま付ける（Set-Cookie が 2 つあっても残る）
+        const twoCookies = new Response(null, { status: 302, headers: { Location: '/' } });
+        twoCookies.headers.append('Set-Cookie', 'a=1; Path=/');
+        twoCookies.headers.append('Set-Cookie', 'b=2; Path=/');
+        const kept = withSecurityHeaders(twoCookies, '/auth/callback/github');
+        expect(kept.headers.getSetCookie()).toEqual(['a=1; Path=/', 'b=2; Path=/']);
+        expect(kept.headers.get('Cache-Control')).toBe('no-store');
         const pair = new WebSocketPair();
         const ws = new Response(null, { status: 101, webSocket: pair[0] });
         expect(withSecurityHeaders(ws, '/h/x/ws')).toBe(ws);

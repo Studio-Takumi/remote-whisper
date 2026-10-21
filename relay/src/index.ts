@@ -35,7 +35,7 @@ export default {
     async fetch(request, env): Promise<Response> {
         const path = new URL(request.url).pathname;
         if (path === '/healthz') {
-            return healthz(env);
+            return withSecurityHeaders(await healthz(env), path);
         }
         // 答えた・中継した HTTP の数値を書く（#163）。途中で例外になったものは 500 として数える
         const startedAt = Date.now();
