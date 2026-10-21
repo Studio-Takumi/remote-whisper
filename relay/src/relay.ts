@@ -133,16 +133,29 @@ export async function handleHostRelay(request: Request, env: Env, path: string):
 }
 
 // ホストがこのオリジンに Cookie を置いたり、ほかへ飛ばしたり、サイトのデータを消したりできないようにする。
-// リダイレクトはホストの中の話なので Location も落とす。中身の型をブラウザに推測させない
+// リダイレクトはホストの中の話なので Location も落とす。中身の型をブラウザに推測させない。
+// 中継した返事をこのオリジンの文書として描かせない（#166。ホストが HTML や SVG を返しても、スクリプトを
+// 動かせない sandbox にし、HTML・SVG・XML はダウンロードとして返す）。ホスト側の CSP は信じず、こちらで決める
 function safeResponseHeaders(res: Response): Headers {
     const out = new Headers();
     for (const [name, value] of res.headers) {
         const lower = name.toLowerCase();
-        if (DROPPED_RESPONSE.includes(lower) || lower.startsWith('access-control-') || lower === 'location') {
+        if (
+            DROPPED_RESPONSE.includes(lower) ||
+            lower.startsWith('access-control-') ||
+            lower === 'location' ||
+            lower === 'content-security-policy' ||
+            lower === 'content-security-policy-report-only'
+        ) {
             continue;
         }
         out.append(name, value);
     }
     out.set('X-Content-Type-Options', 'nosniff');
+    out.set('Content-Security-Policy', "sandbox; default-src 'none'; frame-ancestors 'none'");
+    const type = (res.headers.get('Content-Type') ?? '').toLowerCase();
+    if (/html|svg|xml|javascript/.test(type)) {
+        out.set('Content-Disposition', 'attachment');
+    }
     return out;
 }
