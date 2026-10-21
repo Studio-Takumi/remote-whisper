@@ -11,7 +11,7 @@
 import { currentUser } from './auth';
 import { error, json, randomToken, sameOrigin, sha256 } from './http';
 import type { Env } from './index';
-import { type HostTunnel, TunnelUnavailable, deleteTunnel, ensureTunnel } from './tunnel';
+import { type HostTunnel, MAX_HOSTS_PER_USER, TunnelUnavailable, deleteTunnel, ensureTunnel } from './tunnel';
 
 export const PAIR_TTL_MS = 10 * 60 * 1000;
 // 署名の時刻のずれの許し（10.5 節）
@@ -20,6 +20,10 @@ const MAX_BODY_BYTES = 4096;
 // 同じ接続元からの申請は 10 分に 5 回まで。ポーリングは 1 秒に 1 回まで
 const START_LIMIT = 5;
 const POLL_MIN_INTERVAL_MS = 1000;
+// /pair/tunnel は 1 台あたり 60 秒に 1 回まで。1 回で Cloudflare の API を 3 回ほど呼ぶので、5 台でも
+// 5 分に 75 回ほどに収める（API の上限は 5 分に 1200 回）。ホストの cloudflared のランナーは 429 を受けても
+// 間隔を空けて聞き直す（5 秒から倍にしていく）ので、長くしても登録が止まることはない
+const TUNNEL_MIN_INTERVAL_MS = 60 * 1000;
 // 登録コードの文字（読み間違えやすい 0・O・1・I は使わない）。32 文字なので 1 バイトの下 5 ビットで偏りなく選べる
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -323,9 +327,18 @@ async function tunnel(request: Request, env: Env): Promise<Response> {
     const data = parseJson(signed.body);
     const appVersion =
         typeof data?.appVersion === 'string' && /^[\w.+-]{1,32}$/.test(data.appVersion) ? data.appVersion : null;
-    await env.DB.prepare('UPDATE hosts SET last_seen_at = ?, app_version = COALESCE(?, app_version) WHERE id = ?')
-        .bind(Date.now(), appVersion, host.id)
+    // 呼ぶたびに Cloudflare の API を呼ぶので、1 台あたり TUNNEL_MIN_INTERVAL_MS に 1 回まで（#166）。
+    // 間隔の確かめと last_seen_at の更新は同じ文で（同時に来ても 1 つしか通らない）
+    const now = Date.now();
+    const touched = await env.DB.prepare(
+        `UPDATE hosts SET last_seen_at = ?1, app_version = COALESCE(?2, app_version)
+         WHERE id = ?3 AND (last_seen_at IS NULL OR last_seen_at <= ?4)`,
+    )
+        .bind(now, appVersion, host.id, now - TUNNEL_MIN_INTERVAL_MS)
         .run();
+    if (!touched.meta.changes) {
+        return error(429, 'too many requests');
+    }
     try {
         return json(await ensureTunnel(env, host));
     } catch (e) {
@@ -387,15 +400,23 @@ async function fromBrowser(request: Request, env: Env, path: string): Promise<Re
             .run();
         return res.meta.changes ? json({ ok: true }) : error(404, '登録の申請が見つかりません');
     }
-    // 承認: hosts に入れて、申請を承認済みにする（同じトランザクション）
+    // ホストは 1 人 MAX_HOSTS_PER_USER 台まで（#166。トンネルと DNS のレコードを際限なく作らせない）
+    const owned = await env.DB.prepare('SELECT COUNT(*) AS n FROM hosts WHERE user_id = ?')
+        .bind(user.userId)
+        .first<{ n: number }>();
+    if ((owned?.n ?? 0) >= MAX_HOSTS_PER_USER) {
+        return error(409, `ホストは ${MAX_HOSTS_PER_USER} 台まで登録できます。使っていないホストを外してください`);
+    }
+    // 承認: hosts に入れて、申請を承認済みにする（同じトランザクション。台数の確かめも同じ文で、同時の承認でも超えない）
     const relayKey = randomToken(32);
     const [inserted] = await env.DB.batch([
         env.DB.prepare(
             `INSERT INTO hosts (id, user_id, name, public_key, relay_key, created_at)
-             SELECT host_id, ?, host_name, public_key, ?, ? FROM pairing_requests
-             WHERE code_hash = ? AND status = 'pending' AND expires_at > ?
-               AND NOT EXISTS (SELECT 1 FROM hosts WHERE hosts.id = pairing_requests.host_id)`,
-        ).bind(user.userId, relayKey, now, codeHash, now),
+             SELECT host_id, ?1, host_name, public_key, ?2, ?3 FROM pairing_requests
+             WHERE code_hash = ?4 AND status = 'pending' AND expires_at > ?3
+               AND NOT EXISTS (SELECT 1 FROM hosts WHERE hosts.id = pairing_requests.host_id)
+               AND (SELECT COUNT(*) FROM hosts WHERE hosts.user_id = ?1) < ?5`,
+        ).bind(user.userId, relayKey, now, codeHash, MAX_HOSTS_PER_USER),
         env.DB.prepare(
             `UPDATE pairing_requests SET status = 'approved', user_id = ?1
              WHERE code_hash = ?2 AND status = 'pending' AND expires_at > ?3
@@ -404,6 +425,13 @@ async function fromBrowser(request: Request, env: Env, path: string): Promise<Re
         ).bind(user.userId, codeHash, now),
     ]);
     if (!inserted.meta.changes) {
+        // 同時の承認で台数の上限に当たったのか、申請がなかったのかを分けて返す
+        const after = await env.DB.prepare('SELECT COUNT(*) AS n FROM hosts WHERE user_id = ?')
+            .bind(user.userId)
+            .first<{ n: number }>();
+        if ((after?.n ?? 0) >= MAX_HOSTS_PER_USER) {
+            return error(409, `ホストは ${MAX_HOSTS_PER_USER} 台まで登録できます。使っていないホストを外してください`);
+        }
         return error(404, '登録の申請が見つかりません');
     }
     const host = await env.DB.prepare('SELECT host_id, host_name FROM pairing_requests WHERE code_hash = ?')
