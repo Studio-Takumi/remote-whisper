@@ -1,8 +1,8 @@
 // クラウド版の中間サーバー（仕様書 spec/cloud.md 10 章）。環境は dev（ローカル）・staging・production（#167）
-// 秘密情報（OAuth のクライアント・API トークン）はここに書かない。ローカルは .dev.vars、staging は wrangler secret
+// 秘密情報（OAuth のクライアント・API トークン）はここに書かない。ローカルは .dev.vars、staging・本番は wrangler secret
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  // 上の段はローカル（wrangler dev）用。デプロイは --env staging（本番の env は #167 で足す）
+  // 上の段はローカル（wrangler dev）用。デプロイは --env staging か --env production（docs/deploy.md）
   "name": "remote-whisper-dev",
   "main": "src/index.ts",
   "compatibility_date": "2026-09-01",
@@ -45,9 +45,27 @@
       ],
       "vars": { "CLOUD_ENV": "staging", "TUNNEL_DOMAIN": "studio-takumi.dev", "TUNNEL_PREFIX": "rwt-dev-" },
       // HTTP の計測（#163）。ローカルでは束縛を付けない（書かない）。
-      // アカウントで Analytics Engine を有効にするまで、束縛を付けるとデプロイが断られる（code 10089）ので外してある。
-      // 有効にしたら（CLOUD_TODO の 14）、次の行を戻す。束縛がなくても Worker は書かずに動く
-      // "analytics_engine_datasets": [{ "binding": "METRICS", "dataset": "remote_whisper_staging" }],
+      // アカウントで Analytics Engine が有効でないと、束縛を付けたデプロイは断られる（code 10089）
+      "analytics_engine_datasets": [{ "binding": "METRICS", "dataset": "remote_whisper_staging" }],
+    },
+    // 本番（#167）。用意する手順は docs/deploy.md。D1 の ID は仮（本番を用意するときに `wrangler d1 create` の ID に替える）。
+    // 仮のままだと、自動デプロイは本番に出さずに止まる（.github/workflows/deploy.yml の Check production config）
+    "production": {
+      "name": "remote-whisper",
+      "workers_dev": false,
+      "preview_urls": false,
+      "routes": [{ "pattern": "rw.studio-takumi.dev", "custom_domain": true }],
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "remote-whisper",
+          "database_id": "00000000-0000-0000-0000-000000000001",
+          "migrations_dir": "migrations",
+        },
+      ],
+      "vars": { "CLOUD_ENV": "production", "TUNNEL_DOMAIN": "studio-takumi.dev", "TUNNEL_PREFIX": "rwt-" },
+      // Analytics Engine を有効にしたら（CLOUD_TODO の 14）戻す
+      // "analytics_engine_datasets": [{ "binding": "METRICS", "dataset": "remote_whisper" }],
     },
   },
 }

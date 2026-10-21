@@ -13,6 +13,7 @@ import threading
 import uvicorn
 
 from remote_whisper import cloud, logs, tray
+from remote_whisper.announcements import AnnouncementWatcher
 from remote_whisper.app import create_app
 from remote_whisper.cloudflared import CloudflaredRunner
 from remote_whisper.mock import MockTiming
@@ -100,6 +101,8 @@ def main() -> None:
             on_quit=lambda: setattr(server, "should_exit", True),
             # クラウド版のホストの登録（#158）。中間サーバーの URL は、押したときの設定を読む
             cloud=cloud_host,
+            # 運営からのお知らせ（#164）。登録しているときだけ、新しい版を読みに行く
+            announcements=AnnouncementWatcher(home, notify=lambda m: cloud_host.on_notice(m)),
         )
         if tray.must_run_on_main_thread():
             _serve_with_tray_on_main_thread(server, icon)

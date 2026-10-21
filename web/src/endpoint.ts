@@ -4,8 +4,8 @@
 
 export type Mode = 'cloud' | 'direct';
 
-// クラウド用のドメイン（ビルド時に VITE_CLOUD_HOSTS でカンマ区切りで渡す）。何も渡さなければ staging の分だけ
-export const DEFAULT_CLOUD_HOSTS = 'rw-dev.studio-takumi.dev';
+// クラウド用のドメイン（ビルド時に VITE_CLOUD_HOSTS でカンマ区切りで渡す）。何も渡さなければ staging と本番（#167）
+export const DEFAULT_CLOUD_HOSTS = 'rw-dev.studio-takumi.dev,rw.studio-takumi.dev';
 
 export function parseCloudHosts(value: string | undefined): string[] {
     return (value || DEFAULT_CLOUD_HOSTS)

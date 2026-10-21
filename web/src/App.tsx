@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import { toast } from 'sonner';
 
 import { isReady, useCloudStore } from '@/cloud';
+import { AnnouncementBanner } from '@/components/AnnouncementBanner';
 import { AppSidebar } from '@/components/AppSidebar';
 import { CloudEntry } from '@/components/CloudEntry';
 import { DevPanel } from '@/components/DevPanel';
@@ -84,6 +85,7 @@ function AppMain() {
         <SidebarProvider>
             <AppSidebar />
             <SidebarInset className='gap-4 p-4'>
+                <AnnouncementBanner />
                 <TopBar />
                 <UnsentAlert />
                 <PwaUpdater />
