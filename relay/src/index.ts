@@ -35,13 +35,13 @@ export default {
     async fetch(request, env): Promise<Response> {
         const path = new URL(request.url).pathname;
         if (path === '/healthz') {
-            return healthz(env);
+            return withSecurityHeaders(await healthz(env), path);
         }
         // 答えた・中継した HTTP の数値を書く（#163）。途中で例外になったものは 500 として数える
         const startedAt = Date.now();
         let response: Response | undefined;
         try {
-            response = await route(request, env, path);
+            response = withSecurityHeaders(await route(request, env, path), path);
             return response;
         } finally {
             recordHttp(env, request, response ?? new Response(null, { status: 500 }), startedAt);
@@ -64,6 +64,35 @@ async function route(request: Request, env: Env, path: string): Promise<Response
         return handlePairing(request, env, path);
     }
     return new Response('Not found', { status: 404 });
+}
+
+// Worker が答える応答に共通で付けるヘッダー（#166）。画面（静的アセット）は web/public/_headers で付ける。
+// アカウント・登録・ログインの返事はキャッシュさせない。WebSocket（101）はそのまま
+export function withSecurityHeaders(response: Response, path: string): Response {
+    if (response.status === 101) {
+        return response;
+    }
+    const set = (headers: Headers) => {
+        headers.set('X-Frame-Options', 'DENY');
+        headers.set('X-Content-Type-Options', 'nosniff');
+        headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+        if (!path.startsWith('/h/')) {
+            // Worker が作る返事は JSON かリダイレクトだけ。何も読み込ませない
+            headers.set('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'");
+        }
+        if (path.startsWith('/me') || path.startsWith('/pair/') || path.startsWith('/auth/')) {
+            headers.set('Cache-Control', 'no-store');
+        }
+    };
+    try {
+        set(response.headers);
+        return response;
+    } catch {
+        // ヘッダーを変えられない応答（fetch の返事など）は作り直す
+        const copy = new Response(response.body, response);
+        set(copy.headers);
+        return copy;
+    }
 }
 
 // 生きているか。DB に届くかも見る（届かなければ 503）

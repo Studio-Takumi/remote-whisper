@@ -224,6 +224,14 @@ sequenceDiagram
 - 状態を変える API は、Cookie に加えて Origin を確かめる（CSRF の対策。#166）。**`/h/<hostId>/ws` の WebSocket と、`/h/` 以下の GET 以外のリクエストも、Origin が自分のオリジンでなければ断る**。staging・本番は `studio-takumi.dev` のサブドメインで、兄弟のサブドメイン（ポートフォリオなど）は same-site なので、SameSite=Lax の Cookie が WebSocket にも付いてしまうため
 - ログインを始めるとき、state を D1（ハッシュだけ）と、このブラウザの短命の Cookie（`__Host-rw_oauth_state`、10 分）の両方に置く。コールバックでは両方が合うときだけ進める（ほかの人が始めたログインの続きの URL を踏ませて、その人のアカウントにログインさせる・手段を足させる、ログイン CSRF の対策）。手段を足す（`?link=1`）ときは、さらにコールバックの時点でも始めたユーザーでログインしていることを確かめる
 - ログインのあとに戻るパス（`?return=`）は、同じオリジンのパスだけ。`//`・`\`・制御文字（ブラウザが読み飛ばすタブ・改行）を含むものは `/` にする
+- **セキュリティのヘッダー（#166）**:
+  - 画面（静的アセット）: `web/public/_headers` に書く（Workers の assets が読む）
+    - `X-Frame-Options: DENY`（iframe に入れて `/pair?code=` の承認などを押させる攻撃を防ぐ）
+    - `nosniff`・`Referrer-Policy`・`Permissions-Policy`（マイクは自分のオリジンだけ）
+    - CSP はまず `Report-Only`。インラインのスクリプトは index.html のテーマの設定だけで、LF・CRLF のハッシュで許す。中身を変えたらハッシュも替える
+  - Worker が答える返事: 同じヘッダーと `Content-Security-Policy: default-src 'none'`。`/me`・`/pair/`・`/auth/` は `Cache-Control: no-store`
+  - 中継した返事: ホストの CSP は使わず `sandbox; default-src 'none'` を付ける。HTML・SVG・XML・JavaScript の型は `Content-Disposition: attachment` でダウンロードにする（ホストが返したものを、このオリジンの文書として描かせない）
+  - HSTS は付けない（`.dev` は TLD ごと HSTS の preload に入っている）
 - 退会: ユーザー・ログイン手段・ログインセッション・ホスト（とトンネル）・同意の履歴（consents）を消す。**同意の履歴も当面は消す**（持つデータを減らす。法令上残す必要があるとわかったら、ユーザーと切り離して残す形に変える。10.16 節）
 - OAuth のコールバックは `/auth/callback/google`・`/auth/callback/discord`・`/auth/callback/github`。クライアント ID とシークレットは secret（10.15 節）
 

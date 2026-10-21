@@ -1,0 +1,12 @@
+# クラウド版の画面（静的アセット）に付けるヘッダー（#166）。Cloudflare Workers の assets が読む。
+# ダイレクト版（ホストの FastAPI が配る）では使わない（ファイルとして配られるだけで、中身は秘密ではない）
+# - X-Frame-Options: iframe に入れて承認の画面（/pair?code=）などを押させる攻撃を防ぐ
+# - CSP はまず Report-Only（壊れないことを確かめてから強制に替える）。インラインのスクリプトは index.html の
+#   テーマの設定だけで、ハッシュで許す（LF と CRLF の両方。中身を変えたらハッシュも替える）。
+#   shiki（コードの色付け）の wasm のために 'wasm-unsafe-eval'
+/*
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: microphone=(self), camera=(), geolocation=(), payment=(), usb=()
+  Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' 'sha256-uDE03yObO2k1c821fxP6axMjx2kAZJnfqTWiHWH/fTc=' 'sha256-QTNQPwhCJfqRVfGuYieUgJmnt2oB2TJ/MmY4vdC44GQ=' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; worker-src 'self' blob:; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'
