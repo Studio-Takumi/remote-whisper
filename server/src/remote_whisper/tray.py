@@ -26,6 +26,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from remote_whisper.announcements import AnnouncementWatcher
 from remote_whisper.cloud import CloudHost, CloudView
 from remote_whisper.hub import ServerStatus
 from remote_whisper.tray_state import (
@@ -315,11 +316,14 @@ class Tray:
         log_dir: Path,
         on_quit: Callable[[], None],
         cloud: CloudHost | None = None,
+        announcements: AnnouncementWatcher | None = None,
     ):
         """status はサーバーの今の状態を返すもの、on_quit はサーバーを止めるもの
 
         cloud はクラウド版のホストの登録（#158）。None ならクラウドの行と項目を出さない
+        announcements は運営からのお知らせ（#164）。登録しているときだけ新しい版を通知する
         """
+        self.announcements = announcements
         self.status = status
         self.url = url
         self.log_dir = log_dir
@@ -391,6 +395,8 @@ class Tray:
 
     def stop(self) -> None:
         self._stopped.set()
+        if self.announcements is not None:
+            self.announcements.stop()
         if self._icon is not None:
             with contextlib.suppress(Exception):
                 self._icon.stop()
@@ -402,6 +408,8 @@ class Tray:
             icon.stop()
             return
         icon.visible = True
+        if self.announcements is not None:
+            self.announcements.start()
         threading.Thread(target=self._refresh, name="tray-refresh", daemon=True).start()
         if sys.platform == "darwin":
             threading.Thread(target=self._catch_signals, name="tray-signals", daemon=True).start()

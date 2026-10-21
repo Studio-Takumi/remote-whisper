@@ -84,6 +84,8 @@ export type Settings = {
     // クラウド版の中間サーバーの URL（#158）。ホストのトレイの「クラウドにログイン」が使う。画面では変えない
     cloud: {
         relayUrl: string;
+        // cloudflared の場所（#159）。空なら PATH の cloudflared。画面では変えない
+        cloudflaredPath: string;
     };
     // サイドバーのプロジェクトの並び順（プロジェクト ID。#173）。ここにないものは先頭。
     // 一覧（GET /api/projects）はこの順で返ってくる。変えるのは並び替えのときだけ（changeSettings は送らない）
@@ -150,6 +152,7 @@ export const defaultSettings: Settings = {
     },
     cloud: {
         relayUrl: 'https://rw-dev.studio-takumi.dev',
+        cloudflaredPath: '',
     },
     projectOrder: [],
 };

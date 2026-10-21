@@ -57,6 +57,23 @@ export function pickHost(hosts: Host[], remembered: string | null): Pick {
     return { kind: 'choose' };
 }
 
+// このページで最後につないだホスト（#222）。ログアウトしても忘れない（画面の状態は前のホストのまま残っているため）
+let lastConnected: string | null = null;
+
+export const connectedHostId = () => lastConnected;
+
+export function markConnected(hostId: string) {
+    lastConnected = hostId;
+}
+
+// 読み込み直すか。このページで前に別のホストにつないでいたら、画面の状態と接続を作り直すために読み込み直す
+export function needsReload(previous: string | null, next: string): boolean {
+    return previous !== null && previous !== next;
+}
+
+// テストで差し替えられるように
+export const page = { reload: () => location.reload() };
+
 type HostsResponse = { hosts: Host[] };
 
 export const fetchHosts = () => request<HostsResponse>(meUrl('/hosts')).then((r) => r.hosts);

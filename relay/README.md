@@ -25,9 +25,11 @@ npm run lint && npm run format:check && npm run typecheck
 - 秘密情報（OAuth のクライアントなど）は `relay/.dev.vars` に書く（git に入れない）。キーは `GOOGLE_CLIENT_ID`・`GOOGLE_CLIENT_SECRET`・`DISCORD_CLIENT_ID`・`DISCORD_CLIENT_SECRET`・`GITHUB_CLIENT_ID`・`GITHUB_CLIENT_SECRET`。ローカル（localhost）用のクライアントだけを入れる
 - この端末の npm が古く（10.5）、`npm install` が落ちることがある。そのときは `npx npm@11 install`
 
-## staging にデプロイする
+## デプロイする
 
-main に入ると、CI が通ったあとに自動でデプロイする（`.github/workflows/deploy.yml`。マイグレーション → デプロイ → `/healthz` の確認の順。#170）。GitHub の Secrets に `CLOUDFLARE_API_TOKEN` と `CLOUDFLARE_ACCOUNT_ID` が要る（なければデプロイせずに緑で終わる）。失敗を Discord にも送るなら `DISCORD_WEBHOOK_URL` を足す。Actions の画面から手で動かすこともできる（`workflow_dispatch`）。
+main に入ると、CI が通ったあとに自動でデプロイする（`.github/workflows/deploy.yml`。マイグレーション → デプロイ → `/healthz` の確認の順。#170）。行き先は、リポジトリの変数 `PRODUCTION_READY` が `true` なら本番、そうでなければ staging（#167）。GitHub の Secrets に `CLOUDFLARE_API_TOKEN` と `CLOUDFLARE_ACCOUNT_ID` が要る（なければデプロイせずに緑で終わる）。失敗を Discord にも送るなら `DISCORD_WEBHOOK_URL` を足す。Actions の画面から、行き先を選んで手で動かすこともできる（`workflow_dispatch`）。
+
+環境・秘密情報の一覧・本番を一から用意する手順・戻し方は [docs/deploy.md](../docs/deploy.md)。
 
 手元から出すのは、ブランチを確かめるときだけ:
 

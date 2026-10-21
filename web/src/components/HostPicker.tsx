@@ -6,7 +6,18 @@ import { MonitorIcon, RefreshCwIcon } from 'lucide-react';
 
 import { useCloudStore } from '@/cloud';
 import { Button } from '@/components/ui/button';
-import { type Host, pickHost, rememberHost, rememberedHost, selectable, useHostsStore } from '@/hosts';
+import {
+    type Host,
+    connectedHostId,
+    markConnected,
+    needsReload,
+    page,
+    pickHost,
+    rememberHost,
+    rememberedHost,
+    selectable,
+    useHostsStore,
+} from '@/hosts';
 
 export function HostPicker() {
     const dispatch = useCloudStore((s) => s.dispatch);
@@ -18,6 +29,14 @@ export function HostPicker() {
         // ログアウトすると戻る）
         useHostsStore.setState({ autoPicked: true });
         rememberHost(host.id);
+        // このページで前に別のホストにつないでいたら、読み込み直す（#222）。画面の状態（プロジェクト・設定・
+        // 録音の残り）と WebSocket は前のホストのものなので、作り直すより読み込み直す方が確実。
+        // 読み込み直すと、覚えたホスト（いま選んだもの）に自動でつなぐ
+        if (needsReload(connectedHostId(), host.id)) {
+            page.reload();
+            return;
+        }
+        markConnected(host.id);
         dispatch({ type: 'hostSelected', hostId: host.id });
     };
 

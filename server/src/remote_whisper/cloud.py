@@ -66,6 +66,10 @@ class CloudError(Exception):
     """中間サーバーとのやり取りに失敗した。メッセージはそのまま通知に出す"""
 
 
+class RegistrationGone(CloudError):
+    """Worker にこのホストの登録がない・署名が通らない（画面から外したなど）。聞き直さない"""
+
+
 class CloudRefused(CloudError):
     """聞き直しても変わらない断り（署名が通らない・申請の形が違うなど）。待たずにやめる"""
 
@@ -333,6 +337,21 @@ class RelayClient:
         # 404・401 は、Worker にこのホストがもうない（画面から外したなど）
         return res.status_code in (200, 204, 401, 404)
 
+    def tunnel(self, app_version: str | None = None) -> tuple[str, str]:
+        """cloudflared のトークンと公開ホスト名をもらう（起動のたび。ホストに長く置かない）
+
+        404・401 は RegistrationGone（登録が外された）。それ以外の失敗は CloudError（聞き直せる）
+        """
+        payload: dict[str, Any] = {"appVersion": app_version} if app_version else {}
+        res = self._call("/pair/tunnel", payload)
+        if res.status_code in (401, 404):
+            raise RegistrationGone(f"クラウドの登録が見つかりません（HTTP {res.status_code}）")
+        data = _json_or_error(res, "トンネルのトークンをもらえませんでした")
+        token, hostname = data.get("token"), data.get("hostname")
+        if not isinstance(token, str) or not token or not isinstance(hostname, str):
+            raise CloudError("中間サーバーの返事が読めませんでした（トークンがありません）")
+        return token, hostname
+
     def _call(self, path: str, payload: dict[str, Any]) -> httpx.Response:
         try:
             return self.post(path, payload)
@@ -382,6 +401,8 @@ class CloudView:
     code: str | None = None
     # 中間サーバーとつながっているか。None は分からない（cloudflared の管理は #159・#161）
     connected: bool | None = None
+    # cloudflared（トンネル）の状態。None は分からない・動かしていない（#159）
+    tunnel: Literal["connected", "connecting", "stopped"] | None = None
 
 
 class CloudHost:
@@ -401,6 +422,9 @@ class CloudHost:
         name: Callable[[], str] = host_name,
         poll_interval: float = POLL_INTERVAL_SEC,
         stop_tunnel: Callable[[], None] = lambda: None,
+        tunnel_state: Callable[[], Literal["connected", "connecting", "stopped"] | None] = (
+            lambda: None
+        ),
     ):
         self.home = home
         self.relay_url = relay_url
@@ -409,8 +433,9 @@ class CloudHost:
         self.open_browser = open_browser
         self.name = name
         self.poll_interval = poll_interval
-        # cloudflared を止める（#159 で入れる。今は何もしない）
+        # cloudflared を止める・その状態を聞く（cloudflared.CloudflaredRunner。#159）
         self.stop_tunnel = stop_tunnel
+        self.tunnel_state = tunnel_state
         # 通知を出す（トレイが差し替える）
         self.on_notice: Callable[[str], None] = lambda message: None
         # 登録した・解除したあとに呼ぶ（トンネル専用のポートの開け閉め。#160）
@@ -424,7 +449,12 @@ class CloudHost:
 
     @property
     def view(self) -> CloudView:
-        return self._view
+        if self._view.status != "registered":
+            return self._view
+        try:
+            return replace(self._view, tunnel=self.tunnel_state())
+        except Exception:  # noqa: BLE001 状態が取れなくても表示は続ける
+            return self._view
 
     def start_pairing(self) -> bool:
         """「クラウドにログイン」。始めたら True（登録済み・処理中なら何もしない）"""
