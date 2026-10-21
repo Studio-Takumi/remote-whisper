@@ -45,6 +45,18 @@ RECORDING_LOCKED: tuple[tuple[str, str], ...] = (
     ("recording", "echoCancellation"),
 )
 
+# トンネル（クラウド。8001 番）からは変えさせない項目（#166）。クラウドのログインを盗まれても、
+# 中間サーバーの接続先・cloudflared の場所・参考資料として読めるフォルダと拡張子・要約に文字起こしを
+# 送る Ollama の接続先を変えられないように。同じ値を送るのはかまわない
+# （画面は設定をまるごと送るため）
+TUNNEL_LOCKED: tuple[tuple[str, str], ...] = (
+    ("cloud", "relayUrl"),
+    ("cloud", "cloudflaredPath"),
+    ("materials", "roots"),
+    ("materials", "extensions"),
+    ("ollama", "host"),
+)
+
 
 def default_home() -> Path:
     """データのルート。既定は ~/.remote-whisper、環境変数 REMOTE_WHISPER_HOME で変えられる"""

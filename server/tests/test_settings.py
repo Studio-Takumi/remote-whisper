@@ -441,19 +441,29 @@ def test_cloud_and_materials_cannot_be_changed_through_the_tunnel(app, home):
         header = sign_relay(key, "u-1", host_id, now, "PATCH", "/api/settings")
         return tunnel.patch("/api/settings", json=body, headers={RELAY_HEADER: header})
 
+    direct = TestClient(app)
     before = (home / "setting.json").read_text(encoding="utf-8")
     for body in (
         {"cloud": {"relayUrl": "https://evil.example"}},
+        {"cloud": {"cloudflaredPath": "C:\\evil\\cloudflared.exe"}},
         {"materials": {"roots": ["C:\\"]}},
         {"materials": {"extensions": [".env"]}},
+        {"ollama": {"host": "https://evil.example"}},
+        {"whisper": {"model": "\\\\evil\\share\\model"}},
+        {"whisper": {"model": "C:\\models\\x"}},
     ):
         res = patch(body)
         assert res.status_code == 403, body
     assert (home / "setting.json").read_text(encoding="utf-8") == before
-    # ほかの項目は変えられる
-    assert patch({"display": {"sessionMeta": True}}).status_code == 200
+    # 画面は設定をまるごと送る。止めている項目が今と同じなら、ほかの項目は変えられる
+    whole = direct.get("/api/settings").json()
+    whole["display"]["sessionMeta"] = True
+    res = patch(whole)
+    assert res.status_code == 200
+    assert res.json()["display"]["sessionMeta"] is True
+    # モデルの名前（パスでないもの）は選べる
+    assert patch({"whisper": {"model": "small"}}).status_code == 200
     # この PC（8000 番）からは変えられる
-    direct = TestClient(app)
     assert (
         direct.patch("/api/settings", json={"materials": {"extensions": [".md"]}}).status_code
         == 200

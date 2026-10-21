@@ -536,11 +536,12 @@ class CloudHost:
             )
             # ログには登録コードを書かない（#166。URL のクエリに入っている）。
             # コードはトレイの通知とメニューに出る
-            page = str(httpx.URL(ticket.url).copy_with(query=None))
+            page = str(httpx.URL(ticket.url).copy_with(query=None, fragment=None))
             try:
                 self.open_browser(ticket.url)
-            except Exception:  # noqa: BLE001 開けなくても、画面の場所はログに、コードは通知に出ている
-                log.warning("failed to open the pairing page %s", page, exc_info=True)
+            except Exception as e:  # noqa: BLE001 開けなくても、画面の場所はログに、コードは通知に出ている
+                # 例外の文にコードつきの URL が入りうるので、例外の型だけ書く
+                log.warning("failed to open the pairing page %s: %s", page, type(e).__name__)
             log.info("pairing page: %s", page)
             deadline = min(ticket.expires_at, self.clock() + PAIR_TIMEOUT_SEC)
             interval = self.poll_interval
