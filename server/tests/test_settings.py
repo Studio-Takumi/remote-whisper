@@ -426,3 +426,47 @@ def test_cloudflared_path_accepts_empty_and_absolute_cloudflared(client):
         res = client.patch("/api/settings", json={"cloud": {"cloudflaredPath": path}})
         assert res.status_code == 200
         assert res.json()["cloud"]["cloudflaredPath"] == path
+
+
+def test_cloud_and_materials_cannot_be_changed_through_the_tunnel(app, home):
+    """トンネル（8001 番）からは、クラウドの設定と参考資料のフォルダ・拡張子を変えさせない（#166）"""  # noqa: E501
+    from starlette.testclient import TestClient
+
+    from remote_whisper.tunnel import RELAY_HEADER, RelayAuthApp, sign_relay
+
+    host_id, key, now = "11111111-2222-4333-8444-555555555555", bytes(range(32)), 1800000000
+    tunnel = TestClient(RelayAuthApp(app, lambda: (host_id, key), clock=lambda: now))
+
+    def patch(body):
+        header = sign_relay(key, "u-1", host_id, now, "PATCH", "/api/settings")
+        return tunnel.patch("/api/settings", json=body, headers={RELAY_HEADER: header})
+
+    direct = TestClient(app)
+    before = (home / "setting.json").read_text(encoding="utf-8")
+    for body in (
+        {"cloud": {"relayUrl": "https://evil.example"}},
+        {"cloud": {"cloudflaredPath": "C:\\evil\\cloudflared.exe"}},
+        {"materials": {"roots": ["C:\\"]}},
+        {"materials": {"extensions": [".env"]}},
+        {"ollama": {"host": "https://evil.example"}},
+        {"whisper": {"model": "\\\\evil\\share\\model"}},
+        {"whisper": {"model": "C:\\models\\x"}},
+    ):
+        res = patch(body)
+        assert res.status_code == 403, body
+    assert (home / "setting.json").read_text(encoding="utf-8") == before
+    # 画面は設定をまるごと送る。止めている項目が今と同じなら、ほかの項目は変えられる
+    whole = direct.get("/api/settings").json()
+    whole["display"]["sessionMeta"] = True
+    res = patch(whole)
+    assert res.status_code == 200
+    assert res.json()["display"]["sessionMeta"] is True
+    # モデルの名前（パスでないもの）は選べる
+    assert patch({"whisper": {"model": "small"}}).status_code == 200
+    # 形の違う本文は 500 にせず、検証の 422
+    assert patch({"whisper": "x"}).status_code == 422
+    # この PC（8000 番）からは変えられる
+    assert (
+        direct.patch("/api/settings", json={"materials": {"extensions": [".md"]}}).status_code
+        == 200
+    )

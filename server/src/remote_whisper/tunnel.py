@@ -145,6 +145,9 @@ class RelayAuthApp:
             # 署名が合っていても、画面（SPA の静的ファイル）は 8001 番では出さない
             await self._not_found(scope, receive, send)
             return
+        # トンネル（クラウド）から来たことを、ルートから分かるようにする
+        # （request.state.via_tunnel。#166）
+        scope.setdefault("state", {})["via_tunnel"] = True
         await self.app(scope, receive, send)
 
     def _authorized(self, scope: dict) -> bool:
