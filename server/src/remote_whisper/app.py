@@ -15,6 +15,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import Response
 from starlette.types import Scope
 
+from remote_whisper import bundle
 from remote_whisper.context import AppContext
 from remote_whisper.context_sets import ContextSetService, OllamaGenerator
 from remote_whisper.final_summary import FinalSummarizer
@@ -71,8 +72,12 @@ class SpaStaticFiles(StaticFiles):
 
 
 def web_dist_dir() -> Path:
-    """本番で配信するフロントのビルド結果の場所。REMOTE_WHISPER_WEB_DIST で変えられる"""
-    return Path(os.environ.get("REMOTE_WHISPER_WEB_DIST", DEFAULT_WEB_DIST))
+    """本番で配信するフロントのビルド結果の場所。REMOTE_WHISPER_WEB_DIST で変えられる。
+    配布用のビルド（#168）では同梱の web/"""
+    env = os.environ.get("REMOTE_WHISPER_WEB_DIST")
+    if env:
+        return Path(env)
+    return bundle.bundled_web_dist() or DEFAULT_WEB_DIST
 
 
 def create_app(

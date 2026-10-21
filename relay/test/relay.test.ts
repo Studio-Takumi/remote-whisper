@@ -214,6 +214,14 @@ describe('中継', () => {
         expect((await call(`/h/${hostId}/api/projects`, { cookie })).status).toBe(200);
         expect(forwarded[0].url).toBe('https://rwt-dev-0123456789ab.example.dev/api/projects');
     });
+
+    it('頭 12 桁が重なったときの 32 桁のトンネル名にも送る（#166）', async () => {
+        const { userId, cookie } = await newUser();
+        const long = `rwt-dev-${'0123456789abcdef'.repeat(2)}.example.dev`;
+        const { hostId } = await newHost(userId, { tunnel: long });
+        expect((await call(`/h/${hostId}/api/projects`, { cookie })).status).toBe(200);
+        expect(forwarded[0].url).toBe(`https://${long}/api/projects`);
+    });
 });
 
 describe('断るもの（どれもホストに届かない）', () => {
