@@ -463,6 +463,8 @@ def test_cloud_and_materials_cannot_be_changed_through_the_tunnel(app, home):
     assert res.json()["display"]["sessionMeta"] is True
     # モデルの名前（パスでないもの）は選べる
     assert patch({"whisper": {"model": "small"}}).status_code == 200
+    # 形の違う本文は 500 にせず、検証の 422
+    assert patch({"whisper": "x"}).status_code == 422
     # この PC（8000 番）からは変えられる
     assert (
         direct.patch("/api/settings", json={"materials": {"extensions": [".md"]}}).status_code

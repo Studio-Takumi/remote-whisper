@@ -30,7 +30,9 @@ async def patch_settings(
     via_tunnel = bool(getattr(request.state, "via_tunnel", False))
     current = ctx.settings.get().to_json()
     if via_tunnel:
-        model = (patch.get("whisper") or {}).get("model")
+        whisper = patch.get("whisper")
+        # 形の違う本文は、このあとの検証（422）に任せる
+        model = whisper.get("model") if isinstance(whisper, dict) else None
         if (
             isinstance(model, str)
             and model != current["whisper"]["model"]
