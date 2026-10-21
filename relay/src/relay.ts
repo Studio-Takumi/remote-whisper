@@ -14,8 +14,9 @@ import type { Env } from './index';
 export const RELAY_HEADER = 'X-RW-Relay';
 const HOST_PATH = /^\/h\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(\/.*)$/;
 // Worker が作ったトンネルの公開ホスト名だけに送る（DB の値が壊れていても、ほかへは送らない）
-// （rwt-<12 桁>、staging などは rwt-dev-<12 桁> のように環境の名前が入る。#159）
-const TUNNEL_HOSTNAME = /^rwt-(?:[a-z]+-)?[0-9a-f]{12}\.[a-z0-9-]+(\.[a-z0-9-]+)+$/;
+// （rwt-<12 桁>、staging などは rwt-dev-<12 桁> のように環境の名前が入る。#159。
+// 頭 12 桁がほかのホストと重なったときは 32 桁。#166）
+const TUNNEL_HOSTNAME = /^rwt-(?:[a-z]+-)?(?:[0-9a-f]{12}|[0-9a-f]{32})\.[a-z0-9-]+(\.[a-z0-9-]+)+$/;
 // ホストに渡さないヘッダー（ブラウザの資格情報・Worker の署名と同じ名前・Cloudflare のもの・1xx を返させるもの・
 // 接続元を名乗るもの（uvicorn は 127.0.0.1 からの X-Forwarded-For を信じるため））
 const DROPPED = [

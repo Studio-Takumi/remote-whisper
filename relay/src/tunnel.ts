@@ -21,8 +21,42 @@ function configured(env: Env): env is Env & { CF_API_TOKEN: string; CF_ACCOUNT_I
     return !!(env.CF_API_TOKEN && env.CF_ACCOUNT_ID && env.CF_ZONE_ID && env.TUNNEL_DOMAIN && env.TUNNEL_PREFIX);
 }
 
-export function tunnelHostname(env: Env, hostId: string): string {
-    return `${env.TUNNEL_PREFIX}${hostId.replace(/-/g, '').slice(0, 12)}.${env.TUNNEL_DOMAIN}`;
+// 公開ホスト名の候補。ふつうはホスト ID の頭 12 桁、ほかのホストがもう使っていたら 32 桁全部
+export function tunnelHostnames(env: Env, hostId: string): string[] {
+    const hex = hostId.replace(/-/g, '');
+    return [hex.slice(0, 12), hex].map((h) => `${env.TUNNEL_PREFIX}${h}.${env.TUNNEL_DOMAIN}`);
+}
+
+// 公開ホスト名を D1 で押さえる（hosts.tunnel_hostname は UNIQUE）。DNS を書く前に押さえるので、
+// ほかのホストが使っている名前の DNS を書き換えることはない（ホスト ID はホストが決めるので、頭 12 桁を
+// 他人に合わせた ID で申請されても、名前は取られない）
+async function reserveHostname(env: Env, hostId: string): Promise<string> {
+    for (const name of tunnelHostnames(env, hostId)) {
+        try {
+            const res = await env.DB.prepare(
+                'UPDATE hosts SET tunnel_hostname = ? WHERE id = ? AND tunnel_hostname IS NULL',
+            )
+                .bind(name, hostId)
+                .run();
+            if (res.meta.changes) {
+                return name;
+            }
+            // 同時に呼ばれて、もう押さえてあった
+            const row = await env.DB.prepare('SELECT tunnel_hostname FROM hosts WHERE id = ?')
+                .bind(hostId)
+                .first<{ tunnel_hostname: string | null }>();
+            if (row?.tunnel_hostname) {
+                return row.tunnel_hostname;
+            }
+            throw new Error('the host was removed while reserving its hostname');
+        } catch (e) {
+            if (!/UNIQUE/i.test((e as Error).message)) {
+                throw e;
+            }
+            // ほかのホストが使っている。次の（長い）名前を試す
+        }
+    }
+    throw new Error('no free hostname for this host');
 }
 
 async function cf<T>(
@@ -98,26 +132,25 @@ export async function ensureTunnel(env: Env, host: HostTunnel): Promise<{ token:
     if (!tunnelId) {
         tunnelId = await createTunnel(env, host.id);
     }
-    let hostname = host.tunnel_hostname;
-    if (!hostname) {
-        hostname = tunnelHostname(env, host.id);
-        await must(env, 'PUT', `${account}/cfd_tunnel/${tunnelId}/configurations`, {
-            config: { ingress: [{ hostname, service: TUNNEL_SERVICE }, { service: 'http_status:404' }] },
-        });
-        const record = { type: 'CNAME', name: hostname, content: `${tunnelId}.cfargotunnel.com`, proxied: true };
-        const existing = await must<{ id: string }[]>(
-            env,
-            'GET',
-            `/zones/${env.CF_ZONE_ID}/dns_records?type=CNAME&name=${encodeURIComponent(hostname)}`,
-        );
-        if (existing.length > 0) {
-            await must(env, 'PUT', `/zones/${env.CF_ZONE_ID}/dns_records/${existing[0].id}`, record);
-        } else {
-            await must(env, 'POST', `/zones/${env.CF_ZONE_ID}/dns_records`, record);
-        }
-        await env.DB.prepare('UPDATE hosts SET tunnel_hostname = ? WHERE id = ? AND tunnel_hostname IS NULL')
-            .bind(hostname, host.id)
-            .run();
+    // 名前は D1 で押さえてから使う。転送先の設定と DNS は、呼ばれるたびに確かめ直す
+    // （途中で失敗していても、次の起動で直る。どちらも同じ内容なら書き換えない）
+    const hostname = host.tunnel_hostname ?? (await reserveHostname(env, host.id));
+    const content = `${tunnelId}.cfargotunnel.com`;
+    await must(env, 'PUT', `${account}/cfd_tunnel/${tunnelId}/configurations`, {
+        config: { ingress: [{ hostname, service: TUNNEL_SERVICE }, { service: 'http_status:404' }] },
+    });
+    const record = { type: 'CNAME', name: hostname, content, proxied: true };
+    const existing = await must<{ id: string; content?: string }[]>(
+        env,
+        'GET',
+        `/zones/${env.CF_ZONE_ID}/dns_records?type=CNAME&name=${encodeURIComponent(hostname)}`,
+    );
+    if (existing.length === 0) {
+        await must(env, 'POST', `/zones/${env.CF_ZONE_ID}/dns_records`, record);
+    } else if (existing[0].content !== content) {
+        // この名前は D1 でこのホストのものと確かめてある。違う向き先は、消し損ねた古いレコード
+        console.warn(`repointing a stale DNS record for ${hostname} (host ${host.id})`);
+        await must(env, 'PUT', `/zones/${env.CF_ZONE_ID}/dns_records/${existing[0].id}`, record);
     }
     const token = await must<string>(env, 'GET', `${account}/cfd_tunnel/${tunnelId}/token`);
     return { token, hostname };

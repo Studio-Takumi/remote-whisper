@@ -78,7 +78,7 @@ function fakeCloudflare(input: RequestInfo | URL, init?: RequestInit) {
         }
         if (path === '/zones/zone/dns_records' && req.method === 'GET') {
             const name = url.searchParams.get('name');
-            return ok([...cf.dns].filter(([, r]) => r.name === name).map(([id]) => ({ id })));
+            return ok([...cf.dns].filter(([, r]) => r.name === name).map(([id, r]) => ({ id, content: r.content })));
         }
         if (path === '/zones/zone/dns_records' && req.method === 'POST') {
             const id = crypto.randomUUID();
@@ -154,10 +154,10 @@ async function newUser() {
 }
 
 // 登録まで済んだホスト
-async function registeredHost(cookie: string): Promise<Host> {
+async function registeredHost(cookie: string, hostId: string = crypto.randomUUID()): Promise<Host> {
     const keys = (await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify'])) as CryptoKeyPair;
     const raw = (await crypto.subtle.exportKey('raw', keys.publicKey)) as ArrayBuffer;
-    const host = { hostId: crypto.randomUUID(), keys, publicKey: base64url(raw) };
+    const host = { hostId, keys, publicKey: base64url(raw) };
     const start = await hostCall(host, '/pair/start', {
         hostId: host.hostId,
         hostName: 'PC',
@@ -206,9 +206,44 @@ describe('トンネルを用意する（POST /pair/tunnel）', () => {
         cf.calls = [];
         const again = await hostCall(host, '/pair/tunnel', {});
         expect(again.status).toBe(200);
-        // 2 回目はトークンをもらうだけ
-        expect(cf.calls).toEqual([`GET /accounts/acct/cfd_tunnel/${saved?.tunnel_id}/token`]);
+        // 2 回目はトンネルを作らない（設定と DNS を確かめ直して、トークンをもらう。DNS は同じ向き先なので書かない）
+        expect(cf.calls).toEqual([
+            `PUT /accounts/acct/cfd_tunnel/${saved?.tunnel_id}/configurations`,
+            'GET /zones/zone/dns_records',
+            `GET /accounts/acct/cfd_tunnel/${saved?.tunnel_id}/token`,
+        ]);
         expect(cf.tunnels.size).toBe(1);
+    });
+
+    it('頭 12 桁が他人のホストと同じでも、その人の DNS を書き換えない（長い名前を使う）', async () => {
+        const alice = await newUser();
+        const victim = await registeredHost(alice.cookie);
+        await hostCall(victim, '/pair/tunnel', {});
+        const victimRow = await row(victim.hostId);
+        const victimDns = [...cf.dns.values()];
+        // 攻撃者は、頭 12 桁を合わせたホスト ID で登録する
+        const bob = await newUser();
+        const forgedId = `${victim.hostId.slice(0, 13)}-4aaa-8aaa-aaaaaaaaaaaa`;
+        const attacker = await registeredHost(bob.cookie, forgedId);
+        const res = await hostCall(attacker, '/pair/tunnel', {});
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as { hostname: string };
+        expect(body.hostname).toBe(`rwt-local-${forgedId.replace(/-/g, '')}.studio-takumi.dev`);
+        expect(body.hostname).not.toBe(victimRow?.tunnel_hostname);
+        // 被害者の DNS はそのまま、攻撃者には別のレコード
+        expect([...cf.dns.values()].filter((r) => r.name === victimRow?.tunnel_hostname)).toEqual(victimDns);
+        expect(cf.dns.size).toBe(2);
+    });
+
+    it('消し損ねた古い DNS のレコードは、名前を押さえたホストのトンネルに向け直す', async () => {
+        const { cookie } = await newUser();
+        const host = await registeredHost(cookie);
+        const name = `rwt-local-${host.hostId.replace(/-/g, '').slice(0, 12)}.studio-takumi.dev`;
+        cf.dns.set('stale', { name, content: 'old-tunnel.cfargotunnel.com' });
+        expect((await hostCall(host, '/pair/tunnel', {})).status).toBe(200);
+        const tunnelId = (await row(host.hostId))?.tunnel_id;
+        expect(cf.dns.get('stale')?.content).toBe(`${tunnelId}.cfargotunnel.com`);
+        expect(cf.dns.size).toBe(1);
     });
 
     it('途中で失敗しても、次は続きから作る（トンネルを作り直さない）', async () => {
@@ -218,7 +253,9 @@ describe('トンネルを用意する（POST /pair/tunnel）', () => {
         expect((await hostCall(host, '/pair/tunnel', {})).status).toBe(502);
         const half = await row(host.hostId);
         expect(half?.tunnel_id).toBeTruthy();
-        expect(half?.tunnel_hostname).toBeNull();
+        // 名前は押さえてある（DNS はまだ）
+        expect(half?.tunnel_hostname).toBeTruthy();
+        expect(cf.dns.size).toBe(0);
         cf.fail = null;
         expect((await hostCall(host, '/pair/tunnel', {})).status).toBe(200);
         expect(cf.tunnels.size).toBe(1);

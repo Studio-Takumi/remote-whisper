@@ -173,7 +173,8 @@ sequenceDiagram
   - `code` は英数字とハイフン（4〜32 文字）。ホストはそれ以外の形なら受け付けない（通知に変な文を出さないため）
   - `url` は Worker と同じオリジンのものだけをホストが開く。違えば（または無ければ）ホストが `<中間サーバーの URL>/pair?code=<code>` を組み立てて開く
 - **トンネル（#159）**: `POST /pair/tunnel`（署名つき。本文 `{"appVersion": "<版>"}`、appVersion は任意）→ `200 {"token": "<cloudflared のトークン>", "hostname": "<公開ホスト名>"}`。登録済みのホストが**起動のたびに**呼ぶ（トークンをホストに長く置かない）。`last_seen_at` と `app_version` も更新する
-  - Worker は、トンネルがなければここで作る（承認のときではない）。手順は「トンネルを作る（`config_src: cloudflare`）→ `hosts.tunnel_id` に残す → 転送先の設定（公開ホスト名 → `http://127.0.0.1:8001`、ほかは 404）と DNS の CNAME（`<tunnel_id>.cfargotunnel.com`、プロキシあり）→ `hosts.tunnel_hostname` に残す」。途中で失敗しても、次に呼ばれたときに続きから作る（トンネルを作り直さない）
+  - Worker は、トンネルがなければここで作る（承認のときではない）。手順は「トンネルを作る（`config_src: cloudflare`）→ `hosts.tunnel_id` に残す → 公開ホスト名を `hosts.tunnel_hostname` に書いて**押さえる**（UNIQUE。頭 12 桁がほかのホストと重なっていたら 32 桁全部の名前にする）→ 転送先の設定（公開ホスト名 → `http://127.0.0.1:8001`、ほかは 404）と DNS の CNAME（`<tunnel_id>.cfargotunnel.com`、プロキシあり）」。途中で失敗しても、次に呼ばれたときに続きから作る（トンネルを作り直さない）
+  - **DNS を書くのは、D1 で名前を押さえたあとだけ**（#166）。ホスト ID はホストが決めるので、頭 12 桁を他人に合わせた ID で申請されても、他人の名前の DNS を書き換えて中継を横取りされない。転送先の設定と DNS は呼ばれるたびに確かめ直し、向き先が違う同じ名前のレコード（消し損ねた古いもの）は自分のトンネルに向け直す
   - 返事: 登録していないホストは `404`、署名が合わなければ `401`、トンネルの API の設定（secret・vars）がなければ `503`、Cloudflare の API で失敗したら `502`
   - ホスト側（`cloudflared.py`）: 登録済みのとき、8001 番が開いてから cloudflared を子プロセスで動かす（`cloudflared tunnel --no-autoupdate run`。Windows はコンソールを出さない）。起動のたびにこの API でトークンをもらい、環境変数 `TUNNEL_TOKEN` で渡す（コマンドラインにもファイルにもログにも残さない）。落ちたら 5 秒から倍にして（上限 5 分）起動し直し、そのたびにトークンをもらい直す（60 秒以上動いたら 5 秒に戻す）。`404`・`401` なら止め、`502`・`503`・つながらないときは同じ間隔で聞き直す。解除・サーバーの終了で terminate → 待って kill する。cloudflared の場所は全体設定の `cloud.cloudflaredPath`（空なら、配布用のビルドに同梱の `cloudflared.exe`（#168）、なければ PATH の `cloudflared`。どちらもなければ「見つかりません」と通知して動かさない）。トレイには「トンネル: つながっている／つないでいます／止まっている」を出す
   - 解除（`/pair/unpair`・画面から外す・退会）のときは、DNS のレコード → トンネルの接続 → トンネルの順に消してから行を消す。Cloudflare で消せなくても行は消す（残ったものはログに出す）
@@ -433,7 +434,7 @@ GROUP BY kind, path, status ORDER BY n DESC LIMIT 20;
 |---|---|
 | ドメイン | `studio-takumi.dev`（Cloudflare で取ったもの。2026-10-20） |
 | Worker | `remote-whisper-staging`（`--env staging`。カスタムドメイン `rw-dev.studio-takumi.dev`。workers.dev の URL は使わない（`workers_dev: false`。画面がクラウド版と判定せず、Cookie とオリジンも分かれるため））・`remote-whisper`（本番。`--env production`。カスタムドメイン `rw.studio-takumi.dev`） |
-| トンネルの公開ホスト名 | `rwt-<ホスト ID からハイフンを除いた頭 12 文字>.studio-takumi.dev` のように **1 段のサブドメイン**にする（同じ名前がすでにあれば、文字数を足して作り直す）（無料の証明書は `*.studio-takumi.dev` にしか効かないため。2 段にすると証明書が有料になる）。staging と本番は前置きを変える（例: staging は `rwt-dev-…`） |
+| トンネルの公開ホスト名 | `rwt-<ホスト ID からハイフンを除いた頭 12 文字>.studio-takumi.dev` のように **1 段のサブドメイン**にする（頭 12 桁がほかのホストと重なったら、32 桁全部の名前にする。10.6 節）（無料の証明書は `*.studio-takumi.dev` にしか効かないため。2 段にすると証明書が有料になる）。staging と本番は前置きを変える（例: staging は `rwt-dev-…`） |
 | `wrangler dev` のポート | 8787 |
 | ホストのトンネル専用のポート | 8001（127.0.0.1 だけ） |
 | OAuth のコールバック | `/auth/callback/google`・`/auth/callback/discord`・`/auth/callback/github` |
