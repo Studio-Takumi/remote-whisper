@@ -26,7 +26,6 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { FileAudioIcon, GripVerticalIcon, PlusIcon } from 'lucide-react';
 
-import { AudioUploadButton } from '@/components/AudioUpload';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -292,12 +291,8 @@ function ProjectGroup({
                 >
                     <GripVerticalIcon size={14} />
                 </button>
-                {/* 音声ファイルから作る（#180） */}
-                <span className='ml-auto'>
-                    <AudioUploadButton projectId={project.id} compact />
-                </span>
                 <button
-                    className={`flex size-6 items-center justify-center rounded-md text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground ${active ? 'bg-sidebar-accent text-sidebar-accent-foreground' : ''}`}
+                    className={`size-6items-center ml-auto flex justify-center rounded-md text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground ${active ? 'bg-sidebar-accent text-sidebar-accent-foreground' : ''}`}
                     aria-label={`${project.name}で新しく録音`}
                     onClick={onNewSession}
                 >
