@@ -76,15 +76,22 @@ def test_confirms_quitting_only_while_recording():
     assert "1 件" in quit_confirmation(status(recordings=1))
 
 
-def test_tray_updates_only_when_the_state_changes(monkeypatch):
+@pytest.mark.parametrize("status_line", [False, True], ids=["windows", "mac"])
+def test_tray_updates_only_when_the_state_changes(monkeypatch, status_line):
     pytest.importorskip("PIL")
     from remote_whisper import tray
+
+    # 動かす OS に左右されないよう、状態の行を出すかどうか（Mac かどうか）を決めておく
+    monkeypatch.setattr(tray, "shows_status_line", lambda: status_line)
 
     class FakeIcon:
         def __init__(self):
             self.icon = None
             self.title = None
             self.icons = 0
+
+        def update_menu(self):
+            pass
 
         def __setattr__(self, name, value):
             if name == "icon" and value is not None:
@@ -175,13 +182,16 @@ def test_cloud_menu_is_rewritten_when_the_cloud_state_changes(monkeypatch):
     from remote_whisper import tray
 
     monkeypatch.setattr(tray, "shows_status_line", lambda: False)
+    monkeypatch.setattr(tray.sys, "platform", "win32")
 
     class FakeIcon:
-        icon = None
-        title = None
-        menus = 0
+        def __init__(self):
+            self.icon = None
+            self.title = None
+            self.menus = 0
+            self.notices = []
+
         HAS_NOTIFICATION = True
-        notices: list = []
 
         def update_menu(self):
             self.menus += 1
@@ -202,6 +212,44 @@ def test_cloud_menu_is_rewritten_when_the_cloud_state_changes(monkeypatch):
     # 登録のスレッドからの通知は、トレイの通知に出す
     cloud.on_notice("登録コード: ABCD-1234")
     assert t._icon.notices == ["登録コード: ABCD-1234"]
+
+
+def test_cloud_notice_goes_through_osascript_on_mac(monkeypatch):
+    # Mac は pystray で通知を出せないので、osascript で出す。pystray の notify は使わない
+    pytest.importorskip("PIL")
+    from remote_whisper import tray
+
+    monkeypatch.setattr(tray, "shows_status_line", lambda: True)
+    monkeypatch.setattr(tray.sys, "platform", "darwin")
+    shown = []
+    monkeypatch.setattr(tray, "notify_mac", shown.append)
+
+    class FakeIcon:
+        icon = None
+        title = None
+        HAS_NOTIFICATION = True
+
+        def update_menu(self):
+            pass
+
+        def notify(self, message, title):
+            raise AssertionError("pystray notify must not be used on Mac")
+
+    cloud = FakeCloud()
+    t = tray.Tray(status=ServerStatus, url="", log_dir=None, on_quit=None, cloud=cloud)
+    t._icon = FakeIcon()
+    cloud.on_notice("登録コード: ABCD-1234")
+    assert shown == ["登録コード: ABCD-1234"]
+
+
+def test_notify_mac_runs_osascript(monkeypatch):
+    from remote_whisper import tray
+
+    calls = []
+    monkeypatch.setattr(tray.subprocess, "Popen", lambda args, **_: calls.append(args))
+    tray.notify_mac('コード "A"')
+    assert calls[0][:2] == ["osascript", "-e"]
+    assert calls[0][2] == f'display notification "コード \\"A\\"" with title "{tray.APP_NAME}"'
 
 
 def test_cloud_unpair_asks_first(monkeypatch):
@@ -375,15 +423,21 @@ def test_icon_images_carry_every_size_for_the_ico(monkeypatch):
     assert icon_images("gray").size == (36, 36)
 
 
-def test_update_redraws_when_only_the_theme_changes():
+@pytest.mark.parametrize("status_line", [False, True], ids=["windows", "mac"])
+def test_update_redraws_when_only_the_theme_changes(monkeypatch, status_line):
     pytest.importorskip("PIL")
     from remote_whisper import tray
+
+    monkeypatch.setattr(tray, "shows_status_line", lambda: status_line)
 
     class FakeIcon:
         def __init__(self):
             self.icon = None
             self.title = None
             self.icons = 0
+
+        def update_menu(self):
+            pass
 
         def __setattr__(self, name, value):
             if name == "icon" and value is not None:
