@@ -183,6 +183,9 @@ const row = (hostId: string) =>
             last_seen_at: number | null;
         }>();
 
+// /pair/tunnel は 1 台あたり 5 秒に 1 回まで（#166）。続けて呼ぶテストでは、前の呼び出しを昔のことにする
+const later = (hostId: string) => env.DB.prepare('UPDATE hosts SET last_seen_at = 0 WHERE id = ?').bind(hostId).run();
+
 describe('トンネルを用意する（POST /pair/tunnel）', () => {
     it('初めてならトンネル・設定・DNS を作り、トークンと公開ホスト名を返す。2 回目は作らない', async () => {
         const { cookie } = await newUser();
@@ -203,7 +206,11 @@ describe('トンネルを用意する（POST /pair/tunnel）', () => {
         });
         expect([...cf.dns.values()]).toEqual([{ name: expected, content: `${saved?.tunnel_id}.cfargotunnel.com` }]);
 
+        // 5 秒以内にもう一度呼ぶと断る（Cloudflare の API を呼ばない）
         cf.calls = [];
+        expect((await hostCall(host, '/pair/tunnel', {})).status).toBe(429);
+        expect(cf.calls).toEqual([]);
+        await later(host.hostId);
         const again = await hostCall(host, '/pair/tunnel', {});
         expect(again.status).toBe(200);
         // 2 回目はトンネルを作らない（設定と DNS を確かめ直して、トークンをもらう。DNS は同じ向き先なので書かない）
@@ -257,6 +264,7 @@ describe('トンネルを用意する（POST /pair/tunnel）', () => {
         expect(half?.tunnel_hostname).toBeTruthy();
         expect(cf.dns.size).toBe(0);
         cf.fail = null;
+        await later(host.hostId);
         expect((await hostCall(host, '/pair/tunnel', {})).status).toBe(200);
         expect(cf.tunnels.size).toBe(1);
         expect(cf.dns.size).toBe(1);
@@ -287,10 +295,11 @@ describe('トンネルを用意する（POST /pair/tunnel）', () => {
         const { cookie } = await newUser();
         const host = await registeredHost(cookie);
         const [a, b] = await Promise.all([hostCall(host, '/pair/tunnel', {}), hostCall(host, '/pair/tunnel', {})]);
-        // どちらかは名前の重複で 502 になってもよいが、残るトンネルは 1 つで、DB と一致する
+        // 片方は 429（間隔の制限）か 502（名前の重複）になってもよいが、残るトンネルは 1 つで、DB と一致する
         expect([a.status, b.status]).toContain(200);
         expect(cf.tunnels.size).toBe(1);
         expect(cf.tunnels.has((await row(host.hostId))?.tunnel_id ?? '')).toBe(true);
+        await later(host.hostId);
         expect((await hostCall(host, '/pair/tunnel', {})).status).toBe(200);
     });
 });
@@ -321,9 +330,42 @@ describe('ホストの一覧と管理（#161）', () => {
             [c.hostId, null],
         ]);
         expect(hosts[0].appVersion).toBe('0.9.0');
-        // Cloudflare の API が使えなければ null（一覧は出す）
+        // しばらくは覚えておいた状態を返し、Cloudflare の API を呼ばない（#166。一覧の連打で API を使い切らせない）
+        cf.calls = [];
         cf.fail = 'GET /accounts';
-        expect((await list(cookie)).hosts.map((h) => h.online)).toEqual([null, null, null]);
+        expect((await list(cookie)).hosts.map((h) => h.online)).toEqual([true, false, null]);
+        expect(cf.calls).toEqual([]);
+    });
+
+    it('Cloudflare の API が使えなければ null（一覧は出す）', async () => {
+        const { cookie } = await newUser();
+        const a = await registeredHost(cookie);
+        await hostCall(a, '/pair/tunnel', {});
+        cf.fail = 'GET /accounts';
+        expect((await list(cookie)).hosts.map((h) => h.online)).toEqual([null]);
+    });
+
+    it('ホストは 1 人 5 台まで', async () => {
+        const { cookie } = await newUser();
+        for (let i = 0; i < 5; i++) {
+            await registeredHost(cookie);
+        }
+        const keys = (await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify'])) as CryptoKeyPair;
+        const raw = (await crypto.subtle.exportKey('raw', keys.publicKey)) as ArrayBuffer;
+        const sixth = { hostId: crypto.randomUUID(), keys, publicKey: base64url(raw) };
+        const start = await hostCall(sixth, '/pair/start', {
+            hostId: sixth.hostId,
+            hostName: 'PC',
+            publicKey: sixth.publicKey,
+        });
+        const { code } = (await start.json()) as { code: string };
+        const res = await SELF.fetch(`${ORIGIN}/pair/approve`, {
+            method: 'POST',
+            headers: { Cookie: cookie, Origin: ORIGIN, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code }),
+        });
+        expect(res.status).toBe(409);
+        expect((await list(cookie)).hosts).toHaveLength(5);
     });
 
     it('名前を変えられる（自分のホストだけ・書式の文字は除く・長さの制限）', async () => {

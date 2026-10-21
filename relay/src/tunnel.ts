@@ -153,6 +153,7 @@ export async function ensureTunnel(env: Env, host: HostTunnel): Promise<{ token:
         await must(env, 'PUT', `/zones/${env.CF_ZONE_ID}/dns_records/${existing[0].id}`, record);
     }
     const token = await must<string>(env, 'GET', `${account}/cfd_tunnel/${tunnelId}/token`);
+    forgetOnline(tunnelId);
     return { token, hostname };
 }
 
@@ -210,12 +211,40 @@ export async function deleteTunnel(env: Env, host: HostTunnel): Promise<void> {
     }
 }
 
+// 1 人が登録できるホストの数（#166）
+export const MAX_HOSTS_PER_USER = 5;
+
+// オンラインかどうかを覚えておく時間（#166。一覧を連打されても Cloudflare の API をその数だけ呼ばない）。
+// 「つながっている」は 60 秒、「つながっていない・分からない」は 10 秒（PC を起動した直後に、長く選べないままに
+// しないため）。isolate ごとの覚え方なので、PoP を散らせばそのぶん呼べる。全体の回数は WAF で守る（docs/deploy.md）
+const ONLINE_TTL_MS = 60 * 1000;
+const OFFLINE_TTL_MS = 10 * 1000;
+const onlineCache = new Map<string, { value: boolean | null; until: number }>();
+
+// トンネルのトークンを渡した（cloudflared がこれからつなぐ）ので、覚えていた状態を捨てる
+export function forgetOnline(tunnelId: string) {
+    onlineCache.delete(tunnelId);
+}
+
 // トンネルに cloudflared がつながっているか（#161 のホストの一覧）。healthy・degraded ならつながっている。
 // API が使えない・失敗したときは null（分からない）
 export async function tunnelOnline(env: Env, tunnelId: string): Promise<boolean | null> {
     if (!configured(env)) {
         return null;
     }
+    const cached = onlineCache.get(tunnelId);
+    if (cached && cached.until > Date.now()) {
+        return cached.value;
+    }
+    const value = await fetchTunnelOnline(env, tunnelId);
+    if (onlineCache.size > 1000) {
+        onlineCache.clear();
+    }
+    onlineCache.set(tunnelId, { value, until: Date.now() + (value === true ? ONLINE_TTL_MS : OFFLINE_TTL_MS) });
+    return value;
+}
+
+async function fetchTunnelOnline(env: Env, tunnelId: string): Promise<boolean | null> {
     try {
         // 一覧はホストの数だけ並べて聞くので、遅いときは 3 秒で諦めて null にする（一覧全体を待たせない）
         const res = await cf<{ status?: string }>(
@@ -234,7 +263,8 @@ export async function tunnelOnline(env: Env, tunnelId: string): Promise<boolean 
     }
 }
 
-// ユーザーのホストのトンネルをすべて消す（退会のとき）
+// ユーザーのホストのトンネルをすべて消す（退会のとき）。ホストは 1 人 MAX_HOSTS_PER_USER 台までなので、
+// Cloudflare の API の呼び出し（1 台あたり最大 6 回）は Worker のサブリクエストの上限（50）に収まる
 export async function deleteUserTunnels(env: Env, userId: string): Promise<void> {
     const rows = await env.DB.prepare('SELECT id, tunnel_id, tunnel_hostname FROM hosts WHERE user_id = ?')
         .bind(userId)

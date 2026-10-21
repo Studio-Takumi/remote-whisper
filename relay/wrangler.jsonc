@@ -26,7 +26,8 @@
       "migrations_dir": "migrations",
     },
   ],
-  // トンネルの公開ホスト名は <TUNNEL_PREFIX><ホスト ID の頭 12 文字>.<TUNNEL_DOMAIN>（#159。1 段のサブドメイン）
+  // トンネルの公開ホスト名は <TUNNEL_PREFIX><ホスト ID の頭 12 文字（重なったら 32 文字）>.<TUNNEL_DOMAIN>（#159・#166。1 段のサブドメイン）。
+  // TUNNEL_PREFIX は環境どうしで重ならないこと（名前の重なりは環境ごとの D1 でしか見えないため）
   "vars": { "CLOUD_ENV": "dev", "TUNNEL_DOMAIN": "studio-takumi.dev", "TUNNEL_PREFIX": "rwt-local-" },
   "env": {
     "staging": {

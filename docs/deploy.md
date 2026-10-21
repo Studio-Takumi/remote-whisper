@@ -58,6 +58,15 @@
 7. **自動デプロイを本番に替える**: GitHub → Settings → Secrets and variables → Actions → Variables に `PRODUCTION_READY` = `true` を足す
 8. **ホストの既定の接続先を本番にする**: `server/src/remote_whisper/settings.py` の `DEFAULT_RELAY_URL` と `web/src/settings.ts` の既定の `relayUrl` を `https://rw.studio-takumi.dev` にして PR を出す（すでに staging に登録したホストは、cloud.json の `relayUrl` を使い続ける）
 
+## WAF のレート制限（#166）
+
+Worker の中の回数の制限（申請・ポーリング・`/pair/tunnel`・ホスト数・一覧の状態の覚え方）は、isolate ごと・ホストごとのもので、たくさんの IP や PoP から来られると全体では効かない。全体の回数は Cloudflare の WAF で守る（ダッシュボードの設定なので匠の作業）。
+
+1. Cloudflare → `studio-takumi.dev` → Security → WAF → Rate limiting rules → Create rule
+2. 対象: Hostname が `rw-dev.studio-takumi.dev`（本番は `rw.studio-takumi.dev`）で、URI Path が `/auth/` か `/pair/` で始まるもの、または `/me/hosts`
+3. 回数: 同じ IP から 10 秒に 20 回（無料プランで選べる範囲）を超えたら、10 秒 Block
+4. 画面の静的アセットと `/h/`（中継）は対象にしない（録音中の API を止めないため）
+
 ## 戻し方
 
 ### まずい版を出したとき
