@@ -28,6 +28,11 @@ export function setHostId(hostId: string | null) {
     currentHostId = hostId;
 }
 
+// 録音ごとの数字（#206）を送るときの、今つないでいるホスト
+export function getHostId() {
+    return currentHostId;
+}
+
 function hostPrefix(m: Mode, hostId: string | null) {
     if (m === 'direct') {
         return '';

@@ -162,6 +162,8 @@ export class AudioSender {
     // チャンクを作ったとき・サーバーが受け取ったとき（IndexedDB に置く・消すため。#102）
     onFrame: ((seq: number, frame: ArrayBuffer) => void) | null = null;
     onAcked: ((seq: number) => void) | null = null;
+    // チャンクを作ったとき（計測用。#206）。まだ届いていない音声の秒数も渡す
+    onChunk: ((seq: number, bufferedSec: number) => void) | null = null;
 
     constructor(onPendingChange: (count: number) => void = () => {}) {
         this.onPendingChange = onPendingChange;
@@ -215,6 +217,7 @@ export class AudioSender {
         if (!this.isHolding) {
             connection.sendBinary(frame);
         }
+        this.onChunk?.(this.seq, this.unsentSamples / 16000);
         this.seq += 1;
         this.length = 0;
         this.onPendingChange(this.pending.size);

@@ -17,12 +17,14 @@ import {
     mergeProjects,
     toSelection,
 } from '@/data';
+import { getHostId, isCloud, meUrl } from '@/endpoint';
 import { demoProjects, fallbackOptions, initialContextSets } from '@/mock';
 import { sortSessions } from '@/move';
 import { fetchOptions } from '@/options';
 import { sortByIds } from '@/projectOrder';
 import type { ServerMessage, SettingsOptions } from '@/protocol';
 import { type RecordingState, recordingLocks } from '@/recording';
+import { RecordingMetrics, metricsSettings, sendRecordingMetrics } from '@/recordingMetrics';
 import { replaceUrlNext } from '@/router';
 import {
     type OllamaModels,
@@ -239,6 +241,22 @@ let unsentEntry: UnsentSession | null = null;
 // 読み込み直した後に resume したとき、サーバーが受け取り済みの録音の長さ（サンプル数）。最初の ack で使う
 let recoveredBase: number | null = null;
 
+// 録音ごとの数字（#206。クラウド版のときだけ集めて送る）。metrics は今の（直近の）録音。
+// 録音を終えたものは、最終の要約ができるまで awaiting に置く
+let metrics: RecordingMetrics | null = null;
+let metricsSession: string | null = null;
+const awaiting = new Map<string, RecordingMetrics>();
+
+function sendMetrics(m: RecordingMetrics | null | undefined, beacon = false) {
+    sendRecordingMetrics(m, {
+        cloud: isCloud,
+        hostId: getHostId(),
+        url: meUrl('/metrics/recording'),
+        beacon,
+        sendBeacon: (url, data) => navigator.sendBeacon(url, data),
+    });
+}
+
 type StartedMessage = Extract<ServerMessage, { type: 'started' }>;
 type ErrorMessage = Extract<ServerMessage, { type: 'error' }>;
 
@@ -281,6 +299,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     // 接続した直後に届く status も受け取れるように、つなぐ前に呼ぶ
     function subscribeRecording() {
         return connection.subscribe((m) => {
+            metrics?.receive(m, metricsSession);
             if (m.type === 'ack') {
                 sender?.ack(m.seq);
                 // つなぎ直した直後の ack は、サーバーが受け取り済みの最後の連番。その次から送り直す
@@ -370,6 +389,21 @@ export const useAppStore = create<AppState>()((set, get) => {
         });
     }
 
+    // 録音ごとの数字を集め始める（クラウド版のときだけ。#206）
+    function startMetrics(continued: boolean, sessionId: string) {
+        metrics = null;
+        metricsSession = null;
+        if (!isCloud || isDemo) {
+            return;
+        }
+        const m = new RecordingMetrics({ continued, settings: metricsSettings(get().settings) });
+        metrics = m;
+        metricsSession = sessionId;
+        if (sender) {
+            sender.onChunk = (seq, bufferedSec) => m.chunkSent(seq, bufferedSec);
+        }
+    }
+
     // 届いていない音声を IndexedDB に置き、サーバーが受け取ったら消す（#102）
     function persistUnsent(target: AudioSender, sessionId: string, projectId: string) {
         let warned = false;
@@ -407,6 +441,7 @@ export const useAppStore = create<AppState>()((set, get) => {
         if (reply.type === 'error') {
             throw new Error(reply.message);
         }
+        startMetrics(!!continueSessionId, continueSessionId ?? reply.session);
 
         if (continueSessionId) {
             // 続きを録音する。経過時間と文字起こしの時刻は、前の録音の長さから続ける（#101）
@@ -605,6 +640,13 @@ export const useAppStore = create<AppState>()((set, get) => {
 
     // 最終の要約ができたら、一覧とセッションの中身をサーバーから取り直す
     async function reloadAfterFinalSummary(sessionId: string) {
+        const finished = awaiting.get(sessionId);
+        if (finished) {
+            // 録音ごとの数字を送る（#206）。同じ録音を 2 回送らない
+            awaiting.delete(sessionId);
+            finished.finalSummaryDone();
+            sendMetrics(finished);
+        }
         if (isDemo) {
             set((s) => finishDemoSummary(s, sessionId));
             return;
@@ -821,6 +863,11 @@ export const useAppStore = create<AppState>()((set, get) => {
                 const created = await uploadAudio(projectId, file, (percent) =>
                     set({ uploading: { projectId, name: file.name, percent } }),
                 );
+                if (isCloud) {
+                    const m = new RecordingMetrics({ upload: true, settings: metricsSettings(get().settings) });
+                    m.awaitSummary();
+                    awaiting.set(created.id, m);
+                }
                 await get().loadProjects();
                 get().selectSession(projectId, created.id);
                 // 最終の文字起こしと最終の要約は、サーバーが後ろで作る。要約が届くまでは「作成中」と出す
@@ -1239,6 +1286,7 @@ export const useAppStore = create<AppState>()((set, get) => {
         pauseRecording: async () => {
             await mic?.flush();
             sender?.flush();
+            metrics?.pause();
             connection.send({ type: 'pause' });
             set({ recordingState: 'paused', micLevel: 0 });
         },
@@ -1258,6 +1306,11 @@ export const useAppStore = create<AppState>()((set, get) => {
             }
             sender?.flush();
             const sessionId = get().recordingSessionId;
+            if (metrics && sessionId) {
+                // 最終の要約ができたときに送る
+                metrics.stop(Math.floor(get().elapsed));
+                awaiting.set(sessionId, metrics);
+            }
             if (sender && !sender.holding) {
                 connection.send({ type: 'stop' });
             } else {
@@ -1304,6 +1357,19 @@ export const useAppStore = create<AppState>()((set, get) => {
                 return;
             }
             serverSubscribed = true;
+            // ページを閉じるときは、その時点までの録音ごとの数字を送る（#206。同じ録音を 2 回送らない）
+            if (isCloud && !isDemo) {
+                window.addEventListener('pagehide', () => {
+                    if (metrics && get().recordingSessionId) {
+                        metrics.stop(Math.floor(get().elapsed));
+                        sendMetrics(metrics, true);
+                    }
+                    for (const m of awaiting.values()) {
+                        sendMetrics(m, true);
+                    }
+                    awaiting.clear();
+                });
+            }
             // 前にページを開いていたときに、サーバーに届かなかった音声が残っていないか（#102）
             if (!isDemo) {
                 void listUnsent().then((list) => {
@@ -1340,6 +1406,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                 if (!get().recordingSessionId && !stoppedWhileOffline) {
                     return;
                 }
+                metrics?.connection(connected);
                 if (connected) {
                     // 録音中に切れていたら、続きから録音する
                     void resumeAfterReconnect();
