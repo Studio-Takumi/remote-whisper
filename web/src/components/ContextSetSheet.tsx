@@ -128,6 +128,7 @@ export function ContextSetSheet() {
                     open={pickerOpen}
                     onOpenChange={setPickerOpen}
                     extensions={extensions}
+                    projectPath={project?.path ?? ''}
                     onCreate={onCreate}
                 />
             </SheetContent>

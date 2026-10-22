@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import {
     ChevronRightIcon,
@@ -21,6 +21,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
+import { isSameOrAncestor } from '@/dirPath';
 import { useDirListing } from '@/hooks/useDirListing';
 
 // 参考資料にするファイルを選ぶ。選べるのは「読み込めるフォルダ」の中の、読み込める拡張子のファイルだけ（spec/api.md 7.3 節）
@@ -29,11 +30,14 @@ export function MaterialPickerDialog({
     open,
     onOpenChange,
     extensions,
+    projectPath,
     onCreate,
 }: {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     extensions: string[];
+    // 今のプロジェクトのディレクトリ。ルートの中にあれば、そこまで開いた状態で出す
+    projectPath: string;
     onCreate: (materials: string[]) => void;
 }) {
     return (
@@ -48,6 +52,7 @@ export function MaterialPickerDialog({
                 {/* DialogContent は閉じると消えるので、開くたびに選び直せる */}
                 <Picker
                     extensions={extensions}
+                    projectPath={projectPath}
                     onCreate={(materials) => {
                         onCreate(materials);
                         onOpenChange(false);
@@ -58,10 +63,24 @@ export function MaterialPickerDialog({
     );
 }
 
-function Picker({ extensions, onCreate }: { extensions: string[]; onCreate: (materials: string[]) => void }) {
+function Picker({
+    extensions,
+    projectPath,
+    onCreate,
+}: {
+    extensions: string[];
+    projectPath: string;
+    onCreate: (materials: string[]) => void;
+}) {
     const [selected, setSelected] = useState<string[]>([]);
     // 一番上は、読み込めるフォルダ（materials.roots）の一覧
     const { listing, error } = useDirListing(null);
+    // プロジェクトのディレクトリがルートの中にあれば 200 で、実際のパスが返る。外・なしなら失敗するので、そのときは今までどおり
+    // プロジェクトを選んでいない（パスが空）ときは取りに行かない
+    const hasProject = projectPath !== '';
+    const project = useDirListing(projectPath, hasProject);
+    const projectSettled = !hasProject || project.listing !== null || project.error !== null;
+    const target = project.listing?.path ?? null;
 
     function toggle(path: string) {
         setSelected((s) => (s.includes(path) ? s.filter((p) => p !== path) : [...s, path]));
@@ -72,7 +91,7 @@ function Picker({ extensions, onCreate }: { extensions: string[]; onCreate: (mat
             <div className='h-72 overflow-y-auto rounded-lg border p-1'>
                 {error ? (
                     <Message>フォルダの一覧を取れません: {error}</Message>
-                ) : !listing ? (
+                ) : !listing || !projectSettled ? (
                     <Message>読み込んでいます…</Message>
                 ) : listing.dirs.length === 0 ? (
                     <Message>読み込めるフォルダが設定されていません。設定の「参考資料」から追加してください。</Message>
@@ -85,6 +104,7 @@ function Picker({ extensions, onCreate }: { extensions: string[]; onCreate: (mat
                             isRoot
                             selected={selected}
                             onToggle={toggle}
+                            target={target}
                             defaultOpen
                         />
                     ))
@@ -120,6 +140,7 @@ function FolderNode({
     isRoot = false,
     selected,
     onToggle,
+    target = null,
     defaultOpen = false,
 }: {
     path: string;
@@ -127,10 +148,22 @@ function FolderNode({
     isRoot?: boolean;
     selected: string[];
     onToggle: (path: string) => void;
+    // プロジェクトのディレクトリ。そこまでの親は開いて、そのディレクトリが見える位置にスクロールする
+    target?: string | null;
     defaultOpen?: boolean;
 }) {
-    const [open, setOpen] = useState(defaultOpen);
+    const onPath = target !== null && isSameOrAncestor(path, target);
+    const isTarget = onPath && isSameOrAncestor(target, path);
+    const [open, setOpen] = useState(defaultOpen || onPath);
     const { listing } = useDirListing(path, open);
+    const rowRef = useRef<HTMLButtonElement>(null);
+    // 中身が出てから合わせる（上にある兄弟は、この時点で描画済みなのでずれない）
+    const loaded = listing !== null;
+    useEffect(() => {
+        if (isTarget && loaded) {
+            rowRef.current?.scrollIntoView({ block: 'start' });
+        }
+    }, [isTarget, loaded]);
     const dirs = listing?.dirs ?? [];
     const files = listing?.files ?? [];
     // まだ取っていないときは、中身がある前提で ▶ を出す
@@ -140,7 +173,10 @@ function FolderNode({
     return (
         <Collapsible open={open} onOpenChange={setOpen}>
             <CollapsibleTrigger asChild>
-                <button className='flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-sm hover:bg-muted'>
+                <button
+                    ref={rowRef}
+                    className={`flex w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-sm hover:bg-muted ${isTarget ? 'bg-muted/60 font-medium' : ''}`}
+                >
                     <ChevronRightIcon
                         className={`size-4 shrink-0 text-muted-foreground transition-transform ${open ? 'rotate-90' : ''} ${empty ? 'invisible' : ''}`}
                     />
@@ -157,6 +193,7 @@ function FolderNode({
                             label={child.name}
                             selected={selected}
                             onToggle={onToggle}
+                            target={target}
                         />
                     ))}
                     {files.map((file) => (
