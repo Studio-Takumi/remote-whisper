@@ -14,7 +14,7 @@ from typing import Any
 from fastapi import WebSocket
 
 from remote_whisper.corrections import Correction, apply_all, replace
-from remote_whisper.hub import Hub, send
+from remote_whisper.hub import Hub
 from remote_whisper.ollama import OllamaUnavailable, ollama_error
 from remote_whisper.projects import ProjectError, ProjectStore
 from remote_whisper.recording import RecordingError, check_continuable
@@ -124,8 +124,12 @@ class MockSession:
         """手で足した語（#175）。モックは Whisper を使わないので、用語リストはない"""
 
     async def send(self, message: dict[str, Any]) -> None:
-        if self.ws is not None:
-            await send(self.ws, {**message, "session": self.id})
+        """録音しているクライアントと、このセッションを見ているクライアント（#238）に送る"""
+        await self.recorder.hub.send_session(self.ws, self.id, message)
+
+    @property
+    def paused(self) -> bool:
+        return not self.running.is_set()
 
     def begin(self) -> None:
         self._tasks = [
@@ -228,14 +232,20 @@ class MockSession:
         if picked:
             await self.send({"type": "terms", "terms": picked, "rejected": []})
 
+    async def _send_all(self, message: dict[str, Any]) -> None:
+        """全員に送る。本物と同じく、録音を終えたあとの最終要約は全員に送る
+        （ほかのクライアントで見ていても気づけるように。#118・#238）"""
+        await self.recorder.hub.broadcast({**message, "session": self.id})
+
     async def _stream(self, kind: str, text: str) -> None:
+        send = self.send if kind == "live" else self._send_all
         if kind == "live":
             # 本物と同じく、回の始まりに前置き（ここでは空）を replace で送る（#123）
-            await self.send({"type": "summary.delta", "kind": kind, "text": "", "replace": True})
+            await send({"type": "summary.delta", "kind": kind, "text": "", "replace": True})
         for i in range(0, len(text), 6):
-            await self.send({"type": "summary.delta", "kind": kind, "text": text[i : i + 6]})
+            await send({"type": "summary.delta", "kind": kind, "text": text[i : i + 6]})
             await asyncio.sleep(self.timing.stream)
-        await self.send({"type": "summary.done", "kind": kind})
+        await send({"type": "summary.done", "kind": kind})
 
     # --- ブラウザからの操作 ---
 
@@ -267,6 +277,8 @@ class MockSession:
             # 話している途中の文は、そこまでを final にする
             if current is not None:
                 await self._final(current, start)
+            # 最後の文まで送ってから、見ているクライアントに終わりを知らせる（#238。本物と同じ）
+            await self.recorder.hub.end_watch(self.id)
             if self.writer:
                 self.writer.finish(self.elapsed)
         except BaseException:
@@ -280,7 +292,7 @@ class MockSession:
         if self.recorder.hub.status.ollama != "ready":
             if self.writer:
                 self.writer.set_summary_failed(True)
-            await self.send(ollama_error("最終要約"))
+            await self._send_all(ollama_error("最終要約"))
             return
         await self._stream("final", FINAL_SUMMARY)
         if self.writer:
@@ -293,7 +305,7 @@ class MockSession:
                 FINAL_SUMMARY,
                 overview_model=models.overview,
             )
-        await self.send({"type": "title", "title": FINAL_TITLE, "provisional": False})
+        await self._send_all({"type": "title", "title": FINAL_TITLE, "provisional": False})
         # 本物と同じく、最終要約ができたら通知する（#245）
         if self.writer and self.recorder.on_summary is not None:
             await self.recorder.on_summary(self.writer)
@@ -308,6 +320,7 @@ class MockSession:
         await asyncio.sleep(self.timing.resume_timeout)
         log.info("session %s interrupted", self.id)
         await self._end()
+        await self.recorder.hub.end_watch(self.id)
         if self.writer:
             self.writer.finish(self.elapsed, status="interrupted")
 

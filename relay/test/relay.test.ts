@@ -199,6 +199,35 @@ describe('中継', () => {
         expect(res.headers.get('Set-Cookie')).toBeNull();
     });
 
+    it('録音中のセッションを見る /ws（#238）は、同じアカウントのクライアントだけがつながる', async () => {
+        // 録音している端末（PC）と見る端末（スマホ）は、同じアカウントの別々のログイン
+        const alice = await newUser();
+        const phone = crypto.randomUUID();
+        const now = Date.now();
+        await env.DB.prepare(
+            'INSERT INTO web_sessions (id, user_id, token_hash, created_at, expires_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?)',
+        )
+            .bind(crypto.randomUUID(), alice.userId, await sha256(phone), now, now + 3_600_000, now)
+            .run();
+        const bob = await newUser();
+        const { hostId } = await newHost(alice.userId);
+        for (const cookie of [alice.cookie, `__Host-rw_session=${phone}`]) {
+            const res = await call(`/h/${hostId}/ws`, { cookie, headers: { Upgrade: 'websocket' } });
+            expect(res.status).toBe(101);
+            res.webSocket?.accept();
+            res.webSocket?.close();
+        }
+        // どちらもホストの持ち主として署名して中継する（ホストはこの 2 本に録音中のメッセージを送る）
+        expect(forwarded.map((r) => /user=([^;]+)/.exec(r.headers.get('X-RW-Relay') ?? '')?.[1])).toEqual([
+            alice.userId,
+            alice.userId,
+        ]);
+        // 別のアカウントは、そのホストの /ws につなげない（録音中のメッセージは流れない）
+        const res = await call(`/h/${hostId}/ws`, { cookie: bob.cookie, headers: { Upgrade: 'websocket' } });
+        expect(res.status).toBe(403);
+        expect(forwarded).toHaveLength(2);
+    });
+
     it('ホストのリダイレクトには従わず、Location も返さない', async () => {
         const { userId, cookie } = await newUser();
         const { hostId } = await newHost(userId);

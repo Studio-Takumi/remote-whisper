@@ -588,6 +588,59 @@ async def _set(gate):
     gate.setdefault("event", asyncio.Event()).set()
 
 
+def test_watchers_stay_when_the_recording_is_continued_right_after_stop(
+    client, project, monkeypatch
+):
+    # 終えてすぐ（前の録音の最後の区間を文字起こししている間に）続きから録音しても、
+    # 続きを見ているクライアントに stopped を送らず、見ている登録も消さない（#238 のレビュー）
+    pid, _ = project
+    hub = client.app.state.ctx.hub
+    gate = {}
+    original = LiveTranscriber.wait
+
+    async def slow_wait(self):
+        event = gate.setdefault("event", asyncio.Event())
+        await event.wait()
+        await original(self)
+
+    class Viewer:
+        def __init__(self):
+            self.sent = []
+
+        async def send_json(self, message):
+            self.sent.append(message)
+
+    viewer = Viewer()
+    # 普通に終えたあとも続きを録音できるようにする（テストの既定は 0 分）
+    client.app.state.ctx.recorder.continue_window = 60
+    monkeypatch.setattr(LiveTranscriber, "wait", slow_wait)
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        sid = start(ws, pid)
+        hub.watch(viewer, sid)
+        ws.send_bytes(chunk(0, value=3000))
+        receive_until(ws, of_type("ack", seq=0))
+        ws.send_json({"type": "stop"})
+        wait_for(lambda: client.app.state.ctx.recorder.sessions[sid].ended)
+        monkeypatch.setattr(LiveTranscriber, "wait", original)
+        ws.send_json({"type": "continue", "project": pid, "session": sid})
+        reply = receive_until(ws, lambda m: m["type"] in ("started", "error"))[-1]
+        assert reply["type"] == "started", reply
+        # 前の後始末を進める
+        client.portal.call(lambda: _set(gate))
+        ws.send_bytes(chunk(0, value=0))
+        receive_until(ws, of_type("ack", seq=0))
+        time.sleep(0.3)
+        states = [m["state"] for m in viewer.sent if m["type"] == "recordingState"]
+        assert "stopped" not in states and states[-1] == "recording"
+        assert viewer in hub.watchers[sid]
+        ws.send_json({"type": "stop"})
+    finished(client, sid)
+    # 続きを終えたら stopped が届き、登録は消える
+    assert [m["state"] for m in viewer.sent if m["type"] == "recordingState"][-1] == "stopped"
+    assert sid not in hub.watchers
+
+
 def test_refused_continue_keeps_the_previous_cleanup(client, project, monkeypatch):
     # 後始末中の録音を終えた（done）セッションに continue が来て断ったときも、
     # そのセッションの mp3 への変換と最終の要約は元どおり行う（#101 のレビュー）

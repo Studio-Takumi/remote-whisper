@@ -24,7 +24,7 @@ from remote_whisper.audio_convert import convert_wav, decode_pcm
 from remote_whisper.corrections import Correction, apply_all, replace
 from remote_whisper.documents import TranscriptMeta, recording_name
 from remote_whisper.gpu_queue import GpuQueue, Priority
-from remote_whisper.hub import Hub, send
+from remote_whisper.hub import Hub
 from remote_whisper.live_summary import LiveSummarizer, load_context
 from remote_whisper.live_transcriber import LiveTranscriber, load_hotwords
 from remote_whisper.ollama import OllamaClient
@@ -287,8 +287,8 @@ class RecordingSession:
             self.picker.add_final(start, text)
 
     async def send(self, message: dict[str, Any]) -> None:
-        if self.ws is not None:
-            await send(self.ws, {**message, "session": self.id})
+        """録音しているクライアントと、このセッションを見ているクライアント（#238）に送る"""
+        await self.manager.hub.send_session(self.ws, self.id, message)
 
     @property
     def elapsed(self) -> float:
@@ -395,11 +395,17 @@ class RecordingSession:
         if self.picker is not None:
             # 用語を拾うのもやめる（拾っている途中のものは、そのまま終わる）
             await self.picker.close()
-        if self.transcriber is not None:
-            try:
-                await self.transcriber.wait()
-            finally:
-                await self.transcriber.close()
+        try:
+            if self.transcriber is not None:
+                try:
+                    await self.transcriber.wait()
+                finally:
+                    await self.transcriber.close()
+        finally:
+            # 話している途中だった最後の区間まで送ってから、見ているクライアントに
+            # 終わりを知らせる（#238）。続きの録音に引き継いだ（同じ ID で録音中）なら知らせない
+            if not self.superseded:
+                await self.manager.hub.end_watch(self.id)
         if self.superseded:
             # 続きの録音が WAV を引き継いだ（変換は続きを録音し終えたときに行う）。
             # 続けられなかったときは take_back で続きを行う
@@ -438,6 +444,8 @@ class RecordingSession:
             self.manager.submit_final_summary(self)
 
     async def _complete_taken_back(self, status: str) -> None:
+        # 続きの録音に引き継げなかった。引き継ぐ前提で知らせなかった終わりを、見ている側に知らせる
+        await self.manager.hub.end_watch(self.id)
         try:
             await self._complete(status)
         finally:
