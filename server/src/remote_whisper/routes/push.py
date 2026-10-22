@@ -24,8 +24,8 @@ def get_key(ctx: Ctx) -> dict[str, Any]:
     return {"publicKey": _push(ctx).public_key()}
 
 
-@router.post("/subscriptions", status_code=204)
-def add_subscription(body: dict[str, Any], ctx: Ctx) -> None:
+@router.post("/subscriptions")
+def add_subscription(body: dict[str, Any], ctx: Ctx) -> dict[str, Any]:
     """ブラウザの PushSubscription.toJSON() をそのまま受け取る。同じ送り先は置き換える"""
     push = _push(ctx)
     try:
@@ -33,9 +33,12 @@ def add_subscription(body: dict[str, Any], ctx: Ctx) -> None:
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
     push.add(subscription)
+    return {"ok": True}
 
 
-@router.delete("/subscriptions", status_code=204)
-def delete_subscription(ctx: Ctx, endpoint: Annotated[str, Query(max_length=2048)]) -> None:
+@router.delete("/subscriptions")
+def delete_subscription(
+    ctx: Ctx, endpoint: Annotated[str, Query(max_length=2048)]
+) -> dict[str, Any]:
     """通知をやめる（その端末の設定をオフにした）。なければ何もしない"""
-    _push(ctx).remove(endpoint)
+    return {"ok": True, "removed": _push(ctx).remove(endpoint)}

@@ -191,7 +191,7 @@ def test_api_gives_only_the_public_key_and_checks_subscriptions(app, home):
         assert "PRIVATE" not in json.dumps(client.get("/api/push/key").json())
         browser = Browser()
         res = client.post("/api/push/subscriptions", json=browser.subscription.to_json())
-        assert res.status_code == 204
+        assert res.status_code == 200
         bad = browser.subscription.to_json() | {"endpoint": "https://127.0.0.1:8000/api/settings"}
         assert client.post("/api/push/subscriptions", json=bad).status_code == 422
         broken = {"endpoint": ENDPOINT, "keys": {"p256dh": "x", "auth": "y"}}
@@ -199,7 +199,7 @@ def test_api_gives_only_the_public_key_and_checks_subscriptions(app, home):
         assert client.post("/api/push/subscriptions", json={"x": 1}).status_code == 422
         assert len(app.state.ctx.push.subscriptions()) == 1
         res = client.delete("/api/push/subscriptions", params={"endpoint": ENDPOINT})
-        assert res.status_code == 204
+        assert res.status_code == 200
         assert app.state.ctx.push.subscriptions() == []
     assert (home / KEY_FILE).is_file()
 
