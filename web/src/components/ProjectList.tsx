@@ -292,7 +292,7 @@ function ProjectGroup({
                     <GripVerticalIcon size={14} />
                 </button>
                 <button
-                    className={`size-6items-center ml-auto flex justify-center rounded-md text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground ${active ? 'bg-sidebar-accent text-sidebar-accent-foreground' : ''}`}
+                    className={`ml-auto flex size-6 items-center justify-center rounded-md text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground ${active ? 'bg-sidebar-accent text-sidebar-accent-foreground' : ''}`}
                     aria-label={`${project.name}で新しく録音`}
                     onClick={onNewSession}
                 >
