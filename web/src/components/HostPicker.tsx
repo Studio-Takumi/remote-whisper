@@ -84,7 +84,7 @@ export function HostPicker() {
         return (
             <div className='flex flex-col gap-3' data-hosts='none'>
                 <h1 className='text-xl font-semibold'>PC を登録してください</h1>
-                <p className='text-sm'>文字起こしをする PC（ホスト）が、まだ登録されていません。</p>
+                <p className='text-sm'>文字起こしをする PC（ホスト）が、まだ登録されていません</p>
                 <ol className='list-decimal space-y-1 pl-5 text-sm'>
                     <li>PC で Remote Whisper を起動する</li>
                     <li>タスクトレイ（Mac はメニューバー）のアイコンから「クラウド版にログイン」を選ぶ</li>

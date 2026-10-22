@@ -18,7 +18,7 @@ export function VersionInfo() {
                 <p className='flex items-center gap-1 text-amber-600 dark:text-amber-400' role='status'>
                     <TriangleAlertIcon className='size-3.5 shrink-0' />
                     <span>
-                        クライアントがホストと違うバージョンです
+                        クライアントがホストと違うバージョンです{' '}
                         <button className='underline underline-offset-2' onClick={() => location.reload()}>
                             読み込み直す
                         </button>

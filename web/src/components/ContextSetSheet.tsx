@@ -120,7 +120,7 @@ export function ContextSetSheet() {
                         </label>
                     </div>
                 ) : (
-                    <p className='px-4 text-sm text-muted-foreground'>先にメニューからプロジェクトを選んでください。</p>
+                    <p className='px-4 text-sm text-muted-foreground'>先にメニューからプロジェクトを選んでください</p>
                 )}
                 <MaterialPickerDialog
                     open={pickerOpen}

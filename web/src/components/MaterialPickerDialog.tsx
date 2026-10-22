@@ -94,7 +94,7 @@ function Picker({
                 ) : !listing || !projectSettled ? (
                     <Message>読み込んでいます…</Message>
                 ) : listing.dirs.length === 0 ? (
-                    <Message>読み込めるフォルダがありません。設定の「参考資料」で追加してください。</Message>
+                    <Message>読み込めるフォルダがありません。設定の「参考資料」で追加してください</Message>
                 ) : (
                     listing.dirs.map((root) => (
                         <FolderNode

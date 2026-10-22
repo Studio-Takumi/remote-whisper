@@ -60,7 +60,7 @@ function FolderPicker({ onCreate }: { onCreate: (path: string) => void }) {
                 ) : !listing ? (
                     <Message>読み込んでいます…</Message>
                 ) : roots.length === 0 ? (
-                    <Message>読み込めるフォルダがありません。設定の「参考資料」で追加してください。</Message>
+                    <Message>読み込めるフォルダがありません。設定の「参考資料」で追加してください</Message>
                 ) : (
                     roots.map((root) => (
                         <FolderNode

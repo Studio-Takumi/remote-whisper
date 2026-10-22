@@ -81,7 +81,7 @@ export function PairPage({ code }: { code: string }) {
                 <p className='text-sm text-muted-foreground'>確かめています…</p>
             ) : !me ? (
                 <>
-                    <p className='text-sm'>ログインしてから、登録する PC を確かめます。</p>
+                    <p className='text-sm'>ログインしてから、登録する PC を確かめます</p>
                     <LoginButtons />
                 </>
             ) : view.kind === 'loading' ? (

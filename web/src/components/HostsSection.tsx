@@ -102,7 +102,7 @@ function HostRow({ host }: { host: Host }) {
             {confirming && (
                 <div className='flex items-center justify-end gap-2'>
                     <span className='text-xs text-destructive'>
-                        外すと、この端末はクラウド版からつながらなくなります
+                        外すと、このホストはクラウド版からつながらなくなります
                     </span>
                     <Button size='sm' variant='destructive' onClick={() => void remove()}>
                         外す

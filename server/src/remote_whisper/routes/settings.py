@@ -54,7 +54,7 @@ async def patch_settings(
         if tunnel_fields.intersection(e.fields):
             raise HTTPException(
                 status_code=403,
-                detail="クラウド版からは変えられない項目です（この端末の画面から変えてください）: "
+                detail="クラウド版からは変えられない項目です（ホストで直接開いた画面から変えてください）: "
                 + ", ".join(f for f in e.fields if f in tunnel_fields),
             ) from e
         raise HTTPException(

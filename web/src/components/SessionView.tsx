@@ -203,7 +203,7 @@ export function SessionView() {
                     )}
                     {session && !session.loaded && <p className='text-sm text-muted-foreground'>読み込んでいます…</p>}
                     {session && expired(session, 'transcript') && (
-                        <p className='text-sm text-muted-foreground'>文字起こしは期限切れのため消えています。</p>
+                        <p className='text-sm text-muted-foreground'>文字起こしは期限切れのため消えています</p>
                     )}
                     {session && (
                         <FinalTranscriptBar
@@ -237,7 +237,7 @@ export function SessionView() {
                         </div>
                     )}
                     {!session && recordingState === 'idle' && (
-                        <p className='text-sm text-muted-foreground'>マイクボタンを押すと録音が始まります。</p>
+                        <p className='text-sm text-muted-foreground'>マイクボタンを押すと録音が始まります</p>
                     )}
                     {!session && recordingElsewhere && (
                         <p className='text-sm text-muted-foreground'>
@@ -362,7 +362,7 @@ function FinalTranscriptBar({ session, making }: { session: Session; making: boo
         />
     );
     const noRecording = available && done && session.files?.recording === false && (
-        <p className='text-xs text-muted-foreground'>録音ファイルがないため、再生成できません。</p>
+        <p className='text-xs text-muted-foreground'>録音ファイルがないため、再生成できません</p>
     );
 
     if (!final) {
@@ -412,7 +412,7 @@ function FinalTranscriptBar({ session, making }: { session: Session; making: boo
                 {regenerateButton}
             </div>
             {final.model !== whisperModel && (
-                <p className='text-xs text-muted-foreground'>{whisperModel} の浄書済み文字起こしはまだありません。</p>
+                <p className='text-xs text-muted-foreground'>{whisperModel} の浄書済み文字起こしはまだありません</p>
             )}
             {final.diarization === 'unavailable' && (
                 <p className='text-xs text-muted-foreground'>
@@ -617,7 +617,7 @@ function SummaryPanel({
                 {regenerateButton}
             </div>
             {!isCurrentFinalSummary(summary, models) && (
-                <p className='text-xs text-muted-foreground'>{finalModel} の要約はまだありません。</p>
+                <p className='text-xs text-muted-foreground'>{finalModel} の要約はまだありません</p>
             )}
             <Markdown>{summary.text ?? ''}</Markdown>
         </>
@@ -658,7 +658,7 @@ function NotFoundState() {
         <div className='flex flex-1 flex-col items-center justify-center gap-3 text-center text-muted-foreground'>
             <SearchXIcon className='size-10' />
             <p className='text-lg font-semibold text-foreground'>見つかりません</p>
-            <p className='max-w-md text-sm'>このセッションまたはプロジェクトは、消えたか期限切れです。</p>
+            <p className='max-w-md text-sm'>このセッションまたはプロジェクトは、消えたか期限切れです</p>
         </div>
     );
 }
