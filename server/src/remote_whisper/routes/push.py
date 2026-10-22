@@ -14,7 +14,7 @@ Ctx = Annotated[AppContext, Depends(get_ctx)]
 
 def _push(ctx: AppContext):
     if ctx.push is None:
-        raise HTTPException(status_code=404, detail="このサーバーでは通知を使えません")
+        raise HTTPException(status_code=404, detail="このホストでは通知を使えません")
     return ctx.push
 
 

@@ -43,7 +43,7 @@ MENU_QUIT = "終了"
 MENU_CLOUD_LOGIN = "クラウド版にログイン"
 MENU_CLOUD_CANCEL = "登録をやめる"
 MENU_CLOUD_UNPAIR = "クラウド版から外す"
-CLOUD_UNPAIR_CONFIRM = "この端末をクラウド版から外しますか？ 録音やファイルは消えません。"
+CLOUD_UNPAIR_CONFIRM = "この端末をクラウド版から外しますか？ 録音やファイルは消えません"
 
 
 @dataclass(frozen=True)

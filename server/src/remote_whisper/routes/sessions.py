@@ -93,7 +93,7 @@ async def upload(
     最終の要約は後ろで作る（status の transcribing・summarizing と jobs で進み具合が分かる）
     """
     if ctx.uploads is None:
-        raise HTTPException(status_code=503, detail="このサーバーではアップロードできません")
+        raise HTTPException(status_code=503, detail="このホストではアップロードできません")
     try:
         uploaded = await ctx.uploads.receive(pid, name, last_modified, request.stream())
     except ProjectError as e:
@@ -272,7 +272,7 @@ async def regenerate_final_transcript(pid: Pid, sid: str, ctx: Ctx) -> dict[str,
     if final is None or not final.available():
         raise HTTPException(
             status_code=503,
-            detail="このサーバーには浄書済み文字起こしの機能（WhisperX）がありません",
+            detail="このホストには浄書済み文字起こしの機能（WhisperX）がありません",
         )
     if entry.status == "recording" or _still_finishing(ctx, sid):
         raise HTTPException(
@@ -525,7 +525,7 @@ async def regenerate_summary(pid: Pid, sid: str, ctx: Ctx) -> dict[str, Any]:
     """
     entry, files = _session(ctx, pid, sid)
     if ctx.summarizer is None:
-        raise HTTPException(status_code=503, detail="このサーバーでは要約を作れません")
+        raise HTTPException(status_code=503, detail="このホストでは要約を作れません")
     if entry.status == "recording" or _still_finishing(ctx, sid):
         # 止めた直後（残りの文字起こし・変換・最終の要約の途中）も、最後の区間が抜けないように断る
         raise HTTPException(status_code=409, detail="録音中のセッションの要約は再生成できません")

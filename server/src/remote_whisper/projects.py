@@ -284,7 +284,7 @@ class ProjectStore:
         version = data.get("version") if isinstance(data, dict) else None
         if isinstance(version, int) and version > PROJECT_VERSION:
             raise ProjectError(
-                500, f"{path} の version {version} はこのサーバーより新しいため読み込めません"
+                500, f"{path} の version {version} はこのホストより新しいため読み込めません"
             )
         try:
             project = ProjectFile.model_validate(data)

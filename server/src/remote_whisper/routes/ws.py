@@ -196,7 +196,7 @@ async def _handle_control(ctx: AppContext, ws: WebSocket, session: Any, text: st
         return session
     recorder = ctx.recorder
     if recorder is None:
-        raise RecordingError("not_available", "このサーバーではまだ録音できません")
+        raise RecordingError("not_available", "このホストではまだ録音できません")
 
     active = _owns(ws, session)
     if kind == "start":
@@ -215,7 +215,7 @@ async def _handle_control(ctx: AppContext, ws: WebSocket, session: Any, text: st
         if not isinstance(project, str) or not isinstance(sid, str):
             raise RecordingError("bad_message", "project と session を指定してください")
         if not hasattr(recorder, "continue_session"):
-            raise RecordingError("not_available", "このサーバーでは続きを録音できません")
+            raise RecordingError("not_available", "このホストでは続きを録音できません")
         max_concurrent = ctx.settings.get().recording.max_concurrent
         return await recorder.continue_session(
             ws, _project_id(ctx, project), _session_id(ctx, sid), max_concurrent
