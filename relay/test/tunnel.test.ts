@@ -397,7 +397,7 @@ describe('トンネルを消す', () => {
         return { ...user, host };
     }
 
-    it('ホストの「クラウドから外す」（/pair/unpair）。DNS → 接続 → トンネルの順に消す', async () => {
+    it('ホストの「クラウド版から外す」（/pair/unpair）。DNS → 接続 → トンネルの順に消す', async () => {
         const { host } = await withTunnel();
         const tunnelId = (await row(host.hostId))?.tunnel_id;
         cf.calls = [];

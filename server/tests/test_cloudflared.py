@@ -485,8 +485,8 @@ def test_real_subprocess_gets_the_token_in_env_only(tmp_path):
 def test_tray_text_shows_the_tunnel_state(tmp_path):
     e = Env(tmp_path)
     host = CloudHost(tmp_path, lambda: RELAY, tunnel_state=lambda: e.runner.state)
-    assert cloud_text(host.view) == "クラウド: 登録済み / トンネル: 止まっている"
+    assert cloud_text(host.view) == "クラウド版: 登録済み / トンネル: 止まっている"
     e.runner._state = "connecting"
-    assert cloud_text(host.view) == "クラウド: 登録済み / トンネル: つないでいます"
+    assert cloud_text(host.view) == "クラウド版: 登録済み / トンネル: つないでいます"
     e.runner._state = "connected"
-    assert cloud_text(host.view) == "クラウド: 登録済み / トンネル: つながっている"
+    assert cloud_text(host.view) == "クラウド版: 登録済み / トンネル: つながっている"
