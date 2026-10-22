@@ -494,6 +494,7 @@ GROUP BY minutes_from ORDER BY minutes_from;
   - `PUT /me/consents/data_collection` `{"granted"}`: 設定から変える。変えるたび（同じ値でも）consents に追記する。規約に同意していなければ 409
   - consents の `version` は、`tos` では規約の版、`data_collection` では説明文の版（`DATA_COLLECTION_VERSION`）。規約の版が上がっても `tos_version` は更新しない
 - 規約の改定: 同意は取り直さず、施行日の前にお知らせで知らせる（10.12 節）。データ収集の目的を変えるときだけ、同意を取り直す
+- **最終要約の通知（#245。6.14 節）**: クラウド版でも、通知はホストが push サービスへ直接送る（Worker は通知に関わらず、VAPID の鍵も `wrangler secret` に置かない）。購読の API（`/api/push/...`）は、ほかの API と同じく Worker が中継する。ホストにつなげるのはホストを登録したアカウントのクライアントだけ（10.5 節）なので、購読も通知もそのアカウントのクライアントにしか届かない。service worker は Worker のオリジンで動くので、通知を押したときに開くのも Worker のオリジンの `/s/<UUID>`
 
 ## 10.12 お知らせ
 
