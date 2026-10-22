@@ -7,7 +7,7 @@ import { useAppStore } from '@/store';
 import { AUDIO_ACCEPT } from '@/upload';
 
 // 音声ファイルから新しいセッションを作る（#180）。ファイルを選ぶボタン
-export function AudioUploadButton({ projectId, compact = false }: { projectId: string; compact?: boolean }) {
+export function AudioUploadButton({ projectId }: { projectId: string }) {
     const input = useRef<HTMLInputElement>(null);
     const uploading = useAppStore((s) => s.uploading);
     const uploadAudio = useAppStore((s) => s.uploadAudio);
@@ -31,23 +31,6 @@ export function AudioUploadButton({ projectId, compact = false }: { projectId: s
         />
     );
 
-    if (compact) {
-        // サイドバーのプロジェクトの行（＋の隣）に置く小さいボタン
-        return (
-            <>
-                {picker}
-                <button
-                    className='flex size-6 items-center justify-center rounded-md text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground disabled:opacity-50'
-                    aria-label={label}
-                    title={label}
-                    disabled={busy}
-                    onClick={() => input.current?.click()}
-                >
-                    <FileAudioIcon size={15} />
-                </button>
-            </>
-        );
-    }
     return (
         <>
             {picker}
