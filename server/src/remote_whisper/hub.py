@@ -39,12 +39,19 @@ class ServerStatus:
 
 Tracked = Literal["summarizing", "transcribing"]
 
+# 録音しているクライアントにだけ送り、見ているクライアント（#238）には送らないもの。
+# ack は音声の受け取りの知らせ、started は録音を始めた返事
+OWNER_ONLY = frozenset({"ack", "started"})
+
 
 class Hub:
     """つながっているブラウザの一覧。status はどのセッションにも属さないので全員に送る"""
 
     def __init__(self) -> None:
         self.connections: set[WebSocket] = set()
+        # 録音中のセッションを見ているクライアント（#238）。セッション ID → 接続。
+        # 1 つの接続が見るのは 1 つのセッションだけ
+        self.watchers: dict[str, set[WebSocket]] = {}
         self.status = ServerStatus()
         # jobs の経過秒数は送った時点のものなので、つないできたブラウザには今の値で送る
         self.jobs_source: Callable[[], dict[str, Any]] | None = None
@@ -107,6 +114,35 @@ class Hub:
 
     def remove(self, ws: WebSocket) -> None:
         self.connections.discard(ws)
+        self.unwatch(ws)
+
+    def watch(self, ws: WebSocket, sid: str) -> None:
+        """この接続で、録音中のセッションを見る（#238）。前に見ていたものはやめる"""
+        self.unwatch(ws)
+        self.watchers.setdefault(sid, set()).add(ws)
+
+    def unwatch(self, ws: WebSocket) -> None:
+        for sid in [sid for sid, conns in self.watchers.items() if ws in conns]:
+            self.watchers[sid].discard(ws)
+            if not self.watchers[sid]:
+                del self.watchers[sid]
+
+    async def send_session(
+        self, owner: WebSocket | None, sid: str, message: dict[str, Any]
+    ) -> None:
+        """セッションのメッセージを、録音しているクライアント（owner）と、そのセッションを
+        見ているクライアントに送る（#238）。見ている側には OWNER_ONLY のものを送らない"""
+        message = {**message, "session": sid}
+        targets = [owner] if owner is not None else []
+        if message.get("type") not in OWNER_ONLY:
+            targets += [ws for ws in self.watchers.get(sid, ()) if ws is not owner]
+        # 録音している側には、今までどおりすぐに送る（gather のタスクを挟まない）
+        for ws in targets:
+            await send(ws, message)
+
+    async def send_watchers(self, sid: str, message: dict[str, Any]) -> None:
+        """見ているクライアントにだけ送る（録音の状態の変化など）"""
+        await self.send_session(None, sid, message)
 
     async def broadcast(self, message: dict[str, Any]) -> None:
         await asyncio.gather(*(send(ws, message) for ws in list(self.connections)))

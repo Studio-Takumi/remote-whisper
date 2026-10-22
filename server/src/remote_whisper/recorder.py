@@ -24,7 +24,7 @@ from remote_whisper.audio_convert import convert_wav, decode_pcm
 from remote_whisper.corrections import Correction, apply_all, replace
 from remote_whisper.documents import TranscriptMeta, recording_name
 from remote_whisper.gpu_queue import GpuQueue, Priority
-from remote_whisper.hub import Hub, send
+from remote_whisper.hub import Hub
 from remote_whisper.live_summary import LiveSummarizer, load_context
 from remote_whisper.live_transcriber import LiveTranscriber, load_hotwords
 from remote_whisper.ollama import OllamaClient
@@ -287,8 +287,8 @@ class RecordingSession:
             self.picker.add_final(start, text)
 
     async def send(self, message: dict[str, Any]) -> None:
-        if self.ws is not None:
-            await send(self.ws, {**message, "session": self.id})
+        """録音しているクライアントと、このセッションを見ているクライアント（#238）に送る"""
+        await self.manager.hub.send_session(self.ws, self.id, message)
 
     @property
     def elapsed(self) -> float:

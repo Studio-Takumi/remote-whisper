@@ -11,6 +11,7 @@ from remote_whisper.hub import send
 from remote_whisper.logs import traffic
 from remote_whisper.projects import UUID_RE, ProjectError
 from remote_whisper.recording import RecordingError
+from remote_whisper.sessions import parse_transcript_lines, read_transcript
 
 log = logging.getLogger(__name__)
 
@@ -51,6 +52,9 @@ async def websocket(ws: WebSocket) -> None:
         )
         if recording:
             session.detach()
+            # 見ているクライアントには、録音しているクライアントとの接続が
+            # 切れたことを知らせる（#238）
+            await ctx.hub.send_watchers(session.id, _state_message(session))
 
 
 def _peer(ws: WebSocket) -> str:
@@ -102,9 +106,86 @@ async def _control(ctx: AppContext, ws: WebSocket, session: Any, text: str, peer
     kind = json.loads(text)["type"]
     if kind in ("start", "continue", "resume"):
         log.info("recording %s from %s: %s", kind, peer, result.id)
+        # 続き・つなぎ直しは、そのセッションを見ていたクライアントに知らせる（#238）
+        await ctx.hub.send_watchers(result.id, _state_message(result))
     elif kind in ("stop", "pause", "unpause"):
         log.info("recording %s from %s: %s", kind, peer, before.id)
+        await ctx.hub.send_watchers(
+            before.id,
+            {"type": "recordingState", "state": "stopped"}
+            if kind == "stop"
+            else _state_message(before),
+        )
+        if kind == "stop":
+            # 録音を終えたら見るのも終わり。最終要約などは全員に送るので、そのまま届く
+            ctx.hub.watchers.pop(before.id, None)
     return result
+
+
+def _state(session: Any) -> str:
+    """見ている側に出す、録音の状態（#238）。disconnected は録音しているクライアントとの接続が
+    切れていて、つなぎ直すのを待っている間"""
+    if session.ended:
+        return "stopped"
+    if session.ws is None:
+        return "disconnected"
+    return "paused" if session.paused else "recording"
+
+
+def _state_message(session: Any) -> dict[str, Any]:
+    return {"type": "recordingState", "state": _state(session)}
+
+
+def _snapshot(session: Any) -> dict[str, Any]:
+    """見始めたクライアントに送る、そこまでの文字起こし・リアルタイム要約・タイトル（#238）。
+    録音中のセッションのファイルから読む（モックの、登録していないプロジェクトにはファイルがない）"""
+    lines: list[dict[str, str]] = []
+    live: str | None = None
+    title: str | None = None
+    writer = getattr(session, "writer", None)
+    if writer is not None:
+        try:
+            _, body = read_transcript(writer.files)
+            lines = parse_transcript_lines(body)
+        except (OSError, ValueError) as e:
+            log.warning("could not read the transcript of %s for a watcher: %s", session.id, e)
+        try:
+            if writer.files.live_summary.is_file():
+                live = writer.files.live_summary.read_text(encoding="utf-8")
+        except (OSError, ValueError) as e:
+            log.warning("could not read the live summary of %s for a watcher: %s", session.id, e)
+        title = writer.meta.title
+    return {
+        "type": "watching",
+        "session": session.id,
+        "state": _state(session),
+        "transcript": lines,
+        "liveSummary": live,
+        "title": title,
+    }
+
+
+async def _watch(ctx: AppContext, ws: WebSocket, key: Any) -> None:
+    """録音中のセッションを、録音していないクライアントで見る（#238。spec/api.md 7.2）
+
+    録音中でなければ state: idle を返して見ない。見始めたら、そこまでの分（_snapshot）を送り、
+    そのあとはセッションのメッセージ（ack・started を除く）と recordingState が届く
+    """
+    if not isinstance(key, str) or not key:
+        raise RecordingError("bad_message", "session を指定してください")
+    sid = _session_id(ctx, key)
+    recorder = ctx.recorder
+    active = recorder.active() if recorder is not None else []
+    session = next((s for s in active if s.id == sid), None)
+    if session is None or session.ws is ws:
+        # 録音中でない（または自分で録音している）なら見ない
+        ctx.hub.unwatch(ws)
+        await send(ws, {"type": "watching", "session": sid, "state": "idle"})
+        return
+    # 登録してから、待たずにそこまでの分を送る（このあとに送るメッセージより先に届くように）
+    snapshot = _snapshot(session)
+    ctx.hub.watch(ws, sid)
+    await send(ws, snapshot)
 
 
 async def _handle_control(ctx: AppContext, ws: WebSocket, session: Any, text: str) -> Any:
@@ -113,6 +194,12 @@ async def _handle_control(ctx: AppContext, ws: WebSocket, session: Any, text: st
         kind = message["type"]
     except (ValueError, KeyError, TypeError) as e:
         raise RecordingError("bad_message", "メッセージを読めません") from e
+    if kind == "watch":
+        await _watch(ctx, ws, message.get("session"))
+        return session
+    if kind == "unwatch":
+        ctx.hub.unwatch(ws)
+        return session
     recorder = ctx.recorder
     if recorder is None:
         raise RecordingError("not_available", "このサーバーではまだ録音できません")
