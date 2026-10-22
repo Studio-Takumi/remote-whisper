@@ -72,3 +72,44 @@ def test_keeps_empty_text_and_missing_scores():
     assert drop_reason(seg("、。")) is None
     # fake のバックエンドなど、信頼度がないときは残す
     assert drop_reason({"start": 0.0, "end": 1.0, "text": "ありがとうございました"}) is None
+
+
+def test_drops_the_longer_youtube_closings_with_low_confidence():
+    # 「ご視聴ありがとうございます」「チャンネル登録お願いします」など、定番の文の言い換え（#235）
+    for text in (
+        "ご視聴ありがとうございます",
+        "最後までご視聴ありがとうございました",
+        "チャンネル登録お願いします",
+        "チャンネル登録をお願いします。",
+        "チャンネル登録よろしくお願いします",
+        "ご視聴いただきありがとうございました",
+        "では、次の動画でお会いしましょう",
+        "次回予告",
+    ):
+        assert drop_reason(seg(text, ns=0.0, lp=-0.7)) == "phrase", text
+        assert drop_reason(seg(text, ns=0.4, lp=-0.3)) == "phrase", text
+
+
+def test_keeps_the_longer_youtube_closings_when_confident():
+    # 自信が高く、十分な長さ話しているなら残す（本当に話したかもしれない）
+    for text in ("ご視聴ありがとうございます", "チャンネル登録お願いします"):
+        assert drop_reason(seg(text, ns=0.0, lp=-0.2), voiced_sec=2.0) is None, text
+    # 短い切れ端から出たものは、自信が高くても捨てる
+    assert (
+        drop_reason(seg("チャンネル登録お願いします", ns=0.0, lp=-0.2), voiced_sec=0.3)
+        == "short_phrase"
+    )
+
+
+def test_keeps_a_sentence_that_only_mentions_a_phrase():
+    # 話の中で「チャンネル登録」に触れただけの文は、信頼度が低くても捨てない
+    assert (
+        drop_reason(seg("この動画のチャンネル登録者数は去年より増えています", ns=0.4, lp=-0.7))
+        is None
+    )
+    assert (
+        drop_reason(
+            seg("次の会議までに最後までご視聴いただけるよう資料を共有します", ns=0.4, lp=-0.7)
+        )
+        is None
+    )
