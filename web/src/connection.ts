@@ -69,7 +69,7 @@ class Connection {
             ws.binaryType = 'arraybuffer';
             const timer = setTimeout(() => {
                 ws.close();
-                reject(new Error('サーバーにつながりません'));
+                reject(new Error('ホストにつながりません'));
             }, timeoutMs);
             ws.onopen = () => {
                 clearTimeout(timer);
@@ -80,7 +80,7 @@ class Connection {
             };
             ws.onerror = () => {
                 clearTimeout(timer);
-                reject(new Error('サーバーにつながりません'));
+                reject(new Error('ホストにつながりません'));
             };
             ws.onclose = () => {
                 if (this.ws === ws) {
@@ -132,7 +132,7 @@ class Connection {
         return new Promise((resolve, reject) => {
             const timer = setTimeout(() => {
                 unsubscribe();
-                reject(new Error('サーバーから応答がありません'));
+                reject(new Error('ホストから応答がありません'));
             }, timeoutMs);
             const unsubscribe = this.subscribe((m) => {
                 if (pred(m)) {

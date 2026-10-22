@@ -40,7 +40,7 @@ async def patch_settings(
         ):
             raise HTTPException(
                 status_code=403,
-                detail="クラウドからは、Whisper のモデルにファイルのパスを指定できません",
+                detail="クラウド版からは、Whisper のモデルにファイルのパスを指定できません",
             )
     # 録音中は、文字起こしのモデル・区切り・マイクの処理だけ変えられない（spec/files.md 5.3）。
     # トンネル（クラウド）からは、接続先やフォルダの設定を変えられない（#166。TUNNEL_LOCKED）
@@ -54,7 +54,8 @@ async def patch_settings(
         if tunnel_fields.intersection(e.fields):
             raise HTTPException(
                 status_code=403,
-                detail="クラウドからは変えられない項目です（この PC の画面から変えてください）: "
+                detail="クラウド版からは変えられない項目です"
+                + "（ホストで直接開いた画面から変えてください）: "
                 + ", ".join(f for f in e.fields if f in tunnel_fields),
             ) from e
         raise HTTPException(

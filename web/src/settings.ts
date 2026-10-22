@@ -87,7 +87,7 @@ export type Settings = {
         // マイクボタンのキーボードのショートカット（#236。shortcut.ts）。空なら使わない。古いサーバーにはない
         micShortcut?: string;
     };
-    // クラウド版の中間サーバーの URL（#158）。ホストのトレイの「クラウドにログイン」が使う。画面では変えない
+    // クラウド版の中間サーバーの URL（#158）。ホストのトレイの「クラウド版にログイン」が使う。画面では変えない
     cloud: {
         relayUrl: string;
         // cloudflared の場所（#159）。空なら PATH の cloudflared。画面では変えない
@@ -166,7 +166,7 @@ export const defaultSettings: Settings = {
 };
 
 // 設定モーダルのページ（URL の /settings/<ページ>。#177）。最初のものが既定
-export const SETTINGS_PAGES = ['whisper', 'models', 'ollama', 'storage', 'materials', 'display'];
+export const SETTINGS_PAGES = ['models', 'materials', 'recording', 'whisper', 'ollama', 'storage', 'display'];
 
 // おすすめのモデル（#179。「おすすめに戻す」と、モデルの横の表示）。サーバーの既定値と同じ
 export const recommendedModels: OllamaModels = defaultSettings.ollama.models;

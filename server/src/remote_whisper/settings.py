@@ -429,7 +429,7 @@ class SettingsStore:
             # 古い version からの移行が必要になったら、ここで変換する
             if settings.version > SETTINGS_VERSION:
                 raise SettingsError(
-                    f"{self.path} の version {settings.version} はこのサーバーより新しいため"
+                    f"{self.path} の version {settings.version} はこのホストより新しいため"
                     f"読み込めません（対応しているのは {SETTINGS_VERSION} まで）"
                 )
             # 足りないキーは既定値で埋まり、古いキーは移して消えるので、書き戻して揃えておく

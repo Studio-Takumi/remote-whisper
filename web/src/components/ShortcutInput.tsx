@@ -88,7 +88,7 @@ export function ShortcutInput({
             </div>
             {capturing && (
                 <p className={`text-xs ${error ? 'text-destructive' : 'text-muted-foreground'}`}>
-                    {error ? `${modifiers} のどれかと一緒に押してください` : 'Esc でやめる'}
+                    {error ? `${modifiers} のどれかと一緒に押してください` : 'Esc で取り消します'}
                 </p>
             )}
         </div>

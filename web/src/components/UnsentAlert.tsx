@@ -24,9 +24,9 @@ export function UnsentAlert() {
         >
             <HardDriveUploadIcon className='hidden size-4 shrink-0 text-amber-600 md:block dark:text-amber-400' />
             <p className='min-w-0 flex-1'>
-                前にページを開いていたとき、サーバーに届かなかった録音が
+                前にページを開いていたとき、ホストに届かなかった録音が
                 {unsent.seconds < 60 ? ` ${unsent.seconds} 秒` : ` 約 ${Math.round(unsent.seconds / 60)} 分`}あります
-                {title ? `（${title}）` : ''}。送って、同じセッションの続きを録音できます。
+                {title ? `（${title}）` : ''}。送って、同じセッションの続きを録音できます
             </p>
             <div className='flex shrink-0 gap-2'>
                 <Button size='sm' onClick={() => void recover()}>

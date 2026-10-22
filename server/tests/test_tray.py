@@ -203,12 +203,12 @@ def test_cloud_menu_is_rewritten_when_the_cloud_state_changes(monkeypatch):
     t = tray.Tray(status=ServerStatus, url="", log_dir=None, on_quit=None, cloud=cloud)
     t._icon = FakeIcon()
     t.update(t._state())
-    assert t._cloud_text() == "クラウド: 登録していない" and t._menu().login
+    assert t._cloud_text() == "クラウド版: 登録していない" and t._menu().login
     t.update(t._state())
     assert t._icon.menus == 0
     t._cloud_login()
     assert cloud.calls == ["start"] and t._icon.menus == 1
-    assert t._cloud_text() == "クラウド: 登録中（コード ABCD-1234）" and t._menu().cancel
+    assert t._cloud_text() == "クラウド版: 登録中（コード ABCD-1234）" and t._menu().cancel
     # 登録のスレッドからの通知は、トレイの通知に出す
     cloud.on_notice("登録コード: ABCD-1234")
     assert t._icon.notices == ["登録コード: ABCD-1234"]

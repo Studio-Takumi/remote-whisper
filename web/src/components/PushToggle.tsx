@@ -6,7 +6,7 @@ import { Row } from '@/components/SettingsParts';
 import { Switch } from '@/components/ui/switch';
 import { disablePush, enablePush, pushEnabled, pushSupport, pushSupportMessage } from '@/push';
 
-// 「最終要約ができたら通知する」（#245）。端末ごとの設定で、全体設定の保存とは別に、切り替えたときに効く。
+// 「最終要約の通知」（#245）。端末ごとの設定で、全体設定の保存とは別に、切り替えたときに効く。
 // オンにしたときにだけブラウザの許可を求める（設定を開いただけでは求めない）
 export function PushToggle() {
     const [on, setOn] = useState(pushEnabled);
@@ -38,15 +38,10 @@ export function PushToggle() {
     return (
         <Row
             id='push-notify'
-            label='最終要約ができたら通知する（この端末）'
+            label='最終要約の通知'
+            // 説明は使えないときの理由だけ（ほかは公式 HP の使い方で説明する。#239）
             description={
-                <>
-                    録音を終えたあとと、音声ファイルから作ったときに、最終要約ができたらこの端末に通知する。通知にはセッションのタイトルだけを出す。そのセッションを開いているときは出さない。この端末だけの設定で、保存を押さなくても切り替えたときに効く。iPhone
-                    はホーム画面に追加したアプリ（iOS 16.4 以降）でだけ使える
-                    {unavailable && (
-                        <span className='mt-1 block text-amber-700 dark:text-amber-400'>{unavailable}</span>
-                    )}
-                </>
+                unavailable ? <span className='text-amber-700 dark:text-amber-400'>{unavailable}</span> : undefined
             }
         >
             <Switch

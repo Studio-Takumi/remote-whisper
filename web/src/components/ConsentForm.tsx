@@ -59,7 +59,7 @@ export function ConsentForm({ me, onSignOut }: { me: Me; onSignOut: () => void }
                 <a className='underline' href={me.privacyUrl} target='_blank' rel='noreferrer'>
                     プライバシーポリシー
                 </a>
-                をお読みください。
+                をお読みください
             </p>
             <div className='flex items-center gap-2'>
                 <Checkbox id='consent-tos' checked={agreed} onCheckedChange={(v) => setAgreed(v === true)} />
@@ -77,7 +77,7 @@ export function ConsentForm({ me, onSignOut }: { me: Me; onSignOut: () => void }
                     />
                 </div>
                 <p id='consent-data-desc' className='text-xs text-muted-foreground'>
-                    現在は収集していません。収集を始めるときは、何を何に使うかをここに書きます。あとから設定で変えられます。
+                    現在は収集していません。収集を始めるときは、何を何に使うかをここに書きます。あとから設定で変えられます
                 </p>
             </section>
             <Button disabled={!canSubmitConsent(agreed, busy)} onClick={() => void submit()}>
@@ -85,11 +85,11 @@ export function ConsentForm({ me, onSignOut }: { me: Me; onSignOut: () => void }
             </Button>
             {!agreed && (
                 <p className='text-xs text-muted-foreground'>
-                    進むには、利用規約とプライバシーポリシーへの同意が必要です。
+                    進むには、利用規約とプライバシーポリシーへの同意が必要です
                 </p>
             )}
             <p className='text-xs text-muted-foreground'>
-                {me.displayName} でログインしています。
+                {me.displayName} でログインしています
                 <button className='ml-1 underline' onClick={onSignOut}>
                     ログアウト
                 </button>

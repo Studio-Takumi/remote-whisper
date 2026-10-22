@@ -24,12 +24,12 @@ DOT_COLORS: dict[Color, tuple[int, int, int]] = {
 # GPU キューのジョブの種類（gpu_queue.JobKind）の、画面と同じ呼び方
 JOB_NAMES = {
     "transcribe": "文字起こし",
-    "whisperLoad": "文字起こしのモデルの読み込み",
+    "whisperLoad": "文字起こしのモデル読み込み",
     "liveSummary": "リアルタイム要約",
     "finalSummary": "最終要約",
     "contextSet": "参考資料の作成",
-    "terms": "文字起こしからの用語の抽出",
-    "finalTranscript": "浄書済み文字起こし",
+    "terms": "文字起こしからの用語抽出",
+    "finalTranscript": "文字起こしの浄書",
 }
 
 APP_NAME = "remote-whisper"
@@ -40,13 +40,10 @@ MENU_OPEN = "画面を開く"
 MENU_LOGS = "ログのフォルダを開く"
 MENU_QUIT = "終了"
 # クラウド版のホストの登録（#158。spec/cloud.md 10.6）。状態に合うものだけを出す
-MENU_CLOUD_LOGIN = "クラウドにログイン"
+MENU_CLOUD_LOGIN = "クラウド版にログイン"
 MENU_CLOUD_CANCEL = "登録をやめる"
-MENU_CLOUD_UNPAIR = "クラウドから外す"
-CLOUD_UNPAIR_CONFIRM = (
-    "この PC をクラウドから外しますか？ "
-    "外すと、クラウドの画面からこの PC につなげなくなります（録音やファイルは消えません）。"
-)
+MENU_CLOUD_UNPAIR = "クラウド版から外す"
+CLOUD_UNPAIR_CONFIRM = "この端末をクラウド版から外しますか？ 録音やファイルは消えません"
 
 
 @dataclass(frozen=True)
@@ -54,7 +51,7 @@ class TrayState:
     color: Color
     # 状態の文（「録音中 1件 / 待ち 3件 / 実行中: 文字起こし」など）。Mac ではメニューの一番上に出す
     text: str
-    # クラウドの状態の文（「クラウド: 登録していない」など。#158）。空ならクラウドの行を出さない
+    # クラウドの状態の文（「クラウド版: 登録していない」など。#158）。空ならクラウドの行を出さない
     cloud: str = ""
 
     @property
@@ -78,17 +75,17 @@ def cloud_text(view: CloudView | None) -> str:
     if view is None:
         return ""
     if view.status == "pairing":
-        return f"クラウド: 登録中（コード {view.code}）" if view.code else "クラウド: 登録中…"
+        return f"クラウド版: 登録中（コード {view.code}）" if view.code else "クラウド版: 登録中…"
     if view.status == "unpairing":
-        return "クラウド: 外しています…"
+        return "クラウド版: 外しています…"
     if view.status == "registered":
         if view.tunnel is not None:
             label = {"connected": "つながっている", "connecting": "つないでいます"}.get(
                 view.tunnel, "止まっている"
             )
-            return f"クラウド: 登録済み / トンネル: {label}"
-        return f"クラウド: {'つながっていない' if view.connected is False else 'つながっている'}"
-    return "クラウド: 登録していない"
+            return f"クラウド版: 登録済み / トンネル: {label}"
+        return f"クラウド版: {'つながっていない' if view.connected is False else 'つながっている'}"
+    return "クラウド版: 登録していない"
 
 
 def cloud_menu(view: CloudView | None) -> CloudMenu:
@@ -138,7 +135,7 @@ def quit_confirmation(status: ServerStatus) -> str | None:
         return None
     return (
         f"録音中のセッションが {status.recordings} 件あります。"
-        "サーバーを止めると、録音もそこで止まります（そこまでの録音は残ります）。終了しますか？"
+        "終了すると録音もそこで止まります（そこまでは残ります）。終了しますか？"
     )
 
 

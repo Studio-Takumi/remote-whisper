@@ -1,4 +1,4 @@
-// ホストの登録の確認（#157。spec/cloud.md 10.6）。トレイの「クラウドにログイン」が開く /pair?code=… の画面。
+// ホストの登録の確認（#157。spec/cloud.md 10.6）。トレイの「クラウド版にログイン」が開く /pair?code=… の画面。
 // ログインしていなければログインさせてから、PC 名とコードを出して承認・拒否させる。
 // コードがトレイの通知と同じかを本人に確かめさせる（ほかの人の PC を自分のアカウントに登録させる乗っ取りの対策）
 import { useEffect, useState } from 'react';
@@ -21,7 +21,7 @@ export function settled(request: PairRequest): View | null {
         return request.answeredByMe === false
             ? {
                   kind: 'error',
-                  message: `${request.hostName} は、ほかのアカウントで承認されています。心当たりがなければ、PC のトレイから「クラウドから外す」を選んでください`,
+                  message: `${request.hostName} は、ほかのアカウントで承認されています。心当たりがなければ、PC のトレイから「クラウド版から外す」を選んでください`,
               }
             : { kind: 'done', message: `${request.hostName} は登録済みです` };
     }
@@ -81,7 +81,7 @@ export function PairPage({ code }: { code: string }) {
                 <p className='text-sm text-muted-foreground'>確かめています…</p>
             ) : !me ? (
                 <>
-                    <p className='text-sm'>ログインしてから、登録する PC を確かめます。</p>
+                    <p className='text-sm'>ログインしてから、登録する PC を確かめます</p>
                     <LoginButtons />
                 </>
             ) : view.kind === 'loading' ? (
@@ -106,7 +106,7 @@ export function PairPage({ code }: { code: string }) {
                     </p>
                     <p className='text-xs text-muted-foreground'>
                         PC
-                        のトレイの通知に出ているコードと同じか確かめてください。違うときや、心当たりがないときは拒否してください。
+                        のトレイの通知に出ているコードと同じか確かめてください。違うときや、心当たりがないときは拒否してください
                     </p>
                     <div className='flex gap-2'>
                         <Button disabled={busy} onClick={() => void answer(true, view.request)}>

@@ -31,7 +31,7 @@ export function NewProjectDialog({
                 <DialogHeader>
                     <DialogTitle>新規プロジェクト作成</DialogTitle>
                     <DialogDescription>
-                        プロジェクトにするフォルダを選んでください。録音はプロジェクトごとにまとめられ、最終要約のコピーはこのフォルダに置かれます。
+                        プロジェクトにするフォルダを選んでください。最終要約のコピーはこのフォルダに置かれます
                     </DialogDescription>
                 </DialogHeader>
                 {/* DialogContent は閉じると消えるので、開くたびに選び直せる */}
@@ -60,7 +60,7 @@ function FolderPicker({ onCreate }: { onCreate: (path: string) => void }) {
                 ) : !listing ? (
                     <Message>読み込んでいます…</Message>
                 ) : roots.length === 0 ? (
-                    <Message>読み込めるフォルダが設定されていません。設定の「参考資料」から追加してください。</Message>
+                    <Message>読み込めるフォルダがありません。設定の「参考資料」で追加してください</Message>
                 ) : (
                     roots.map((root) => (
                         <FolderNode

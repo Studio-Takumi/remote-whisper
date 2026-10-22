@@ -186,7 +186,7 @@ def test_pairing_approved(tmp_path):
     assert host.view == CloudView("registered")
     assert worker.started["hostName"] == "TEST-PC"
     assert opened == [f"{RELAY}/pair?code=ABCD-1234"]
-    assert "ABCD-1234" in notices[0] and notices[-1] == "クラウドに登録しました"
+    assert "ABCD-1234" in notices[0] and notices[-1] == "クラウド版に登録しました"
     creds = load_credentials(tmp_path)
     assert creds.registered and creds.relay_key == "relay-key"
     assert creds.host_id == worker.started["hostId"] and creds.relay_url == RELAY
@@ -301,7 +301,7 @@ def test_pairing_can_be_cancelled(tmp_path):
     host.cancel_pairing()
     host.wait(10)
     assert host.view.status == "unregistered"
-    assert notices[-1] == "クラウドへの登録をやめました"
+    assert notices[-1] == "クラウド版への登録をやめました"
 
 
 # --- 解除 ---
@@ -321,7 +321,7 @@ def test_unpair_tells_the_worker_and_cleans_up(tmp_path):
     assert worker.unpaired == [host_id]
     assert stopped == [1]
     assert not (tmp_path / "cloud.json").exists()
-    assert notices[-1] == "クラウドから外しました"
+    assert notices[-1] == "クラウド版から外しました"
     # 次の登録は新しいホスト ID で
     host.start_pairing()
     host.wait(10)
@@ -398,11 +398,11 @@ def test_unpair_uses_the_stored_relay_url(tmp_path):
 
 def test_cloud_text_and_menu():
     assert cloud_text(None) == ""
-    assert cloud_text(CloudView("unregistered")) == "クラウド: 登録していない"
+    assert cloud_text(CloudView("unregistered")) == "クラウド版: 登録していない"
     pairing = cloud_text(CloudView("pairing", code="ABCD-1234"))
-    assert pairing == "クラウド: 登録中（コード ABCD-1234）"
-    assert cloud_text(CloudView("registered")) == "クラウド: つながっている"
-    assert cloud_text(CloudView("registered", connected=False)) == "クラウド: つながっていない"
+    assert pairing == "クラウド版: 登録中（コード ABCD-1234）"
+    assert cloud_text(CloudView("registered")) == "クラウド版: つながっている"
+    assert cloud_text(CloudView("registered", connected=False)) == "クラウド版: つながっていない"
     m = cloud_menu(CloudView("unregistered"))
     assert (m.login, m.cancel, m.unpair) == (True, False, False)
     m = cloud_menu(CloudView("pairing", code="X"))
@@ -419,6 +419,6 @@ def test_tooltip_has_the_cloud_line():
     from remote_whisper.hub import ServerStatus
 
     state = tray_state(ServerStatus(), CloudView("unregistered"))
-    assert state.tooltip == "remote-whisper: 待機中\nクラウド: 登録していない"
+    assert state.tooltip == "remote-whisper: 待機中\nクラウド版: 登録していない"
     # クラウドを渡さなければ今まで通り
     assert tray_state(ServerStatus()).tooltip == "remote-whisper: 待機中"

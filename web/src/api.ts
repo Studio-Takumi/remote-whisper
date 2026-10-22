@@ -21,7 +21,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
             body: body === undefined ? undefined : JSON.stringify(body),
         });
     } catch {
-        throw new ApiError(0, 'サーバーにつながりません');
+        throw new ApiError(0, 'ホストにつながりません');
     }
     if (!res.ok) {
         let message = `${method} ${path}: ${res.status}`;

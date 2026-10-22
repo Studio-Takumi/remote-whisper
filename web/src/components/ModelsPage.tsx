@@ -4,21 +4,16 @@ import { OptionSelect, Row, Section } from '@/components/SettingsParts';
 import { Button } from '@/components/ui/button';
 import { isMissing, ollamaModelNames, thinkingNote, withCurrent } from '@/options';
 import type { SettingsOptions } from '@/protocol';
-import { type OllamaModels, type Settings, recommendedModels, recommendedWhisperModel } from '@/settings';
+import { type OllamaModels, type Settings, recommendedModels } from '@/settings';
 
 // 選べない処理は、何を使っているかを薄い文字で出す
 function Fixed({ children }: { children: React.ReactNode }) {
     return <span className='text-sm text-muted-foreground'>{children}</span>;
 }
 
-// モデルの横に出す、おすすめと「入っていません」
-function Hint({ recommended, missing }: { recommended: string; missing: boolean }) {
-    return (
-        <p className='flex flex-wrap items-center gap-x-2'>
-            <span>おすすめ: {recommended}</span>
-            {missing && <span className='text-amber-700 dark:text-amber-400'>入っていません</span>}
-        </p>
-    );
+// モデルの横に出す「入っていません」（おすすめのモデルの名前は出さない。#239）
+function Missing({ missing }: { missing: boolean }) {
+    return missing ? <p className='text-amber-700 dark:text-amber-400'>入っていません</p> : null;
 }
 
 // 設定モーダルの「モデル」ページ（#179）。どの処理でどのモデルを使うかを、大きな段階ごとに並べる
@@ -48,7 +43,7 @@ export function ModelsPage({
             description={
                 <>
                     {description && <p>{description}</p>}
-                    <Hint recommended={recommendedModels[key]} missing={isMissing(options, key, models[key])} />
+                    <Missing missing={isMissing(options, key, models[key])} />
                 </>
             }
         >
@@ -65,7 +60,7 @@ export function ModelsPage({
         <>
             <div className='flex items-center justify-between gap-3'>
                 <p className='text-xs text-muted-foreground'>
-                    処理ごとに使うモデルです。薄い文字のものは選べません（何が動いているかの表示です）。
+                    処理ごとのモデルです。薄い文字のものは表示だけで、選べません
                 </p>
                 <Button
                     variant='outline'
@@ -77,21 +72,16 @@ export function ModelsPage({
                     おすすめに戻す
                 </Button>
             </div>
-            <Section title='参考資料' description='Ollama で、資料から用語リストとコンテキストを作る'>
+            <Section title='参考資料' description='Ollama で、資料から用語リストとコンテキストを作ります'>
                 {ollamaRow('materialTerms', '用語リスト（資料抽出）')}
                 {ollamaRow('context', 'コンテキスト', thinkingNote(options, models.context))}
-                {ollamaRow('scope', '範囲の判断', '資料のどこを使うか。小さいモデルでは答えが安定しない')}
+                {ollamaRow('scope', '範囲の判断', '資料のどこを使うかを判断します。小さいモデルでは答えが安定しません')}
             </Section>
             <Section title='リアルタイム文字起こし'>
                 <Row id='model-vad' label='無音区間の判別'>
                     <Fixed>Silero VAD</Fixed>
                 </Row>
-                <Row
-                    id='whisper-model'
-                    label='文字起こし'
-                    locked={whisperLocked}
-                    description={<Hint recommended={recommendedWhisperModel} missing={false} />}
-                >
+                <Row id='whisper-model' label='文字起こし' locked={whisperLocked}>
                     <OptionSelect
                         id='whisper-model'
                         value={whisperModel}
@@ -101,7 +91,7 @@ export function ModelsPage({
                 </Row>
                 {ollamaRow('transcriptTerms', '用語リスト（文字起こし抽出）')}
             </Section>
-            <Section title='浄書済み文字起こし' description='録音を終えたあと、録音全体から再生成する'>
+            <Section title='浄書' description='録音終了後に、録音全体から作り直します'>
                 <Row id='model-final-transcript' label='文字起こし'>
                     <Fixed>WhisperX（Whisper: {whisperModel}。リアルタイム文字起こしと同じ）</Fixed>
                 </Row>
@@ -112,11 +102,11 @@ export function ModelsPage({
                     <Fixed>WhisperX（pyannote）</Fixed>
                 </Row>
             </Section>
-            <Section title='リアルタイム要約' description='録音中に数分おきに作る。思考モードはオフ'>
+            <Section title='リアルタイム要約' description='録音中に数分おきに作ります（思考モードはオフ）'>
                 {ollamaRow('liveSummary', '要約')}
                 {ollamaRow('liveTitle', 'タイトル')}
             </Section>
-            <Section title='最終要約' description='録音が終わった後に作る'>
+            <Section title='最終要約' description='録音終了後に作ります'>
                 {ollamaRow('overview', '全体概要', thinkingNote(options, models.overview))}
                 {ollamaRow('detail', '要約詳細', thinkingNote(options, models.detail))}
                 {ollamaRow('finalTitle', 'タイトル')}

@@ -33,13 +33,13 @@ export const initialServerStatus: ServerStatus = {
 // GPU キューのジョブの種類の名前
 export const jobKindLabel: Record<GpuJobKind, string> = {
     transcribe: '文字起こし',
-    whisperLoad: '文字起こしのモデルの読み込み',
+    whisperLoad: '文字起こしのモデル読み込み',
     liveSummary: 'リアルタイム要約',
     finalSummary: '最終要約',
     contextSet: '参考資料の作成',
-    terms: '文字起こしからの用語の抽出',
-    finalTranscript: '浄書済み文字起こし',
-    materialRange: '扱った範囲での参考資料の作り直し',
+    terms: '文字起こしからの用語抽出',
+    finalTranscript: '文字起こしの浄書',
+    materialRange: '扱った範囲での参考資料の再生成',
     other: 'その他',
 };
 
@@ -48,9 +48,9 @@ const blockingReason: Partial<Record<GpuJobKind, string>> = {
     liveSummary: 'リアルタイム要約の生成中',
     finalSummary: '最終要約の生成中',
     contextSet: '参考資料の作成中',
-    terms: '用語の抽出中',
+    terms: '用語抽出中',
     finalTranscript: '浄書中',
-    materialRange: '参考資料の作り直し中',
+    materialRange: '参考資料の再生成中',
 };
 
 // このセッションの最終の文字起こし（#121）を作っている・作るのを待っているか
@@ -81,14 +81,14 @@ export type Status = { tone: Tone; text: string };
 export function transcriptStatus(state: RecordingState, server: ServerStatus, sessionId: string | null = null): Status {
     if (state === 'idle') {
         return server.connection === 'reconnecting'
-            ? { tone: 'warning', text: 'サーバーにつながっていません。つなぎ直しています…' }
+            ? { tone: 'warning', text: 'ホストにつながっていません。つなぎ直しています…' }
             : { tone: 'idle', text: '待機中' };
     }
     if (server.connection === 'reconnecting') {
         // つながり直せば、そのまま続く。待つ時間を過ぎても、あとで同じセッションの続きを録音できる（#101）
         return {
             tone: 'warning',
-            text: 'サーバーに再接続しています…（録音は手元で続けています。つながれば、そのまま続きます）',
+            text: 'ホストに再接続しています…（録音は手元で続けています）',
         };
     }
     if (state === 'paused') {
@@ -103,7 +103,7 @@ export function transcriptStatus(state: RecordingState, server: ServerStatus, se
     if (blocking) {
         return {
             tone: 'warning',
-            text: `${blockingReason[blocking] ?? 'ほかの処理'}のため、文字起こしを待っています…（終わったら続きを出します。音声は保存しています）`,
+            text: `${blockingReason[blocking] ?? 'ほかの処理'}のため、文字起こしを待っています…（音声は保存しています）`,
         };
     }
     if (server.whisper !== 'ready') {
@@ -118,10 +118,10 @@ export function summaryStatus(state: RecordingState, server: ServerStatus, inter
         return null;
     }
     if (server.connection === 'reconnecting') {
-        return { tone: 'warning', text: 'サーバーに再接続しています…（録音は続けています）' };
+        return { tone: 'warning', text: 'ホストに再接続しています…（録音は続けています）' };
     }
     if (server.ollama === 'error') {
-        return { tone: 'error', text: 'Ollama に接続できないため、要約を作れません。録音が終わった後に再生成できます' };
+        return { tone: 'error', text: 'Ollama に接続できず、要約を作れません。録音を終えてから再生成できます' };
     }
     if (state === 'paused') {
         return { tone: 'paused', text: '一時停止中。再開すると要約の更新も再開します' };

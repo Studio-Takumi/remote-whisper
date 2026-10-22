@@ -3,10 +3,10 @@
 - ホスト ID（UUID4）と Ed25519 の鍵のペアは、登録を始めるたびに新しく作る（解除したあとに
   使い回さない）。データのルートの cloud.json に置き、権限は本人だけにする
   （setting.json とは分ける）
-- 「クラウドにログイン」: POST /pair/start → 返ってきた URL をブラウザで開き、同じ登録コードを
+- 「クラウド版にログイン」: POST /pair/start → 返ってきた URL をブラウザで開き、同じ登録コードを
   トレイに出す → 承認・拒否・期限切れまで POST /pair/poll（署名つき）を数秒ごとに呼ぶ →
   承認されたら中継の鍵（relayKey）を cloud.json に足す
-- 「クラウドから外す」: POST /pair/unpair（署名つき）→ cloud.json を消す →
+- 「クラウド版から外す」: POST /pair/unpair（署名つき）→ cloud.json を消す →
   cloudflared を止める（#159）
 - ホストから Worker へのリクエストは、ホストの秘密鍵で署名する（X-RW-Host。canonical_string）
 - ネットワークの失敗でトレイやサーバーを落とさない。失敗は notice（通知の文）で知らせる
@@ -56,7 +56,7 @@ REQUEST_TIMEOUT_SEC = 10.0
 CODE_PATTERN = re.compile(r"^[A-Za-z0-9-]{4,32}$")
 
 EXPIRED_NOTICE = (
-    "登録コードの期限が切れました。もう一度「クラウドにログイン」からやり直してください"
+    "登録コードの期限が切れました。もう一度「クラウド版にログイン」からやり直してください"
 )
 
 CloudStatus = Literal["unregistered", "pairing", "registered", "unpairing"]
@@ -345,7 +345,7 @@ class RelayClient:
         payload: dict[str, Any] = {"appVersion": app_version} if app_version else {}
         res = self._call("/pair/tunnel", payload)
         if res.status_code in (401, 404):
-            raise RegistrationGone(f"クラウドの登録が見つかりません（HTTP {res.status_code}）")
+            raise RegistrationGone(f"クラウド版の登録が見つかりません（HTTP {res.status_code}）")
         data = _json_or_error(res, "トンネルのトークンをもらえませんでした")
         token, hostname = data.get("token"), data.get("hostname")
         if not isinstance(token, str) or not token or not isinstance(hostname, str):
@@ -457,7 +457,7 @@ class CloudHost:
             return self._view
 
     def start_pairing(self) -> bool:
-        """「クラウドにログイン」。始めたら True（登録済み・処理中なら何もしない）"""
+        """「クラウド版にログイン」。始めたら True（登録済み・処理中なら何もしない）"""
         with self._lock:
             if self._view.status != "unregistered" or self._busy():
                 return False
@@ -473,7 +473,7 @@ class CloudHost:
             self._cancel.set()
 
     def unpair(self) -> bool:
-        """「クラウドから外す」。始めたら True"""
+        """「クラウド版から外す」。始めたら True"""
         with self._lock:
             if self._view.status != "registered" or self._busy():
                 return False
@@ -508,10 +508,10 @@ class CloudHost:
             message = self._pair_steps()
         except CloudError as e:
             log.warning("cloud pairing failed: %s", e)
-            message = f"クラウドに登録できませんでした: {e}"
+            message = f"クラウド版に登録できませんでした: {e}"
         except Exception as e:  # noqa: BLE001 何があってもトレイとサーバーは止めない
             log.exception("cloud pairing failed")
-            message = f"クラウドに登録できませんでした: {type(e).__name__}"
+            message = f"クラウド版に登録できませんでした: {type(e).__name__}"
         stored = load_credentials(self.home)
         if stored is None or not stored.registered:
             # 申請中のまま残さない（次は新しいホスト ID と鍵で申請する）
@@ -575,13 +575,13 @@ class CloudHost:
                     self._view = CloudView("registered")
                     self._registration_changed()
                     log.info("cloud pairing approved (host %s)", credentials.host_id)
-                    return "クラウドに登録しました"
+                    return "クラウド版に登録しました"
                 if status == "rejected":
                     return "登録が拒否されました"
                 if status == "expired":
                     return EXPIRED_NOTICE
             log.info("cloud pairing cancelled")
-            return "クラウドへの登録をやめました"
+            return "クラウド版への登録をやめました"
         finally:
             client.close()
 
@@ -606,15 +606,15 @@ class CloudHost:
         except Exception:  # noqa: BLE001 何があってもトレイとサーバーは止めない
             log.exception("cloud unpairing failed")
             self._view = CloudView("registered")
-            self._notice("クラウドから外せませんでした。ログを確かめてください")
+            self._notice("クラウド版から外せませんでした。ログを確かめてください")
             return
         self._view = CloudView("unregistered")
         self._registration_changed()
         log.info("cloud unpaired (relay told: %s)", told)
         if told:
-            self._notice("クラウドから外しました")
+            self._notice("クラウド版から外しました")
         else:
             self._notice(
-                "この PC の登録を消しました。中間サーバーには伝えられなかったので、"
+                "この端末の登録を消しました。中間サーバーには伝えられなかったので、"
                 "画面のホストの管理からも外してください"
             )

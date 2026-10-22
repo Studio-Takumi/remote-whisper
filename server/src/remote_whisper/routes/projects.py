@@ -51,7 +51,7 @@ class SelectionBody(BaseModel):
 
 def _service(ctx: AppContext) -> ContextSetService:
     if ctx.context_sets is None:
-        raise HTTPException(status_code=503, detail="このサーバーでは参考資料を作れません")
+        raise HTTPException(status_code=503, detail="このホストでは参考資料を作れません")
     return ctx.context_sets
 
 

@@ -1,6 +1,8 @@
 import { MonitorIcon, MoonIcon, SunIcon } from 'lucide-react';
 import { useTheme } from 'next-themes';
 
+import { Row } from '@/components/SettingsParts';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SidebarMenuButton } from '@/components/ui/sidebar';
 
 // テーマの切り替え。押すたびに OS に合わせる → ライト → ダーク の順に変わる
@@ -29,5 +31,29 @@ export function ThemeToggle() {
             <current.icon />
             <span>{label}</span>
         </SidebarMenuButton>
+    );
+}
+
+// 設定モーダル（表示・その他）のテーマの項目（#239）。サイドバーのボタンと同じく、端末ごと（localStorage）
+export function ThemeRow() {
+    const { theme = 'system', setTheme } = useTheme();
+    return (
+        <Row id='theme' label='テーマ'>
+            <Select value={theme} onValueChange={setTheme}>
+                <SelectTrigger id='theme' className='w-44'>
+                    <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                    <SelectGroup>
+                        {themes.map((t) => (
+                            <SelectItem key={t.value} value={t.value}>
+                                <t.icon />
+                                {t.label}
+                            </SelectItem>
+                        ))}
+                    </SelectGroup>
+                </SelectContent>
+            </Select>
+        </Row>
     );
 }
