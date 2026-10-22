@@ -15,6 +15,7 @@
 Ollama につながらなければ ollama_unavailable を送り、途中の要約は残す（作り直しは #28）。
 """
 
+import asyncio
 import logging
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -22,6 +23,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from remote_whisper.live_summary import load_context
+from remote_whisper.material_pages import Page, annotate_detail, load_pages
 from remote_whisper.ollama import OllamaClient, OllamaUnavailable, ollama_error
 from remote_whisper.prompts import (
     DEFAULT_DENSITY,
@@ -185,6 +187,13 @@ class FinalSummarizer:
         # 要約度（#100）。作り始めた時点の全体設定のものを使い、フロントマターに残す
         ollama_settings = self.settings.get().ollama
         density = Density(ollama_settings.overview_density, ollama_settings.detail_density)
+        # 詳細の項目に付ける参考資料のページ（#237）。設定がオフ・資料がなければ付けない
+        # （PDF を読むのは時間がかかるので、イベントループを止めないよう別のスレッドで）
+        pages = (
+            await asyncio.to_thread(load_pages, writer.files.dir, writer.meta.context_set)
+            if ollama_settings.detail_material_pages
+            else []
+        )
         clock = time.monotonic()
         log.info(
             "final summary of %s started with %s / %s (%d lines)",
@@ -195,7 +204,7 @@ class FinalSummarizer:
         )
         try:
             think = await self.ollama.supports_thinking(model)
-            text, gist = await self._summarize(models, lines, context, send, density)
+            text, gist = await self._summarize(models, lines, context, send, density, pages)
             if not gist:
                 raise OllamaUnavailable("要約が空でした")
         except OllamaUnavailable as e:
@@ -269,11 +278,13 @@ class FinalSummarizer:
         context: str | None,
         send: Callable[[dict[str, Any]], Awaitable[None]],
         density: Density | None = None,
+        pages: list[Page] | None = None,
     ) -> tuple[str, str]:
         """要約の本文と、タイトルを作る元（長いときは全体の概要）を返す。どちらも空なら作れなかった
 
         一度に収まるときは、詳細の要約度で作る（概要は作らない）。
-        部分ごとの要約（と一度に収まるときの要約）は要約詳細のモデル、まとめと概要は全体概要のモデル
+        部分ごとの要約（と一度に収まるときの要約）は要約詳細のモデル、まとめと概要は全体概要のモデル。
+        pages があれば、詳細の項目に参考資料のページを付ける（#237。概要には付けない）
         """
         density = density or Density()
         model = models.detail
@@ -287,6 +298,9 @@ class FinalSummarizer:
                 options=options,
             )
             text = (await self._send_stream(stream, send)).strip()
+            # 流したものには付いていない。保存したものを画面が取り直すときに付いて見える
+            if text and pages:
+                return await annotate_detail(self.ollama, model, text, pages), text
             return text, text
 
         # 部分ごとに要約する（送らない）。これがそのまま「詳細」になる
@@ -336,6 +350,13 @@ class FinalSummarizer:
         if not gist:
             return "", ""
         text = head + gist
+        if pages:
+            parts = [
+                part
+                if part == EMPTY_PART
+                else await annotate_detail(self.ollama, model, part, pages)
+                for part in parts
+            ]
         for i, part in enumerate(parts):
             body = "\n".join(demote(line) for line in part.split("\n"))
             section = f"\n\n{section_heading(chunks, i)}\n\n{body}"
