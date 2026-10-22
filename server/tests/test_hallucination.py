@@ -107,9 +107,7 @@ def test_keeps_a_sentence_that_only_mentions_a_phrase():
         drop_reason(seg("この動画のチャンネル登録者数は去年より増えています", ns=0.4, lp=-0.7))
         is None
     )
+    assert drop_reason(seg("次回予告編の撮影は来週です", ns=0.4, lp=-0.7)) is None
     assert (
-        drop_reason(
-            seg("次の会議までに最後までご視聴いただけるよう資料を共有します", ns=0.4, lp=-0.7)
-        )
-        is None
+        drop_reason(seg("次の動画でお会いしましょうと締めるのが定番です", ns=0.4, lp=-0.7)) is None
     )
