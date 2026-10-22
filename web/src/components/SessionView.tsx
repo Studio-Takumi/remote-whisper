@@ -186,7 +186,7 @@ export function SessionView() {
                             <div className='flex flex-wrap items-center gap-2'>
                                 <AudioUploadButton projectId={project.id} />
                                 <p className='text-xs text-muted-foreground'>
-                                    ほかのアプリで録った音声（wav・mp3・m4a など）をここにドロップしても作れます
+                                    音声ファイル（wav・mp3・m4a など）をドロップしても作れます
                                 </p>
                             </div>
                             <UploadProgress />
@@ -203,9 +203,7 @@ export function SessionView() {
                     )}
                     {session && !session.loaded && <p className='text-sm text-muted-foreground'>読み込んでいます…</p>}
                     {session && expired(session, 'transcript') && (
-                        <p className='text-sm text-muted-foreground'>
-                            文字起こしは、保存期間を過ぎたため消えています（期限切れ）。
-                        </p>
+                        <p className='text-sm text-muted-foreground'>文字起こしは期限切れで消えています。</p>
                     )}
                     {session && (
                         <FinalTranscriptBar
@@ -243,7 +241,7 @@ export function SessionView() {
                     )}
                     {!session && recordingElsewhere && (
                         <p className='text-sm text-muted-foreground'>
-                            ほかのセッションで録音中です。録音を終えると、ここから新しく録音できます。
+                            ほかのセッションで録音中です。終えると、ここから録音できます。
                         </p>
                     )}
                     {/* ほかの端末で録音中のセッションを見ている間は、この端末の状態（待機中）を出さない（#238） */}
@@ -364,9 +362,7 @@ function FinalTranscriptBar({ session, making }: { session: Session; making: boo
         />
     );
     const noRecording = available && done && session.files?.recording === false && (
-        <p className='text-xs text-muted-foreground'>
-            録音ファイルが残っていないため、浄書済み文字起こしは再生成できません。
-        </p>
+        <p className='text-xs text-muted-foreground'>録音ファイルがないため、再生成できません。</p>
     );
 
     if (!final) {
@@ -420,8 +416,7 @@ function FinalTranscriptBar({ session, making }: { session: Session; making: boo
             )}
             {final.diarization === 'unavailable' && (
                 <p className='text-xs text-muted-foreground'>
-                    話者分けはできませんでした（HuggingFace
-                    のトークンか、話者分けのモデルの利用条件への同意がありません）。
+                    話者分けはできませんでした（HuggingFace のトークンかモデルの利用条件への同意がありません）。
                 </p>
             )}
             {noRecording}
@@ -536,7 +531,7 @@ function SummaryPanel({
                         : 'ほかの要約を作り終えてから、再生成してください。'
                     : ollama === 'ready'
                       ? 'Ollama には今つながっています。再生成してください（保存に失敗した場合は、ディスクの空きも確かめてください）。'
-                      : 'Ollama に接続できません。Ollama が動いているか確かめてから、再生成してください。'}
+                      : 'Ollama に接続できません。動いているか確かめてから再生成してください。'}
             </p>
             {regenerateButton}
         </div>
@@ -568,9 +563,7 @@ function SummaryPanel({
         return (
             <div className='flex flex-col items-start gap-2'>
                 <p className='text-sm text-muted-foreground'>
-                    {expired(session, 'summary')
-                        ? '要約は、保存期間を過ぎたため消えています（期限切れ）。'
-                        : 'まだ要約がありません。'}
+                    {expired(session, 'summary') ? '要約は期限切れで消えています。' : 'まだ要約がありません。'}
                 </p>
                 {regenerateButton}
             </div>
@@ -665,9 +658,7 @@ function NotFoundState() {
         <div className='flex flex-1 flex-col items-center justify-center gap-3 text-center text-muted-foreground'>
             <SearchXIcon className='size-10' />
             <p className='text-lg font-semibold text-foreground'>見つかりません</p>
-            <p className='max-w-md text-sm'>
-                このセッションかプロジェクトは、消えたか保存期間を過ぎています。メニューからほかのセッションを開いてください。
-            </p>
+            <p className='max-w-md text-sm'>このセッションかプロジェクトは、消えたか期限切れです。</p>
         </div>
     );
 }
@@ -682,7 +673,7 @@ function EmptyState({ hasProjects }: { hasProjects: boolean }) {
             </p>
             <p className='max-w-md text-sm'>
                 {hasProjects
-                    ? 'メニューから過去のセッションを開くか、プロジェクトの ＋ から新しいセッションを作れます。'
+                    ? 'メニューからセッションを開くか、プロジェクトの ＋ で新しく作れます。'
                     : 'メニューの「新規プロジェクト作成」から、録音をまとめるフォルダを選んでください。'}
             </p>
         </div>

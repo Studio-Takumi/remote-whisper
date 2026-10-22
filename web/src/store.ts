@@ -517,7 +517,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                 if (!saved && !warned) {
                     warned = true;
                     toast.warning(
-                        'サーバーに届いていない音声が多すぎるため、これより後はページを読み込み直すと消えます。ページを閉じずに、つながるのを待ってください',
+                        '届いていない音声が多いため、ここから先はページを読み込み直すと消えます。閉じずに、つながるのを待ってください',
                     );
                 }
             });
@@ -716,7 +716,7 @@ export const useAppStore = create<AppState>()((set, get) => {
         }));
         // 同じセッションのまま続きを録音できる（#101）。セッションの画面にも「続きから録音」を出す
         toast.error(
-            'サーバーで録音を続けられなくなったため、録音は途中で終わりました（接続が長く切れていた、サーバーが再起動したなど）。そこまでの録音はサーバーに残っています',
+            '録音は途中で終わりました（接続が長く切れた・サーバーが再起動したなど）。そこまでの録音は残っています',
             {
                 duration: 15000,
                 action: { label: '続きから録音', onClick: () => void get().continueRecording(sessionId) },
@@ -966,7 +966,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                 return;
             }
             if (get().uploading) {
-                toast.info('ほかのファイルをアップロードしています。終わってからもう一度選んでください');
+                toast.info('ほかのファイルをアップロード中です。終わってから選び直してください');
                 return;
             }
             set({ uploading: { projectId, name: file.name, percent: 0 } });
@@ -996,7 +996,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                         },
                     }));
                 }
-                toast.success(`${file.name} から作ります。文字起こしと要約ができるまで、しばらくかかります`);
+                toast.success(`${file.name} から作ります。要約まで少しかかります`);
             } catch (e) {
                 toast.error(`${file.name} をアップロードできません: ${(e as Error).message}`);
             } finally {
@@ -1110,9 +1110,7 @@ export const useAppStore = create<AppState>()((set, get) => {
             }
             // 切れている間に終えた録音の残りをまだ送っていない。始めると、その残りが捨てられてしまう
             if (stoppedWhileOffline) {
-                toast.warning(
-                    '前の録音の残りをサーバーに送るのを待っています。サーバーにつながってから、もう一度押してください',
-                );
+                toast.warning('前の録音の残りを送るのを待っています。つながってから、もう一度押してください');
                 return;
             }
             await startOrContinue(project.id);
@@ -1390,9 +1388,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                 return;
             }
             if (stoppedWhileOffline) {
-                toast.warning(
-                    '前の録音の残りをサーバーに送るのを待っています。サーバーにつながってから、もう一度押してください',
-                );
+                toast.warning('前の録音の残りを送るのを待っています。つながってから、もう一度押してください');
                 return;
             }
             await startOrContinue(project.id, sessionId);
@@ -1780,9 +1776,9 @@ export const useAppStore = create<AppState>()((set, get) => {
             } catch (e) {
                 regeneratingTranscripts.delete(sessionId);
                 if (e instanceof ApiError && e.status === 409) {
-                    toast.error('録音中か、録音を終えた直後のセッションです。少し待ってから再生成してください');
+                    toast.error('録音中か、録音を終えた直後です。少し待ってから再生成してください');
                 } else if (e instanceof ApiError && e.status === 410) {
-                    toast.error('録音ファイルが保存期間を過ぎて消えているため、文字起こしを再生成できません');
+                    toast.error('録音ファイルが期限切れのため、再生成できません');
                 } else {
                     toast.error(`文字起こしを再生成できません: ${(e as Error).message}`);
                 }
@@ -1844,9 +1840,9 @@ export const useAppStore = create<AppState>()((set, get) => {
                 }));
             } catch (e) {
                 if (e instanceof ApiError && e.status === 409) {
-                    toast.error('録音中か、録音を終えた直後のセッションです。少し待ってから再生成してください');
+                    toast.error('録音中か、録音を終えた直後です。少し待ってから再生成してください');
                 } else if (e instanceof ApiError && e.status === 410) {
-                    toast.error('文字起こしが保存期間を過ぎて消えているため、要約を再生成できません');
+                    toast.error('文字起こしが期限切れのため、再生成できません');
                 } else {
                     toast.error(`要約を再生成できません: ${(e as Error).message}`);
                 }
@@ -1918,7 +1914,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                         return { contextSets: { ...st.contextSets, [pid]: sorted } };
                     });
                     if (created.reused) {
-                        toast.info('同じ資料で作った参考資料があるので、それを使います');
+                        toast.info('同じ資料の参考資料があるので、それを使います');
                     }
                     await get().changeContextSelection({ ...selection, setId: created.id });
                 } catch (e) {
@@ -1929,7 +1925,7 @@ export const useAppStore = create<AppState>()((set, get) => {
             const same = currentContextSets(s).find((x) => x.materials.join('\n') === materials.join('\n'));
             if (same) {
                 get().changeContextSelection({ ...selection, setId: same.id });
-                toast.info('同じ資料で作った参考資料があるので、それを使います');
+                toast.info('同じ資料の参考資料があるので、それを使います');
                 return;
             }
             const created: ContextSet = { id: newId(), status: 'generating', materials };
@@ -1959,7 +1955,7 @@ export const useAppStore = create<AppState>()((set, get) => {
 // マイクが止まったときの知らせ（#102）
 // 音は届いているのに文字起こしが出ないとき（#120）。録音は続いている（音声はサーバーに保存されている）
 export const stalledMessage =
-    '音は届いていますが、しばらく文字起こしが出ていません。録音は続いています。マイクの処理（設定の「ブラウザのエコー除去」「ブラウザの雑音抑制」）を切ると直ることがあります';
+    '音は届いていますが、文字起こしが出ていません（録音は続いています）。設定の「ブラウザのエコー除去」「ブラウザの雑音抑制」を切ると直ることがあります';
 
 export function micStateMessage(state: MicState) {
     switch (state) {

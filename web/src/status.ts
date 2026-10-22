@@ -88,7 +88,7 @@ export function transcriptStatus(state: RecordingState, server: ServerStatus, se
         // つながり直せば、そのまま続く。待つ時間を過ぎても、あとで同じセッションの続きを録音できる（#101）
         return {
             tone: 'warning',
-            text: 'サーバーに再接続しています…（録音は手元で続けています。つながれば、そのまま続きます）',
+            text: 'サーバーに再接続しています…（録音は手元で続けています）',
         };
     }
     if (state === 'paused') {
@@ -103,7 +103,7 @@ export function transcriptStatus(state: RecordingState, server: ServerStatus, se
     if (blocking) {
         return {
             tone: 'warning',
-            text: `${blockingReason[blocking] ?? 'ほかの処理'}のため、文字起こしを待っています…（終わったら続きを出します。音声は保存しています）`,
+            text: `${blockingReason[blocking] ?? 'ほかの処理'}のため、文字起こしを待っています…（音声は保存しています）`,
         };
     }
     if (server.whisper !== 'ready') {
@@ -121,7 +121,7 @@ export function summaryStatus(state: RecordingState, server: ServerStatus, inter
         return { tone: 'warning', text: 'サーバーに再接続しています…（録音は続けています）' };
     }
     if (server.ollama === 'error') {
-        return { tone: 'error', text: 'Ollama に接続できないため、要約を作れません。録音が終わった後に再生成できます' };
+        return { tone: 'error', text: 'Ollama に接続できず、要約を作れません。録音を終えてから再生成できます' };
     }
     if (state === 'paused') {
         return { tone: 'paused', text: '一時停止中。再開すると要約の更新も再開します' };

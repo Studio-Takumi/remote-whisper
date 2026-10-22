@@ -46,7 +46,7 @@ export function MaterialPickerDialog({
                 <DialogHeader>
                     <DialogTitle>参考資料を選ぶ</DialogTitle>
                     <DialogDescription>
-                        選んだ資料から、文字起こし用の用語リストと、要約用のコンテキストを作ります。作成には数分かかります。
+                        選んだ資料から用語リストとコンテキストを作ります（数分かかります）。
                     </DialogDescription>
                 </DialogHeader>
                 {/* DialogContent は閉じると消えるので、開くたびに選び直せる */}
@@ -94,7 +94,7 @@ function Picker({
                 ) : !listing || !projectSettled ? (
                     <Message>読み込んでいます…</Message>
                 ) : listing.dirs.length === 0 ? (
-                    <Message>読み込めるフォルダが設定されていません。設定の「参考資料」から追加してください。</Message>
+                    <Message>読み込めるフォルダがありません。設定の「参考資料」で追加してください。</Message>
                 ) : (
                     listing.dirs.map((root) => (
                         <FolderNode

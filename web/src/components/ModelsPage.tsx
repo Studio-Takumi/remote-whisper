@@ -65,7 +65,7 @@ export function ModelsPage({
         <>
             <div className='flex items-center justify-between gap-3'>
                 <p className='text-xs text-muted-foreground'>
-                    処理ごとに使うモデルです。薄い文字のものは選べません（何が動いているかの表示です）。
+                    処理ごとのモデルです。薄い文字のものは表示だけで、選べません。
                 </p>
                 <Button
                     variant='outline'

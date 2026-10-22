@@ -78,7 +78,7 @@ export function SettingsDialog({
                     <DialogDescription>
                         {recording
                             ? '録音中は、文字起こしのモデル・区切り・マイクの処理だけ変えられません。'
-                            : '全体設定です。どの端末から開いても同じ設定を使います。'}
+                            : '全体設定です（どの端末でも同じ）。'}
                     </DialogDescription>
                 </DialogHeader>
                 {/* DialogContent は閉じると消えるので、開くたびに今の設定から下書きを作り直せる */}
@@ -257,7 +257,7 @@ function SettingsForm({
                             id='speech-threshold'
                             label='話し声の判定'
                             locked={lock(recordingLocks.segmentation)}
-                            description='自動は、音の大きさをそろえてから声らしさで判定する（離れた小さい声も拾う）。うまくいかないときは手動にして、音量で判定する'
+                            description='自動は声らしさで判定し、離れた小さい声も拾う。うまくいかないときは手動（音量で判定）にする'
                         >
                             <Select
                                 value={draft.whisper.speechThreshold}
@@ -281,7 +281,7 @@ function SettingsForm({
                                 id='speech-dbfs'
                                 label='手動のときの音量'
                                 locked={lock(recordingLocks.segmentation)}
-                                description='この音量より大きい音を話し声とみなす。小さくするほど小さい声を拾うが、雑音も拾う（-70〜-10）'
+                                description='この音量より大きい音を話し声とみなす（-70〜-10）。小さくすると雑音も拾う'
                             >
                                 <NumberInput
                                     id='speech-dbfs'
@@ -296,7 +296,7 @@ function SettingsForm({
                         <Row
                             id='final-transcript'
                             label='浄書する'
-                            description='録音を終えたら、保存した録音全体から文ごとの文字起こしを作る（リアルタイム文字起こしも残る）。サーバーに WhisperX が入っているときだけ'
+                            description='録音を終えたら、録音全体から文ごとの文字起こしを作る。WhisperX が入っているサーバーだけ'
                         >
                             <Switch
                                 id='final-transcript'
@@ -307,7 +307,7 @@ function SettingsForm({
                         <Row
                             id='diarize'
                             label='話者を分ける'
-                            description='浄書済み文字起こしで、話している人ごとに「話者 1」「話者 2」と付ける。HuggingFace のトークンと、モデルの利用条件への同意が要る'
+                            description='浄書済み文字起こしを「話者 1」などに分ける。HuggingFace のトークンとモデルの利用条件への同意が要る'
                         >
                             <Switch
                                 id='diarize'
@@ -355,7 +355,7 @@ function SettingsForm({
                         <Row
                             id='live-density'
                             label='リアルタイム要約の要約度'
-                            description='要約区間（文字起こし約 4000 文字ずつ）ごとの要約の細かさ。1 はごく短く要点だけ、5 はできるだけ省かず細かく'
+                            description='約 4000 文字ごとの要約の細かさ。1 は要点だけ、5 はできるだけ細かく'
                         >
                             <DensitySelect
                                 id='live-density'
@@ -388,7 +388,7 @@ function SettingsForm({
                         <Row
                             id='detail-material-pages'
                             label='要約詳細に参考資料のページを付ける'
-                            description='要約詳細の項目ごとに、関係する参考資料の場所（「〇〇.pdf p.12 の内容」）を付ける。ページが分かる PDF の資料だけ。オンにしたあとで作った要約と、再生成した要約に付く'
+                            description='要約詳細の項目に「〇〇.pdf p.12 の内容」のように資料の場所を付ける（PDF だけ）。これから作る要約に付く'
                         >
                             <Switch
                                 id='detail-material-pages'
@@ -408,7 +408,7 @@ function SettingsForm({
                         <Row
                             id='pick-terms'
                             label='録音中に用語を拾う'
-                            description='リアルタイム要約と同じ間隔で、文字起こしに何度も出てくる固有名詞・専門用語を用語リストに足す。録音中の GPU の負荷が上がる。プロジェクトごとのスイッチ（参考資料）もオンのときだけ拾う'
+                            description='何度も出てくる固有名詞・専門用語を、リアルタイム要約と同じ間隔で用語リストに足す。GPU の負荷が上がる。参考資料のスイッチもオンのときだけ'
                         >
                             <Switch
                                 id='pick-terms'
@@ -445,7 +445,7 @@ function SettingsForm({
                         <Row
                             id='resume-timeout'
                             label='接続が切れたときに待つ時間'
-                            description='この時間のうちにつながり直せば、そのまま録音が続く。過ぎると途中で終わるが、あとで同じセッションの続きを録音できる'
+                            description='この時間のうちにつながり直せば録音が続く。過ぎても、あとで続きから録音できる'
                         >
                             <NumberInput
                                 id='resume-timeout'
@@ -458,7 +458,7 @@ function SettingsForm({
                         <Row
                             id='continue-window'
                             label='録音を終えたあと、続きから録音できる時間'
-                            description='この時間の間は、録音を終えたセッションの画面でマイクボタンを押すと、同じセッションの続きを録音できる。0 なら続けない'
+                            description='録音を終えてからこの時間の間は、マイクボタンで同じセッションの続きを録音できる。0 なら続けない'
                         >
                             <NumberInput
                                 id='continue-window'
@@ -548,7 +548,7 @@ function SettingsForm({
                 <TabsContent value='materials' className='min-h-0 overflow-y-auto pr-2'>
                     <Section
                         title='読み込めるフォルダ'
-                        description='参考資料を選んだり、プロジェクトとして登録したりできるのは、このフォルダの中だけ'
+                        description='参考資料とプロジェクトは、このフォルダの中から選ぶ'
                     >
                         <div className='flex flex-col gap-2'>
                             {draft.materials.roots.map((root, i) => (
@@ -608,7 +608,7 @@ function SettingsForm({
                         <Row
                             id='session-meta'
                             label='サイドバーに録音日時と長さを出す'
-                            description='セッションのタイトルの下に、録音を始めた日時と録音の長さを小さく出す'
+                            description='セッションのタイトルの下に小さく出す'
                         >
                             <Switch
                                 id='session-meta'
@@ -619,7 +619,7 @@ function SettingsForm({
                         <Row
                             id='show-picked-terms'
                             label='用語リスト（文字起こし抽出）を表示する'
-                            description='文字起こしのタブの上に、用語リスト（文字起こし抽出）の一覧を出す（誤った語は × で外せる）。オフでも、用語リスト（文字起こし抽出）は文字起こしの精度を上げるために使う。拾うかどうかは「録音中に用語を拾う」で決める'
+                            description='文字起こしのタブの上に一覧を出し、誤った語は × で外せる。オフでも用語リストは使う。拾うかは「録音中に用語を拾う」で決める'
                         >
                             <Switch
                                 id='show-picked-terms'
@@ -630,7 +630,7 @@ function SettingsForm({
                         <Row
                             id='show-speakers'
                             label='話者を表示する'
-                            description='浄書済み文字起こしの行の頭に「話者 1」などを出し、版の選択肢に話者の数を出す。話者分けの精度がまだ低いので、既定ではオフ。オフでも、話者は分けて保存する'
+                            description='浄書済み文字起こしの行の頭と版の選択肢に話者を出す。精度がまだ低いので既定はオフ（話者は分けて保存する）'
                         >
                             <Switch
                                 id='show-speakers'
@@ -641,7 +641,7 @@ function SettingsForm({
                         <Row
                             id='mic-shortcut'
                             label='マイクボタンのショートカット'
-                            description='このキーを押すと、マイクボタンを押したのと同じ動きになる。文字を入力している途中と、設定などの画面を開いているときは効かない'
+                            description='マイクボタンを押したのと同じ動きになる。文字の入力中と、設定などを開いているときは効かない'
                         >
                             <ShortcutInput
                                 id='mic-shortcut'

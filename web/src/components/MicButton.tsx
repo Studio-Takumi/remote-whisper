@@ -131,7 +131,7 @@ export function MicButton() {
             : watchedElsewhere
               ? {
                     // ほかの端末で録音中のセッションを見ている（#238）。見るだけで、録音の操作はできない
-                    onClick: () => toast.info('ほかの端末で録音中です。録音の操作は、録音している端末でしてください'),
+                    onClick: () => toast.info('ほかの端末で録音中です。操作はその端末でしてください'),
                     label: `${describeWatched(watchedState)}です。この端末では見るだけです`,
                     hint: describeWatched(watchedState),
                     color: 'cursor-not-allowed bg-neutral-400 dark:bg-neutral-600',
