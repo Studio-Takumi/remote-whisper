@@ -280,7 +280,7 @@ function ProjectGroup({
                 <button
                     type='button'
                     ref={sort.setActivatorNodeRef}
-                    className='flex size-5 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/50 opacity-0 group-hover/head:opacity-100 hover:text-sidebar-accent-foreground focus-visible:opacity-100'
+                    className='-ml-0.5 flex size-4 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/50 opacity-0 group-hover/head:opacity-100 hover:text-sidebar-accent-foreground focus-visible:opacity-100'
                     aria-label={`${project.name}の並び順を変える`}
                     onKeyDown={sort.listeners?.onKeyDown as React.KeyboardEventHandler | undefined}
                     {...sort.attributes}
