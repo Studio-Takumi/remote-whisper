@@ -53,6 +53,8 @@ export type Settings = {
         detailDensity: number;
         // 録音中に文字起こしから用語を拾うか（既定はオフ）。オンでも、プロジェクトの pickTerms がオフなら拾わない
         pickTerms: boolean;
+        // 最終要約の詳細の項目に、参考資料の場所（PDF のページ）を付けるか（#237。既定はオフ）。古いサーバーにはない
+        detailMaterialPages?: boolean;
     };
     recording: {
         maxConcurrent: number;
@@ -130,6 +132,7 @@ export const defaultSettings: Settings = {
         overviewDensity: 3,
         detailDensity: 3,
         pickTerms: false,
+        detailMaterialPages: false,
     },
     recording: {
         maxConcurrent: 1,
