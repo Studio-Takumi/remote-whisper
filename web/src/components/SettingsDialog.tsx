@@ -660,7 +660,8 @@ function NumberInput({
                 step={step}
                 onChange={(e) => onChange(e.target.valueAsNumber || 0)}
             />
-            {unit && <span className='w-10 text-xs text-muted-foreground'>{unit}</span>}
+            {/* 単位の欄は、単位がなくても同じ幅を取る（入力欄の右端を、単位の長さ・ありなしでずらさない。#239） */}
+            <span className='w-10 shrink-0 text-xs whitespace-nowrap text-muted-foreground'>{unit}</span>
         </div>
     );
 }
