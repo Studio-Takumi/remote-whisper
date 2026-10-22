@@ -1,3 +1,5 @@
+import { DEFAULT_MIC_SHORTCUT } from '@/shortcut';
+
 // Ollama を使う処理ごとのモデル（#178。spec/files.md 5.3）
 export type OllamaModels = {
     materialTerms: string;
@@ -80,6 +82,8 @@ export type Settings = {
         showPickedTerms: boolean;
         // 最終の文字起こしに、話者（「話者 1」など）と世代の選択肢の話者の数を出すか。保存するファイルは変えない
         showSpeakers: boolean;
+        // マイクボタンのキーボードのショートカット（#236。shortcut.ts）。空なら使わない。古いサーバーにはない
+        micShortcut?: string;
     };
     // クラウド版の中間サーバーの URL（#158）。ホストのトレイの「クラウドにログイン」が使う。画面では変えない
     cloud: {
@@ -149,6 +153,7 @@ export const defaultSettings: Settings = {
         sessionMeta: false,
         showPickedTerms: false,
         showSpeakers: false,
+        micShortcut: DEFAULT_MIC_SHORTCUT,
     },
     cloud: {
         relayUrl: 'https://rw-dev.studio-takumi.dev',

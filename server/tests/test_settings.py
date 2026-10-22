@@ -183,6 +183,34 @@ def test_display_show_speakers(client):
     assert res.json()["display"]["showSpeakers"] is True
 
 
+def test_display_mic_shortcut(client):
+    # マイクボタンのショートカットは既定が Alt+Shift+M で、変えられ、
+    # 空（使わない）にもできる（#236）
+    assert client.get("/api/settings").json()["display"]["micShortcut"] == "Alt+Shift+KeyM"
+    res = client.patch("/api/settings", json={"display": {"micShortcut": "Ctrl+Meta+Digit1"}})
+    assert res.json()["display"]["micShortcut"] == "Ctrl+Meta+Digit1"
+    res = client.patch("/api/settings", json={"display": {"micShortcut": ""}})
+    assert res.json()["display"]["micShortcut"] == ""
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "KeyM",  # 修飾キーがない
+        "Shift+",  # キーがない
+        "Shift+ShiftLeft",  # 修飾キーだけ
+        "Alt+ControlLeft",
+        "Shift+Alt+KeyM",  # 修飾キーの順が違う
+        "Alt+Alt+KeyM",
+        "Alt+Shift+KeyM+KeyN",
+        "Alt+Shift+Key M",
+    ],
+)
+def test_display_mic_shortcut_rejects(client, value):
+    res = client.patch("/api/settings", json={"display": {"micShortcut": value}})
+    assert res.status_code == 422
+
+
 def test_cloud_relay_url(client):
     # 中間サーバーの URL は、既定は staging。録音中でも変えられる（#158）
     assert client.get("/api/settings").json()["cloud"]["relayUrl"] == (

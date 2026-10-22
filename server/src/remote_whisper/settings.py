@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -248,6 +249,26 @@ class MaterialsSettings(_Model):
     extensions: list[str] = Field(default_factory=lambda: [".md", ".txt", ".pdf", ".html"])
 
 
+# マイクボタンのショートカットの既定と形（#236。spec/files.md 5.3）。修飾キーは
+# Ctrl・Alt・Shift・Meta の順で重ならず 1 つ以上、最後に修飾キーでないキー
+# （KeyboardEvent.code。KeyM・Digit1・F2・Space など）が 1 つ
+DEFAULT_MIC_SHORTCUT = "Alt+Shift+KeyM"
+_MIC_SHORTCUT_PATTERN = re.compile(
+    r"(Ctrl\+)?(Alt\+)?(Shift\+)?(Meta\+)?([A-Za-z][A-Za-z0-9]{0,31})"
+)
+_MODIFIER_CODES = ("Control", "Alt", "Shift", "Meta", "OS")
+
+
+def is_valid_mic_shortcut(value: str) -> bool:
+    """空（使わない）か、修飾キーを 1 つ以上含むキーの組み合わせか"""
+    if value == "":
+        return True
+    match = _MIC_SHORTCUT_PATTERN.fullmatch(value)
+    if match is None or not any(match.group(i) for i in range(1, 5)):
+        return False
+    return not match.group(5).startswith(_MODIFIER_CODES)
+
+
 class DisplaySettings(_Model):
     # 左メニューのセッションに、録音日時と長さを出すか
     session_meta: bool = False
@@ -256,6 +277,18 @@ class DisplaySettings(_Model):
     show_picked_terms: bool = False
     # 最終の文字起こしに、話者（「話者 1」など）を出すか。話者分けの処理と保存するファイルは変えない
     show_speakers: bool = False
+    # マイクボタンのキーボードのショートカット（#236）。空なら使わない
+    mic_shortcut: str = Field(default=DEFAULT_MIC_SHORTCUT, min_length=0)
+
+    @field_validator("mic_shortcut")
+    @classmethod
+    def _mic_shortcut(cls, value: str) -> str:
+        if not is_valid_mic_shortcut(value):
+            raise ValueError(
+                "Ctrl・Alt・Shift・Meta のどれかを含むキーの組み合わせ（例: Alt+Shift+KeyM）か、"
+                "空にしてください"
+            )
+        return value
 
 
 # 中間サーバー（Worker）の URL の既定。今は staging。本番ができたら（#167）本番のドメインにする
