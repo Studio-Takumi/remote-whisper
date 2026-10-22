@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
 import {
+    CircleDotIcon,
     CpuIcon,
     FileTextIcon,
     FolderIcon,
@@ -77,9 +78,7 @@ export function SettingsDialog({
                 <DialogHeader>
                     <DialogTitle>設定</DialogTitle>
                     <DialogDescription>
-                        {recording
-                            ? '録音中は、文字起こしのモデル・区切り・マイクの処理だけ変えられません。'
-                            : '全体設定です（どの端末でも同じ）。'}
+                        {recording ? '全体設定（録音中は一部の項目は変更不可）' : '全体設定（どの端末でも共通）'}
                     </DialogDescription>
                 </DialogHeader>
                 {/* DialogContent は閉じると消えるので、開くたびに今の設定から下書きを作り直せる */}
@@ -174,9 +173,13 @@ function SettingsForm({
                         <SparklesIcon />
                         要約
                     </TabsTrigger>
+                    <TabsTrigger value='recording'>
+                        <CircleDotIcon />
+                        録音
+                    </TabsTrigger>
                     <TabsTrigger value='storage'>
                         <HardDriveIcon />
-                        録音と保存
+                        保存
                     </TabsTrigger>
                     <TabsTrigger value='materials'>
                         <FileTextIcon />
@@ -194,7 +197,7 @@ function SettingsForm({
                             id='compute-type'
                             label='計算の精度'
                             locked={lock(recordingLocks.whisperModel)}
-                            description='int8 にすると VRAM が減るが、精度が少し落ちる'
+                            description='int8 にすると VRAM が減りますが、精度が少し落ちます'
                         >
                             <OptionSelect
                                 id='compute-type'
@@ -203,7 +206,11 @@ function SettingsForm({
                                 onChange={(computeType) => update('whisper', { computeType })}
                             />
                         </Row>
-                        <Row id='beam-size' label='ビームサイズ' description='大きいほど精度が上がるが遅くなる'>
+                        <Row
+                            id='beam-size'
+                            label='ビームサイズ'
+                            description='大きいほど精度が上がりますが、遅くなります'
+                        >
                             <NumberInput
                                 id='beam-size'
                                 value={draft.whisper.beamSize}
@@ -214,7 +221,7 @@ function SettingsForm({
                         <Row
                             id='partial-interval'
                             label='途中結果の間隔'
-                            description='話している間、この間隔で文字起こしを更新する'
+                            description='話している間、この間隔で文字起こしを更新します'
                         >
                             <NumberInput
                                 id='partial-interval'
@@ -229,7 +236,7 @@ function SettingsForm({
                             id='silence-ms'
                             label='区切りとみなす無音'
                             locked={lock(recordingLocks.segmentation)}
-                            description='この長さだけ無音が続いたらチャンクを確定する'
+                            description='この長さだけ無音が続いたら、チャンクを確定します'
                         >
                             <NumberInput
                                 id='silence-ms'
@@ -244,7 +251,7 @@ function SettingsForm({
                             id='max-segment'
                             label='チャンクの最大の長さ'
                             locked={lock(recordingLocks.segmentation)}
-                            description='無音がなくても、この長さでチャンクを確定する'
+                            description='無音がなくても、この長さでチャンクを確定します'
                         >
                             <NumberInput
                                 id='max-segment'
@@ -258,7 +265,7 @@ function SettingsForm({
                             id='speech-threshold'
                             label='話し声の判定'
                             locked={lock(recordingLocks.segmentation)}
-                            description='自動は声らしさで判定し、離れた小さい声も拾う。うまくいかないときは手動（音量で判定）にする'
+                            description='自動では Silero VAD で判定し、手動では音量で判定します'
                         >
                             <Select
                                 value={draft.whisper.speechThreshold}
@@ -282,7 +289,7 @@ function SettingsForm({
                                 id='speech-dbfs'
                                 label='手動のときの音量'
                                 locked={lock(recordingLocks.segmentation)}
-                                description='この音量より大きい音を話し声とみなす（-70〜-10）。小さくすると雑音も拾う'
+                                description='この音量より大きい音を話し声とみなします（-70〜-10）。小さくすると雑音も拾います'
                             >
                                 <NumberInput
                                     id='speech-dbfs'
@@ -296,8 +303,8 @@ function SettingsForm({
                         )}
                         <Row
                             id='final-transcript'
-                            label='浄書する'
-                            description='録音を終えたら、録音全体から文ごとの文字起こしを作る。WhisperX が入っているサーバーだけ'
+                            label='浄書'
+                            description='録音終了後、文字起こしが読みやすくなるように浄書します'
                         >
                             <Switch
                                 id='final-transcript'
@@ -307,8 +314,8 @@ function SettingsForm({
                         </Row>
                         <Row
                             id='diarize'
-                            label='話者を分ける'
-                            description='浄書済み文字起こしを「話者 1」などに分ける。HuggingFace のトークンとモデルの利用条件への同意が要る'
+                            label='話者分け'
+                            description='浄書済み文字起こしを「話者 1」などに分けます。HuggingFace のトークンやモデルの利用条件への同意が必要です'
                         >
                             <Switch
                                 id='diarize'
@@ -319,8 +326,8 @@ function SettingsForm({
                         </Row>
                         <Row
                             id='unload-after'
-                            label='使い終わってからモデルを止めるまで'
-                            description='最後に文字起こししてからこの時間がたったら、モデルを止めて VRAM を空ける'
+                            label='録音終了後にモデルを停止するまでの時間'
+                            description='過ぎたらモデルを止めて、VRAM を空けます'
                         >
                             <NumberInput
                                 id='unload-after'
@@ -353,11 +360,9 @@ function SettingsForm({
                                 onChange={(e) => update('ollama', { host: e.target.value })}
                             />
                         </Row>
-                        <Row
-                            id='live-density'
-                            label='リアルタイム要約の要約度'
-                            description='約 4000 文字ごとの要約の細かさ。1 は要点だけ、5 はできるだけ細かく'
-                        >
+                    </Section>
+                    <Section title='要約度' description='1 は要点だけで、5 になるにつれてより細かくなります'>
+                        <Row id='live-density' label='リアルタイム要約' description='約 4000 文字ごとの要約'>
                             <DensitySelect
                                 id='live-density'
                                 value={draft.ollama.liveSummaryDensity}
@@ -366,8 +371,8 @@ function SettingsForm({
                         </Row>
                         <Row
                             id='overview-density'
-                            label='最終要約の全体概要の要約度'
-                            description='長い録音で、一番上に置く「全体概要」の箇条書きの数'
+                            label='全体概要'
+                            description='長い録音で、一番上に置く「全体概要」の箇条書き'
                         >
                             <DensitySelect
                                 id='overview-density'
@@ -377,8 +382,8 @@ function SettingsForm({
                         </Row>
                         <Row
                             id='detail-density'
-                            label='最終要約の要約詳細の要約度'
-                            description='部分ごとの要約（短い録音では要約そのもの）の細かさ'
+                            label='要約詳細'
+                            description='部分ごとの要約（短い録音では要約そのもの）'
                         >
                             <DensitySelect
                                 id='detail-density'
@@ -386,10 +391,12 @@ function SettingsForm({
                                 onChange={(detailDensity) => update('ollama', { detailDensity })}
                             />
                         </Row>
+                    </Section>
+                    <Section>
                         <Row
                             id='detail-material-pages'
-                            label='要約詳細に参考資料のページを付ける'
-                            description='要約詳細の項目に「〇〇.pdf p.12 の内容」のように資料の場所を付ける（PDF だけ）。これから作る要約に付く'
+                            label='参考資料のページの表示'
+                            description='要約詳細の項目に「〇〇.pdf p.12 の内容」のように資料の該当ページを表示します（PDF のみ）'
                         >
                             <Switch
                                 id='detail-material-pages'
@@ -408,8 +415,8 @@ function SettingsForm({
                         </Row>
                         <Row
                             id='pick-terms'
-                            label='録音中に用語を拾う'
-                            description='何度も出てくる固有名詞・専門用語を、リアルタイム要約と同じ間隔で用語リストに足す。GPU の負荷が上がる。参考資料のスイッチもオンのときだけ'
+                            label='録音中の用語抽出'
+                            description='何度も出てくる固有名詞・専門用語を、リアルタイム要約と同じ間隔で用語リストに足します。GPU の負荷が上がります。参考資料のスイッチもオンのときだけ抽出します'
                         >
                             <Switch
                                 id='pick-terms'
@@ -419,8 +426,8 @@ function SettingsForm({
                         </Row>
                         <Row
                             id='keep-alive'
-                            label='使い終わってからモデルを止めるまで'
-                            description='最後に要約してからこの時間がたったら、モデルを止めて VRAM を空ける。録音中は止めない'
+                            label='要約後にモデルを停止するまでの時間'
+                            description='過ぎたらモデルを止めて、VRAM を空けます（録音中は止めません）'
                         >
                             <NumberInput
                                 id='keep-alive'
@@ -433,8 +440,8 @@ function SettingsForm({
                     </Section>
                 </TabsContent>
 
-                <TabsContent value='storage' className='min-h-0 overflow-y-auto pr-2'>
-                    <Section title='録音'>
+                <TabsContent value='recording' className='min-h-0 overflow-y-auto pr-2'>
+                    <Section>
                         <Row id='max-concurrent' label='同時に録音できる数'>
                             <NumberInput
                                 id='max-concurrent'
@@ -446,7 +453,7 @@ function SettingsForm({
                         <Row
                             id='resume-timeout'
                             label='接続が切れたときに待つ時間'
-                            description='この時間のうちにつながり直せば録音が続く。過ぎても、あとで続きから録音できる'
+                            description='この時間内に接続し直せば、録音が続きます'
                         >
                             <NumberInput
                                 id='resume-timeout'
@@ -458,8 +465,8 @@ function SettingsForm({
                         </Row>
                         <Row
                             id='continue-window'
-                            label='録音を終えたあと、続きから録音できる時間'
-                            description='録音を終えてからこの時間の間は、マイクボタンで同じセッションの続きを録音できる。0 なら続けない'
+                            label='録音を終えても、続きから録音できる時間'
+                            description='マイクボタンで同じセッションの続きを録音できます。0 なら続けられません'
                         >
                             <NumberInput
                                 id='continue-window'
@@ -473,7 +480,7 @@ function SettingsForm({
                             id='noise-suppression'
                             label='ブラウザの雑音抑制'
                             locked={lock(recordingLocks.microphone)}
-                            description='ブラウザがマイクの雑音を抑える。次に録音を始めたときから効く'
+                            description='ブラウザがマイクの雑音を抑えます'
                         >
                             <Switch
                                 id='noise-suppression'
@@ -485,7 +492,7 @@ function SettingsForm({
                             id='auto-gain-control'
                             label='ブラウザの自動音量調整'
                             locked={lock(recordingLocks.microphone)}
-                            description='ブラウザがマイクの音量を自動で上げ下げする。次に録音を始めたときから効く'
+                            description='ブラウザがマイクの音量を自動で上げ下げします'
                         >
                             <Switch
                                 id='auto-gain-control'
@@ -497,7 +504,7 @@ function SettingsForm({
                             id='echo-cancellation'
                             label='ブラウザのエコー除去'
                             locked={lock(recordingLocks.microphone)}
-                            description='スピーカーの音がマイクに回り込むのを消す。文字起こしが止まるときは切ってみる。次に録音を始めたときから効く'
+                            description='スピーカーの音がマイクに回り込むのを消します。文字起こしが止まるときは切ってみてください'
                         >
                             <Switch
                                 id='echo-cancellation'
@@ -506,7 +513,10 @@ function SettingsForm({
                             />
                         </Row>
                     </Section>
-                    <Section title='保存期間' description='期間を過ぎたファイルは自動で消える。0 にすると無期限'>
+                </TabsContent>
+
+                <TabsContent value='storage' className='min-h-0 overflow-y-auto pr-2'>
+                    <Section title='保存期間' description='期間を過ぎたファイルは自動で消えます。0 にすると無期限です'>
                         <Row id='keep-recording' label='録音ファイル'>
                             <NumberInput
                                 id='keep-recording'
@@ -525,7 +535,7 @@ function SettingsForm({
                                 onChange={(transcript) => update('retentionDays', { transcript })}
                             />
                         </Row>
-                        <Row id='keep-summary' label='要約' description='選んだディレクトリに置いたコピーは消さない'>
+                        <Row id='keep-summary' label='要約' description='選んだディレクトリに置いたコピーは消しません'>
                             <NumberInput
                                 id='keep-summary'
                                 value={draft.retentionDays.summary}
@@ -549,7 +559,7 @@ function SettingsForm({
                 <TabsContent value='materials' className='min-h-0 overflow-y-auto pr-2'>
                     <Section
                         title='読み込めるフォルダ'
-                        description='参考資料とプロジェクトは、このフォルダの中から選ぶ'
+                        description='参考資料とプロジェクトは、このフォルダの中から選びます'
                     >
                         <div className='flex flex-col gap-2'>
                             {draft.materials.roots.map((root, i) => (
@@ -593,7 +603,7 @@ function SettingsForm({
                         </div>
                     </Section>
                     <Section title='読み込める拡張子'>
-                        <Row id='extensions' label='拡張子' description='カンマ区切りで書く'>
+                        <Row id='extensions' label='拡張子' description='カンマ区切りで書きます'>
                             <Input
                                 id='extensions'
                                 className='w-56'
@@ -608,8 +618,8 @@ function SettingsForm({
                     <Section>
                         <Row
                             id='session-meta'
-                            label='サイドバーに録音日時と長さを出す'
-                            description='セッションのタイトルの下に小さく出す'
+                            label='サイドバーの録音日時と長さ'
+                            description='セッションのタイトルの下に小さく表示します'
                         >
                             <Switch
                                 id='session-meta'
@@ -619,8 +629,8 @@ function SettingsForm({
                         </Row>
                         <Row
                             id='show-picked-terms'
-                            label='用語リスト（文字起こし抽出）を表示する'
-                            description='文字起こしのタブの上に一覧を出し、誤った語は × で外せる。オフでも用語リストは使う。拾うかは「録音中に用語を拾う」で決める'
+                            label='用語リスト（文字起こし抽出）の表示'
+                            description='文字起こしのタブの上に一覧を表示し、誤った語は × で外せます。オフでも用語リストは使います。抽出するかは「録音中の用語抽出」で決めます'
                         >
                             <Switch
                                 id='show-picked-terms'
@@ -630,8 +640,8 @@ function SettingsForm({
                         </Row>
                         <Row
                             id='show-speakers'
-                            label='話者を表示する'
-                            description='浄書済み文字起こしの行の頭と版の選択肢に話者を出す。精度がまだ低いので既定はオフ（話者は分けて保存する）'
+                            label='話者の表示'
+                            description='浄書済み文字起こしの行の頭と版の選択肢に、話者を表示します（オフでも話者は分けて保存します）'
                         >
                             <Switch
                                 id='show-speakers'
@@ -642,7 +652,7 @@ function SettingsForm({
                         <Row
                             id='mic-shortcut'
                             label='マイクボタンのショートカット'
-                            description='マイクボタンを押したのと同じ動きになる。文字の入力中と、設定などを開いているときは効かない'
+                            description='マイクボタンを押したのと同じ動きになります。文字の入力中や、設定などを開いているときは効きません'
                         >
                             <ShortcutInput
                                 id='mic-shortcut'

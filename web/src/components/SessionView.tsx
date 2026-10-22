@@ -144,7 +144,7 @@ export function SessionView() {
                             {session.status === 'recording' &&
                                 (session.id === recordingSessionId
                                     ? '・録音中'
-                                    : `・${describeWatched(watching?.sessionId === session.id ? watching.state : undefined)}（この端末では見るだけです）`)}
+                                    : `・${describeWatched(watching?.sessionId === session.id ? watching.state : undefined)}（この端末では閲覧専用です）`)}
                             {session.status === 'interrupted' && '・途中で中断'}
                             {session.uploaded && (
                                 <span className='ml-2 inline-flex items-center gap-1 align-middle'>
@@ -203,7 +203,7 @@ export function SessionView() {
                     )}
                     {session && !session.loaded && <p className='text-sm text-muted-foreground'>読み込んでいます…</p>}
                     {session && expired(session, 'transcript') && (
-                        <p className='text-sm text-muted-foreground'>文字起こしは期限切れで消えています。</p>
+                        <p className='text-sm text-muted-foreground'>文字起こしは期限切れのため消えています。</p>
                     )}
                     {session && (
                         <FinalTranscriptBar
@@ -416,7 +416,7 @@ function FinalTranscriptBar({ session, making }: { session: Session; making: boo
             )}
             {final.diarization === 'unavailable' && (
                 <p className='text-xs text-muted-foreground'>
-                    話者分けはできませんでした（HuggingFace のトークンかモデルの利用条件への同意がありません）。
+                    話者分けはできませんでした（HuggingFace のトークンまたはモデルの利用条件への同意がありません）
                 </p>
             )}
             {noRecording}
@@ -470,9 +470,9 @@ function SummaryPanel({
         // 途中の要約は最終の要約ができた後も手元に残ることがあるので、最終の要約を先に見る
         const live = liveDraft?.sessionId === session.id ? liveDraft.text : session.liveSummary;
         const placeholder = summary?.text
-            ? { label: '今の要約（再生成した要約が届いたら差し替えます）', text: summary.text, live: false }
+            ? { label: '今の要約（再生成した要約が届き次第差し替えます）', text: summary.text, live: false }
             : live
-              ? { label: 'リアルタイム要約（最終要約が届いたら差し替えます）', text: live, live: true }
+              ? { label: 'リアルタイム要約（最終要約が届き次第差し替えます）', text: live, live: true }
               : null;
         return (
             <>
@@ -563,7 +563,7 @@ function SummaryPanel({
         return (
             <div className='flex flex-col items-start gap-2'>
                 <p className='text-sm text-muted-foreground'>
-                    {expired(session, 'summary') ? '要約は期限切れで消えています。' : 'まだ要約がありません。'}
+                    {expired(session, 'summary') ? '要約は期限切れのためありません。' : 'まだ要約がありません。'}
                 </p>
                 {regenerateButton}
             </div>
@@ -658,7 +658,7 @@ function NotFoundState() {
         <div className='flex flex-1 flex-col items-center justify-center gap-3 text-center text-muted-foreground'>
             <SearchXIcon className='size-10' />
             <p className='text-lg font-semibold text-foreground'>見つかりません</p>
-            <p className='max-w-md text-sm'>このセッションかプロジェクトは、消えたか期限切れです。</p>
+            <p className='max-w-md text-sm'>このセッションまたはプロジェクトは、消えたか期限切れです。</p>
         </div>
     );
 }

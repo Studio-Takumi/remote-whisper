@@ -87,7 +87,7 @@ export function HostPicker() {
                 <p className='text-sm'>文字起こしをする PC（ホスト）が、まだ登録されていません。</p>
                 <ol className='list-decimal space-y-1 pl-5 text-sm'>
                     <li>PC で Remote Whisper を起動する</li>
-                    <li>タスクトレイ（Mac はメニューバー）のアイコンから「クラウドにログイン」を選ぶ</li>
+                    <li>タスクトレイ（Mac はメニューバー）のアイコンから「クラウド版にログイン」を選ぶ</li>
                     <li>開いた画面で、トレイと同じコードが出ているのを確かめて承認する</li>
                 </ol>
                 <Button variant='outline' onClick={() => void load()}>

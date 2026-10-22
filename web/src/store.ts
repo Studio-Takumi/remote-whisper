@@ -1745,9 +1745,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                 return true;
             } catch (e) {
                 if (e instanceof ApiError && e.status === 409) {
-                    toast.error(
-                        '録音中は、文字起こしのモデル・区切り・マイクの処理は変えられません（ほかの端末で録音しているかもしれません）',
-                    );
+                    toast.error('録音中は、文字起こしのモデル・区切り・マイクの処理は変えられません');
                 } else {
                     toast.error(`設定を保存できません: ${(e as Error).message}`);
                 }
@@ -1776,7 +1774,7 @@ export const useAppStore = create<AppState>()((set, get) => {
             } catch (e) {
                 regeneratingTranscripts.delete(sessionId);
                 if (e instanceof ApiError && e.status === 409) {
-                    toast.error('録音中か、録音を終えた直後です。少し待ってから再生成してください');
+                    toast.error('録音中または録音を終えた直後です。少し待ってから再生成してください');
                 } else if (e instanceof ApiError && e.status === 410) {
                     toast.error('録音ファイルが期限切れのため、再生成できません');
                 } else {
@@ -1840,7 +1838,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                 }));
             } catch (e) {
                 if (e instanceof ApiError && e.status === 409) {
-                    toast.error('録音中か、録音を終えた直後です。少し待ってから再生成してください');
+                    toast.error('録音中または録音を終えた直後です。少し待ってから再生成してください');
                 } else if (e instanceof ApiError && e.status === 410) {
                     toast.error('文字起こしが期限切れのため、再生成できません');
                 } else {
@@ -1883,7 +1881,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                 // 保存できなければ、上書きを消して元（サーバーの選択）に戻す
                 set((s) => ({ contextSelections: clearOverride(s) }));
                 if (e instanceof ApiError && e.status === 409) {
-                    toast.error('録音中は参考資料を変えられません（ほかの端末で録音しているかもしれません）');
+                    toast.error('録音中は参考資料を変えられません');
                 } else {
                     toast.error(`参考資料の選択を保存できません: ${(e as Error).message}`);
                 }

@@ -101,7 +101,9 @@ function HostRow({ host }: { host: Host }) {
             )}
             {confirming && (
                 <div className='flex items-center justify-end gap-2'>
-                    <span className='text-xs text-destructive'>外すと、この PC はクラウドからつながらなくなります</span>
+                    <span className='text-xs text-destructive'>
+                        外すと、この端末はクラウド版からつながらなくなります
+                    </span>
                     <Button size='sm' variant='destructive' onClick={() => void remove()}>
                         外す
                     </Button>
@@ -130,7 +132,7 @@ export function HostsSection({ open }: { open: boolean }) {
                 <p className='text-xs text-muted-foreground'>読み込んでいます…</p>
             ) : hosts.length === 0 ? (
                 <p className='text-xs text-muted-foreground'>
-                    まだありません。PC のトレイの「クラウドにログイン」から登録します。
+                    まだありません。PC のトレイの「クラウド版にログイン」から登録します。
                 </p>
             ) : (
                 <ul className='flex flex-col gap-2'>

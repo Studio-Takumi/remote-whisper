@@ -33,13 +33,13 @@ export const initialServerStatus: ServerStatus = {
 // GPU キューのジョブの種類の名前
 export const jobKindLabel: Record<GpuJobKind, string> = {
     transcribe: '文字起こし',
-    whisperLoad: '文字起こしのモデルの読み込み',
+    whisperLoad: '文字起こしのモデル読み込み',
     liveSummary: 'リアルタイム要約',
     finalSummary: '最終要約',
     contextSet: '参考資料の作成',
-    terms: '文字起こしからの用語の抽出',
-    finalTranscript: '浄書済み文字起こし',
-    materialRange: '扱った範囲での参考資料の作り直し',
+    terms: '文字起こしからの用語抽出',
+    finalTranscript: '文字起こしの浄書',
+    materialRange: '扱った範囲での参考資料の再生成',
     other: 'その他',
 };
 
@@ -48,9 +48,9 @@ const blockingReason: Partial<Record<GpuJobKind, string>> = {
     liveSummary: 'リアルタイム要約の生成中',
     finalSummary: '最終要約の生成中',
     contextSet: '参考資料の作成中',
-    terms: '用語の抽出中',
+    terms: '用語抽出中',
     finalTranscript: '浄書中',
-    materialRange: '参考資料の作り直し中',
+    materialRange: '参考資料の再生成中',
 };
 
 // このセッションの最終の文字起こし（#121）を作っている・作るのを待っているか
