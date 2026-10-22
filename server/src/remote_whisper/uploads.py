@@ -125,6 +125,8 @@ class UploadService:
         self.final_transcriber = final_transcriber
         self.summarizer = summarizer
         self.recording = recording
+        # 最終要約ができたら呼ぶ（通知。#245。待たない）
+        self.on_summary: Callable[[SessionWriter], None] | None = None
         self.fallback_lines = fallback_lines
         # 今回扱った資料の範囲で参考資料を作り直す（RangeService。#182）
         self.material_range: Any = None
@@ -339,12 +341,14 @@ class UploadService:
         async def send(message: dict[str, Any]) -> None:
             await self.hub.broadcast({**message, "session": writer.id})
 
-        await self.gpu.run(
+        gid = await self.gpu.run(
             Priority.BACKGROUND,
             lambda: summarizer.run(writer, send),
             kind="finalSummary",
             session=writer.id,
         )
+        if gid is not None and self.on_summary is not None:
+            self.on_summary(writer)
 
     async def wait(self) -> None:
         """後ろで動いている処理が終わるまで待つ（テスト用）"""

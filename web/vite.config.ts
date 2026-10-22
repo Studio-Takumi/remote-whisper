@@ -64,6 +64,9 @@ export default defineConfig({
                     /^\/pair/,
                     /^\/healthz/,
                 ],
+                // 最終要約ができたときの通知（#245）。push と notificationclick を受ける。
+                // generateSW のまま足すので、更新の知らせとキャッシュの動きは変わらない
+                importScripts: ['push-sw.js'],
                 cleanupOutdatedCaches: true,
                 runtimeCaching: [
                     {

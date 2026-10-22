@@ -306,6 +306,9 @@ class MockSession:
                 overview_model=models.overview,
             )
         await self._send_all({"type": "title", "title": FINAL_TITLE, "provisional": False})
+        # 本物と同じく、最終要約ができたら通知する（#245）
+        if self.writer and self.recorder.on_summary is not None:
+            self.recorder.on_summary(self.writer)
 
     def detach(self) -> None:
         """接続が切れた。resume_timeout 秒以内に resume されなければ interrupted にする"""
@@ -435,6 +438,8 @@ class MockRecorder:
         self._loading: asyncio.Task | None = None
         self.projects = projects
         self.settings = settings
+        # 最終要約ができたら呼ぶ（通知。#245）
+        self.on_summary = None
 
     def final_models(self) -> FinalModels:
         return (self.settings.get().ollama.models if self.settings else OllamaModels()).final()
