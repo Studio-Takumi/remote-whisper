@@ -9,9 +9,16 @@ export type ClientMessage =
     // 再接続のためのもの。一時停止からの再開は unpause
     | { type: 'resume'; session: string; nextSeq: number }
     // 途中で終わった（interrupted）セッションの続きを、同じセッションのまま録音する（#101）
-    | { type: 'continue'; project: string; session: string };
+    | { type: 'continue'; project: string; session: string }
+    // ほかのクライアントで録音中のセッションを見る・見るのをやめる（#238）。見るのは 1 つだけ
+    | { type: 'watch'; session: string }
+    | { type: 'unwatch' };
 
 export type SummaryKind = 'live' | 'final';
+
+// 見ている側に出す録音の状態（#238）。disconnected は録音しているクライアントとの接続が切れていて、
+// つなぎ直すのを待っている間。stopped は録音を終えた
+export type WatchedState = 'recording' | 'paused' | 'disconnected' | 'stopped';
 
 // GPU キューのジョブ（status の jobs。spec/flows.md 6.3・spec/api.md 7.2）。秒数はサーバーが送った時点のもの
 export type GpuJobKind =
@@ -73,6 +80,18 @@ export type ServerMessage =
     // 置き換え（#176）を足した・外した。そのセッションの文字起こしを取り直す
     | { type: 'corrections'; session: string }
     | { type: 'contextSet'; project: string; id: string; status: ContextSetStatus }
+    // watch の返事（#238）。idle なら録音中ではないので見ない。そうでなければ、そこまでの
+    // 文字起こし・リアルタイム要約・タイトルが付いていて、このあとセッションのメッセージが届く
+    | {
+          type: 'watching';
+          session: string;
+          state: WatchedState | 'idle';
+          transcript?: { time: string; text: string }[];
+          liveSummary?: string | null;
+          title?: string | null;
+      }
+    // 見ているセッションの録音の状態が変わった（#238）
+    | { type: 'recordingState'; session: string; state: WatchedState }
     | {
           type: 'status';
           whisper: WhisperState;

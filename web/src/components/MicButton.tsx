@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
-import { MicIcon, MicOffIcon, PauseIcon, PlayIcon, PlusIcon, SquareIcon, Undo2Icon } from 'lucide-react';
+import { MicIcon, MicOffIcon, PauseIcon, PlayIcon, PlusIcon, RadioIcon, SquareIcon, Undo2Icon } from 'lucide-react';
+import { toast } from 'sonner';
 
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { continueLeftSec, describeLeft } from '@/continueWindow';
@@ -8,6 +9,7 @@ import { DEFAULT_MIC_SHORTCUT, ariaShortcut, formatShortcut, shouldHandleMicShor
 import { currentProject, currentSession, useAppStore } from '@/store';
 import { formatElapsed } from '@/time';
 import type { Session } from '@/types';
+import { describeWatched, recordedElsewhere } from '@/watch';
 
 // 開いているセッションの続きから録音できる残りの秒数（#174）。続けられないなら null。
 // 続けられる間だけ 5 秒ごとに時計を進める（時間を過ぎてもしばらく「続きから録音」のまま、に
@@ -90,6 +92,12 @@ export function MicButton() {
     const session = useAppStore(currentSession);
     const windowMin = useAppStore((s) => s.settings.recording.continueWindowMin);
     const continueLeft = useContinueLeft(session, windowMin, state === 'idle');
+    // 開いているセッションを、ほかの端末で録音している（#238）
+    const recordingSessionId = useAppStore((s) => s.recordingSessionId);
+    const watchedElsewhere = recordedElsewhere(session, recordingSessionId);
+    const watchedState = useAppStore((s) =>
+        s.watching && s.watching.sessionId === session?.id ? s.watching.state : undefined,
+    );
 
     const target: MicTarget =
         projectName === undefined ? { kind: 'none' } : hasSession ? { kind: 'session', projectName } : { kind: 'new' };
@@ -120,46 +128,56 @@ export function MicButton() {
                   color: 'bg-amber-500',
                   icon: <PlayIcon className={smallIcon} fill='currentColor' />,
               }
-            : session && continueLeft !== null
+            : watchedElsewhere
               ? {
-                    onClick: () => void onContinue(session.id),
-                    label: `クリックして続きから録音（録音を終えてから ${windowMin} 分の間は、続きから録音できます。${describeLeft(continueLeft)}）`,
-                    hint: '押すと続きから録音',
-                    color: 'bg-blue-500',
-                    icon: <MicIcon className={largeIcon} />,
+                    // ほかの端末で録音中のセッションを見ている（#238）。見るだけで、録音の操作はできない
+                    onClick: () => toast.info('ほかの端末で録音中です。録音の操作は、録音している端末でしてください'),
+                    label: `${describeWatched(watchedState)}です。この端末では見るだけです`,
+                    hint: describeWatched(watchedState),
+                    color: 'cursor-not-allowed bg-neutral-400 dark:bg-neutral-600',
+                    icon: <RadioIcon className={largeIcon} />,
+                    disabled: true,
                 }
-              : target.kind === 'session'
+              : session && continueLeft !== null
                 ? {
-                      onClick: onStart,
-                      label: `クリックして「${target.projectName}」に新しいセッションを作成`,
-                      hint: '押すと新しいセッション',
-                      color: 'bg-neutral-500',
-                      icon: <PlusIcon className={largeIcon} />,
+                      onClick: () => void onContinue(session.id),
+                      label: `クリックして続きから録音（録音を終えてから ${windowMin} 分の間は、続きから録音できます。${describeLeft(continueLeft)}）`,
+                      hint: '押すと続きから録音',
+                      color: 'bg-blue-500',
+                      icon: <MicIcon className={largeIcon} />,
                   }
-                : target.kind === 'new' && micDenied
+                : target.kind === 'session'
                   ? {
-                        // 押すともう一度マイクの許可を求める（ブラウザの設定で許可し直した場合のため）
                         onClick: onStart,
-                        label: 'マイクが許可されていません。ブラウザの設定でマイクを許可してください',
-                        hint: 'マイクが許可されていません',
-                        color: 'bg-blue-500 opacity-50',
-                        icon: <MicOffIcon className={largeIcon} />,
+                        label: `クリックして「${target.projectName}」に新しいセッションを作成`,
+                        hint: '押すと新しいセッション',
+                        color: 'bg-neutral-500',
+                        icon: <PlusIcon className={largeIcon} />,
                     }
-                  : target.kind === 'new'
+                  : target.kind === 'new' && micDenied
                     ? {
+                          // 押すともう一度マイクの許可を求める（ブラウザの設定で許可し直した場合のため）
                           onClick: onStart,
-                          label: 'クリックして録音開始',
-                          hint: '押すと録音開始',
-                          color: 'bg-blue-500',
-                          icon: <MicIcon className={largeIcon} />,
+                          label: 'マイクが許可されていません。ブラウザの設定でマイクを許可してください',
+                          hint: 'マイクが許可されていません',
+                          color: 'bg-blue-500 opacity-50',
+                          icon: <MicOffIcon className={largeIcon} />,
                       }
-                    : {
-                          onClick: onStart,
-                          label: '録音するプロジェクトをメニューから選んでください',
-                          hint: 'プロジェクトを選んでください',
-                          color: 'cursor-not-allowed bg-blue-500 opacity-50',
-                          icon: <MicIcon className={largeIcon} />,
-                      };
+                    : target.kind === 'new'
+                      ? {
+                            onClick: onStart,
+                            label: 'クリックして録音開始',
+                            hint: '押すと録音開始',
+                            color: 'bg-blue-500',
+                            icon: <MicIcon className={largeIcon} />,
+                        }
+                      : {
+                            onClick: onStart,
+                            label: '録音するプロジェクトをメニューから選んでください',
+                            hint: 'プロジェクトを選んでください',
+                            color: 'cursor-not-allowed bg-blue-500 opacity-50',
+                            icon: <MicIcon className={largeIcon} />,
+                        };
 
     const shortcut = useAppStore((s) => s.settings.display.micShortcut ?? DEFAULT_MIC_SHORTCUT);
     useMicShortcut(shortcut, main.onClick);
@@ -198,6 +216,7 @@ export function MicButton() {
                         className={`relative flex size-24 items-center justify-center rounded-full text-white transition-colors md:size-32 ${main.color}`}
                         onClick={main.onClick}
                         aria-label={main.label}
+                        aria-disabled={'disabled' in main && main.disabled ? true : undefined}
                         aria-keyshortcuts={ariaShortcut(shortcut)}
                     >
                         {main.icon}

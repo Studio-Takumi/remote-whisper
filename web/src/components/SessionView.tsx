@@ -35,6 +35,7 @@ import { makingFinalTranscript, summaryStatus, transcriptStatus } from '@/status
 import { currentProject, currentSession, useAppStore, visibleProjects } from '@/store';
 import { clockToSeconds } from '@/time';
 import type { FinalTranscriptInfo, Generating, Session, Summary } from '@/types';
+import { describeWatched, recordedElsewhere } from '@/watch';
 
 // メイン画面の中身。何も選んでいない・新しいセッション・既存のセッションの3つを出し分ける
 export function SessionView() {
@@ -51,6 +52,8 @@ export function SessionView() {
     const partial = useAppStore((s) => s.partial);
     const liveDraft = useAppStore((s) => s.liveDraft);
     const recordingSessionId = useAppStore((s) => s.recordingSessionId);
+    // ほかの端末で録音中のセッションを見ている（#238）
+    const watching = useAppStore((s) => s.watching);
     const continueRecording = useAppStore((s) => s.continueRecording);
     const { tab, changeTab, followTranscript } = useTabScroll(session?.id);
     const audio = useRef<HTMLAudioElement>(null);
@@ -139,7 +142,9 @@ export function SessionView() {
                         <p className='text-xs text-muted-foreground'>
                             {session.startedAt}
                             {session.status === 'recording' &&
-                                (session.id === recordingSessionId ? '・録音中' : '・ほかの端末で録音中')}
+                                (session.id === recordingSessionId
+                                    ? '・録音中'
+                                    : `・${describeWatched(watching?.sessionId === session.id ? watching.state : undefined)}（この端末では見るだけです）`)}
                             {session.status === 'interrupted' && '・途中で中断'}
                             {session.uploaded && (
                                 <span className='ml-2 inline-flex items-center gap-1 align-middle'>
@@ -241,7 +246,10 @@ export function SessionView() {
                             ほかのセッションで録音中です。録音を終えると、ここから新しく録音できます。
                         </p>
                     )}
-                    <StatusIndicator status={transcriptStatus(viewState, server, recordingSessionId)} />
+                    {/* ほかの端末で録音中のセッションを見ている間は、この端末の状態（待機中）を出さない（#238） */}
+                    {!recordedElsewhere(session, recordingSessionId) && (
+                        <StatusIndicator status={transcriptStatus(viewState, server, recordingSessionId)} />
+                    )}
                 </TabsContent>
 
                 <TabsContent value='summary' className='flex flex-col gap-4'>

@@ -22,7 +22,7 @@ import { demoProjects, fallbackOptions, initialContextSets } from '@/mock';
 import { sortSessions } from '@/move';
 import { fetchOptions } from '@/options';
 import { sortByIds } from '@/projectOrder';
-import type { ServerMessage, SettingsOptions } from '@/protocol';
+import type { ServerMessage, SettingsOptions, WatchedState } from '@/protocol';
 import { type RecordingState, recordingLocks } from '@/recording';
 import { RecordingMetrics, metricsSettings, recordedSeconds, sendRecordingMetrics } from '@/recordingMetrics';
 import { replaceUrlNext } from '@/router';
@@ -39,6 +39,7 @@ import { formatClock, formatDateTime, newId } from '@/time';
 import type { ContextSelection, ContextSet, Generating, Project, Session } from '@/types';
 import { uploadAudio } from '@/upload';
 import type { VersionJson } from '@/version';
+import { type Watching, watchTarget } from '@/watch';
 
 // 画面の状態をまとめて持つストア。プロジェクト・セッション・設定はサーバーの API から取る（spec/api.md 7.1）
 
@@ -67,6 +68,9 @@ type AppState = {
     partial: LivePartial | null;
     // 届いている途中の途中の要約（summary.delta kind: live）。summary.done で session.liveSummary に移す
     liveDraft: { sessionId: string; text: string } | null;
+    // ほかのクライアントで録音中のセッションを見ている（#238）。開いているセッションが録音中で、
+    // 自分で録音していなければ、サーバーに watch を送って見る
+    watching: Watching | null;
     settings: Settings;
     // 設定で選べる値。サーバーから取れなければダミーのまま
     options: SettingsOptions;
@@ -401,6 +405,82 @@ export const useAppStore = create<AppState>()((set, get) => {
             // 最終の要約・タイトル・要約の失敗は、作り直し（ほかの端末から頼んだものも）でも届くので、
             // 録音ごとではなく、常時の購読（connectServer）で受け取る
         });
+    }
+
+    // ほかのクライアントで録音中のセッションを見ているときに届くもの（#238）。
+    // 自分で録音しているセッションのもの（subscribeRecording で受け取る）は扱わない
+    function receiveWatched(m: ServerMessage) {
+        if (m.type === 'watching') {
+            if (m.state === 'idle' || m.state === 'stopped') {
+                set((s) => ({ watching: s.watching?.sessionId === m.session ? null : s.watching }));
+                return;
+            }
+            // そこまでの文字起こし・リアルタイム要約・タイトルで置き換え、続きはこのあとのメッセージで足す
+            set((s) => ({
+                watching: { sessionId: m.session, state: m.state as WatchedState },
+                projects: updateSession(s.projects, m.session, (x) => ({
+                    ...x,
+                    transcript: m.transcript ?? x.transcript,
+                    liveSummary: m.liveSummary ?? x.liveSummary,
+                    title: m.title || x.title,
+                    loaded: true,
+                })),
+                liveDraft: s.liveDraft?.sessionId === m.session ? null : s.liveDraft,
+            }));
+            return;
+        }
+        const w = get().watching;
+        if (!w || !('session' in m) || m.session !== w.sessionId || m.session === get().recordingSessionId) {
+            return;
+        }
+        if (m.type === 'recordingState') {
+            if (m.state === 'stopped') {
+                // 録音を終えた。最終の文字起こし・最終要約は、全員に届くもの（status の transcribing・
+                // summarizing と title）で気づける。一覧を取り直して、録音中ではなくする
+                set({ watching: null, partial: null, liveDraft: null });
+                void get().loadProjects();
+            } else {
+                set({ watching: { ...w, state: m.state } });
+            }
+        } else if (m.type === 'partial') {
+            set({
+                partial: { sessionId: m.session, segment: m.segment, committed: m.committed, tentative: m.tentative },
+            });
+        } else if (m.type === 'final') {
+            const line = { time: formatClock(m.start), text: m.text };
+            set((s) => ({
+                projects: m.text
+                    ? updateSession(s.projects, m.session, (x) => ({ ...x, transcript: [...x.transcript, line] }))
+                    : s.projects,
+                partial: s.partial?.sessionId === m.session && s.partial.segment === m.segment ? null : s.partial,
+            }));
+        } else if (m.type === 'terms') {
+            set((s) => ({
+                projects: updateSession(s.projects, m.session, (x) => ({
+                    ...x,
+                    pickedTerms: m.terms,
+                    manualTerms: m.manual ?? x.manualTerms,
+                })),
+            }));
+        } else if (m.type === 'summary.delta' && m.kind === 'live') {
+            // 録音している側と同じく、回の始まり（replace）から積む（#123）
+            if (m.replace || get().liveDraft?.sessionId === m.session) {
+                set((s) => ({
+                    liveDraft: {
+                        sessionId: m.session,
+                        text: (!m.replace && s.liveDraft?.sessionId === m.session ? s.liveDraft.text : '') + m.text,
+                    },
+                }));
+            }
+        } else if (m.type === 'summary.done' && m.kind === 'live') {
+            set((s) => ({
+                projects:
+                    s.liveDraft?.sessionId === m.session
+                        ? updateSession(s.projects, m.session, (x) => ({ ...x, liveSummary: s.liveDraft?.text }))
+                        : s.projects,
+                liveDraft: s.liveDraft?.sessionId === m.session ? null : s.liveDraft,
+            }));
+        }
     }
 
     // 録音ごとの数字を集め始める（クラウド版のときだけ。#206）
@@ -858,6 +938,7 @@ export const useAppStore = create<AppState>()((set, get) => {
         pendingAudio: 0,
         partial: null,
         liveDraft: null,
+        watching: null,
         settings: defaultSettings,
         options: fallbackOptions,
         serverVersion: null,
@@ -1418,6 +1499,35 @@ export const useAppStore = create<AppState>()((set, get) => {
                     });
                 });
             }
+            if (!isDemo) {
+                // 開いているセッションがほかのクライアントで録音中なら見る（#238）。開くセッション・一覧・
+                // 録音の状態・接続が変わるたびに見直す。つながり直したら、サーバーは見ていたことを
+                // 覚えていないので送り直す
+                let watched: string | null = null;
+                const syncWatch = () => {
+                    const s = get();
+                    const target =
+                        s.server.connection === 'connected'
+                            ? watchTarget(s.projects, s.selection, s.recordingSessionId)
+                            : null;
+                    if (s.server.connection !== 'connected') {
+                        watched = null;
+                    }
+                    if (target === watched) {
+                        return;
+                    }
+                    watched = target;
+                    if (target) {
+                        connection.send({ type: 'watch', session: target });
+                    } else if (s.server.connection === 'connected') {
+                        connection.send({ type: 'unwatch' });
+                    }
+                    if (s.watching && s.watching.sessionId !== target) {
+                        set({ watching: null });
+                    }
+                };
+                useAppStore.subscribe(syncWatch);
+            }
             connection.onStateChange((connected) => {
                 set((s) => ({
                     server: { ...s.server, connection: connected ? 'connected' : 'reconnecting' },
@@ -1450,6 +1560,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                 }
             });
             connection.subscribe((m) => {
+                receiveWatched(m);
                 if (m.type === 'status') {
                     // recordings と queue は画面に出さない（GPU キューは jobs で出す）
                     const ollamaBack = m.ollama === 'ready' && get().server.ollama !== 'ready';
