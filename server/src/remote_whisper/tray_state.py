@@ -43,10 +43,7 @@ MENU_QUIT = "終了"
 MENU_CLOUD_LOGIN = "クラウドにログイン"
 MENU_CLOUD_CANCEL = "登録をやめる"
 MENU_CLOUD_UNPAIR = "クラウドから外す"
-CLOUD_UNPAIR_CONFIRM = (
-    "この PC をクラウドから外しますか？ "
-    "外すと、クラウドの画面からこの PC につなげなくなります（録音やファイルは消えません）。"
-)
+CLOUD_UNPAIR_CONFIRM = "この PC をクラウドから外しますか？ 録音やファイルは消えません。"
 
 
 @dataclass(frozen=True)
@@ -138,7 +135,7 @@ def quit_confirmation(status: ServerStatus) -> str | None:
         return None
     return (
         f"録音中のセッションが {status.recordings} 件あります。"
-        "サーバーを止めると、録音もそこで止まります（そこまでの録音は残ります）。終了しますか？"
+        "終了すると録音もそこで止まります（そこまでは残ります）。終了しますか？"
     )
 
 
