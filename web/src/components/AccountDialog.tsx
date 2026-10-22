@@ -21,6 +21,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { stopPushOnSignOut } from '@/push';
 
 export function AccountDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
     const { me, setMe } = useAccountStore();
@@ -38,6 +39,9 @@ export function AccountDialog({ open, onOpenChange }: { open: boolean; onOpenCha
     }, [open, setMe]);
 
     const signOut = async () => {
+        // 通知の購読をやめる（同じブラウザでほかのアカウントがログインしても届かないように。#245）。
+        // ホストから消す DELETE はログイン中でないと通らないので、ログアウトの前に
+        await stopPushOnSignOut();
         await logout().catch(() => undefined);
         setMe(null);
         dispatch({ type: 'loggedOut' });
@@ -67,6 +71,7 @@ export function AccountDialog({ open, onOpenChange }: { open: boolean; onOpenCha
     };
 
     const leave = async () => {
+        await stopPushOnSignOut();
         try {
             await deleteAccount();
         } catch (e) {

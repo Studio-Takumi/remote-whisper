@@ -4,13 +4,15 @@ import { createRoot } from 'react-dom/client';
 import { ThemeProvider } from 'next-themes';
 
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { reportView } from '@/push';
+import { answerViewQueries, resyncPush } from '@/push';
 
 import App from './App.tsx';
 import './index.css';
 
-// 開いている画面を service worker に知らせる（そのセッションを開いていれば、最終要約の通知を出さない。#245）
-reportView();
+// 最終要約の通知（#245）。service worker に開いている画面を答え（そのセッションを開いていれば出さない）、
+// 通知をオンにしている端末では購読をホストに送り直す（クラウド版でホストが決まるのを少し待つ）
+answerViewQueries();
+setTimeout(() => void resyncPush(), 3000);
 
 createRoot(document.getElementById('root')!).render(
     <StrictMode>

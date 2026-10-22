@@ -129,23 +129,40 @@ export async function disablePush() {
     await api.delete(`/api/push/subscriptions?endpoint=${encodeURIComponent(endpoint)}`);
 }
 
-// 今開いている画面のパスを service worker に知らせる（push-sw.js。そのセッションを開いていれば通知を出さない）。
-// 画面は URL を history で書き換えるので、書き換えるたびと、service worker が替わったときに知らせる
-export function reportView() {
+// ログアウト・退会の前に呼ぶ（クラウド版。同じブラウザでほかのアカウントがログインしても、前のアカウントの
+// 通知が届かないように）。この端末の購読をやめ、ホストからも消す。失敗しても止めない
+// （購読をやめておけば、ホストが送ったときに push サービスが 410 を返し、ホストが消す）
+export async function stopPushOnSignOut() {
+    if (!pushEnabled()) {
+        return;
+    }
+    await disablePush().catch(() => undefined);
+}
+
+// オンのままの端末では、開くたびに購読をホストに送り直す（ホストの鍵を作り直した・購読が消えたときのため）
+export async function resyncPush() {
+    if (!pushEnabled() || pushSupport() !== 'ok' || Notification.permission !== 'granted') {
+        return;
+    }
+    try {
+        await enablePush();
+    } catch {
+        // ホストにつながっていないときなど。次に開いたときに送り直す
+    }
+}
+
+// service worker（push-sw.js）が「今どの画面を出しているか」を聞いてきたら答える。そのセッションを
+// 出していれば通知を出さない。画面は URL を history で書き換えるので、client.url では分からない。
+// 止まっている（裏に回って凍結された）タブは答えないので、出していないものとして扱われる
+export function answerViewQueries() {
     if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
         return;
     }
-    const send = () => navigator.serviceWorker.controller?.postMessage({ type: 'rw-view', path: location.pathname });
-    for (const name of ['pushState', 'replaceState'] as const) {
-        const original = history[name].bind(history);
-        history[name] = (...args: Parameters<History['pushState']>) => {
-            original(...args);
-            send();
-        };
-    }
-    window.addEventListener('popstate', send);
-    navigator.serviceWorker.addEventListener('controllerchange', send);
-    send();
+    navigator.serviceWorker.addEventListener('message', (event: MessageEvent) => {
+        if (event.data?.type === 'rw-where' && event.ports[0]) {
+            event.ports[0].postMessage({ path: location.pathname, visible: document.visibilityState === 'visible' });
+        }
+    });
 }
 
 function sameKey(a: Uint8Array, b: Uint8Array) {
