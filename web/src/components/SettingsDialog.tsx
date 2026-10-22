@@ -385,6 +385,17 @@ function SettingsForm({
                                 onChange={(detailDensity) => update('ollama', { detailDensity })}
                             />
                         </Row>
+                        <Row
+                            id='detail-material-pages'
+                            label='要約詳細に参考資料のページを付ける'
+                            description='要約詳細の項目ごとに、関係する参考資料の場所（「〇〇.pdf p.12 の内容」）を付ける。ページが分かる PDF の資料だけ。オンにしたあとで作った要約と、再生成した要約に付く'
+                        >
+                            <Switch
+                                id='detail-material-pages'
+                                checked={draft.ollama.detailMaterialPages ?? false}
+                                onCheckedChange={(detailMaterialPages) => update('ollama', { detailMaterialPages })}
+                            />
+                        </Row>
                         <Row id='live-interval' label='リアルタイム要約の間隔'>
                             <NumberInput
                                 id='live-interval'
