@@ -33,12 +33,14 @@ from remote_whisper.mock import (
 )
 from remote_whisper.ollama import OllamaClient
 from remote_whisper.projects import ProjectStore
+from remote_whisper.push import PushService
 from remote_whisper.recorder import RecordingManager
 from remote_whisper.recovery import Leftovers, find_leftovers, fix_leftovers
 from remote_whisper.routes import fs as fs_routes
 from remote_whisper.routes import mock as mock_routes
 from remote_whisper.routes import options as options_routes
 from remote_whisper.routes import projects as projects_routes
+from remote_whisper.routes import push as push_routes
 from remote_whisper.routes import sessions as sessions_routes
 from remote_whisper.routes import settings as settings_routes
 from remote_whisper.routes import version as version_routes
@@ -116,6 +118,12 @@ def create_app(
             )
             background.add(recovering)
             recovering.add_done_callback(background.discard)
+        # 最終要約の通知（#245）の VAPID の鍵。なければ作る（秘密鍵はデータのルートの外に出さない）
+        try:
+            await asyncio.to_thread(ctx.push.ensure_key)
+        except OSError:
+            log.exception("could not prepare the push key; notifications are off")
+            ctx.push = None
         # 保存期間を過ぎたファイルを、起動時とその後1日1回消す
         janitor.start()
         # GPU の使用率と VRAM を数秒おきに送る（取れない環境と、GPU を使わないモック・
@@ -261,6 +269,16 @@ def create_app(
         fallback_lines=mock_script_lines if mock else None,
     )
     ctx.uploads.material_range = material_range
+    # 最終要約ができたら通知する（#245）。録音を終えたあとと、音声ファイルのアップロードのとき。
+    # 再生成は、頼んだ人が画面で待っているので送らない
+    ctx.push = PushService(home)
+    notify = ctx.push.summary_ready
+    ctx.uploads.on_summary = notify
+    if mock:
+        # モックの録音は、最終要約を MockSession が作る
+        ctx.recorder.on_summary = notify
+    if ctx.summarizer is not None:
+        ctx.summarizer.on_summary = notify
 
     @app.middleware("http")
     async def log_requests(request: Request, call_next):
@@ -295,6 +313,7 @@ def create_app(
     app.include_router(fs_routes.router)
     app.include_router(ws_routes.router)
     app.include_router(version_routes.router)
+    app.include_router(push_routes.router)
     if mock:
         app.include_router(mock_routes.router)
 
