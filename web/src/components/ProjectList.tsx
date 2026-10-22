@@ -269,20 +269,18 @@ function ProjectGroup({
             style={{ transform: CSS.Translate.toString(sort.transform), transition: sort.transition }}
             className={`relative rounded-md border-none transition-colors ${dropping && drop.isOver ? 'bg-sidebar-accent ring-2 ring-primary/40' : ''} ${sort.isDragging ? 'z-10 bg-sidebar opacity-90 shadow-md' : ''}`}
         >
-            {/* Claude のサイドバーと同じく「名前 ⌄ ……… ＋」の並びにする。長押しで文字の選択やメニューが出ないようにする */}
+            {/* 「握り・名前 ⌄ ……… ＋」の並びにする（#234）。長押しで文字の選択やメニューが出ないようにする */}
             <div
-                className='group/head flex items-center pr-1 pl-2 select-none [-webkit-touch-callout:none]'
+                className='group/head flex items-center pr-1 select-none [-webkit-touch-callout:none]'
                 // マウスと指で見出しのどこからでもドラッグできる。キーボードは握りだけ
                 {...pointerOnly(sort.listeners)}
             >
-                <AccordionTrigger className='flex-none justify-start gap-1 py-1.5 text-xs text-sidebar-foreground/70 hover:no-underline **:data-[slot=accordion-trigger-icon]:ml-0'>
-                    {project.name}
-                </AccordionTrigger>
-                {/* キーボードで並び替える握り（Space で持ち上げ、矢印で動かし、Space で離す）。マウスの上にだけ見せる */}
+                {/* キーボードで並び替える握り（Space で持ち上げ、矢印で動かし、Space で離す）。マウスの上とフォーカスしたときだけ見せる。
+                    見えないときも幅は取ったままにして、名前の位置がずれないようにする */}
                 <button
                     type='button'
                     ref={sort.setActivatorNodeRef}
-                    className='ml-1 flex size-5 items-center justify-center rounded-md text-sidebar-foreground/50 opacity-0 group-hover/head:opacity-100 hover:text-sidebar-accent-foreground focus-visible:opacity-100'
+                    className='-ml-0.5 flex size-4 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/50 opacity-0 group-hover/head:opacity-100 hover:text-sidebar-accent-foreground focus-visible:opacity-100'
                     aria-label={`${project.name}の並び順を変える`}
                     onKeyDown={sort.listeners?.onKeyDown as React.KeyboardEventHandler | undefined}
                     {...sort.attributes}
@@ -291,6 +289,9 @@ function ProjectGroup({
                 >
                     <GripVerticalIcon size={14} />
                 </button>
+                <AccordionTrigger className='flex-none justify-start gap-1 py-1.5 text-xs text-sidebar-foreground/70 hover:no-underline **:data-[slot=accordion-trigger-icon]:ml-0'>
+                    {project.name}
+                </AccordionTrigger>
                 <button
                     className={`ml-auto flex size-6 items-center justify-center rounded-md text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground ${active ? 'bg-sidebar-accent text-sidebar-accent-foreground' : ''}`}
                     aria-label={`${project.name}で新しく録音`}
