@@ -1,5 +1,6 @@
 """同じユーザーの別のクライアントで、録音中のセッションを見る（#238）"""
 
+import asyncio
 from types import SimpleNamespace
 
 import pytest
@@ -7,6 +8,7 @@ from fastapi.testclient import TestClient
 from test_mock import FAST, audio, of_type, receive_until, start
 
 from remote_whisper.app import create_app
+from remote_whisper.hub import Hub
 from remote_whisper.mock import SCRIPT
 from remote_whisper.routes.ws import _state
 
@@ -62,10 +64,15 @@ def test_watcher_gets_what_was_said_so_far_and_then_the_rest(mock_client, tmp_pa
         assert seen[-1] == {"type": "recordingState", "state": "paused", "session": sid}
         rec.send_json({"type": "unpause"})
         assert receive_until(view, of_type("recordingState"))[-1]["state"] == "recording"
+        # 話している途中で終える。途中の文は final になり、見る側にも stopped より先に届く
+        receive_until(view, of_type("partial"))
         rec.send_json({"type": "stop"})
         seen = receive_until(view, of_type("recordingState"))
         assert seen[-1]["state"] == "stopped"
         assert not any(m["type"] in ("ack", "started") for m in seen)
+        owner = receive_until(rec, of_type("title", provisional=False))
+        last = [m["text"] for m in owner if m["type"] == "final"][-1]
+        assert [m["text"] for m in seen if m["type"] == "final"][-1] == last
         # 最終要約は全員に届く
         receive_until(view, of_type("title", provisional=False, session=sid))
     # 見る側の操作で録音を止めることはできない（下のテスト）
@@ -92,6 +99,34 @@ def test_watcher_cannot_control_the_recording(mock_client, tmp_path):
             "recording"
         )
         rec.send_json({"type": "stop"})
+
+
+def test_owner_only_messages_are_not_sent_to_watchers():
+    # ack・started・error は録音している接続にだけ。ほかは見ている接続にも。終えたら登録を消す
+    class Conn:
+        def __init__(self):
+            self.sent = []
+
+        async def send_json(self, message):
+            self.sent.append(message["type"])
+
+    async def run():
+        hub = Hub()
+        owner, viewer, other = Conn(), Conn(), Conn()
+        hub.watch(viewer, "s1")
+        hub.watch(other, "s2")
+        for kind in ("ack", "started", "error", "partial", "final"):
+            await hub.send_session(owner, "s1", {"type": kind})
+        await hub.end_watch("s1")
+        await hub.send_session(owner, "s1", {"type": "title"})
+        return hub, owner, viewer, other
+
+    hub, owner, viewer, other = asyncio.run(run())
+    assert owner.sent == ["ack", "started", "error", "partial", "final", "title"]
+    assert viewer.sent == ["partial", "final", "recordingState"]
+    # ほかのセッションを見ている接続には届かない
+    assert other.sent == []
+    assert "s1" not in hub.watchers and "s2" in hub.watchers
 
 
 def test_state_seen_by_the_watcher():

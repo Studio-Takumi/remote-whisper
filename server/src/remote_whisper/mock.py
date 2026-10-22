@@ -277,6 +277,8 @@ class MockSession:
             # 話している途中の文は、そこまでを final にする
             if current is not None:
                 await self._final(current, start)
+            # 最後の文まで送ってから、見ているクライアントに終わりを知らせる（#238。本物と同じ）
+            await self.recorder.hub.end_watch(self.id)
             if self.writer:
                 self.writer.finish(self.elapsed)
         except BaseException:
@@ -315,6 +317,7 @@ class MockSession:
         await asyncio.sleep(self.timing.resume_timeout)
         log.info("session %s interrupted", self.id)
         await self._end()
+        await self.recorder.hub.end_watch(self.id)
         if self.writer:
             self.writer.finish(self.elapsed, status="interrupted")
 

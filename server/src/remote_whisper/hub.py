@@ -40,8 +40,9 @@ class ServerStatus:
 Tracked = Literal["summarizing", "transcribing"]
 
 # 録音しているクライアントにだけ送り、見ているクライアント（#238）には送らないもの。
-# ack は音声の受け取りの知らせ、started は録音を始めた返事
-OWNER_ONLY = frozenset({"ack", "started"})
+# ack は音声の受け取りの知らせ、started は録音を始めた返事、error は録音の操作・音声の書き込みの
+# 失敗（見る側には関係がなく、チャンクごとに出るものもあるため）
+OWNER_ONLY = frozenset({"ack", "started", "error"})
 
 
 class Hub:
@@ -133,12 +134,23 @@ class Hub:
         """セッションのメッセージを、録音しているクライアント（owner）と、そのセッションを
         見ているクライアントに送る（#238）。見ている側には OWNER_ONLY のものを送らない"""
         message = {**message, "session": sid}
-        targets = [owner] if owner is not None else []
-        if message.get("type") not in OWNER_ONLY:
-            targets += [ws for ws in self.watchers.get(sid, ()) if ws is not owner]
         # 録音している側には、今までどおりすぐに送る（gather のタスクを挟まない）
-        for ws in targets:
-            await send(ws, message)
+        if owner is not None:
+            await send(owner, message)
+        if message.get("type") in OWNER_ONLY:
+            return
+        watchers = [ws for ws in self.watchers.get(sid, ()) if ws is not owner]
+        # 見ている側はまとめて送る（遅い接続が 1 つあっても、ほかを待たせないように）
+        if len(watchers) == 1:
+            await send(watchers[0], message)
+        elif watchers:
+            await asyncio.gather(*(send(ws, message) for ws in watchers))
+
+    async def end_watch(self, sid: str) -> None:
+        """録音が終わった（普通に終えた・中断した）。最後の区間の文字起こしを送り終えてから呼ぶ。
+        見ているクライアントに stopped を送り、見ている登録を消す（#238）"""
+        await self.send_watchers(sid, {"type": "recordingState", "state": "stopped"})
+        self.watchers.pop(sid, None)
 
     async def send_watchers(self, sid: str, message: dict[str, Any]) -> None:
         """見ているクライアントにだけ送る（録音の状態の変化など）"""

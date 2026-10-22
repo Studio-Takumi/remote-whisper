@@ -110,15 +110,9 @@ async def _control(ctx: AppContext, ws: WebSocket, session: Any, text: str, peer
         await ctx.hub.send_watchers(result.id, _state_message(result))
     elif kind in ("stop", "pause", "unpause"):
         log.info("recording %s from %s: %s", kind, peer, before.id)
-        await ctx.hub.send_watchers(
-            before.id,
-            {"type": "recordingState", "state": "stopped"}
-            if kind == "stop"
-            else _state_message(before),
-        )
-        if kind == "stop":
-            # 録音を終えたら見るのも終わり。最終要約などは全員に送るので、そのまま届く
-            ctx.hub.watchers.pop(before.id, None)
+        # 終えたときの stopped は、最後の区間を送り終えてからセッションが送る（Hub.end_watch）
+        if kind != "stop":
+            await ctx.hub.send_watchers(before.id, _state_message(before))
     return result
 
 

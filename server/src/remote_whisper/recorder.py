@@ -400,6 +400,9 @@ class RecordingSession:
                 await self.transcriber.wait()
             finally:
                 await self.transcriber.close()
+        # 話している途中だった最後の区間まで送ってから、見ているクライアントに
+        # 終わりを知らせる（#238）
+        await self.manager.hub.end_watch(self.id)
         if self.superseded:
             # 続きの録音が WAV を引き継いだ（変換は続きを録音し終えたときに行う）。
             # 続けられなかったときは take_back で続きを行う
