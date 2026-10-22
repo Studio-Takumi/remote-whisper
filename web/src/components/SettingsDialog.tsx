@@ -14,6 +14,7 @@ import {
 
 import { DensitySelect } from '@/components/DensitySelect';
 import { ModelsPage } from '@/components/ModelsPage';
+import { PushToggle } from '@/components/PushToggle';
 import { OptionSelect, Row, Section } from '@/components/SettingsParts';
 import { ShortcutInput } from '@/components/ShortcutInput';
 import { VersionInfo } from '@/components/VersionInfo';
@@ -649,6 +650,8 @@ function SettingsForm({
                                 onChange={(micShortcut) => update('display', { micShortcut })}
                             />
                         </Row>
+                        {/* 端末ごとの設定（#245）。全体設定の保存とは別に、切り替えたときに効く */}
+                        <PushToggle />
                     </Section>
                 </TabsContent>
             </Tabs>
