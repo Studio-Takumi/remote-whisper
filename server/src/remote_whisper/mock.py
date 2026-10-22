@@ -308,7 +308,7 @@ class MockSession:
         await self._send_all({"type": "title", "title": FINAL_TITLE, "provisional": False})
         # 本物と同じく、最終要約ができたら通知する（#245）
         if self.writer and self.recorder.on_summary is not None:
-            await self.recorder.on_summary(self.writer)
+            self.recorder.on_summary(self.writer)
 
     def detach(self) -> None:
         """接続が切れた。resume_timeout 秒以内に resume されなければ interrupted にする"""

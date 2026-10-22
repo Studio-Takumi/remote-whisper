@@ -272,7 +272,7 @@ def create_app(
     # 最終要約ができたら通知する（#245）。録音を終えたあとと、音声ファイルのアップロードのとき。
     # 再生成は、頼んだ人が画面で待っているので送らない
     ctx.push = PushService(home)
-    notify = ctx.push.summary_ready
+    notify = ctx.push.notify_later
     ctx.uploads.on_summary = notify
     if mock:
         # モックの録音は、最終要約を MockSession が作る

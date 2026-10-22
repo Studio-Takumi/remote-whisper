@@ -17,7 +17,7 @@ import logging
 import re
 import shutil
 import uuid
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -125,8 +125,8 @@ class UploadService:
         self.final_transcriber = final_transcriber
         self.summarizer = summarizer
         self.recording = recording
-        # 最終要約ができたら呼ぶ（通知。#245）
-        self.on_summary: Callable[[SessionWriter], Awaitable[None]] | None = None
+        # 最終要約ができたら呼ぶ（通知。#245。待たない）
+        self.on_summary: Callable[[SessionWriter], None] | None = None
         self.fallback_lines = fallback_lines
         # 今回扱った資料の範囲で参考資料を作り直す（RangeService。#182）
         self.material_range: Any = None
@@ -348,7 +348,7 @@ class UploadService:
             session=writer.id,
         )
         if gid is not None and self.on_summary is not None:
-            await self.on_summary(writer)
+            self.on_summary(writer)
 
     async def wait(self) -> None:
         """後ろで動いている処理が終わるまで待つ（テスト用）"""

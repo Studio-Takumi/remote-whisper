@@ -53,6 +53,7 @@ PUSH_SERVICE_HOSTS = (
     "push.apple.com",  # Safari（Mac・iPhone のホーム画面の PWA）
 )
 NOTIFICATION_TITLE = "最終要約ができました"
+RECORD_SIZE = 4096
 
 
 def b64url(data: bytes) -> str:
@@ -129,7 +130,9 @@ def encrypt(subscription: Subscription, payload: bytes, salt: bytes | None = Non
     nonce = HKDF(hashes.SHA256(), 12, salt=salt, info=b"Content-Encoding: nonce\x00").derive(ikm)
     # 1 つのレコードに収める。最後のレコードの区切りは 0x02
     record = AESGCM(cek).encrypt(nonce, payload + b"\x02", None)
-    record_size = len(record) + 1
+    # レコードの大きさ（rs）は、ブラウザの実装と同じ 4096 にする
+    # （1 つのレコードがそれより大きければ、その大きさ）
+    record_size = max(RECORD_SIZE, len(record) + 1)
     header = salt + record_size.to_bytes(4, "big") + bytes([len(as_public)]) + as_public
     return header + record
 
@@ -142,6 +145,8 @@ class PushService:
         self.transport = transport
         self._lock = threading.Lock()
         self._key: ec.EllipticCurvePrivateKey | None = None
+        # 後ろで送っている通知（途中で回収されないように持っておく）
+        self._tasks: set[asyncio.Task] = set()
 
     # --- 鍵 ---
 
@@ -199,7 +204,8 @@ class PushService:
         """Authorization ヘッダー（vapid t=<JWT>, k=<公開鍵>）"""
         url = urlsplit(endpoint)
         claims = {
-            "aud": f"{url.scheme}://{url.netloc}",
+            # origin の形（既定のポートは書かない）
+            "aud": f"{url.scheme}://{url.hostname}",
             "exp": int((now or time.time()) + 12 * 60 * 60),
             "sub": VAPID_SUBJECT,
         }
@@ -285,6 +291,18 @@ class PushService:
             len(gone),
             len(failed) - len(gone),
         )
+
+    def notify_later(self, writer: Any) -> None:
+        """最終要約ができた。通知は後ろで送る（push サービスの応答を待って、GPU のキューの
+        ジョブ（次の要約・文字起こし）を待たせないように）"""
+        task = asyncio.get_running_loop().create_task(self.summary_ready(writer))
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
+    async def wait(self) -> None:
+        """後ろで送っている通知が終わるまで待つ（テスト用）"""
+        while self._tasks:
+            await asyncio.gather(*list(self._tasks), return_exceptions=True)
 
     async def summary_ready(self, writer: Any) -> None:
         """最終要約ができた（録音を終えたあと・アップロード）。タイトルと URL だけを送る"""

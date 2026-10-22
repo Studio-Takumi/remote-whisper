@@ -4,6 +4,7 @@ import asyncio
 import base64
 import json
 import sys
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -225,14 +226,18 @@ def test_mock_recording_sends_a_push_when_the_final_summary_is_saved(app, tmp_pa
             sid = start(ws, project=pid)
             ws.send_json({"type": "stop"})
             receive_until(ws, of_type("title", provisional=False))
+        # 通知は後ろで送るので、終わるのを待つ
+        client.portal.call(push.wait)
         uuid = client.get(f"/api/projects/{pid}/sessions/{sid}").json()["uuid"]
-        assert sent and sent[-1]["url"] == f"/s/{uuid}" and sent[-1]["session"] == sid
+        assert len(sent) == 1
+        assert sent[-1]["url"] == f"/s/{uuid}" and sent[-1]["session"] == sid
         # 再生成では送らない
         before = len(sent)
         with client.websocket_connect("/ws") as ws:
             ws.receive_json()
             assert client.post(f"/api/projects/{pid}/sessions/{sid}/summaries").status_code == 202
             receive_until(ws, of_type("title", provisional=False, session=sid))
+        client.portal.call(push.wait)
         assert len(sent) == before
 
 
@@ -241,3 +246,73 @@ def test_b64url_round_trip():
     assert b64url_decode(b64url(data)) == data
     assert "=" not in b64url(data)
     assert base64.urlsafe_b64decode(b64url(data) + "==") == data
+
+
+def test_record_size_and_aud_follow_the_rfcs(tmp_path):
+    # rs はブラウザと同じ 4096。aud は origin（既定のポートは書かない）
+    body = encrypt(Browser().subscription, b"{}")
+    assert int.from_bytes(body[16:20], "big") == 4096
+    push = PushService(tmp_path)
+    push.ensure_key()
+    token = push.vapid_header("https://fcm.googleapis.com:443/fcm/send/x").split(" ")[1]
+    claims = json.loads(b64url_decode(token.removeprefix("t=").split(".")[1]))
+    assert claims["aud"] == "https://fcm.googleapis.com"
+
+
+def test_real_summarizer_notifies_after_recording_but_not_on_regenerate(home, tmp_path):
+    # 本物の FinalSummarizer: 録音を終えたあと（__call__）は通知し、再生成（run）では通知しない。
+    # 通知は待たずに頼むだけ（GPU のキューのジョブの中で呼ぶため）
+    from fake_ollama import FakeOllama
+    from test_final_summary import StubWriter
+
+    from remote_whisper.final_summary import FinalSummarizer
+    from remote_whisper.hub import Hub
+    from remote_whisper.ollama import OllamaClient
+    from remote_whisper.settings import SettingsStore
+
+    fake = FakeOllama()
+    settings = SettingsStore(home)
+    summarizer = FinalSummarizer(
+        OllamaClient(Hub(), settings, transport=fake.transport()), settings
+    )
+    called = []
+    summarizer.on_summary = called.append
+    writer = StubWriter(tmp_path)
+    session = SimpleNamespace(id=writer.id, writer=writer, manager=SimpleNamespace(hub=Hub()))
+
+    async def send(m):
+        pass
+
+    asyncio.run(summarizer(session))
+    assert called == [writer]
+    asyncio.run(summarizer.run(writer, send))
+    assert called == [writer]
+    # Ollama が落ちていて作れなければ通知しない
+    fake.up = False
+    asyncio.run(summarizer(session))
+    assert called == [writer]
+
+
+def test_notify_later_does_not_wait_for_the_push_service(tmp_path):
+    started = asyncio.Event()
+
+    async def slow(request):
+        started.set()
+        await asyncio.sleep(0.5)
+        return httpx.Response(201)
+
+    push = PushService(tmp_path, transport=httpx.MockTransport(slow))
+    push.ensure_key()
+    push.add(Browser().subscription)
+    writer = SimpleNamespace(id="s", uuid=None, meta=SimpleNamespace(title="t"))
+
+    async def run():
+        loop = asyncio.get_running_loop()
+        t0 = loop.time()
+        push.notify_later(writer)
+        returned = loop.time() - t0
+        await push.wait()
+        return returned, started.is_set()
+
+    returned, sent = asyncio.run(run())
+    assert returned < 0.1 and sent
