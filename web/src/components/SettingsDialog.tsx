@@ -15,6 +15,7 @@ import {
 import { DensitySelect } from '@/components/DensitySelect';
 import { ModelsPage } from '@/components/ModelsPage';
 import { OptionSelect, Row, Section } from '@/components/SettingsParts';
+import { ShortcutInput } from '@/components/ShortcutInput';
 import { VersionInfo } from '@/components/VersionInfo';
 import { Button } from '@/components/ui/button';
 import {
@@ -35,6 +36,7 @@ import { withCurrent } from '@/options';
 import type { SettingsOptions } from '@/protocol';
 import { recordingLocks } from '@/recording';
 import { SETTINGS_PAGES, type Settings } from '@/settings';
+import { DEFAULT_MIC_SHORTCUT } from '@/shortcut';
 
 // 全体設定のモーダル。左にカテゴリ、右に項目を並べる
 export function SettingsDialog({
@@ -59,7 +61,18 @@ export function SettingsDialog({
 }) {
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className='flex h-[min(640px,85vh)] flex-col sm:max-w-3xl'>
+            <DialogContent
+                className='flex h-[min(640px,85vh)] flex-col sm:max-w-3xl'
+                onEscapeKeyDown={(e) => {
+                    // ショートカットのキーを決めている間の Esc は、決めるのをやめるだけにする（ShortcutInput）
+                    if (
+                        document.activeElement instanceof HTMLElement &&
+                        document.activeElement.dataset.shortcutCapture
+                    ) {
+                        e.preventDefault();
+                    }
+                }}
+            >
                 <DialogHeader>
                     <DialogTitle>設定</DialogTitle>
                     <DialogDescription>
@@ -612,6 +625,17 @@ function SettingsForm({
                                 id='show-speakers'
                                 checked={draft.display.showSpeakers ?? false}
                                 onCheckedChange={(showSpeakers) => update('display', { showSpeakers })}
+                            />
+                        </Row>
+                        <Row
+                            id='mic-shortcut'
+                            label='マイクボタンのショートカット'
+                            description='このキーを押すと、マイクボタンを押したのと同じ動きになる。文字を入力している途中と、設定などの画面を開いているときは効かない'
+                        >
+                            <ShortcutInput
+                                id='mic-shortcut'
+                                value={draft.display.micShortcut ?? DEFAULT_MIC_SHORTCUT}
+                                onChange={(micShortcut) => update('display', { micShortcut })}
                             />
                         </Row>
                     </Section>
