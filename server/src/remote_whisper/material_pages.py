@@ -285,7 +285,8 @@ async def annotate_detail(ollama: OllamaClient, model: str, detail: str, pages: 
             )
         except OllamaUnavailable as e:
             log.warning("could not find the page references: %s", e)
-            return detail
+            # それまでの回で付けられた分は残す
+            break
         for item, sources in parse_refs(reply, len(batch), allowed).items():
             found[batch[item][0]] = sources
     return apply_refs(detail, found)
