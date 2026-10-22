@@ -716,7 +716,7 @@ export const useAppStore = create<AppState>()((set, get) => {
         }));
         // 同じセッションのまま続きを録音できる（#101）。セッションの画面にも「続きから録音」を出す
         toast.error(
-            '録音は途中で終わりました（接続が長く切れた・サーバーが再起動したなど）。そこまでの録音は残っています',
+            '録音は途中で終わりました（接続が長く切れた・ホストが再起動したなど）。そこまでの録音は残っています',
             {
                 duration: 15000,
                 action: { label: '続きから録音', onClick: () => void get().continueRecording(sessionId) },

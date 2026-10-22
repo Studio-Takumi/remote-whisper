@@ -132,7 +132,7 @@ export function HostsSection({ open }: { open: boolean }) {
                 <p className='text-xs text-muted-foreground'>読み込んでいます…</p>
             ) : hosts.length === 0 ? (
                 <p className='text-xs text-muted-foreground'>
-                    まだありません。PC のトレイの「クラウド版にログイン」から登録します。
+                    まだありません。PC のトレイの「クラウド版にログイン」から登録します
                 </p>
             ) : (
                 <ul className='flex flex-col gap-2'>

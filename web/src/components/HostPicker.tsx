@@ -122,7 +122,7 @@ export function HostPicker() {
             </ul>
             {hosts.every((h) => !selectable(h)) && (
                 <p className='text-xs text-muted-foreground'>
-                    どの PC もオフラインです。PC で Remote Whisper が動いているか確かめてください。
+                    どの PC もオフラインです。PC で Remote Whisper が動いているか確かめてください
                 </p>
             )}
             <Button variant='ghost' size='sm' onClick={() => void load()}>

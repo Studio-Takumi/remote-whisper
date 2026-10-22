@@ -106,7 +106,7 @@ export function PairPage({ code }: { code: string }) {
                     </p>
                     <p className='text-xs text-muted-foreground'>
                         PC
-                        のトレイの通知に出ているコードと同じか確かめてください。違うときや、心当たりがないときは拒否してください。
+                        のトレイの通知に出ているコードと同じか確かめてください。違うときや、心当たりがないときは拒否してください
                     </p>
                     <div className='flex gap-2'>
                         <Button disabled={busy} onClick={() => void answer(true, view.request)}>

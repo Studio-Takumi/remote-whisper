@@ -18,6 +18,7 @@ import { ModelsPage } from '@/components/ModelsPage';
 import { PushToggle } from '@/components/PushToggle';
 import { OptionSelect, Row, Section } from '@/components/SettingsParts';
 import { ShortcutInput } from '@/components/ShortcutInput';
+import { ThemeRow } from '@/components/ThemeToggle';
 import { VersionInfo } from '@/components/VersionInfo';
 import { Button } from '@/components/ui/button';
 import {
@@ -158,40 +159,44 @@ function SettingsForm({
                     variant='line'
                     className={
                         // 横に並べたときは左寄せにする（中央寄せだと、はみ出したときに先頭が切れてスクロールできない）
-                        isMobile ? 'w-full shrink-0 justify-start overflow-x-auto' : 'w-40 shrink-0 items-stretch'
+                        // スクロールは並べた向きだけにする（#239）
+                        isMobile
+                            ? 'w-full shrink-0 justify-start overflow-x-auto overflow-y-hidden'
+                            : 'w-40 shrink-0 items-stretch overflow-x-hidden overflow-y-auto'
                     }
                 >
-                    <TabsTrigger value='whisper'>
-                        <MicIcon />
-                        文字起こし
-                    </TabsTrigger>
+                    {/* 並びは SETTINGS_PAGES と同じ（#239） */}
                     <TabsTrigger value='models'>
                         <CpuIcon />
                         モデル
-                    </TabsTrigger>
-                    <TabsTrigger value='ollama'>
-                        <SparklesIcon />
-                        要約
-                    </TabsTrigger>
-                    <TabsTrigger value='recording'>
-                        <CircleDotIcon />
-                        録音
-                    </TabsTrigger>
-                    <TabsTrigger value='storage'>
-                        <HardDriveIcon />
-                        保存
                     </TabsTrigger>
                     <TabsTrigger value='materials'>
                         <FileTextIcon />
                         参考資料
                     </TabsTrigger>
+                    <TabsTrigger value='recording'>
+                        <CircleDotIcon />
+                        録音
+                    </TabsTrigger>
+                    <TabsTrigger value='whisper'>
+                        <MicIcon />
+                        文字起こし
+                    </TabsTrigger>
+                    <TabsTrigger value='ollama'>
+                        <SparklesIcon />
+                        要約
+                    </TabsTrigger>
+                    <TabsTrigger value='storage'>
+                        <HardDriveIcon />
+                        保存
+                    </TabsTrigger>
                     <TabsTrigger value='display'>
                         <MonitorIcon />
-                        表示
+                        表示・その他
                     </TabsTrigger>
                 </TabsList>
 
-                <TabsContent value='whisper' className='min-h-0 overflow-y-auto pr-2'>
+                <TabsContent value='whisper' className='min-h-0 overflow-x-hidden overflow-y-auto pr-2'>
                     <Section>
                         <Row
                             id='compute-type'
@@ -218,11 +223,7 @@ function SettingsForm({
                                 onChange={(beamSize) => update('whisper', { beamSize })}
                             />
                         </Row>
-                        <Row
-                            id='partial-interval'
-                            label='途中結果の間隔'
-                            description='話している間、この間隔で文字起こしを更新します'
-                        >
+                        <Row id='partial-interval' label='途中結果の間隔'>
                             <NumberInput
                                 id='partial-interval'
                                 value={draft.whisper.partialIntervalSec}
@@ -232,12 +233,7 @@ function SettingsForm({
                                 onChange={(partialIntervalSec) => update('whisper', { partialIntervalSec })}
                             />
                         </Row>
-                        <Row
-                            id='silence-ms'
-                            label='区切りとみなす無音'
-                            locked={lock(recordingLocks.segmentation)}
-                            description='この長さだけ無音が続いたら、チャンクを確定します'
-                        >
+                        <Row id='silence-ms' label='区切りとみなす無音' locked={lock(recordingLocks.segmentation)}>
                             <NumberInput
                                 id='silence-ms'
                                 value={draft.whisper.silenceMs}
@@ -247,12 +243,7 @@ function SettingsForm({
                                 onChange={(silenceMs) => update('whisper', { silenceMs })}
                             />
                         </Row>
-                        <Row
-                            id='max-segment'
-                            label='チャンクの最大の長さ'
-                            locked={lock(recordingLocks.segmentation)}
-                            description='無音がなくても、この長さでチャンクを確定します'
-                        >
+                        <Row id='max-segment' label='チャンクの最大の長さ' locked={lock(recordingLocks.segmentation)}>
                             <NumberInput
                                 id='max-segment'
                                 value={draft.whisper.maxSegmentSec}
@@ -289,7 +280,7 @@ function SettingsForm({
                                 id='speech-dbfs'
                                 label='手動のときの音量'
                                 locked={lock(recordingLocks.segmentation)}
-                                description='この音量より大きい音を話し声とみなします（-70〜-10）。小さくすると雑音も拾います'
+                                description='この音量より大きい音を話し声とみなします（-70〜-10）'
                             >
                                 <NumberInput
                                     id='speech-dbfs'
@@ -324,11 +315,7 @@ function SettingsForm({
                                 onCheckedChange={(diarize) => update('whisper', { diarize })}
                             />
                         </Row>
-                        <Row
-                            id='unload-after'
-                            label='録音終了後にモデルを停止するまでの時間'
-                            description='過ぎたらモデルを止めて、VRAM を空けます'
-                        >
+                        <Row id='unload-after' label='録音終了後にモデルを停止するまでの時間'>
                             <NumberInput
                                 id='unload-after'
                                 value={draft.whisper.unloadAfterMin}
@@ -340,7 +327,7 @@ function SettingsForm({
                     </Section>
                 </TabsContent>
 
-                <TabsContent value='models' className='min-h-0 overflow-y-auto pr-2'>
+                <TabsContent value='models' className='min-h-0 overflow-x-hidden overflow-y-auto pr-2'>
                     <ModelsPage
                         draft={draft}
                         options={options}
@@ -350,7 +337,7 @@ function SettingsForm({
                     />
                 </TabsContent>
 
-                <TabsContent value='ollama' className='min-h-0 overflow-y-auto pr-2'>
+                <TabsContent value='ollama' className='min-h-0 overflow-x-hidden overflow-y-auto pr-2'>
                     <Section>
                         <Row id='ollama-host' label='Ollama の URL'>
                             <Input
@@ -416,7 +403,7 @@ function SettingsForm({
                         <Row
                             id='pick-terms'
                             label='録音中の用語抽出'
-                            description='何度も出てくる固有名詞・専門用語を、リアルタイム要約と同じ間隔で用語リストに足します。GPU の負荷が上がります。参考資料のスイッチもオンのときだけ抽出します'
+                            description='GPU の負荷が上がります。参考資料のスイッチもオンのときだけ抽出します'
                         >
                             <Switch
                                 id='pick-terms'
@@ -424,11 +411,7 @@ function SettingsForm({
                                 onCheckedChange={(pickTerms) => update('ollama', { pickTerms })}
                             />
                         </Row>
-                        <Row
-                            id='keep-alive'
-                            label='要約後にモデルを停止するまでの時間'
-                            description='過ぎたらモデルを止めて、VRAM を空けます（録音中は止めません）'
-                        >
+                        <Row id='keep-alive' label='要約後にモデルを停止するまでの時間'>
                             <NumberInput
                                 id='keep-alive'
                                 value={draft.ollama.keepAliveMin}
@@ -440,7 +423,7 @@ function SettingsForm({
                     </Section>
                 </TabsContent>
 
-                <TabsContent value='recording' className='min-h-0 overflow-y-auto pr-2'>
+                <TabsContent value='recording' className='min-h-0 overflow-x-hidden overflow-y-auto pr-2'>
                     <Section>
                         <Row id='max-concurrent' label='同時に録音できる数'>
                             <NumberInput
@@ -450,11 +433,7 @@ function SettingsForm({
                                 onChange={(maxConcurrent) => update('recording', { maxConcurrent })}
                             />
                         </Row>
-                        <Row
-                            id='resume-timeout'
-                            label='接続が切れたときに待つ時間'
-                            description='この時間内に接続し直せば、録音が続きます'
-                        >
+                        <Row id='resume-timeout' label='接続が切れたときに待つ時間'>
                             <NumberInput
                                 id='resume-timeout'
                                 value={draft.recording.resumeTimeoutMin}
@@ -463,11 +442,7 @@ function SettingsForm({
                                 onChange={(resumeTimeoutMin) => update('recording', { resumeTimeoutMin })}
                             />
                         </Row>
-                        <Row
-                            id='continue-window'
-                            label='録音を終えても、続きから録音できる時間'
-                            description='マイクボタンで同じセッションの続きを録音できます。0 なら続けられません'
-                        >
+                        <Row id='continue-window' label='録音を終えても、続きから録音できる時間'>
                             <NumberInput
                                 id='continue-window'
                                 value={draft.recording.continueWindowMin}
@@ -476,12 +451,7 @@ function SettingsForm({
                                 onChange={(continueWindowMin) => update('recording', { continueWindowMin })}
                             />
                         </Row>
-                        <Row
-                            id='noise-suppression'
-                            label='ブラウザの雑音抑制'
-                            locked={lock(recordingLocks.microphone)}
-                            description='ブラウザがマイクの雑音を抑えます'
-                        >
+                        <Row id='noise-suppression' label='ブラウザの雑音抑制' locked={lock(recordingLocks.microphone)}>
                             <Switch
                                 id='noise-suppression'
                                 checked={draft.recording.noiseSuppression}
@@ -492,7 +462,6 @@ function SettingsForm({
                             id='auto-gain-control'
                             label='ブラウザの自動音量調整'
                             locked={lock(recordingLocks.microphone)}
-                            description='ブラウザがマイクの音量を自動で上げ下げします'
                         >
                             <Switch
                                 id='auto-gain-control'
@@ -504,7 +473,6 @@ function SettingsForm({
                             id='echo-cancellation'
                             label='ブラウザのエコー除去'
                             locked={lock(recordingLocks.microphone)}
-                            description='スピーカーの音がマイクに回り込むのを消します。文字起こしが止まるときは切ってみてください'
                         >
                             <Switch
                                 id='echo-cancellation'
@@ -515,7 +483,7 @@ function SettingsForm({
                     </Section>
                 </TabsContent>
 
-                <TabsContent value='storage' className='min-h-0 overflow-y-auto pr-2'>
+                <TabsContent value='storage' className='min-h-0 overflow-x-hidden overflow-y-auto pr-2'>
                     <Section title='保存期間' description='期間を過ぎたファイルは自動で消えます。0 にすると無期限です'>
                         <Row id='keep-recording' label='録音ファイル'>
                             <NumberInput
@@ -556,11 +524,8 @@ function SettingsForm({
                     </Section>
                 </TabsContent>
 
-                <TabsContent value='materials' className='min-h-0 overflow-y-auto pr-2'>
-                    <Section
-                        title='読み込めるフォルダ'
-                        description='参考資料とプロジェクトは、このフォルダの中から選びます'
-                    >
+                <TabsContent value='materials' className='min-h-0 overflow-x-hidden overflow-y-auto pr-2'>
+                    <Section title='読み込めるフォルダ'>
                         <div className='flex flex-col gap-2'>
                             {draft.materials.roots.map((root, i) => (
                                 <div key={i} className='flex items-center gap-2'>
@@ -603,7 +568,7 @@ function SettingsForm({
                         </div>
                     </Section>
                     <Section title='読み込める拡張子'>
-                        <Row id='extensions' label='拡張子' description='カンマ区切りで書きます'>
+                        <Row id='extensions' label='拡張子'>
                             <Input
                                 id='extensions'
                                 className='w-56'
@@ -614,53 +579,40 @@ function SettingsForm({
                     </Section>
                 </TabsContent>
 
-                <TabsContent value='display' className='min-h-0 overflow-y-auto pr-2'>
+                <TabsContent value='display' className='min-h-0 overflow-x-hidden overflow-y-auto pr-2'>
                     <Section>
-                        <Row
-                            id='session-meta'
-                            label='サイドバーの録音日時と長さ'
-                            description='セッションのタイトルの下に小さく表示します'
-                        >
+                        <Row id='session-meta' label='サイドバーの録音日時と長さ'>
                             <Switch
                                 id='session-meta'
                                 checked={draft.display.sessionMeta}
                                 onCheckedChange={(sessionMeta) => update('display', { sessionMeta })}
                             />
                         </Row>
-                        <Row
-                            id='show-picked-terms'
-                            label='用語リスト（文字起こし抽出）の表示'
-                            description='文字起こしのタブの上に一覧を表示し、誤った語は × で外せます。オフでも用語リストは使います。抽出するかは「録音中の用語抽出」で決めます'
-                        >
+                        <Row id='show-picked-terms' label='用語リスト（文字起こし抽出）の表示'>
                             <Switch
                                 id='show-picked-terms'
                                 checked={draft.display.showPickedTerms ?? false}
                                 onCheckedChange={(showPickedTerms) => update('display', { showPickedTerms })}
                             />
                         </Row>
-                        <Row
-                            id='show-speakers'
-                            label='話者の表示'
-                            description='浄書済み文字起こしの行の頭と版の選択肢に、話者を表示します（オフでも話者は分けて保存します）'
-                        >
+                        <Row id='show-speakers' label='話者の表示'>
                             <Switch
                                 id='show-speakers'
                                 checked={draft.display.showSpeakers ?? false}
                                 onCheckedChange={(showSpeakers) => update('display', { showSpeakers })}
                             />
                         </Row>
-                        <Row
-                            id='mic-shortcut'
-                            label='マイクボタンのショートカット'
-                            description='マイクボタンを押したのと同じ動きになります。文字の入力中や、設定などを開いているときは効きません'
-                        >
+                        <Row id='mic-shortcut' label='マイクボタンのショートカット'>
                             <ShortcutInput
                                 id='mic-shortcut'
                                 value={draft.display.micShortcut ?? DEFAULT_MIC_SHORTCUT}
                                 onChange={(micShortcut) => update('display', { micShortcut })}
                             />
                         </Row>
-                        {/* 端末ごとの設定（#245）。全体設定の保存とは別に、切り替えたときに効く */}
+                    </Section>
+                    {/* 端末ごとの設定（テーマ・通知。#239・#245）。全体設定の保存とは別に、切り替えたときに効く */}
+                    <Section title='この端末' description='保存を押さなくても、切り替えた時点で効きます'>
+                        <ThemeRow />
                         <PushToggle />
                     </Section>
                 </TabsContent>

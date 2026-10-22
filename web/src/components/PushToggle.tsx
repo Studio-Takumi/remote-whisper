@@ -38,15 +38,10 @@ export function PushToggle() {
     return (
         <Row
             id='push-notify'
-            label='最終要約の通知（この端末）'
+            label='最終要約の通知'
+            // 説明は使えないときの理由だけ（ほかは公式 HP の使い方で説明する。#239）
             description={
-                <>
-                    最終要約ができたら、この端末に通知します（タイトルのみ。そのセッションを開いているときは通知しません）。保存を押さなくても、切り替えた時点で効きます。iPhone
-                    はホーム画面に追加したアプリ（iOS 16.4 以降）でのみ使えます
-                    {unavailable && (
-                        <span className='mt-1 block text-amber-700 dark:text-amber-400'>{unavailable}</span>
-                    )}
-                </>
+                unavailable ? <span className='text-amber-700 dark:text-amber-400'>{unavailable}</span> : undefined
             }
         >
             <Switch

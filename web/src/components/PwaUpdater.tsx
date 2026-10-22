@@ -38,7 +38,7 @@ export function PwaUpdater() {
         const onPreloadError = (e: Event) => {
             e.preventDefault();
             void registration.current?.update();
-            toast.warning('画面の一部を読み込めません（サーバーが新しいバージョンになりました）', {
+            toast.warning('画面の一部を読み込めません（ホストが新しいバージョンになりました）', {
                 description: '読み込み直すと直ります',
                 duration: Infinity,
                 action: { label: '読み込み直す', onClick: () => location.reload() },

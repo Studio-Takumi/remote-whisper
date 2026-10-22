@@ -145,7 +145,7 @@ export function AccountDialog({ open, onOpenChange }: { open: boolean; onOpenCha
                                 />
                             </div>
                             <p id='account-data-collection-desc' className='text-xs text-muted-foreground'>
-                                現在は収集していません。収集を始めるときは、何を何に使うかをここに書きます。
+                                現在は収集していません。収集を始めるときは、何を何に使うかをここに書きます
                             </p>
                         </section>
                         <section className='flex flex-wrap items-center justify-between gap-2 border-t pt-3'>

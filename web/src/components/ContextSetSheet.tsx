@@ -52,7 +52,7 @@ export function ContextSetSheet() {
                 <SheetHeader>
                     <SheetTitle>参考資料</SheetTitle>
                     <SheetDescription>
-                        選んだ資料から用語リストとコンテキストを作り、文字起こしと要約に使います（プロジェクトごと）。
+                        選んだ資料から用語リストとコンテキストを作り、文字起こしと要約に使います（プロジェクトごと）
                     </SheetDescription>
                 </SheetHeader>
                 {project ? (
@@ -79,7 +79,7 @@ export function ContextSetSheet() {
                         </Select>
                         {current?.status === 'generating' && (
                             <p className='text-xs text-muted-foreground'>
-                                作成中です。録音を始めても、できた時点から使います。
+                                作成中です。録音を始めても、できた時点から使います
                             </p>
                         )}
                         <Button variant='outline' onClick={() => setPickerOpen(true)}>

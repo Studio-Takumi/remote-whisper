@@ -241,7 +241,7 @@ export function SessionView() {
                     )}
                     {!session && recordingElsewhere && (
                         <p className='text-sm text-muted-foreground'>
-                            ほかのセッションで録音中です。終えると、ここから録音できます。
+                            ほかのセッションで録音中です。終えると、ここから録音できます
                         </p>
                     )}
                     {/* ほかの端末で録音中のセッションを見ている間は、この端末の状態（待機中）を出さない（#238） */}
@@ -256,7 +256,7 @@ export function SessionView() {
                     ) : (
                         recordingState === 'idle' && (
                             <p className='text-sm text-muted-foreground'>
-                                録音が始まると、{liveIntervalMin} 分おきにリアルタイム要約がここに出ます。
+                                録音が始まると、{liveIntervalMin} 分おきにリアルタイム要約がここに出ます
                             </p>
                         )
                     )}
@@ -527,11 +527,11 @@ function SummaryPanel({
             <p className='text-xs text-muted-foreground'>
                 {!canRegenerate
                     ? session.files?.transcript === false || session.transcript.length === 0
-                        ? '文字起こしが残っていないため、再生成できません。'
-                        : 'ほかの要約を作り終えてから、再生成してください。'
+                        ? '文字起こしが残っていないため、再生成できません'
+                        : 'ほかの要約を作り終えてから、再生成してください'
                     : ollama === 'ready'
-                      ? 'Ollama には今つながっています。再生成してください（保存に失敗した場合は、ディスクの空きも確かめてください）。'
-                      : 'Ollama に接続できません。動いているか確かめてから再生成してください。'}
+                      ? 'Ollama には今つながっています。再生成してください（保存に失敗した場合は、ディスクの空きも確かめてください）'
+                      : 'Ollama に接続できません。動いているか確かめてから再生成してください'}
             </p>
             {regenerateButton}
         </div>
@@ -563,7 +563,7 @@ function SummaryPanel({
         return (
             <div className='flex flex-col items-start gap-2'>
                 <p className='text-sm text-muted-foreground'>
-                    {expired(session, 'summary') ? '要約は期限切れのためありません。' : 'まだ要約がありません。'}
+                    {expired(session, 'summary') ? '要約は期限切れのためありません' : 'まだ要約がありません'}
                 </p>
                 {regenerateButton}
             </div>
@@ -673,8 +673,8 @@ function EmptyState({ hasProjects }: { hasProjects: boolean }) {
             </p>
             <p className='max-w-md text-sm'>
                 {hasProjects
-                    ? 'メニューからセッションを開くか、プロジェクトの ＋ で新しく作れます。'
-                    : 'メニューの「新規プロジェクト作成」から、録音をまとめるフォルダを選んでください。'}
+                    ? 'メニューからセッションを開くか、プロジェクトの ＋ で新しく作れます'
+                    : 'メニューの「新規プロジェクト作成」から、録音をまとめるフォルダを選んでください'}
             </p>
         </div>
     );

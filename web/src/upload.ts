@@ -21,7 +21,7 @@ export function uploadError(status: number, body: string) {
     } catch {
         // JSON でなければ下へ
     }
-    return status === 0 ? 'アップロードが途中で切れました' : `サーバーが受け付けませんでした（${status}）`;
+    return status === 0 ? 'アップロードが途中で切れました' : `ホストが受け付けませんでした（${status}）`;
 }
 
 // percent は 0〜100。作ったセッションを返す

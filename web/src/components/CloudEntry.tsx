@@ -10,7 +10,7 @@ import { LoginButtons } from '@/components/LoginButtons';
 import { stopPushOnSignOut } from '@/push';
 
 const PLACEHOLDERS: Record<Exclude<CloudStage, 'login' | 'consent'>, { title: string; body: string }> = {
-    hosts: { title: 'ホストの選択', body: '使うホスト（文字起こしをするマシン）を選ぶ画面が入ります（#161）。' },
+    hosts: { title: 'ホストの選択', body: '使うホスト（文字起こしをするマシン）を選ぶ画面が入ります（#161）' },
     ready: { title: 'ホストにつながっています', body: '' },
 };
 
@@ -64,7 +64,7 @@ export function CloudEntry() {
                     <p className='text-sm'>{PLACEHOLDERS[stage].body}</p>
                     {me && (
                         <p className='text-xs text-muted-foreground'>
-                            {me.displayName} でログインしています。
+                            {me.displayName} でログインしています
                             <button className='ml-1 underline' onClick={() => void signOut()}>
                                 ログアウト
                             </button>

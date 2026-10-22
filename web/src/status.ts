@@ -81,14 +81,14 @@ export type Status = { tone: Tone; text: string };
 export function transcriptStatus(state: RecordingState, server: ServerStatus, sessionId: string | null = null): Status {
     if (state === 'idle') {
         return server.connection === 'reconnecting'
-            ? { tone: 'warning', text: 'サーバーにつながっていません。つなぎ直しています…' }
+            ? { tone: 'warning', text: 'ホストにつながっていません。つなぎ直しています…' }
             : { tone: 'idle', text: '待機中' };
     }
     if (server.connection === 'reconnecting') {
         // つながり直せば、そのまま続く。待つ時間を過ぎても、あとで同じセッションの続きを録音できる（#101）
         return {
             tone: 'warning',
-            text: 'サーバーに再接続しています…（録音は手元で続けています）',
+            text: 'ホストに再接続しています…（録音は手元で続けています）',
         };
     }
     if (state === 'paused') {
@@ -118,7 +118,7 @@ export function summaryStatus(state: RecordingState, server: ServerStatus, inter
         return null;
     }
     if (server.connection === 'reconnecting') {
-        return { tone: 'warning', text: 'サーバーに再接続しています…（録音は続けています）' };
+        return { tone: 'warning', text: 'ホストに再接続しています…（録音は続けています）' };
     }
     if (server.ollama === 'error') {
         return { tone: 'error', text: 'Ollama に接続できず、要約を作れません。録音を終えてから再生成できます' };

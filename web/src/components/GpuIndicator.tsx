@@ -111,7 +111,7 @@ function JobList({
                 )}
             </section>
             <p className='text-xs text-muted-foreground'>
-                GPU は 1 つずつ順に使います。要約を作っている間は、文字起こしが待たされます。
+                GPU は 1 つずつ順に使います。要約を作っている間は、文字起こしが待たされます
             </p>
         </div>
     );

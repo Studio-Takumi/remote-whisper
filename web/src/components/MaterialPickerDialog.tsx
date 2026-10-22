@@ -46,7 +46,7 @@ export function MaterialPickerDialog({
                 <DialogHeader>
                     <DialogTitle>参考資料を選ぶ</DialogTitle>
                     <DialogDescription>
-                        選んだ資料から用語リストとコンテキストを作ります（数分かかります）。
+                        選んだ資料から用語リストとコンテキストを作ります（数分かかります）
                     </DialogDescription>
                 </DialogHeader>
                 {/* DialogContent は閉じると消えるので、開くたびに選び直せる */}

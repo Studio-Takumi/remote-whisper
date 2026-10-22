@@ -17,7 +17,7 @@ describe('uploadError', () => {
     });
 
     it('読めなければ状態コード、つながらなければ途中で切れた', () => {
-        expect(uploadError(500, 'Internal Server Error')).toBe('サーバーが受け付けませんでした（500）');
+        expect(uploadError(500, 'Internal Server Error')).toBe('ホストが受け付けませんでした（500）');
         expect(uploadError(0, '')).toBe('アップロードが途中で切れました');
     });
 });
