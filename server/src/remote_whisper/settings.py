@@ -216,6 +216,9 @@ class OllamaSettings(_Model):
     # 録音中に文字起こしから用語を拾うか（#103）。録音中の GPU の負荷が上がるので
     # 既定はオフ（#116）。オンのときも、プロジェクトの selection.pick_terms がオフなら拾わない
     pick_terms: bool = False
+    # 最終要約の詳細の項目に、参考資料の場所（PDF のページ）を付けるか（#237）。既定はオフ。
+    # オンにしたあとで作った要約と、作り直した要約に付く
+    detail_material_pages: bool = False
 
 
 class RecordingSettings(_Model):
