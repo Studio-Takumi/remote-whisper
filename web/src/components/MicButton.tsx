@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { MicIcon, MicOffIcon, PauseIcon, PlayIcon, PlusIcon, SquareIcon, Undo2Icon } from 'lucide-react';
 
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { continueLeftSec, describeLeft } from '@/continueWindow';
+import { DEFAULT_MIC_SHORTCUT, ariaShortcut, formatShortcut, shouldHandleMicShortcut } from '@/shortcut';
 import { currentProject, currentSession, useAppStore } from '@/store';
 import { formatElapsed } from '@/time';
 import type { Session } from '@/types';
@@ -29,6 +30,29 @@ function useContinueLeft(session: Session | undefined, windowMin: number, idle: 
         };
     }, [active]);
     return left;
+}
+
+// マイクボタンのキーボードのショートカット（#236）。押すとマイクボタンを押したのと同じ動きにする。
+// 文字を入力している途中・モーダルを開いているときは効かない（shortcut.ts）
+function useMicShortcut(combo: string, onPress: () => void) {
+    const press = useRef(onPress);
+    useEffect(() => {
+        press.current = onPress;
+    });
+    useEffect(() => {
+        if (combo === '') {
+            return;
+        }
+        const onKeyDown = (e: KeyboardEvent) => {
+            if (!shouldHandleMicShortcut(e, combo)) {
+                return;
+            }
+            e.preventDefault();
+            press.current();
+        };
+        window.addEventListener('keydown', onKeyDown);
+        return () => window.removeEventListener('keydown', onKeyDown);
+    }, [combo]);
 }
 
 // アイコンの大きさ。スマホの幅ではボタンが小さいので、アイコンも小さくする
@@ -137,6 +161,9 @@ export function MicButton() {
                           icon: <MicIcon className={largeIcon} />,
                       };
 
+    const shortcut = useAppStore((s) => s.settings.display.micShortcut ?? DEFAULT_MIC_SHORTCUT);
+    useMicShortcut(shortcut, main.onClick);
+
     // 録音中は上に経過時間を出すので、Tooltip は左右に出して被らないようにする
     const recording = state !== 'idle';
 
@@ -171,11 +198,15 @@ export function MicButton() {
                         className={`relative flex size-24 items-center justify-center rounded-full text-white transition-colors md:size-32 ${main.color}`}
                         onClick={main.onClick}
                         aria-label={main.label}
+                        aria-keyshortcuts={ariaShortcut(shortcut)}
                     >
                         {main.icon}
                     </button>
                 </TooltipTrigger>
-                <TooltipContent side={recording ? 'left' : 'top'}>{main.label}</TooltipContent>
+                <TooltipContent side={recording ? 'left' : 'top'}>
+                    {main.label}
+                    {shortcut !== '' && <kbd className='ml-2 font-sans opacity-70'>{formatShortcut(shortcut)}</kbd>}
+                </TooltipContent>
             </Tooltip>
 
             {recording && !elsewhere && (
