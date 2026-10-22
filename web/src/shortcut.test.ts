@@ -77,10 +77,17 @@ describe('効かないところ', () => {
             <input id="check" type="checkbox" />
             <textarea id="area"></textarea>
             <div id="editable" contenteditable="true"></div>
+            <select id="select"><option>a</option></select>
+            <div contenteditable="false"><span id="not-editable"></span></div>
             <button id="button"></button>`;
+        document.getElementById('editable')!.innerHTML = '<b id="in-editable">x</b>';
         const el = (id: string) => document.getElementById(id);
         expect(isTypingTarget(el('text'))).toBe(true);
         expect(isTypingTarget(el('area'))).toBe(true);
+        expect(isTypingTarget(el('select'))).toBe(true);
+        expect(isTypingTarget(el('editable'))).toBe(true);
+        expect(isTypingTarget(el('in-editable'))).toBe(true);
+        expect(isTypingTarget(el('not-editable'))).toBe(false);
         expect(isTypingTarget(el('check'))).toBe(false);
         expect(isTypingTarget(el('button'))).toBe(false);
         expect(isTypingTarget(document.body)).toBe(false);

@@ -88,7 +88,8 @@ export function isTypingTarget(target: EventTarget | null) {
     if (!(target instanceof HTMLElement)) {
         return false;
     }
-    if (target.isContentEditable) {
+    // jsdom には isContentEditable がないので、属性でも見る
+    if (target.isContentEditable || target.closest('[contenteditable]:not([contenteditable="false"])') !== null) {
         return true;
     }
     const tag = target.tagName;
