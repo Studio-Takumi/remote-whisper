@@ -34,6 +34,9 @@
 | POST | `/api/projects/{pid}/context-sets` | 参考資料ファイルを指定して、参考資料の作成を始める |
 | PATCH | `/api/projects/{pid}/selection` | 使う参考資料と、用語リスト・コンテキストそれぞれを使うかどうか、録音中に用語を拾うか（`pickTerms`）を設定する。録音中は `409` |
 | GET | `/api/version` | サーバーのバージョン（`{"version": "2b23d9b"}`。5.5 節の `appVersion` と同じ値） |
+| GET | `/api/push/key` | 最終要約の通知（#245。6.14 節）の VAPID の公開鍵（`{"publicKey": "<base64url>"}`）。秘密鍵は返さない |
+| POST | `/api/push/subscriptions` | 通知の購読を足す。本文はブラウザの `PushSubscription.toJSON()`（`endpoint`・`keys.p256dh`・`keys.auth`）。同じ `endpoint` は置き換える。push サービスの URL でない・鍵が読めなければ `422` |
+| DELETE | `/api/push/subscriptions?endpoint=…` | 通知の購読を消す（その端末の設定をオフにした）。なければ何もしない |
 
 - `{pid}` には、プロジェクト ID の代わりにプロジェクトの UUID（5.2 節）も使える。プロジェクトの一覧とセッションの一覧・メタ情報には `uuid` を付ける。
 - 画面の URL（`/s/<UUID>` など、8 章）にはファイルがないので、`/api`・`/ws` 以外の拡張子のないパスには `index.html` を返す（SPA のフォールバック）。拡張子のあるもの（なくなった JS など）は `404` のまま。

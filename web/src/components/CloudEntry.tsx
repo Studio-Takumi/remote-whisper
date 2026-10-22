@@ -7,6 +7,7 @@ import type { CloudStage } from '@/cloud';
 import { ConsentForm } from '@/components/ConsentForm';
 import { HostPicker } from '@/components/HostPicker';
 import { LoginButtons } from '@/components/LoginButtons';
+import { stopPushOnSignOut } from '@/push';
 
 const PLACEHOLDERS: Record<Exclude<CloudStage, 'login' | 'consent'>, { title: string; body: string }> = {
     hosts: { title: 'ホストの選択', body: '使うホスト（文字起こしをするマシン）を選ぶ画面が入ります（#161）。' },
@@ -34,6 +35,8 @@ export function CloudEntry() {
     }, [checked, dispatch, setMe]);
 
     const signOut = async () => {
+        // 通知の購読をやめてからログアウトする（#245。AccountDialog と同じ）
+        await stopPushOnSignOut();
         await logout().catch(() => undefined);
         setMe(null);
         dispatch({ type: 'loggedOut' });

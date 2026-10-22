@@ -10,6 +10,8 @@
 ~/.remote-whisper/
 ├─ setting.json
 ├─ cloud.json                 # クラウド版に登録したときだけ。ホスト ID・鍵・中継の鍵（10.6 節。権限は本人だけ）
+├─ push-vapid.pem             # 最終要約の通知（Web Push）の VAPID の秘密鍵（6.14 節。起動したときに作る。権限は本人だけ）
+├─ push-subscriptions.json    # 通知を許可したクライアントの購読（6.14 節）
 ├─ log/
 │  ├─ server.log              # サーバーのログ（6.10 節）
 │  └─ server.log.YYYY-MM-DD   # 前の日の分（10 日分）

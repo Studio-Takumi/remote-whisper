@@ -97,6 +97,9 @@ class FinalSummarizer:
         self.whisper = whisper
         # ほかに録音中のセッションがあるか（あれば Whisper を下ろさない）
         self.recording = recording
+        # 録音を終えたあとの最終要約ができたら呼ぶ（通知。#245）。再生成（run）では呼ばない。
+        # 待たない（通知は後ろで送る。GPU のキューのジョブの中で呼ぶため）
+        self.on_summary: Callable[[Any], None] | None = None
 
     async def __call__(self, session: Any) -> None:
         """録音を終えたセッションの最終の要約。結果は、録音していた接続だけでなく全員に送る
@@ -105,7 +108,9 @@ class FinalSummarizer:
         async def send(message: dict[str, Any]) -> None:
             await session.manager.hub.broadcast({**message, "session": session.id})
 
-        await self.run(session.writer, send)
+        gid = await self.run(session.writer, send)
+        if gid is not None and self.on_summary is not None:
+            self.on_summary(session.writer)
 
     async def run(
         self,

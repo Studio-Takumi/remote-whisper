@@ -36,6 +36,8 @@ class AppContext:
     context_sets: Any = None
     # 音声ファイルのアップロード（UploadService。#180）
     uploads: Any = None
+    # 最終要約ができたときの通知（PushService。#245）
+    push: Any = None
     # GPU を使う処理（Whisper・Ollama）を順番に実行するキュー。
     # 待っている数は status の queue、ジョブの一覧は jobs で送る
     gpu: GpuQueue = field(init=False)
