@@ -73,6 +73,17 @@ def test_parse_refs_drops_files_and_pages_that_were_not_given():
     assert parse_refs(reply, 3, allowed) == {0: [("a.pdf", [3, 4])], 2: [("b.pdf", [10])]}
 
 
+def test_parse_refs_accepts_the_marker_written_as_the_file_name():
+    # 実物のモデルは、印の括弧やページまで file に書くことがある
+    allowed = {"lecture.pdf": {3, 4}}
+    for name in ("[lecture.pdf]", "[lecture.pdf p.3]", "「lecture.pdf」", " lecture.pdf p.3–4 "):
+        reply = json.dumps({"refs": [{"item": 1, "sources": [{"file": name, "pages": [3]}]}]})
+        assert parse_refs(reply, 1, allowed) == {0: [("lecture.pdf", [3])]}, name
+    # 括弧を外しても違う名前なら消す
+    reply = json.dumps({"refs": [{"item": 1, "sources": [{"file": "[other.pdf]", "pages": [3]}]}]})
+    assert parse_refs(reply, 1, allowed) == {}
+
+
 def test_parse_refs_ignores_broken_replies():
     allowed = {"a.pdf": {1}}
     assert parse_refs("要約できません", 1, allowed) == {}

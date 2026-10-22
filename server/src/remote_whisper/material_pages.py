@@ -189,7 +189,7 @@ def parse_refs(
             continue
         for source in sources:
             try:
-                name = str(source["file"]).strip()
+                name = _plain_name(str(source["file"]))
                 pages = {int(p) for p in source["pages"]}
             except (KeyError, TypeError, ValueError):
                 continue
@@ -205,6 +205,17 @@ def parse_refs(
             elif len(found) < MAX_REFS_PER_ITEM:
                 found.append((name, valid))
     return out
+
+
+_DECORATION = re.compile(r"^[\s\[「『\"'`]+|[\s\]」』\"'`]+$")
+_PAGE_SUFFIX = re.compile(r"\s*p\.\s*\d+(?:\s*[-–〜~]\s*\d+)?$")
+
+
+def _plain_name(name: str) -> str:
+    """答えのファイル名から、印の括弧（[lecture.pdf p.3] のまま書いたもの）や引用符・ページを除く。
+    実物の qwen3.5:4b は `[lecture.pdf]` と括弧ごと書いた（#237）"""
+    name = _DECORATION.sub("", name.strip())
+    return _DECORATION.sub("", _PAGE_SUFFIX.sub("", name))
 
 
 def page_label(pages: Iterable[int]) -> str:
