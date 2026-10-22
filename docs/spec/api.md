@@ -53,6 +53,7 @@
 |---|---|
 | 制御 | `{"type":"start","project":"<pid>"}` / `{"type":"stop"}` / `{"type":"pause"}` / `{"type":"unpause"}` / `{"type":"resume","session":"<sid>","nextSeq":n}`（`resume` は再接続のためのもので、一時停止からの再開は `unpause`） / `{"type":"continue","project":"<pid>","session":"<sid>"}`（途中で終わったセッションと、普通に終えてから `recording.continueWindowMin` 分以内のセッションの続きを録音する。6.7 節） |
 | 音声 | バイナリ。先頭4バイトが連番（uint32、リトルエンディアン）、続きが 16kHz・モノラル・Int16 の PCM |
+| 見る（#238） | `{"type":"watch","session":"<sid か UUID>"}` / `{"type":"unwatch"}`。ほかのクライアントで録音中のセッションを見る・見るのをやめる（下の「録音中のセッションを見る」） |
 
 **サーバー → クライアント**
 
@@ -71,6 +72,8 @@
 | `projectOrder` | プロジェクトの並び順（`projectOrder`、5.3 節）が変わった（#173。全員に送る）。画面は設定を取り直して一覧を並べ直す（知らないプロジェクトがあれば一覧ごと取り直す） |
 | `sessionMoved` | セッションを別のプロジェクトへ移した（#172。全員に送る）。`session`・`sessionUuid`・`from`・`to`（プロジェクト ID）。画面は一覧を取り直し、開いていたら移した先で開いたままにする |
 | `contextSet` | `project`（プロジェクト ID）、`id`、`status`（`generating` / `ready` / `failed`） |
+| `watching` | `watch` の返事（#238）。`state`（`recording` / `paused` / `disconnected` / `idle`）。`idle` は録音中ではない（自分で録音しているセッションも `idle`）ので見ない。そうでなければ、そこまでの `transcript`（`[{time, text}]`）・`liveSummary`・`title` が付く |
+| `recordingState` | 見ているセッションの録音の状態が変わった（#238）。`state`（`recording` / `paused` / `disconnected` / `stopped`）。見ているクライアントにだけ送る |
 | `finalTranscript` | `generationId`。浄書済み文字起こしができた（6.9 節）。全員に送る |
 | `status` | `whisper`（`unloaded` / `loading` / `ready` / `error`）、`ollama`（`ready` / `error`）、`recordings`（録音中のセッションの数）、`queue`（待っている・実行中のジョブの数）、`jobs`、`gpu`、`summarizing`、`transcribing` |
 | `error` | `code`、`message` |
@@ -79,6 +82,11 @@
 - `resume` を受け付けたら、`started`（`resumed: true`、`offsetSec` は受け取り済みの録音の長さ）と、受け取り済みの最後の連番の `ack` を返す。クライアントはその次から送り直す。再開できるセッションがなければ `error`（`session_not_found`）。
 - 音声の連番は 0 から始める。抜けがあったチャンクは受け取らず、受け取り済みの最後の連番の `ack` を返す。受け取り済みの連番がもう一度届いたら、捨てて `ack` だけ返す。
 - `error` の `code`: `bad_message`（読めないメッセージ）、`not_recording`、`already_recording`（1つの接続で録音できるのは1つだけ）、`too_many_recordings`（`recording.maxConcurrent` を超えた）、`session_not_found`、`cannot_continue`（`continue` で、続けられるセッションではない（録音中・普通に終えてから `recording.continueWindowMin` 分を過ぎた・音声ファイルから作った）・録音ファイルが残っていない・前の録音を読み込めない）、`project_not_found`（`start` のプロジェクトが登録されていない）、`write_failed`（ディスクが一杯などで音声を保存できない。そのチャンクは受け取らずに、受け取り済みの最後の連番の `ack` を返す。最終要約を保存できなかったときにも使う）、`ollama_unavailable`、`summary_skipped`（文字起こしが空か読み込めないので、最終要約を作らなかった）、`summary_failed`（最終要約を作る途中で思わぬエラーになった。失敗として記録する）、`final_transcript_failed`（頼まれた浄書済み文字起こしの再生成ができなかった。#124）、`not_available`（録音を受け付けられないサーバー）。
+- **録音中のセッションを見る（#238）**: 録音しているクライアントでなくても、同じホストにつないでいるクライアント（クラウド版では同じアカウントのクライアント。10 章）は、録音中のセッションのリアルタイム文字起こし・リアルタイム要約を見られる。
+  - クライアントは、開いたセッションが録音中（一覧の `status` が `recording`）で、自分で録音していなければ `watch` を送る。ほかのセッションを開いた・録音が終わったら `unwatch` を送る。1 つの接続が見るのは 1 つだけ（`watch` し直すと前のものはやめる）。サーバーは見ていることを接続ごとに覚えるだけなので、つながり直したら送り直す。
+  - サーバーは、見始めたときにそこまでの文字起こし・リアルタイム要約・タイトルを `watching` で送り、そのあとは録音しているクライアントに送るセッションのメッセージ（`partial`・`final`・`summary.delta`／`summary.done`（`live`）・`title`・`terms`・`transcriptionStalled` など）を、見ているクライアントにも送る。`ack` と `started` は録音しているクライアントにだけ送る。`watching` は登録してから待たずに送るので、そのあとのメッセージより先に届く。
+  - 録音の状態が変わったら（一時停止・再開・録音しているクライアントとの接続が切れた・つなぎ直した・続きから録音した・終えた）、見ているクライアントに `recordingState` を送る。終えたら見ている登録も消す。最終の文字起こし・最終要約は全員に送るもの（`status` の `transcribing`・`summarizing`、`finalTranscript`・`title`）で気づける。
+  - **見る側は読むだけ**。録音の操作（`pause`・`stop` など）と音声は、そのセッションを録音している接続からしか受け付けない（ほかの接続からは `not_recording`）。
 - サーバーとの接続（再接続中かどうか）とマイクの許可は、`status` には含めず、クライアント側で判定して表示する。
 - `recordings` と `queue` は、今のところ クライアントには出さない。
 - `jobs` は GPU キュー（6.3 節）の `running`（実行中のジョブ。`kind`・`session`・`runningSec`、なければ `null`）と `waiting`（待っているジョブを実行する順に。`kind`・`session`・`count`・`waitingSec`）。続けて並ぶ同じ種類・同じセッションのジョブは1つにまとめて `count` にする（partial が溜まっても長くならないように）。秒数は送った時点のもので、クライアントは受け取ってからの時間を足して出す。ジョブが変わるたびに送るが、0.5 秒の間の変化はまとめて送る（partial のたびに送りすぎないように）。
