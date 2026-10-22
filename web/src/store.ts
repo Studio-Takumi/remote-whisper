@@ -209,6 +209,9 @@ function finishDemoSummary(s: AppState, sessionId: string): Partial<AppState> {
 let recordedSamples = 0;
 // サーバー全体で録音中のセッションの数（status の recordings）。変わったら一覧を取り直す（ほかの端末の録音を出すため）
 let lastRecordings = -1;
+// watch を送ったセッション（#238）。stopped を受けたら null に戻し、一覧がまだ録音中なら
+// （終えてすぐ同じセッションの続きを録音した、など）送り直す
+let watchedSession: string | null = null;
 // 最終の要約ができて、サーバーに保存されたもので置き換えるセッション（取り直しで手元のものを残さない）
 let releasing: string | null = null;
 // 最終の要約ができたので取り直しているセッション（title と status の両方から呼ばれても1回にする）
@@ -436,7 +439,9 @@ export const useAppStore = create<AppState>()((set, get) => {
         if (m.type === 'recordingState') {
             if (m.state === 'stopped') {
                 // 録音を終えた。最終の文字起こし・最終要約は、全員に届くもの（status の transcribing・
-                // summarizing と title）で気づける。一覧を取り直して、録音中ではなくする
+                // summarizing と title）で気づける。一覧を取り直して、録音中ではなくする。
+                // サーバーは見ている登録を消したので、まだ録音中なら（すぐ続きを録音した）見直して送り直す
+                watchedSession = null;
                 set({ watching: null, partial: null, liveDraft: null });
                 void get().loadProjects();
             } else {
@@ -1503,7 +1508,6 @@ export const useAppStore = create<AppState>()((set, get) => {
                 // 開いているセッションがほかのクライアントで録音中なら見る（#238）。開くセッション・一覧・
                 // 録音の状態・接続が変わるたびに見直す。つながり直したら、サーバーは見ていたことを
                 // 覚えていないので送り直す
-                let watched: string | null = null;
                 const syncWatch = () => {
                     const s = get();
                     const target =
@@ -1511,12 +1515,12 @@ export const useAppStore = create<AppState>()((set, get) => {
                             ? watchTarget(s.projects, s.selection, s.recordingSessionId)
                             : null;
                     if (s.server.connection !== 'connected') {
-                        watched = null;
+                        watchedSession = null;
                     }
-                    if (target === watched) {
+                    if (target === watchedSession) {
                         return;
                     }
-                    watched = target;
+                    watchedSession = target;
                     if (target) {
                         connection.send({ type: 'watch', session: target });
                     } else if (s.server.connection === 'connected') {

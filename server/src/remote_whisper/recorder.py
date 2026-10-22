@@ -395,14 +395,17 @@ class RecordingSession:
         if self.picker is not None:
             # 用語を拾うのもやめる（拾っている途中のものは、そのまま終わる）
             await self.picker.close()
-        if self.transcriber is not None:
-            try:
-                await self.transcriber.wait()
-            finally:
-                await self.transcriber.close()
-        # 話している途中だった最後の区間まで送ってから、見ているクライアントに
-        # 終わりを知らせる（#238）
-        await self.manager.hub.end_watch(self.id)
+        try:
+            if self.transcriber is not None:
+                try:
+                    await self.transcriber.wait()
+                finally:
+                    await self.transcriber.close()
+        finally:
+            # 話している途中だった最後の区間まで送ってから、見ているクライアントに
+            # 終わりを知らせる（#238）。続きの録音に引き継いだ（同じ ID で録音中）なら知らせない
+            if not self.superseded:
+                await self.manager.hub.end_watch(self.id)
         if self.superseded:
             # 続きの録音が WAV を引き継いだ（変換は続きを録音し終えたときに行う）。
             # 続けられなかったときは take_back で続きを行う
@@ -441,6 +444,8 @@ class RecordingSession:
             self.manager.submit_final_summary(self)
 
     async def _complete_taken_back(self, status: str) -> None:
+        # 続きの録音に引き継げなかった。引き継ぐ前提で知らせなかった終わりを、見ている側に知らせる
+        await self.manager.hub.end_watch(self.id)
         try:
             await self._complete(status)
         finally:
