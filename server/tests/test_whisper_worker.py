@@ -8,7 +8,9 @@ from remote_whisper.whisper_worker import (
     WhisperUnavailable,
     WhisperWorker,
     _device_for,
+    _mlx_repo,
     _transcribe,
+    default_backend,
 )
 
 # 子プロセスは本物（spawn）。モデルだけ GPU を使わない偽物（backend="fake"）にする
@@ -231,3 +233,86 @@ def test_device_falls_back_to_cpu_without_cuda():
     # CUDA があれば設定の compute_type、なければ CPU と int8（#274）
     assert _device_for(1, "float16") == ("cuda", "float16")
     assert _device_for(0, "float16") == ("cpu", "int8")
+
+
+def test_default_backend_is_mlx_only_on_apple_silicon(monkeypatch):
+    # Apple Silicon の Mac で mlx-whisper が入っていれば mlx、ほかは faster-whisper（#276）
+    import remote_whisper.whisper_worker as ww
+
+    monkeypatch.setattr(ww.importlib.util, "find_spec", lambda name: object())
+    monkeypatch.setattr(ww.sys, "platform", "darwin")
+    monkeypatch.setattr(ww.platform, "machine", lambda: "arm64")
+    assert default_backend() == "mlx"
+    monkeypatch.setattr(ww.platform, "machine", lambda: "x86_64")
+    assert default_backend() == "faster-whisper"
+    monkeypatch.setattr(ww.sys, "platform", "win32")
+    monkeypatch.setattr(ww.platform, "machine", lambda: "arm64")
+    assert default_backend() == "faster-whisper"
+    monkeypatch.setattr(ww.sys, "platform", "darwin")
+    monkeypatch.setattr(ww.importlib.util, "find_spec", lambda name: None)
+    assert default_backend() == "faster-whisper"
+
+
+def test_mlx_repo():
+    assert _mlx_repo("large-v3-turbo") == "mlx-community/whisper-large-v3-turbo"
+    assert _mlx_repo("someone/my-whisper") == "someone/my-whisper"
+
+
+@pytest.fixture
+def fake_mlx(monkeypatch):
+    """mlx_whisper の偽物。渡された音声の長さと引数を覚えておく"""
+    import sys
+    import types
+
+    calls = []
+
+    def transcribe(audio, **kwargs):
+        calls.append((len(audio), kwargs))
+        segment = {
+            "start": 0.0,
+            "end": 1.0,
+            "text": "こんにちは",
+            "no_speech_prob": 0.1,
+            "avg_logprob": -0.2,
+            "compression_ratio": 1.1,
+            "tokens": [1],
+        }
+        return {"segments": [segment]}
+
+    monkeypatch.setitem(sys.modules, "mlx_whisper", types.SimpleNamespace(transcribe=transcribe))
+    return calls
+
+
+def test_mlx_transcribes_only_the_speech_and_shifts_times(monkeypatch, fake_mlx):
+    # VAD で見つけた範囲だけを渡し、時刻は元の音声の位置に戻す。hotwords はプロンプトに足す
+    import remote_whisper.whisper_worker as ww
+
+    monkeypatch.setattr(ww, "_speech_range", lambda audio: (16000, 40000))
+    options = {"initial_prompt": "前の文", "hotwords": "用語A 用語B", "beam_size": 5}
+    result = _transcribe("mlx", "repo", b"\0\0" * 48000, options)
+    length, kwargs = fake_mlx[0]
+    assert length == 24000
+    assert kwargs["path_or_hf_repo"] == "repo"
+    assert kwargs["initial_prompt"] == "前の文 用語A 用語B"
+    assert "beam_size" not in kwargs
+    assert result == [
+        {
+            "start": 1.0,
+            "end": 2.0,
+            "text": "こんにちは",
+            "no_speech_prob": 0.1,
+            "avg_logprob": -0.2,
+            "compression_ratio": 1.1,
+        }
+    ]
+
+
+def test_mlx_skips_audio_without_speech(monkeypatch, fake_mlx):
+    import remote_whisper.whisper_worker as ww
+
+    monkeypatch.setattr(ww, "_speech_range", lambda audio: None)
+    assert _transcribe("mlx", "repo", b"\0\0" * 16000, {}) == []
+    assert fake_mlx == []
+    # VAD を切れば、そのまま全部渡す
+    _transcribe("mlx", "repo", b"\0\0" * 16000, {"vad_filter": False})
+    assert fake_mlx[0][0] == 16000
