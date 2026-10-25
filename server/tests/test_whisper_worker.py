@@ -4,7 +4,12 @@ import pytest
 
 from remote_whisper.hub import Hub
 from remote_whisper.settings import SettingsStore
-from remote_whisper.whisper_worker import WhisperUnavailable, WhisperWorker, _transcribe
+from remote_whisper.whisper_worker import (
+    WhisperUnavailable,
+    WhisperWorker,
+    _device_for,
+    _transcribe,
+)
 
 # 子プロセスは本物（spawn）。モデルだけ GPU を使わない偽物（backend="fake"）にする
 
@@ -220,3 +225,9 @@ def test_transcribe_uses_vad_and_returns_scores():
     ]
     _transcribe("faster-whisper", model, b"\0\0" * 1600, {"vad_filter": False})
     assert model.kwargs["vad_filter"] is False
+
+
+def test_device_falls_back_to_cpu_without_cuda():
+    # CUDA があれば設定の compute_type、なければ CPU と int8（#274）
+    assert _device_for(1, "float16") == ("cuda", "float16")
+    assert _device_for(0, "float16") == ("cpu", "int8")

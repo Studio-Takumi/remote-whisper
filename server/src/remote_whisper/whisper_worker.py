@@ -59,6 +59,16 @@ def _add_cuda_dll_dirs() -> None:
             os.environ["PATH"] = str(dll_dir) + os.pathsep + os.environ["PATH"]
 
 
+def _device_for(cuda_devices: int, compute_type: str) -> tuple[str, str]:
+    """使う device と compute_type。CUDA がなければ CPU と int8 にする（#274。Mac など）
+
+    考え方は final_transcribe_worker に合わせる。設定の compute_type は CUDA のときだけ使う
+    """
+    if cuda_devices > 0:
+        return "cuda", compute_type
+    return "cpu", "int8"
+
+
 def _load(backend: str, spec: ModelSpec) -> Any:
     if backend == "fake":
         # テスト用: モデル名が fail なら読み込みに失敗する
@@ -67,9 +77,12 @@ def _load(backend: str, spec: ModelSpec) -> Any:
         time.sleep(0.05)
         return spec
     _add_cuda_dll_dirs()
+    import ctranslate2
     from faster_whisper import WhisperModel
 
-    return WhisperModel(spec.model, device="cuda", compute_type=spec.compute_type)
+    device, compute_type = _device_for(ctranslate2.get_cuda_device_count(), spec.compute_type)
+    log.info("loading whisper %s on %s (%s)", spec.model, device, compute_type)
+    return WhisperModel(spec.model, device=device, compute_type=compute_type)
 
 
 def _transcribe(backend: str, model: Any, pcm: bytes, options: dict) -> list[dict]:
