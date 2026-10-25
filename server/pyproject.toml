@@ -20,6 +20,8 @@ dependencies = [
     # タスクトレイ（Windows。#135）とメニューバー（Mac。#136）
     "pystray>=0.19; sys_platform == 'win32' or sys_platform == 'darwin'",
     "pillow>=10; sys_platform == 'win32' or sys_platform == 'darwin'",
+    # Mac の GPU で録音中の文字起こしをする（#276。Apple Silicon だけ）
+    "mlx-whisper>=0.4.3 ; platform_machine == 'arm64' and sys_platform == 'darwin'",
 ]
 
 [project.optional-dependencies]
