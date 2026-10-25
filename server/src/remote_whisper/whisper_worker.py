@@ -7,9 +7,11 @@ status の whisper を error にするだけで、録音（音声の受信と保
 
 import asyncio
 import contextlib
+import importlib.util
 import logging
 import multiprocessing
 import os
+import platform
 import sys
 import time
 from dataclasses import dataclass
@@ -69,6 +71,36 @@ def _device_for(cuda_devices: int, compute_type: str) -> tuple[str, str]:
     return "cpu", "int8"
 
 
+def default_backend() -> str:
+    """録音中の文字起こしの backend。Apple Silicon の Mac で mlx-whisper が入っていれば、
+    Mac の GPU を使う mlx（#276）。それ以外は faster-whisper
+    """
+    if (
+        sys.platform == "darwin"
+        and platform.machine() == "arm64"
+        and importlib.util.find_spec("mlx_whisper") is not None
+    ):
+        return "mlx"
+    return "faster-whisper"
+
+
+def _mlx_repo(model: str) -> str:
+    """mlx-whisper のモデルの HuggingFace のリポジトリ。/ を含む名前はそのまま使う"""
+    return model if "/" in model else f"mlx-community/whisper-{model}"
+
+
+def _speech_range(audio: Any) -> tuple[int, int] | None:
+    """話している範囲（サンプルの位置）。最初に話し始めてから最後に話し終えるまで。
+    話していなければ None。mlx-whisper には VAD がないので faster-whisper の Silero VAD を使う
+    """
+    from faster_whisper.vad import get_speech_timestamps
+
+    chunks = get_speech_timestamps(audio)
+    if not chunks:
+        return None
+    return chunks[0]["start"], chunks[-1]["end"]
+
+
 def _load(backend: str, spec: ModelSpec) -> Any:
     if backend == "fake":
         # テスト用: モデル名が fail なら読み込みに失敗する
@@ -76,6 +108,16 @@ def _load(backend: str, spec: ModelSpec) -> Any:
             raise RuntimeError("読み込みに失敗（テスト用）")
         time.sleep(0.05)
         return spec
+    if backend == "mlx":
+        import mlx.core as mx
+        from mlx_whisper.transcribe import ModelHolder
+
+        # mlx-whisper は読み込んだモデルを ModelHolder に持っておき、transcribe で使い回す。
+        # 子プロセスを終わらせれば下ろせるのは faster-whisper と同じ
+        repo = _mlx_repo(spec.model)
+        log.info("loading whisper %s on mlx", repo)
+        ModelHolder.get_model(repo, mx.float16)
+        return repo
     _add_cuda_dll_dirs()
     import ctranslate2
     from faster_whisper import WhisperModel
@@ -97,6 +139,8 @@ def _transcribe(backend: str, model: Any, pcm: bytes, options: dict) -> list[dic
     import numpy as np
 
     audio = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
+    if backend == "mlx":
+        return _transcribe_mlx(model, audio, options)
     segments, _ = model.transcribe(
         audio,
         language=options.get("language", "ja"),
@@ -119,6 +163,44 @@ def _transcribe(backend: str, model: Any, pcm: bytes, options: dict) -> list[dic
             "compression_ratio": s.compression_ratio,
         }
         for s in segments
+    ]
+
+
+def _transcribe_mlx(repo: str, audio: Any, options: dict) -> list[dict]:
+    """mlx-whisper で文字起こしする（#276）。faster-whisper にない機能は近い動きで代える
+
+    - VAD: 話している範囲だけを渡す。話していなければ文字起こししない（#81 と同じ目的）
+    - hotwords: プロンプトの後ろに足す（faster-whisper の hotwords もプロンプトに入れる仕組み）
+    - beam_size: mlx-whisper はビームサーチがないので使わない（greedy）
+    """
+    import mlx_whisper
+
+    offset = 0
+    if options.get("vad_filter", True):
+        span = _speech_range(audio)
+        if span is None:
+            return []
+        offset, end = span
+        audio = audio[offset:end]
+    prompt = " ".join(p for p in (options.get("initial_prompt"), options.get("hotwords")) if p)
+    result = mlx_whisper.transcribe(
+        audio,
+        path_or_hf_repo=repo,
+        language=options.get("language", "ja"),
+        initial_prompt=prompt or None,
+        condition_on_previous_text=False,
+    )
+    shift = offset / SAMPLE_RATE
+    return [
+        {
+            "start": s["start"] + shift,
+            "end": s["end"] + shift,
+            "text": s["text"],
+            "no_speech_prob": s["no_speech_prob"],
+            "avg_logprob": s["avg_logprob"],
+            "compression_ratio": s["compression_ratio"],
+        }
+        for s in result["segments"]
     ]
 
 

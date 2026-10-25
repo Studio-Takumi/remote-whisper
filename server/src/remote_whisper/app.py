@@ -48,7 +48,7 @@ from remote_whisper.routes import ws as ws_routes
 from remote_whisper.settings import SettingsStore, default_home
 from remote_whisper.uploads import UploadService
 from remote_whisper.version import app_version
-from remote_whisper.whisper_worker import WhisperWorker
+from remote_whisper.whisper_worker import WhisperWorker, default_backend
 
 # server/src/remote_whisper/app.py から見たリポジトリの web/dist。
 # リポジトリから動かす（uv run）前提。wheel で入れた場合は REMOTE_WHISPER_WEB_DIST で指定する
@@ -185,8 +185,9 @@ def create_app(
     background: set[asyncio.Task] = set()
     if not mock:
         # モデルは録音を始めたときに読み込む（#23）。ここでは子プロセスはまだ作らない
-        # REMOTE_WHISPER_WHISPER_BACKEND=fake で、GPU を使わない偽物にできる（テスト用）
-        backend = os.environ.get("REMOTE_WHISPER_WHISPER_BACKEND", "faster-whisper")
+        # REMOTE_WHISPER_WHISPER_BACKEND=fake で、GPU を使わない偽物にできる（テスト用）。
+        # 指定がなければ、Apple Silicon の Mac は mlx、ほかは faster-whisper（#276）
+        backend = os.environ.get("REMOTE_WHISPER_WHISPER_BACKEND") or default_backend()
         ctx.whisper = WhisperWorker(ctx.hub, ctx.settings, backend=backend)
         ctx.ollama = OllamaClient(ctx.hub, ctx.settings, recording=lambda: ctx.is_recording)
 
