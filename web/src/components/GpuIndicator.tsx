@@ -183,7 +183,7 @@ function JobRow({
     return (
         <a
             href={href}
-            aria-label={`${kind}のセッション「${session.title}」を開く`}
+            aria-label={`${kind}のセッション「${session.title}」を開く（${time}）`}
             className={`${base} -mx-1.5 rounded-md px-1.5 py-0.5 transition-colors outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50`}
             onClick={(e) => {
                 // Ctrl・⌘・Shift 押しや中ボタンはブラウザに任せる（別のタブで開く）
