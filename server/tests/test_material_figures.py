@@ -200,6 +200,13 @@ def test_joined_materials_fit_their_limit_with_the_headings():
     # 範囲で作り直すとき（6000 文字で切る）は、見出しを足しても 1 回の頼みに収まる
     one = join_materials([("a.pdf", "あ" * 10000)], MATERIALS_CHARS)
     assert len(split_materials(one)) == 1
+    # 大きい資料と短い資料の組み合わせでも（短い資料の最低限の分を、大きい資料から引く）
+    for short in (100, 300):
+        texts = [("a.pdf", "あ" * 10000)] + [(f"m{i}.md", "メ" * short) for i in range(10)]
+        mixed = join_materials(texts, MATERIALS_CHARS)
+        assert len(mixed) <= MATERIALS_CHARS and len(split_materials(mixed)) == 1
+        # 短い資料は、按分の最低限（200 文字）まで残る
+        assert mixed.count("メ") == min(short, 200) * 10
     # 資料全体のときも、見出しの行だけ・端の数文字だけの部分を作らない
     whole = join_materials([("a.pdf", "あ" * 30000), ("b.md", "い\n" * 10000)])
     parts = split_materials(whole)

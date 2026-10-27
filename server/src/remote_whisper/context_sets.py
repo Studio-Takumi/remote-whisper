@@ -216,12 +216,21 @@ def join_materials(texts: list[tuple[str, str]], limit: int = MAX_MATERIALS_CHAR
     overhead = sum(len(f"### {name}\n") + len(OMITTED) + 2 for name, _ in texts)
     if total + overhead > limit:
         limit = max(limit - overhead, len(texts))
-    parts = []
-    for name, text in texts:
+    shares = []
+    for _, text in texts:
         # 短い資料が按分で消えないように最低限は残す
         # （資料が多いときは、合計が limit を超えないように減らす）
         floor = min(200, limit // len(texts))
-        share = max(floor, limit * len(text) // total) if total > limit else len(text)
+        shares.append(
+            min(len(text), max(floor, limit * len(text) // total)) if total > limit else len(text)
+        )
+    # 最低限を残した分だけ limit を超えたら、いちばん大きい取り分から引く
+    over = sum(shares) - limit
+    if over > 0:
+        largest = shares.index(max(shares))
+        shares[largest] = max(0, shares[largest] - over)
+    parts = []
+    for (name, text), share in zip(texts, shares, strict=True):
         body = text[:share] + (OMITTED if len(text) > share else "")
         parts.append(f"### {name}\n{body}")
     return "\n\n".join(parts)
