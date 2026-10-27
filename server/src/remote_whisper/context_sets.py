@@ -40,7 +40,6 @@ from remote_whisper.projects import ContextSetEntry, ProjectError, ProjectFile, 
 from remote_whisper.prompts import context_messages, hotwords_messages, material_notes_messages
 from remote_whisper.settings import SettingsStore
 from remote_whisper.summary_parts import NUM_CTX as SUMMARY_NUM_CTX
-from remote_whisper.summary_parts import split_lines
 from remote_whisper.timeutil import iso, make_id, now
 
 log = logging.getLogger(__name__)
@@ -173,9 +172,28 @@ def split_materials(materials: str) -> list[str]:
     """MATERIALS_CHARS 文字ほどずつ、行の区切りで分ける。短ければ 1 つのまま"""
     if len(materials) <= MATERIALS_CHARS:
         return [materials]
-    parts = ["\n".join(lines) for lines in split_lines(materials.split("\n"), MATERIALS_CHARS)]
-    # 改行のない長い行は split_lines では分かれないので、文字数で切る
-    return [p[i : i + MATERIALS_CHARS] for p in parts for i in range(0, len(p), MATERIALS_CHARS)]
+    parts: list[str] = []
+    current = ""
+    for line in materials.split("\n"):
+        while True:
+            sep = "\n" if current else ""
+            room = MATERIALS_CHARS - len(current) - len(sep)
+            if len(line) <= room:
+                current += sep + line
+                break
+            if room <= 0 or len(line) <= MATERIALS_CHARS:
+                # 次の部分に入る行は、行の途中で切らない
+                parts.append(current)
+                current = ""
+                continue
+            # 1 つの部分より長い行（改行のない資料）は、今の部分の残りを埋めるように切る
+            current += sep + line[:room]
+            line = line[room:]
+            parts.append(current)
+            current = ""
+    if current:
+        parts.append(current)
+    return parts
 
 
 def sha1_of(path: Path) -> str:
@@ -186,16 +204,25 @@ def sha1_of(path: Path) -> str:
     return h.hexdigest()
 
 
+OMITTED = "\n（以下省略）"
+
+
 def join_materials(texts: list[tuple[str, str]], limit: int = MAX_MATERIALS_CHARS) -> str:
-    """資料ごとに見出しを付けてつなぐ。長ければ、それぞれの頭から按分して切る"""
+    """資料ごとに見出しを付けてつなぐ。長ければ、それぞれの頭から按分して切る
+
+    見出し・区切り・「（以下省略）」の分を先に引いてから按分し、全体が limit に収まるようにする
+    （超えると、split_materials で端の数文字だけの部分ができてしまう）"""
     total = sum(len(t) for _, t in texts) or 1
+    overhead = sum(len(f"### {name}\n") + len(OMITTED) + 2 for name, _ in texts)
+    if total + overhead > limit:
+        limit = max(limit - overhead, len(texts))
     parts = []
     for name, text in texts:
         # 短い資料が按分で消えないように最低限は残す
         # （資料が多いときは、合計が limit を超えないように減らす）
         floor = min(200, limit // len(texts))
         share = max(floor, limit * len(text) // total) if total > limit else len(text)
-        body = text[:share] + ("\n（以下省略）" if len(text) > share else "")
+        body = text[:share] + (OMITTED if len(text) > share else "")
         parts.append(f"### {name}\n{body}")
     return "\n\n".join(parts)
 

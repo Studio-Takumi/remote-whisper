@@ -5,7 +5,12 @@ import json
 
 from fake_ollama import FakeOllama
 
-from remote_whisper.context_sets import OllamaGenerator, split_materials
+from remote_whisper.context_sets import (
+    MATERIALS_CHARS,
+    OllamaGenerator,
+    join_materials,
+    split_materials,
+)
 from remote_whisper.hub import Hub
 from remote_whisper.material_figures import (
     FigureReader,
@@ -189,6 +194,16 @@ def test_broken_pdf_reads_no_figures(home, tmp_path):
 def test_long_lines_are_split_by_length():
     parts = split_materials("あ" * 13000)
     assert [len(p) for p in parts] == [6000, 6000, 1000]
+
+
+def test_joined_materials_fit_their_limit_with_the_headings():
+    # 範囲で作り直すとき（6000 文字で切る）は、見出しを足しても 1 回の頼みに収まる
+    one = join_materials([("a.pdf", "あ" * 10000)], MATERIALS_CHARS)
+    assert len(split_materials(one)) == 1
+    # 資料全体のときも、見出しの行だけ・端の数文字だけの部分を作らない
+    whole = join_materials([("a.pdf", "あ" * 30000), ("b.md", "い\n" * 10000)])
+    parts = split_materials(whole)
+    assert len(parts) == 6 and min(len(p) for p in parts) > 5000
 
 
 def test_figures_are_not_read_without_a_vision_model_or_when_off(home):

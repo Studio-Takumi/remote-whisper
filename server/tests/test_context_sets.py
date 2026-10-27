@@ -419,6 +419,8 @@ def test_parse_and_limit_hotwords():
 
 def test_join_materials_shares_the_limit():
     text = join_materials([("a.md", "あ" * 9000), ("b.md", "い" * 1000)], limit=1000)
-    assert text.count("あ") == 900 and text.count("い") == 200
+    # 見出し・「（以下省略）」の分（2 つで 34 文字）を引いた 966 文字を按分する。
+    # 短い資料は按分で消えないように 200 文字は残す
+    assert text.count("あ") == 966 * 9 // 10 and text.count("い") == 200
     assert "（以下省略）" in text
     assert join_materials([("a.md", "短い")]) == "### a.md\n短い"
