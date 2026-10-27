@@ -270,7 +270,7 @@ class HeldGenerator:
     def describe(self):
         return "m", True
 
-    async def generate(self, materials):
+    async def generate(self, materials, run=None):
         import asyncio
 
         self.event = self.event or asyncio.Event()

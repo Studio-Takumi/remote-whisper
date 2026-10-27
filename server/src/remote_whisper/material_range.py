@@ -166,6 +166,15 @@ class RangeService:
         self.context_sets = context_sets
         self.generator = generator
 
+    def _run(self, session: str):
+        """Ollama への頼みを 1 回ずつ GPU キュー（優先度 3）に積むもの（長い範囲は部分に分けて
+        何回も頼むので、全体を 1 つのジョブにしない。#271）"""
+
+        def run(job):
+            return self.gpu.run(Priority.BACKGROUND, job, kind="materialRange", session=session)
+
+        return run
+
     async def plan(self, writer: SessionWriter, lines: list[str]) -> RangePlan | None:
         """範囲を判断する。作り直さない（大きい資料がない・文字起こしが短い・ほぼ全体・失敗した）
         ときは None。続きを録音したときも、元の（資料全体の）セットで判断し直す"""
@@ -237,12 +246,7 @@ class RangeService:
                 materials_text, [Path(m.path) for m in base_meta.materials], plan.ranges
             )
             try:
-                words = await self.gpu.run(
-                    Priority.BACKGROUND,
-                    lambda: self.generator.terms(text),
-                    kind="materialRange",
-                    session=writer.id,
-                )
+                words = await self.generator.terms(text, self._run(writer.id))
                 words = limit_hotwords(words)
                 if words:
                     words_body = "\n".join(words) + "\n"
@@ -297,12 +301,7 @@ class RangeService:
             materials_text, [Path(m.path) for m in meta.materials], plan.ranges
         )
         try:
-            context = await self.gpu.run(
-                Priority.BACKGROUND,
-                lambda: self.generator.context(text),
-                kind="materialRange",
-                session=writer.id,
-            )
+            context = await self.generator.context(text, self._run(writer.id))
         except OllamaUnavailable as e:
             log.warning("could not make the context of the range of %s: %s", writer.id, e)
             return

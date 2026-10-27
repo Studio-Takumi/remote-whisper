@@ -14,12 +14,14 @@ dependencies = [
     "nvidia-cublas-cu12; sys_platform == 'win32' or sys_platform == 'linux'",
     "nvidia-cudnn-cu12==9.*; sys_platform == 'win32' or sys_platform == 'linux'",
     "pypdf[crypto]>=5",
+    # 参考資料の PDF のページを画像にして、図を読む（#271）。画像は pillow で PNG にする
+    "pypdfium2>=4.30",
+    "pillow>=10",
     "nvidia-ml-py>=13.615.71",
     # クラウド版のホストの鍵（Ed25519）と署名（#158）。pypdf[crypto] でも入っているが、直接使うので書く
     "cryptography>=44",
     # タスクトレイ（Windows。#135）とメニューバー（Mac。#136）
     "pystray>=0.19; sys_platform == 'win32' or sys_platform == 'darwin'",
-    "pillow>=10; sys_platform == 'win32' or sys_platform == 'darwin'",
     # Mac の GPU で録音中の文字起こしをする（#276。Apple Silicon だけ）
     "mlx-whisper>=0.4.3 ; platform_machine == 'arm64' and sys_platform == 'darwin'",
 ]
