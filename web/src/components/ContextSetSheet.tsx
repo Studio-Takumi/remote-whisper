@@ -41,7 +41,10 @@ export function ContextSetSheet() {
                     <FileTextIcon className='hidden size-3 sm:block' />
                     参考資料
                 </p>
-                <SheetTrigger className='flex h-8 w-fit max-w-24 items-center justify-between gap-1.5 rounded-lg py-2 pr-2 pl-2.5 text-sm whitespace-nowrap outline-none focus-visible:ring-3 focus-visible:ring-ring/50 sm:max-w-40 md:max-w-48 dark:bg-input/30 dark:hover:bg-input/50'>
+                <SheetTrigger
+                    title={current ? `${contextSetName(current)}${statusLabel[current.status]}` : 'なし'}
+                    className='flex h-8 w-fit max-w-24 items-center justify-between gap-1.5 rounded-lg py-2 pr-2 pl-2.5 text-sm whitespace-nowrap outline-none focus-visible:ring-3 focus-visible:ring-ring/50 sm:max-w-40 md:max-w-48 dark:bg-input/30 dark:hover:bg-input/50'
+                >
                     <span className='truncate'>
                         {current ? `${contextSetName(current)}${statusLabel[current.status]}` : 'なし'}
                     </span>

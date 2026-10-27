@@ -78,7 +78,7 @@ export function GpuIndicator() {
                             </span>
                             <span
                                 aria-hidden
-                                className='absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] leading-none font-medium text-white md:hidden dark:text-neutral-950'
+                                className='absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] leading-none font-medium text-amber-950 md:hidden'
                             >
                                 {waitingCount > 99 ? '99+' : waitingCount}
                             </span>

@@ -46,7 +46,8 @@ export function TopBar() {
             <button
                 type='button'
                 onClick={openModels}
-                aria-label='モデルの設定を開く'
+                aria-label={`モデルの設定を開く（${detailModel}）`}
+                title={`モデルの設定を開く（${detailModel}）`}
                 className='flex h-8 w-fit max-w-24 items-center justify-between gap-1.5 rounded-lg py-2 pr-2 pl-2.5 text-sm whitespace-nowrap outline-none focus-visible:ring-3 focus-visible:ring-ring/50 sm:max-w-40 md:max-w-48 dark:bg-input/30 dark:hover:bg-input/50'
             >
                 <span className='truncate'>{detailModel}</span>
@@ -61,7 +62,7 @@ export function TopBar() {
     return (
         <div
             ref={ref}
-            className='sticky top-0 z-20 -mx-4 -mt-4 flex flex-row items-center gap-1.5 bg-background px-4 pt-4 pb-2 md:gap-2'
+            className='sticky top-0 z-20 -mx-4 -mt-4 flex flex-row items-center gap-1.5 bg-background px-4 pt-4 pb-2 sm:gap-2'
         >
             {/* スマホの幅ではサイドバーが隠れるので、開くボタンをここに出す */}
             <SidebarTrigger className='size-9 md:hidden' aria-label='メニューを開く' />
@@ -72,7 +73,7 @@ export function TopBar() {
                     <CloudHostBadge />
                 </RecordingLock>
             )}
-            <div className='ml-auto flex flex-row items-center gap-1.5 md:gap-2'>
+            <div className='ml-auto flex flex-row items-center gap-1.5 sm:gap-2'>
                 {modelButton}
                 <RecordingLock locked={recording} message={recordingLocks.contextSet}>
                     <ContextSetSheet />
