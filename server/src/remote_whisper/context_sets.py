@@ -39,6 +39,7 @@ from remote_whisper.ollama import OllamaClient, OllamaUnavailable
 from remote_whisper.projects import ContextSetEntry, ProjectError, ProjectFile, ProjectStore
 from remote_whisper.prompts import context_messages, hotwords_messages, material_notes_messages
 from remote_whisper.settings import SettingsStore
+from remote_whisper.summary_parts import NUM_CTX as SUMMARY_NUM_CTX
 from remote_whisper.summary_parts import split_lines
 from remote_whisper.timeutil import iso, make_id, now
 
@@ -54,7 +55,9 @@ MATERIALS_CHARS = LARGE_CHARS
 # 部分の数がこの分だけ増える（1 部分で用語とメモの 2 回、数十秒ずつかかる）
 MAX_MATERIALS_PARTS = 6
 MAX_MATERIALS_CHARS = MATERIALS_CHARS * MAX_MATERIALS_PARTS
-NUM_CTX = 8192
+# 要約と同じ長さにする（#271）。8192 では、6000 文字の部分と思考で上限に届いて本文が空になり、
+# 思考オフでのやり直しが 1 つの資料で 3 回起きた。値が同じならモデルを読み込み直さない
+NUM_CTX = SUMMARY_NUM_CTX
 # Whisper のプロンプトの上限（hotwords と initial_prompt で約 224 トークン）に収める長さ（文字）。
 # 日本語は1文字が1〜2トークンになるので、余裕を見て文字数で数える（実測で見直す: #39）
 HOTWORDS_MAX_CHARS = 120
