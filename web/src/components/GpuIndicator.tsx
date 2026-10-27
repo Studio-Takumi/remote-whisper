@@ -42,6 +42,11 @@ export function GpuIndicator() {
         }
         return { title: id, href: null };
     };
+    // 画面に出ない使用率とキュー数も、読み上げと title で分かるようにする
+    const details = [gpu ? `使用率 ${gpu.util}%` : null, waitingCount > 0 ? `待ち ${waitingCount} 件` : null].filter(
+        Boolean,
+    );
+    const triggerLabel = `GPU の状態とジョブの一覧${details.length > 0 ? `（${details.join('、')}）` : ''}`;
     const openSession = (projectId: string, sessionId: string) => {
         selectSession(projectId, sessionId);
         setOpen(false);
@@ -51,8 +56,9 @@ export function GpuIndicator() {
         <Popover open={open} onOpenChange={setOpen}>
             <PopoverTrigger asChild>
                 <button
-                    className='flex h-7 shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-xs text-muted-foreground tabular-nums transition-colors hover:bg-muted'
-                    aria-label='GPU の状態とジョブの一覧'
+                    className='relative flex h-7 shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-xs text-muted-foreground tabular-nums transition-colors hover:bg-muted'
+                    aria-label={triggerLabel}
+                    title={triggerLabel}
                 >
                     <span className='relative flex size-1.5'>
                         {busy && (
@@ -63,11 +69,20 @@ export function GpuIndicator() {
                         />
                     </span>
                     <CpuIcon className='size-3.5' />
-                    {gpu ? `${gpu.util}%` : 'GPU'}
+                    {/* スマホの幅では、点とアイコンだけにする（使用率とキュー数は一覧と読み上げで分かる） */}
+                    <span className='hidden md:inline'>{gpu ? `${gpu.util}%` : 'GPU'}</span>
                     {waitingCount > 0 && (
-                        <span className='rounded-full bg-amber-500/15 px-1.5 text-amber-700 dark:text-amber-300'>
-                            待ち {waitingCount}
-                        </span>
+                        <>
+                            <span className='hidden rounded-full bg-amber-500/15 px-1.5 text-amber-700 md:inline dark:text-amber-300'>
+                                待ち {waitingCount}
+                            </span>
+                            <span
+                                aria-hidden
+                                className='absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] leading-none font-medium text-white md:hidden dark:text-neutral-950'
+                            >
+                                {waitingCount > 99 ? '99+' : waitingCount}
+                            </span>
+                        </>
                     )}
                 </button>
             </PopoverTrigger>

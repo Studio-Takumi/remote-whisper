@@ -39,15 +39,15 @@ export function TopBar() {
     // 録音中に変えられない項目（Whisper のモデル）は、そのページの中で項目ごとに押せなくする
     const modelButton = (
         <div className='flex flex-col'>
-            <p className='flex items-center gap-1 px-2 text-xs'>
-                <CpuIcon className='size-3' />
+            <p className='flex items-center gap-1 px-2 text-xs whitespace-nowrap'>
+                <CpuIcon className='hidden size-3 sm:block' />
                 モデル
             </p>
             <button
                 type='button'
                 onClick={openModels}
                 aria-label='モデルの設定を開く'
-                className='flex h-8 w-fit max-w-40 items-center justify-between gap-1.5 rounded-lg py-2 pr-2 pl-2.5 text-sm whitespace-nowrap outline-none focus-visible:ring-3 focus-visible:ring-ring/50 md:max-w-48 dark:bg-input/30 dark:hover:bg-input/50'
+                className='flex h-8 w-fit max-w-24 items-center justify-between gap-1.5 rounded-lg py-2 pr-2 pl-2.5 text-sm whitespace-nowrap outline-none focus-visible:ring-3 focus-visible:ring-ring/50 sm:max-w-40 md:max-w-48 dark:bg-input/30 dark:hover:bg-input/50'
             >
                 <span className='truncate'>{detailModel}</span>
                 <ChevronRightIcon className='pointer-events-none size-4 shrink-0 text-muted-foreground' />
@@ -61,7 +61,7 @@ export function TopBar() {
     return (
         <div
             ref={ref}
-            className='sticky top-0 z-20 -mx-4 -mt-4 flex flex-row items-center gap-2 bg-background px-4 pt-4 pb-2'
+            className='sticky top-0 z-20 -mx-4 -mt-4 flex flex-row items-center gap-1.5 bg-background px-4 pt-4 pb-2 md:gap-2'
         >
             {/* スマホの幅ではサイドバーが隠れるので、開くボタンをここに出す */}
             <SidebarTrigger className='size-9 md:hidden' aria-label='メニューを開く' />
@@ -72,7 +72,7 @@ export function TopBar() {
                     <CloudHostBadge />
                 </RecordingLock>
             )}
-            <div className='ml-auto flex flex-row items-center gap-2'>
+            <div className='ml-auto flex flex-row items-center gap-1.5 md:gap-2'>
                 {modelButton}
                 <RecordingLock locked={recording} message={recordingLocks.contextSet}>
                     <ContextSetSheet />

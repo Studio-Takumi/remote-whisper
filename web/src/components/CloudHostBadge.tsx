@@ -11,16 +11,19 @@ export function CloudHostBadge() {
     if (!hostId) {
         return null;
     }
+    const label = `${name ?? 'ホスト'} につないでいます（押すとホストを切り替える）`;
     return (
         <button
             type='button'
             onClick={() => dispatch({ type: 'changeHost' })}
-            title='押すとホストを切り替える'
-            className='flex h-8 max-w-48 items-center gap-1.5 rounded-lg px-2 text-xs text-muted-foreground outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50'
+            title={label}
+            aria-label={label}
+            className='flex h-8 max-w-48 min-w-0 items-center gap-1.5 rounded-lg px-2 text-xs text-muted-foreground outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50'
             data-cloud-host={hostId}
         >
             <MonitorIcon className='size-3.5 shrink-0' />
-            <span className='truncate'>{name ?? 'ホスト'} につないでいます</span>
+            {/* スマホの幅ではアイコンだけにする（ホスト名は読み上げと title で分かる。押すとホストの一覧が開く） */}
+            <span className='hidden truncate md:inline'>{name ?? 'ホスト'} につないでいます</span>
         </button>
     );
 }
