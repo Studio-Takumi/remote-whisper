@@ -4,6 +4,7 @@ import { CpuIcon } from 'lucide-react';
 
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import type { GpuJobs } from '@/protocol';
+import { routePath } from '@/router';
 import { jobKindLabel } from '@/status';
 import { useAppStore } from '@/store';
 import { formatElapsed } from '@/time';
@@ -15,6 +16,7 @@ export function GpuIndicator() {
     const jobsAt = useAppStore((s) => s.server.jobsAt);
     const gpu = useAppStore((s) => s.server.gpu);
     const projects = useAppStore((s) => s.projects);
+    const selectSession = useAppStore((s) => s.selectSession);
     const [open, setOpen] = useState(false);
     const now = useNow(open);
 
@@ -22,8 +24,28 @@ export function GpuIndicator() {
     const busy = jobs.running !== null;
     // サーバーが送った時点の秒数に、受け取ってからの時間を足す
     const since = Math.max(0, (now - jobsAt) / 1000);
-    const titleOf = (id: string | null) =>
-        id ? (projects.flatMap((p) => p.sessions).find((x) => x.id === id)?.title ?? id) : null;
+    // ジョブのセッション（ID）から、タイトルと飛び先を引く。セッションがなければ（消えた・まだ読み込んでいない）リンクにしない
+    const sessionOf = (id: string | null): JobSession | null => {
+        if (!id) {
+            return null;
+        }
+        for (const p of projects) {
+            const session = p.sessions.find((x) => x.id === id);
+            if (session) {
+                return {
+                    title: session.title,
+                    href: routePath({ kind: 'session', key: session.uuid ?? session.id }),
+                    projectId: p.id,
+                    sessionId: session.id,
+                };
+            }
+        }
+        return { title: id, href: null };
+    };
+    const openSession = (projectId: string, sessionId: string) => {
+        selectSession(projectId, sessionId);
+        setOpen(false);
+    };
 
     return (
         <Popover open={open} onOpenChange={setOpen}>
@@ -50,7 +72,7 @@ export function GpuIndicator() {
                 </button>
             </PopoverTrigger>
             <PopoverContent align='start' className='w-80 max-w-[calc(100vw-2rem)] text-sm'>
-                <JobList jobs={jobs} since={since} gpu={gpu} titleOf={titleOf} />
+                <JobList jobs={jobs} since={since} gpu={gpu} sessionOf={sessionOf} onOpenSession={openSession} />
             </PopoverContent>
         </Popover>
     );
@@ -60,12 +82,14 @@ function JobList({
     jobs,
     since,
     gpu,
-    titleOf,
+    sessionOf,
+    onOpenSession,
 }: {
     jobs: GpuJobs;
     since: number;
     gpu: { util: number; memUsedMb: number; memTotalMb: number } | null;
-    titleOf: (id: string | null) => string | null;
+    sessionOf: (id: string | null) => JobSession | null;
+    onOpenSession: (projectId: string, sessionId: string) => void;
 }) {
     return (
         <div className='flex flex-col gap-3'>
@@ -85,7 +109,9 @@ function JobList({
                 {jobs.running ? (
                     <JobRow
                         label={jobKindLabel[jobs.running.kind]}
-                        session={titleOf(jobs.running.session)}
+                        kind={jobKindLabel[jobs.running.kind]}
+                        session={sessionOf(jobs.running.session)}
+                        onOpenSession={onOpenSession}
                         time={`${formatElapsed(Math.floor(jobs.running.runningSec + since))} 経過`}
                     />
                 ) : (
@@ -100,7 +126,9 @@ function JobList({
                             <li key={i}>
                                 <JobRow
                                     label={`${i + 1}. ${jobKindLabel[w.kind]}${w.count > 1 ? ` ×${w.count}` : ''}`}
-                                    session={titleOf(w.session)}
+                                    kind={jobKindLabel[w.kind]}
+                                    session={sessionOf(w.session)}
+                                    onOpenSession={onOpenSession}
                                     time={`${formatElapsed(Math.floor(w.waitingSec + since))} 待ち`}
                                 />
                             </li>
@@ -117,15 +145,57 @@ function JobList({
     );
 }
 
-function JobRow({ label, session, time }: { label: string; session: string | null; time: string }) {
-    return (
-        <div className='flex items-baseline justify-between gap-2'>
+type JobSession = { title: string; href: string | null; projectId?: string; sessionId?: string };
+
+// 実行中・待ちの1行。セッションがあれば行全体がそのセッションのページへのリンクになる（#269）
+function JobRow({
+    label,
+    kind,
+    session,
+    time,
+    onOpenSession,
+}: {
+    label: string;
+    kind: string;
+    session: JobSession | null;
+    time: string;
+    onOpenSession: (projectId: string, sessionId: string) => void;
+}) {
+    const body = (
+        <>
             <div className='min-w-0'>
                 <p className='truncate'>{label}</p>
-                {session && <p className='truncate text-xs text-muted-foreground'>{session}</p>}
+                {session && (
+                    <p className='truncate text-xs text-muted-foreground'>
+                        {session.title}
+                        {session.href === null && '（見つかりません）'}
+                    </p>
+                )}
             </div>
             <span className='shrink-0 text-xs text-muted-foreground tabular-nums'>{time}</span>
-        </div>
+        </>
+    );
+    const base = 'flex items-baseline justify-between gap-2';
+    if (!session || session.href === null || !session.projectId || !session.sessionId) {
+        return <div className={base}>{body}</div>;
+    }
+    const { href, projectId, sessionId } = session;
+    return (
+        <a
+            href={href}
+            aria-label={`${kind}のセッション「${session.title}」を開く（${time}）`}
+            className={`${base} -mx-1.5 rounded-md px-1.5 py-0.5 transition-colors outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50`}
+            onClick={(e) => {
+                // Ctrl・⌘・Shift 押しや中ボタンはブラウザに任せる（別のタブで開く）
+                if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) {
+                    return;
+                }
+                e.preventDefault();
+                onOpenSession(projectId, sessionId);
+            }}
+        >
+            {body}
+        </a>
     );
 }
 
