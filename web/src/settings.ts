@@ -5,6 +5,8 @@ export type OllamaModels = {
     materialTerms: string;
     context: string;
     scope: string;
+    // 図の読み取り（#271）。画像を読めるモデル
+    figures: string;
     transcriptTerms: string;
     liveSummary: string;
     liveTitle: string;
@@ -76,6 +78,8 @@ export type Settings = {
     materials: {
         roots: string[];
         extensions: string[];
+        // 参考資料セットを作るとき、PDF の図を読むか（#271。既定はオン）。古いサーバーにはない
+        readFigures?: boolean;
     };
     display: {
         // 左メニューのセッションに、録音日時と長さを出すか
@@ -119,6 +123,7 @@ export const defaultSettings: Settings = {
             materialTerms: 'qwen3.5:2b',
             context: 'qwen3.5:4b',
             scope: 'qwen3.5:4b',
+            figures: 'qwen3.5:4b',
             transcriptTerms: 'qwen3.5:2b',
             liveSummary: 'qwen3.5:2b',
             liveTitle: 'qwen3.5:2b',
@@ -151,6 +156,7 @@ export const defaultSettings: Settings = {
     materials: {
         roots: ['D:\\work'],
         extensions: ['.md', '.txt', '.pdf', '.html'],
+        readFigures: true,
     },
     display: {
         sessionMeta: false,

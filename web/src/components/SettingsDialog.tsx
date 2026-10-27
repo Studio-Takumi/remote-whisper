@@ -143,7 +143,7 @@ function SettingsForm({
             .filter((e) => e !== '')
             .map((e) => (e.startsWith('.') ? e : `.${e}`));
         const roots = draft.materials.roots.map((r) => r.trim()).filter((r) => r !== '');
-        onSave({ ...draft, materials: { roots, extensions } });
+        onSave({ ...draft, materials: { ...draft.materials, roots, extensions } });
     }
 
     return (
@@ -574,6 +574,19 @@ function SettingsForm({
                                 className='w-56'
                                 value={draft.materials.extensions.join(', ')}
                                 onChange={(e) => update('materials', { extensions: e.target.value.split(',') })}
+                            />
+                        </Row>
+                    </Section>
+                    <Section title='図の読み取り'>
+                        <Row
+                            id='read-figures'
+                            label='PDF の図を読む'
+                            description='図のあるページを画像にして読み、用語リストとコンテキストに使います。作るのに時間がかかります'
+                        >
+                            <Switch
+                                id='read-figures'
+                                checked={draft.materials.readFigures ?? true}
+                                onCheckedChange={(readFigures) => update('materials', { readFigures })}
                             />
                         </Row>
                     </Section>

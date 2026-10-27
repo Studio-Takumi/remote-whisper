@@ -103,6 +103,9 @@ RECOMMENDED_MODELS = {
     # 範囲の判断（#182）は、2b だと答えが回ごとにばらつき、温度 0 では目次を全部写すだけだった。
     # 4b は毎回同じ答えになった。浄書の後は VRAM が空いていて、続くコンテキスト・要約も 4b
     "scope": "qwen3.5:4b",
+    # 図の読み取り（#271）は画像を読めるモデル（Ollama の capabilities に vision があるもの）。
+    # qwen3.5 は画像も読める。4b で講演のスライドの構成図・グラフの数値まで読めた
+    "figures": "qwen3.5:4b",
     "transcriptTerms": "qwen3.5:2b",
     "liveSummary": "qwen3.5:2b",
     "liveTitle": "qwen3.5:2b",
@@ -115,10 +118,11 @@ RECOMMENDED_MODELS = {
 class OllamaModels(_Model):
     """Ollama を使う処理ごとのモデル（#178。spec/files.md 5.3）"""
 
-    # 参考資料: 用語リスト（資料抽出）・コンテキスト・範囲の判断（#182）
+    # 参考資料: 用語リスト（資料抽出）・コンテキスト・範囲の判断（#182）・図の読み取り（#271）
     material_terms: str = RECOMMENDED_MODELS["materialTerms"]
     context: str = RECOMMENDED_MODELS["context"]
     scope: str = RECOMMENDED_MODELS["scope"]
+    figures: str = RECOMMENDED_MODELS["figures"]
     # リアルタイム文字起こし: 用語リスト（文字起こし抽出。#103）
     transcript_terms: str = RECOMMENDED_MODELS["transcriptTerms"]
     # リアルタイム要約: 要約・タイトル
@@ -250,6 +254,9 @@ class RetentionDays(_Model):
 class MaterialsSettings(_Model):
     roots: list[str] = Field(default_factory=lambda: [str(Path.home())])
     extensions: list[str] = Field(default_factory=lambda: [".md", ".txt", ".pdf", ".html"])
+    # 参考資料セットを作るとき、PDF の図を画像を読めるモデルで読むか（#271）。
+    # モデルが画像を読めなければ、オンでもテキストだけで作る
+    read_figures: bool = True
 
 
 # マイクボタンのショートカットの既定と形（#236。spec/files.md 5.3）。修飾キーは

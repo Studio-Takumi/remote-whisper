@@ -23,6 +23,7 @@ from remote_whisper.final_transcriber import FinalTranscriber, installed
 from remote_whisper.gpu_stats import GpuStats
 from remote_whisper.janitor import Janitor
 from remote_whisper.logs import traffic
+from remote_whisper.material_figures import FigureReader
 from remote_whisper.material_range import RangeService
 from remote_whisper.mock import (
     MockContextGenerator,
@@ -162,6 +163,9 @@ def create_app(
             await ctx.recorder.close()
         if ctx.final_transcriber is not None:
             await ctx.final_transcriber.close()
+        # 参考資料セットも、Ollama への頼みを 1 回ずつ積んでいるので先に止める（#271）
+        if ctx.context_sets is not None:
+            await ctx.context_sets.close()
         await ctx.gpu.stop()
         if ctx.whisper is not None:
             await ctx.whisper.close()
@@ -250,6 +254,8 @@ def create_app(
                 ctx.gpu,
                 generator,
                 on_ready=ctx.recorder.context_set_ready,
+                # PDF の図の説明は、資料の内容ごとにホームの下にキャッシュする（#271）
+                figures=FigureReader(ctx.ollama, ctx.settings, home / "cache" / "figures"),
             )
             # 録音のあとに、今回扱った資料の範囲で参考資料を作り直す（#182）
             material_range = RangeService(

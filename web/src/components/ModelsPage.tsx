@@ -76,6 +76,7 @@ export function ModelsPage({
                 {ollamaRow('materialTerms', '用語リスト（資料抽出）')}
                 {ollamaRow('context', 'コンテキスト', thinkingNote(options, models.context))}
                 {ollamaRow('scope', '範囲の判断', '資料のどこを使うかを判断します。小さいモデルでは答えが安定しません')}
+                {ollamaRow('figures', '図の読み取り', 'PDF の図を読みます。画像を読めるモデルを選んでください')}
             </Section>
             <Section title='リアルタイム文字起こし'>
                 <Row id='model-vad' label='無音区間の判別'>

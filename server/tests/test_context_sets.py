@@ -150,6 +150,37 @@ def test_empty_reply_with_thinking_is_retried_without_it(client, project, root, 
     assert [c["think"] for c in fake_ollama.bodies("/api/chat")] == [True, False, True, False]
 
 
+def test_figures_in_a_pdf_are_added_to_the_materials(client, project, root, fake_ollama, home):
+    from test_material_figures import slides
+
+    pid, d = project
+    pdf = slides(root / "docs")
+    fake_ollama.models["qwen3.5:4b"] = ["completion", "thinking", "vision"]
+    fake_ollama.reply_for = lambda body: (
+        "- 開発 → ステージング → 本番" if "images" in body["messages"][-1] else None
+    )
+    body, events = create_and_wait(client, pid, [str(pdf)])
+    assert events[-1]["status"] == "ready"
+    chats = fake_ollama.bodies("/api/chat")
+    # 図のある 3 ページを読んでから、図の説明つきのテキストで用語リストとコンテキストを作る
+    assert sum("images" in c["messages"][-1] for c in chats) == 3
+    last = chats[-1]["messages"][-1]["content"]
+    assert "〔図〕\n- 開発 → ステージング → 本番" in last
+    assert list((home / "cache" / "figures").glob("*.json"))
+
+
+def test_pdf_is_read_as_text_without_a_vision_model(client, project, root, fake_ollama):
+    from test_material_figures import slides
+
+    pid, _ = project
+    pdf = slides(root / "docs")
+    body, events = create_and_wait(client, pid, [str(pdf)])
+    assert events[-1]["status"] == "ready"
+    chats = fake_ollama.bodies("/api/chat")
+    assert not any("images" in c["messages"][-1] for c in chats)
+    assert "〔図〕" not in chats[-1]["messages"][-1]["content"]
+
+
 def test_same_materials_are_reused(client, project, root, fake_ollama):
     pid, _ = project
     first, _ = create_and_wait(client, pid, materials(root))
@@ -270,7 +301,7 @@ class HeldGenerator:
     def describe(self):
         return "m", True
 
-    async def generate(self, materials):
+    async def generate(self, materials, run=None):
         import asyncio
 
         self.event = self.event or asyncio.Event()
@@ -388,6 +419,8 @@ def test_parse_and_limit_hotwords():
 
 def test_join_materials_shares_the_limit():
     text = join_materials([("a.md", "あ" * 9000), ("b.md", "い" * 1000)], limit=1000)
-    assert text.count("あ") == 900 and text.count("い") == 200
+    # 見出し・「（以下省略）」・区切りの分（2 つで 36 文字）を引いた 964 文字を按分する。
+    # 短い資料は按分で消えないように 200 文字は残し、その分を大きい資料から引く
+    assert text.count("あ") == 964 - 200 and text.count("い") == 200
     assert "（以下省略）" in text
     assert join_materials([("a.md", "短い")]) == "### a.md\n短い"

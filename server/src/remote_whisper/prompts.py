@@ -224,6 +224,40 @@ def context_messages(materials: str) -> list[dict[str, str]]:
     return [{"role": "system", "content": MATERIALS_SYSTEM}, {"role": "user", "content": user}]
 
 
+def material_notes_messages(materials: str, part: int, parts: int) -> list[dict[str, str]]:
+    """長い参考資料の一部分から、コンテキストのもとになるメモを作る（#271）。
+    部分ごとのメモをまとめて context_messages に渡す"""
+    user = (
+        f"## 参考資料（{parts} 部分のうち {part} 番目）\n{materials}\n\n"
+        "この部分から、会議の背景として要約を書く人が知っておくべきこと（目的・関係する人や組織・"
+        "用語の意味・仕組みや流れ・数値・これまでの経緯）を、日本語の箇条書きで 800 文字以内に"
+        "書き出してください。"
+    )
+    return [{"role": "system", "content": MATERIALS_SYSTEM}, {"role": "user", "content": user}]
+
+
+FIGURE_SYSTEM = "あなたは会議の参考資料の図を、文章に書き直す係です。"
+
+
+def figure_messages(page_text: str, image: str) -> list[dict[str, object]]:
+    """資料の 1 ページの画像（base64 の PNG）から、図の説明を書かせる（#271）"""
+    user = (
+        "これは資料の1ページを画像にしたものです。下に、このページから取り出したテキストを"
+        "付けます。\nテキストだけでは分からないこと（図・グラフ・表・写真・矢印や線でつながった"
+        "関係・配置や囲みで示された構造）を、日本語の Markdown の箇条書きで 600 文字以内で"
+        "書き出してください。\n"
+        "- 関係は「A → B」のように、表は Markdown の表で書く\n"
+        "- テキストをそのまま繰り返さない。ページのタイトルや飾りの画像・ロゴ・背景は書かない\n"
+        "- 読み取れないことや推測は書かない\n"
+        "- 書くことがなければ「なし」とだけ書く\n\n"
+        f"## このページのテキスト\n{page_text or '（なし）'}"
+    )
+    return [
+        {"role": "system", "content": FIGURE_SYSTEM},
+        {"role": "user", "content": user, "images": [image]},
+    ]
+
+
 def title_messages(summary: str) -> list[dict[str, str]]:
     return [
         {"role": "system", "content": TITLE_SYSTEM},

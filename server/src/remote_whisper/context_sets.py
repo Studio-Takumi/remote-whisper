@@ -14,10 +14,11 @@ import asyncio
 import hashlib
 import logging
 import re
+from collections import Counter
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, TypeVar
 
 from remote_whisper.documents import (
     ContextMeta,
@@ -31,20 +32,31 @@ from remote_whisper.documents import (
 from remote_whisper.fsaccess import is_within_roots, real_path
 from remote_whisper.gpu_queue import GpuQueue, Priority
 from remote_whisper.hub import Hub
+from remote_whisper.material_figures import FigureReader, Run, pdf_texts, with_figures
 from remote_whisper.material_toc import LARGE_CHARS, MaterialToc, build_toc
 from remote_whisper.materials import ExtractError, extract_text
 from remote_whisper.ollama import OllamaClient, OllamaUnavailable
 from remote_whisper.projects import ContextSetEntry, ProjectError, ProjectFile, ProjectStore
-from remote_whisper.prompts import context_messages, hotwords_messages
+from remote_whisper.prompts import context_messages, hotwords_messages, material_notes_messages
 from remote_whisper.settings import SettingsStore
+from remote_whisper.summary_parts import NUM_CTX as SUMMARY_NUM_CTX
 from remote_whisper.timeutil import iso, make_id, now
 
 log = logging.getLogger(__name__)
 
-# Ollama に渡す資料のテキストの長さ（文字）。長い資料は、それぞれの頭から按分して切る。
+T = TypeVar("T")
+
+# 1 回の頼みで Ollama に渡す資料のテキストの長さ（文字）。これより長い資料は、この長さずつに
+# 分けて部分ごとに用語とメモを取り出し、まとめる（#271）。
 # これを超える資料は「大きい資料」（目次の large。#181）
 MATERIALS_CHARS = LARGE_CHARS
-NUM_CTX = 8192
+# 資料全体で使う長さ（文字）の上限。これより長ければ、それぞれの頭から按分して切る。
+# 部分の数がこの分だけ増える（1 部分で用語とメモの 2 回、数十秒ずつかかる）
+MAX_MATERIALS_PARTS = 6
+MAX_MATERIALS_CHARS = MATERIALS_CHARS * MAX_MATERIALS_PARTS
+# 要約と同じ長さにする（#271）。8192 では、6000 文字の部分と思考で上限に届いて本文が空になり、
+# 思考オフでのやり直しが 1 つの資料で 3 回起きた。値が同じならモデルを読み込み直さない
+NUM_CTX = SUMMARY_NUM_CTX
 # Whisper のプロンプトの上限（hotwords と initial_prompt で約 224 トークン）に収める長さ（文字）。
 # 日本語は1文字が1〜2トークンになるので、余裕を見て文字数で数える（実測で見直す: #39）
 HOTWORDS_MAX_CHARS = 120
@@ -59,10 +71,18 @@ class ContextSetError(Exception):
         self.message = message
 
 
-class Generator(Protocol):
-    """資料のテキストから、用語リスト（重要な順）とコンテキストを作るもの"""
+async def direct(job: Callable[[], Awaitable[T]]) -> T:
+    """GPU キューを通さずにそのまま動かす（テスト用）"""
+    return await job()
 
-    async def generate(self, materials: str) -> tuple[list[str], str]: ...
+
+class Generator(Protocol):
+    """資料のテキストから、用語リスト（重要な順）とコンテキストを作るもの
+
+    run は Ollama への 1 回の頼みを GPU キューに積んで動かすもの。頼みごとに積むので、
+    長い資料でも録音中の文字起こしを長く待たせない（#271）"""
+
+    async def generate(self, materials: str, run: Run = direct) -> tuple[list[str], str]: ...
 
     def describe(self) -> tuple[str, bool]:
         """フロントマターに書くモデルと思考モード"""
@@ -100,23 +120,43 @@ class OllamaGenerator:
         """フロントマターに残すモデル（コンテキストのモデル）と思考モード"""
         return self._used
 
-    async def generate(self, materials: str) -> tuple[list[str], str]:
+    async def generate(self, materials: str, run: Run = direct) -> tuple[list[str], str]:
         # 用語リスト（資料抽出）とコンテキストは、処理ごとのモデルで作る（#178）
-        words = await self.terms(materials)
-        context = await self.context(materials)
+        words = await self.terms(materials, run)
+        context = await self.context(materials, run)
         return words, context
 
-    async def terms(self, materials: str) -> list[str]:
-        """用語リスト（資料抽出）。範囲で作り直すとき（#182）は、これだけを浄書の前に作る"""
-        model = await self.ollama.resolve(self.settings.get().ollama.models.material_terms)
-        return parse_hotwords(await self._ask(model, hotwords_messages(materials)))
+    async def terms(self, materials: str, run: Run = direct) -> list[str]:
+        """用語リスト（資料抽出）。範囲で作り直すとき（#182）は、これだけを浄書の前に作る
 
-    async def context(self, materials: str) -> str:
-        """コンテキスト。範囲で作り直すとき（#182）は、これだけを浄書の後に作る"""
+        長い資料は部分に分けて部分ごとに拾い、多くの部分に出てきた語を前にする（#271）"""
+        model = await self.ollama.resolve(self.settings.get().ollama.models.material_terms)
+        counts: Counter[str] = Counter()
+        order: dict[str, int] = {}
+        for part in split_materials(materials):
+            reply = await run(lambda part=part: self._ask(model, hotwords_messages(part)))
+            for word in parse_hotwords(reply):
+                counts[word] += 1
+                order.setdefault(word, len(order))
+        return sorted(counts, key=lambda w: (-counts[w], order[w]))
+
+    async def context(self, materials: str, run: Run = direct) -> str:
+        """コンテキスト。範囲で作り直すとき（#182）は、これだけを浄書の後に作る
+
+        長い資料は部分ごとにメモを作り、メモをまとめてコンテキストにする（#271）"""
         model = await self.ollama.resolve(self.settings.get().ollama.models.context)
         think = await self.ollama.supports_thinking(model)
         self._used = (model, think)
-        return (await self._ask(model, context_messages(materials))).strip()
+        parts = split_materials(materials)
+        if len(parts) > 1:
+            notes = []
+            for i, part in enumerate(parts, 1):
+                messages = material_notes_messages(part, i, len(parts))
+                note = await run(lambda messages=messages: self._ask(model, messages))
+                notes.append(f"### {i} 番目の部分\n{note.strip()}")
+            materials = "\n\n".join(notes)
+        reply = await run(lambda: self._ask(model, context_messages(materials)))
+        return reply.strip()
 
     async def _ask(self, model: str, messages: list[dict[str, str]]) -> str:
         """思考オンで頼む。思考が長すぎて本文が空になったら、思考オフでもう一度頼む"""
@@ -128,6 +168,34 @@ class OllamaGenerator:
         return reply
 
 
+def split_materials(materials: str) -> list[str]:
+    """MATERIALS_CHARS 文字ほどずつ、行の区切りで分ける。短ければ 1 つのまま"""
+    if len(materials) <= MATERIALS_CHARS:
+        return [materials]
+    parts: list[str] = []
+    current = ""
+    for line in materials.split("\n"):
+        while True:
+            sep = "\n" if current else ""
+            room = MATERIALS_CHARS - len(current) - len(sep)
+            if len(line) <= room:
+                current += sep + line
+                break
+            if room <= 0 or len(line) <= MATERIALS_CHARS:
+                # 次の部分に入る行は、行の途中で切らない
+                parts.append(current)
+                current = ""
+                continue
+            # 1 つの部分より長い行（改行のない資料）は、今の部分の残りを埋めるように切る
+            current += sep + line[:room]
+            line = line[room:]
+            parts.append(current)
+            current = ""
+    if current:
+        parts.append(current)
+    return parts
+
+
 def sha1_of(path: Path) -> str:
     h = hashlib.sha1()
     with open(path, "rb") as f:
@@ -136,16 +204,45 @@ def sha1_of(path: Path) -> str:
     return h.hexdigest()
 
 
-def join_materials(texts: list[tuple[str, str]], limit: int = MATERIALS_CHARS) -> str:
-    """資料ごとに見出しを付けてつなぐ。長ければ、それぞれの頭から按分して切る"""
+OMITTED = "\n（以下省略）"
+
+
+def _shares(texts: list[tuple[str, str]], limit: int) -> list[int]:
+    """資料ごとに使う長さ。合計は limit 以下。長さに比例して按分するが、短い資料が按分で
+    消えないように最低限（200 文字。資料が多いときは limit を等分した長さ）は残す。
+    最低限まで引き上げた資料の分を先に取り、残りをほかの資料で按分し直す"""
+    floor = min(200, limit // len(texts))
+    shares: dict[int, int] = {}
+    while True:
+        rest = [i for i in range(len(texts)) if i not in shares]
+        room = limit - sum(shares.values())
+        total = sum(len(texts[i][1]) for i in rest) or 1
+        raised = {
+            i: min(len(texts[i][1]), floor)
+            for i in rest
+            if room * len(texts[i][1]) // total < min(len(texts[i][1]), floor)
+        }
+        if not raised:
+            break
+        shares.update(raised)
+    for i in rest:
+        shares[i] = min(len(texts[i][1]), room * len(texts[i][1]) // total)
+    return [shares[i] for i in range(len(texts))]
+
+
+def join_materials(texts: list[tuple[str, str]], limit: int = MAX_MATERIALS_CHARS) -> str:
+    """資料ごとに見出しを付けてつなぐ。長ければ、それぞれの頭から按分して切る
+
+    見出し・区切り・「（以下省略）」の分を先に引いてから按分し、全体が limit に収まるようにする
+    （超えると、split_materials で端の数文字だけの部分ができてしまう）"""
     total = sum(len(t) for _, t in texts) or 1
+    overhead = sum(len(f"### {name}\n") + len(OMITTED) + 2 for name, _ in texts)
+    if total + overhead > limit:
+        limit = max(limit - overhead, len(texts))
+    shares = [len(t) for _, t in texts] if total <= limit else _shares(texts, limit)
     parts = []
-    for name, text in texts:
-        # 短い資料が按分で消えないように最低限は残す
-        # （資料が多いときは、合計が limit を超えないように減らす）
-        floor = min(200, limit // len(texts))
-        share = max(floor, limit * len(text) // total) if total > limit else len(text)
-        body = text[:share] + ("\n（以下省略）" if len(text) > share else "")
+    for (name, text), share in zip(texts, shares, strict=True):
+        body = text[:share] + (OMITTED if len(text) > share else "")
         parts.append(f"### {name}\n{body}")
     return "\n\n".join(parts)
 
@@ -159,6 +256,7 @@ class ContextSetService:
         gpu: GpuQueue,
         generator: Generator,
         on_ready: Callable[[str, str], Awaitable[None]] | None = None,
+        figures: FigureReader | None = None,
     ):
         self.projects = projects
         self.settings = settings
@@ -167,6 +265,10 @@ class ContextSetService:
         self.generator = generator
         # セットができたとき（録音中のセッションに使わせる）
         self.on_ready = on_ready
+        # PDF の図を読むもの（#271）。None なら読まない（モック・Ollama がないとき）
+        self.figures = figures
+        # 作っている途中のセットの処理（Ollama への頼みは 1 回ずつ GPU キューに積む）
+        self._tasks: set[asyncio.Task] = set()
         # このサーバーで作っている途中のセット → 資料のハッシュ（使い回すか比べるため）
         self._pending: dict[str, list[str]] = {}
 
@@ -270,13 +372,27 @@ class ContextSetService:
         assert created is not None
         entry = created
         await self._send(pid, entry.id, "generating")
-        job = self.gpu.submit(
-            Priority.BACKGROUND,
-            lambda: self._build(pid, entry.id, refs, started),
-            kind="contextSet",
-        )
-        job.add_done_callback(_log_failure)
+        # 全体を 1 つの GPU ジョブにはしない。図の読み取りと長い資料の部分ごとの頼みで十数分
+        # かかることがあり、その間に始めた録音の文字起こしが待たされるため（実行中のジョブは
+        # 止められない）。Ollama への頼みを 1 回ずつ GPU キューに積む（run）
+        task = asyncio.create_task(self._build(pid, entry.id, refs, started))
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+        task.add_done_callback(_log_failure)
         return {**entry.model_dump(by_alias=True, exclude={"session"}), "reused": False}
+
+    async def close(self) -> None:
+        """サーバーを止めるとき（GPU キューを止める前）。作っている途中のセットの処理を止める。
+        止めないと、GPU キューを止めたあとに次の頼みを積んで、キューを動かし直してしまう。
+        セットは generating のまま残り、次の起動で failed に直す（recover）"""
+        tasks = list(self._tasks)
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def _run(self, job: Callable[[], Awaitable[T]]) -> T:
+        """Ollama への 1 回の頼みを GPU キュー（優先度 3）に積んで、終わるのを待つ"""
+        return await self.gpu.run(Priority.BACKGROUND, job, kind="contextSet")
 
     async def _send(self, pid: str, set_id: str, status: str) -> None:
         await self.hub.broadcast(
@@ -318,13 +434,11 @@ class ContextSetService:
         self, pid: str, set_id: str, refs: list[MaterialRef], started: datetime
     ) -> None:
         """資料からテキストを取り出し、用語リストとコンテキストを作って保存する"""
-        texts = await asyncio.to_thread(
-            lambda: [(Path(r.path).name, extract_text(Path(r.path))) for r in refs]
-        )
+        texts = await self._texts(refs)
         toc = await asyncio.to_thread(lambda: _toc_of([Path(r.path) for r in refs]))
         if not any(t.strip() for _, t in texts):
             raise ExtractError("資料から文字を取り出せませんでした")
-        words, context = await self.generator.generate(join_materials(texts))
+        words, context = await self.generator.generate(join_materials(texts), self._run)
         words = limit_hotwords(words)
         if not words and not context:
             raise OllamaUnavailable("用語リストもコンテキストも空でした")
@@ -348,6 +462,33 @@ class ContextSetService:
             ContextMeta(**meta.model_dump(), toc=toc if complete else None),
             context + "\n",
         )
+
+    async def _texts(self, refs: list[MaterialRef]) -> list[tuple[str, str]]:
+        """資料ごとの名前とテキスト。PDF の図を読めるなら、図のあるページに説明を足す（#271）"""
+        model = None
+        if self.figures is not None and any(_is_pdf(r) for r in refs):
+            model = await self.figures.model()
+        texts = []
+        for ref in refs:
+            path = Path(ref.path)
+            if model is None or not _is_pdf(ref):
+                texts.append((path.name, await asyncio.to_thread(extract_text, path)))
+                continue
+            try:
+                pages = await asyncio.to_thread(pdf_texts, path)
+            except ExtractError:
+                # 読めない PDF は、今までどおり extract_text の失敗にする
+                texts.append((path.name, await asyncio.to_thread(extract_text, path)))
+                continue
+            assert self.figures is not None
+            try:
+                figures = await self.figures.read(path, ref.sha1, pages, model, self._run)
+            except Exception:  # noqa: BLE001 図を読めなくても、テキストだけで作る
+                log.exception("failed to read the figures of %s", path)
+                figures = {}
+            log.info("read the figures on %d pages of %s", len(figures), path.name)
+            texts.append((path.name, with_figures(pages, figures)))
+        return texts
 
     async def ensure_toc(self, pid: str, set_id: str) -> list[MaterialToc]:
         """セットの資料の目次。以前に作ったセットには目次がないので、そのとき取り出して書き足す。
@@ -388,6 +529,10 @@ def _ready_hashes(project_dir: Path, set_id: str) -> list[str] | None:
     except (OSError, ValueError):
         return None
     return sorted(m.sha1 for m in meta.materials)
+
+
+def _is_pdf(ref: MaterialRef) -> bool:
+    return Path(ref.path).suffix.lower() == ".pdf"
 
 
 def _log_failure(future: asyncio.Future) -> None:

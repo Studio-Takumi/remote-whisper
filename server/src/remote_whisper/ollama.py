@@ -50,8 +50,8 @@ class OllamaClient:
         # 録音中かどうか（keep_alive を -1 にするため）
         self.recording = recording
         self._transport = transport
-        # モデル名 → 思考モードに対応しているか。入れ直すことはまれなので、取れたら覚えておく
-        self._thinking: dict[str, bool] = {}
+        # モデル名 → capabilities（思考モード・画像など）。入れ直すことはまれなので覚えておく
+        self._capabilities: dict[str, list[str]] = {}
         # 録音中に keep_alive: -1 で使ったモデル。録音が終わったら keepAliveMin に戻す
         self._pinned: set[str] = set()
         # 入っていなかったモデル（ログに書いたもの）
@@ -161,13 +161,21 @@ class OllamaClient:
         """`ollama show` の capabilities に thinking が含まれるか（spec/notes.md 9.3）
 
         分からなければ False"""
-        if model not in self._thinking:
+        return "thinking" in await self._capabilities_of(model)
+
+    async def supports_vision(self, model: str) -> bool:
+        """capabilities に vision が含まれるか（画像を読めるか。#271）。分からなければ False"""
+        return "vision" in await self._capabilities_of(model)
+
+    async def _capabilities_of(self, model: str) -> list[str]:
+        """`ollama show` の capabilities。つながらない・モデルがなければ空（覚えない）"""
+        if model not in self._capabilities:
             try:
                 data = await self._request("POST", "/api/show", json={"model": model})
             except OllamaUnavailable:
-                return False
-            self._thinking[model] = "thinking" in (data.get("capabilities") or [])
-        return self._thinking[model]
+                return []
+            self._capabilities[model] = list(data.get("capabilities") or [])
+        return self._capabilities[model]
 
     # --- 生成 ---
 
@@ -181,7 +189,7 @@ class OllamaClient:
     async def chat_stream(
         self,
         model: str,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         think: bool = False,
         format: dict[str, Any] | None = None,
         options: dict[str, Any] | None = None,
@@ -252,7 +260,7 @@ class OllamaClient:
                 log.info("ollama unloaded %s to load %s while recording", other, model)
             self._pinned.discard(other)
 
-    async def chat(self, model: str, messages: list[dict[str, str]], **kwargs: Any) -> str:
+    async def chat(self, model: str, messages: list[dict[str, Any]], **kwargs: Any) -> str:
         """本文をまとめて返す"""
         return "".join([part async for part in self.chat_stream(model, messages, **kwargs)])
 

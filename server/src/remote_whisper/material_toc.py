@@ -30,8 +30,8 @@ from remote_whisper.materials import (
 CHUNK_CHARS = 2000
 # 見出しに使う、先頭の行の最大の長さ（文字）
 TITLE_CHARS = 40
-# 「大きい資料」の目安。今の用語リスト・コンテキストを作るときに資料を詰める長さの上限
-# （context_sets.MATERIALS_CHARS）と同じ。これを超える資料は、いまも削って渡している
+# 「大きい資料」の目安。用語リスト・コンテキストを作るときに 1 回の頼みで渡す長さ
+# （context_sets.MATERIALS_CHARS）と同じ。これを超える資料は部分に分けて作る（#271）
 LARGE_CHARS = 6000
 # 区切りが1つしかなければ、範囲を選べないので大きい資料とはみなさない
 LARGE_MIN_SECTIONS = 2

@@ -382,8 +382,12 @@ class MockContextGenerator:
         model = self.settings.get().ollama.models.context
         return model, mock_thinking(model)
 
-    async def generate(self, materials: str) -> tuple[list[str], str]:
+    async def _wait(self) -> None:
         await asyncio.sleep(self.timing.context_set)
+
+    async def generate(self, materials: str, run=None) -> tuple[list[str], str]:
+        # GPU のジョブの一覧に出るように、待つ間を 1 つのジョブにする
+        await (run(self._wait) if run is not None else self._wait())
         if self.hub.status.ollama != "ready":
             raise OllamaUnavailable("Ollama に接続できません（モック）")
         return list(MOCK_HOTWORDS), MOCK_CONTEXT

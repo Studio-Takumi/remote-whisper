@@ -16,6 +16,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from remote_whisper.context_sets import (
+    MATERIALS_CHARS,
     ContextSetError,
     ContextSetService,
     OllamaGenerator,
@@ -146,7 +147,9 @@ def materials_text(paths: list[Path], ranges: list[MaterialRange]) -> str:
             log.warning("failed to read %s for the material range: %s", path, e)
             continue
         texts.append((path.name, text))
-    return join_materials(texts)
+    # 範囲で作り直すときは、今までどおり 1 回の頼みに収まる長さで切る。用語リストは浄書の前に
+    # 作るので、部分に分けて何回も頼むと浄書が遅れる（範囲は資料の一部なので、ふつうは収まる）
+    return join_materials(texts, MATERIALS_CHARS)
 
 
 class RangeService:
@@ -165,6 +168,15 @@ class RangeService:
         self.gpu = gpu
         self.context_sets = context_sets
         self.generator = generator
+
+    def _run(self, session: str):
+        """Ollama への頼みを 1 回ずつ GPU キュー（優先度 3）に積むもの（長い範囲は部分に分けて
+        何回も頼むので、全体を 1 つのジョブにしない。#271）"""
+
+        def run(job):
+            return self.gpu.run(Priority.BACKGROUND, job, kind="materialRange", session=session)
+
+        return run
 
     async def plan(self, writer: SessionWriter, lines: list[str]) -> RangePlan | None:
         """範囲を判断する。作り直さない（大きい資料がない・文字起こしが短い・ほぼ全体・失敗した）
@@ -237,12 +249,7 @@ class RangeService:
                 materials_text, [Path(m.path) for m in base_meta.materials], plan.ranges
             )
             try:
-                words = await self.gpu.run(
-                    Priority.BACKGROUND,
-                    lambda: self.generator.terms(text),
-                    kind="materialRange",
-                    session=writer.id,
-                )
+                words = await self.generator.terms(text, self._run(writer.id))
                 words = limit_hotwords(words)
                 if words:
                     words_body = "\n".join(words) + "\n"
@@ -297,12 +304,7 @@ class RangeService:
             materials_text, [Path(m.path) for m in meta.materials], plan.ranges
         )
         try:
-            context = await self.gpu.run(
-                Priority.BACKGROUND,
-                lambda: self.generator.context(text),
-                kind="materialRange",
-                session=writer.id,
-            )
+            context = await self.generator.context(text, self._run(writer.id))
         except OllamaUnavailable as e:
             log.warning("could not make the context of the range of %s: %s", writer.id, e)
             return
