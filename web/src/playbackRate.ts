@@ -22,12 +22,18 @@ export function normalizeRate(value: number): number {
 
 // 入力欄の文字から。空・数でない文字は null（直さずに元へ戻す）
 export function parseRate(text: string): number | null {
-    const trimmed = text.trim();
+    // 小数点にカンマを使う入力（「1,5」）も受け付ける
+    const trimmed = text.trim().replace(',', '.');
     if (trimmed === '') {
         return null;
     }
     const n = Number(trimmed);
     return Number.isFinite(n) ? normalizeRate(n) : null;
+}
+
+// 入力欄を確定したときに使う速度。読めない入力は今の速度のまま
+export function commitRate(text: string, current: number): number {
+    return parseRate(text) ?? current;
 }
 
 // 「1.25×」のように表示する（1 なら「1×」）

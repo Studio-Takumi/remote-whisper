@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { formatRate, loadRate, normalizeRate, parseRate, saveRate } from '@/playbackRate';
+import { commitRate, formatRate, loadRate, normalizeRate, parseRate, saveRate } from '@/playbackRate';
 
 describe('normalizeRate', () => {
     it('範囲に収める', () => {
@@ -66,5 +66,40 @@ describe('loadRate / saveRate', () => {
         expect(loadRate(broken)).toBe(1);
         expect(() => saveRate(2, broken)).not.toThrow();
         expect(loadRate(null)).toBe(1);
+    });
+});
+
+describe('境界と誤差', () => {
+    it('端の値はそのまま', () => {
+        expect(normalizeRate(0.5)).toBe(0.5);
+        expect(normalizeRate(3)).toBe(3);
+        expect(normalizeRate(0.52)).toBe(0.5);
+        expect(normalizeRate(2.99)).toBe(3);
+    });
+
+    it('誤差の出やすい値も 0.05 の倍数になる', () => {
+        expect(normalizeRate(1.15)).toBe(1.15);
+        expect(normalizeRate(2.85)).toBe(2.85);
+        expect(normalizeRate(0.55)).toBe(0.55);
+        expect(normalizeRate(1.05)).toBe(1.05);
+        expect(normalizeRate(1.35)).toBe(1.35);
+    });
+
+    it('カンマの小数も読める', () => {
+        expect(parseRate('1,5')).toBe(1.5);
+        expect(parseRate('1,23')).toBe(1.25);
+    });
+});
+
+describe('commitRate', () => {
+    it('入力を確定した速度を返す（閉じたときもこれを使う）', () => {
+        expect(commitRate('1.7', 1)).toBe(1.7);
+        expect(commitRate('1,5', 1)).toBe(1.5);
+        expect(commitRate('9', 1)).toBe(3);
+    });
+
+    it('読めない入力は今の速度のまま', () => {
+        expect(commitRate('', 1.25)).toBe(1.25);
+        expect(commitRate('abc', 1.25)).toBe(1.25);
     });
 });

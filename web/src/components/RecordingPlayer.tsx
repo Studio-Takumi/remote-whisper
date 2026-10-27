@@ -8,11 +8,10 @@ import {
     MAX_RATE,
     MIN_RATE,
     PRESET_RATES,
-    RATE_STEP,
+    commitRate,
     formatRate,
     loadRate,
     normalizeRate,
-    parseRate,
     saveRate,
 } from '@/playbackRate';
 
@@ -83,13 +82,9 @@ function RateMenu({ rate, onChoose }: { rate: number; onChoose: (rate: number) =
     const [open, setOpen] = useState(false);
     const [text, setText] = useState(String(rate));
     const commit = () => {
-        const parsed = parseRate(text);
-        if (parsed === null) {
-            setText(String(rate));
-            return;
-        }
-        onChoose(parsed);
-        setText(String(parsed));
+        const next = commitRate(text, rate);
+        onChoose(next);
+        setText(String(next));
     };
     return (
         <Popover
@@ -98,11 +93,19 @@ function RateMenu({ rate, onChoose }: { rate: number; onChoose: (rate: number) =
                 setOpen(next);
                 if (next) {
                     setText(String(rate));
+                } else {
+                    // 外側のタップで閉じると blur が来ないことがあるので、閉じるときにも確定する
+                    commit();
                 }
             }}
         >
             <PopoverTrigger asChild>
-                <Button variant='outline' size='sm' className='shrink-0 tabular-nums' aria-label='再生速度'>
+                <Button
+                    variant='outline'
+                    size='sm'
+                    className='shrink-0 tabular-nums'
+                    aria-label={`再生速度（${formatRate(rate)}）`}
+                >
                     {formatRate(rate)}
                 </Button>
             </PopoverTrigger>
@@ -127,11 +130,8 @@ function RateMenu({ rate, onChoose }: { rate: number; onChoose: (rate: number) =
                 <label className='flex items-center gap-2 text-sm'>
                     <span className='shrink-0'>数値で指定</span>
                     <Input
-                        type='number'
+                        type='text'
                         inputMode='decimal'
-                        min={MIN_RATE}
-                        max={MAX_RATE}
-                        step={RATE_STEP}
                         value={text}
                         onChange={(e) => setText(e.target.value)}
                         onBlur={commit}
