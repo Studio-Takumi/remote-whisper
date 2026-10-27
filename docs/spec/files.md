@@ -84,6 +84,7 @@
       "materialTerms": "qwen3.5:2b",
       "context": "qwen3.5:4b",
       "scope": "qwen3.5:4b",
+      "figures": "qwen3.5:4b",
       "transcriptTerms": "qwen3.5:2b",
       "liveSummary": "qwen3.5:2b",
       "liveTitle": "qwen3.5:2b",
@@ -116,7 +117,8 @@
   },
   "materials": {
     "roots": ["D:\\work"],
-    "extensions": [".md", ".txt", ".pdf", ".html"]
+    "extensions": [".md", ".txt", ".pdf", ".html"],
+    "readFigures": true
   },
   "display": {
     "sessionMeta": false,
@@ -134,6 +136,7 @@
 
 - `retentionDays` を `0` にすると無期限になる。
 - `materials.roots` の既定は、サーバーを動かしているユーザーのホームディレクトリ（上の例の `D:\work` は書き換えた後の例）。
+- `materials.readFigures` は、参考資料を作るときに PDF の図を読むか（#271。既定はオン。6.6 節の「図の読み取り」）。`ollama.models.figures` のモデルが画像を読めなければ、オンでも読まない。
 - ファイルがなければ既定値で作る。足りないキーは既定値で埋めて書き戻す。知らないキーや範囲外の値は受け付けない（`PATCH /api/settings` は `422`）。
 - `recording.maxConcurrent` は、サーバー全体で同時に録音できるセッションの数。1つのクライアント（ブラウザのタブ）が同時に録音できるのは1つだけなので、2以上にするのは複数の端末から同時に録音する場合。
 - `recording.resumeTimeoutMin` は、クライアントとの接続が切れてから、つながり直すのを待つ時間（分、既定 10。0 より大きい数で、小数も書ける。設定画面からは 1 分以上）。過ぎたら `interrupted` にする（続きから録音できる。6.7 節）。
@@ -145,6 +148,7 @@
   | 参考資料 | 用語リスト（資料抽出） | `materialTerms` | `qwen3.5:2b` |
   | | コンテキスト | `context` | `qwen3.5:4b` |
   | | 範囲の判断（#182） | `scope` | `qwen3.5:4b` |
+  | | 図の読み取り（#271。画像を読めるモデル） | `figures` | `qwen3.5:4b` |
   | リアルタイム文字起こし | 用語リスト（文字起こし抽出） | `transcriptTerms` | `qwen3.5:2b` |
   | リアルタイム要約 | 要約 | `liveSummary` | `qwen3.5:2b` |
   | | タイトル | `liveTitle` | `qwen3.5:2b` |
