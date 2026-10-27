@@ -147,6 +147,50 @@ def test_figures_are_read_once_and_cached(home, tmp_path):
     assert cache["pages"] == {"1": "- A → B → C", "2": "- A → B → C", "4": "- A → B → C"}
 
 
+def test_scanned_pages_covering_the_whole_page_are_read(tmp_path):
+    # ページ全体が 1 枚の画像（背景と同じ大きさ・全ページの同じ位置）でも、文字がなければ読む
+    scan = "q 960 0 0 540 0 0 cm BI /W 2 /H 2 /CS /G /BPC 8 ID \x00\xff\xff\x00 EI Q"
+    path = make_pdf(tmp_path / "scan.pdf", [scan, scan, scan])
+    assert figure_pages(path, pdf_texts(path)) == [0, 1, 2]
+
+
+def test_reading_stops_when_ollama_is_down_and_skips_failed_pages(home, tmp_path):
+    path = slides(tmp_path)
+    texts = pdf_texts(path)
+    fake = vision_fake()
+    figures, _ = reader(home, fake)
+    calls = []
+
+    async def failing(job):
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("1 ページだけ失敗")
+        result = await job()
+        fake.up = False  # 2 ページ目を読んだら Ollama が止まる
+        return result
+
+    got = asyncio.run(figures.read(path, "abc", texts, "qwen3.5:4b", failing))
+    # 1 ページ目（p.2）は飛ばし、2 ページ目（p.3）は読み、3 ページ目（p.5）で止まる
+    assert got == {2: "- A → B → C"}
+    assert len(calls) == 3
+    # 読めなかったページは覚えないので、次に作るとき読み直す
+    fake.up = True
+    again = asyncio.run(figures.read(path, "abc", texts, "qwen3.5:4b", direct))
+    assert again == {1: "- A → B → C", 2: "- A → B → C", 4: "- A → B → C"}
+
+
+def test_broken_pdf_reads_no_figures(home, tmp_path):
+    path = tmp_path / "broken.pdf"
+    path.write_bytes(b"%PDF-1.4\nbroken")
+    figures, _ = reader(home, vision_fake())
+    assert asyncio.run(figures.read(path, "abc", ["text"], "qwen3.5:4b", direct)) == {}
+
+
+def test_long_lines_are_split_by_length():
+    parts = split_materials("あ" * 13000)
+    assert [len(p) for p in parts] == [6000, 6000, 1000]
+
+
 def test_figures_are_not_read_without_a_vision_model_or_when_off(home):
     fake = vision_fake()
     figures, settings = reader(home, fake)

@@ -16,6 +16,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from remote_whisper.context_sets import (
+    MATERIALS_CHARS,
     ContextSetError,
     ContextSetService,
     OllamaGenerator,
@@ -146,7 +147,9 @@ def materials_text(paths: list[Path], ranges: list[MaterialRange]) -> str:
             log.warning("failed to read %s for the material range: %s", path, e)
             continue
         texts.append((path.name, text))
-    return join_materials(texts)
+    # 範囲で作り直すときは、今までどおり 1 回の頼みに収まる長さで切る。用語リストは浄書の前に
+    # 作るので、部分に分けて何回も頼むと浄書が遅れる（範囲は資料の一部なので、ふつうは収まる）
+    return join_materials(texts, MATERIALS_CHARS)
 
 
 class RangeService:

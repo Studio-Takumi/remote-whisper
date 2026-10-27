@@ -163,6 +163,9 @@ def create_app(
             await ctx.recorder.close()
         if ctx.final_transcriber is not None:
             await ctx.final_transcriber.close()
+        # 参考資料セットも、Ollama への頼みを 1 回ずつ積んでいるので先に止める（#271）
+        if ctx.context_sets is not None:
+            await ctx.context_sets.close()
         await ctx.gpu.stop()
         if ctx.whisper is not None:
             await ctx.whisper.close()

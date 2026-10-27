@@ -23,6 +23,7 @@ import io
 import json
 import logging
 import re
+import threading
 from collections import Counter
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -63,6 +64,9 @@ DESCRIPTION_CHARS = 1000
 RESTATED_RATIO = 0.8
 # キャッシュの形を変えたら上げる（古いキャッシュは使わない）
 CACHE_VERSION = 1
+# PDFium はスレッドセーフではない（pypdfium2 の README）。参考資料セットは並んで作られうる
+# （to_thread で別々のスレッドから呼ばれる）ので、PDFium を触るところは 1 つずつにする
+_PDFIUM = threading.Lock()
 
 
 @dataclass
@@ -73,13 +77,15 @@ class PageStats:
     image_ratio: float
     shapes: int
     images: int
+    # 背景・テンプレートも含めた画像の数（スキャンはページ全体が 1 枚の画像なので、こちらで見る）
+    all_images: int = 0
 
     @property
     def has_figures(self) -> bool:
         return (
             self.image_ratio >= IMAGE_RATIO
             or self.shapes >= SHAPES
-            or (self.chars < SCAN_CHARS and self.images > 0)
+            or (self.chars < SCAN_CHARS and self.all_images > 0)
         )
 
 
@@ -90,24 +96,26 @@ def page_stats(path: Path, texts: list[str]) -> list[PageStats]:
 
     image, shape = pdfium_c.FPDF_PAGEOBJ_IMAGE, pdfium_c.FPDF_PAGEOBJ_PATH
     pages = []
-    pdf = pdfium.PdfDocument(str(path))
-    try:
-        for page in pdf:
-            w, h = page.get_size()
-            items = []
-            for obj in page.get_objects(max_depth=15):
-                if obj.type not in (image, shape):
-                    continue
-                try:
-                    box = obj.get_bounds()
-                except pdfium.PdfiumError:
-                    continue
-                # テンプレートを見分けるため、位置と大きさを 1% 刻みに丸める
-                key = (obj.type, *(round(v * 100) for v in _relative(box, w, h)))
-                items.append((obj.type, box, key))
-            pages.append((w, h, items))
-    finally:
-        pdf.close()
+    with _PDFIUM:
+        pdf = pdfium.PdfDocument(str(path))
+        try:
+            for page in pdf:
+                w, h = page.get_size()
+                items = []
+                for obj in page.get_objects(max_depth=15):
+                    if obj.type not in (image, shape):
+                        continue
+                    try:
+                        box = obj.get_bounds()
+                    except pdfium.PdfiumError:
+                        continue
+                    # テンプレートを見分けるため、位置と大きさを 1% 刻みに丸める
+                    key = (obj.type, *(round(v * 100) for v in _relative(box, w, h)))
+                    items.append((obj.type, box, key))
+                pages.append((w, h, items))
+                page.close()
+        finally:
+            pdf.close()
 
     seen = Counter(k for _, _, items in pages for k in {key for *_, key in items})
     template = {k for k, n in seen.items() if len(pages) > 2 and n >= len(pages) * TEMPLATE_PAGES}
@@ -126,7 +134,8 @@ def page_stats(path: Path, texts: list[str]) -> list[PageStats]:
             elif max(right - left, top - bottom) >= w * SHAPE_MIN_SIDE:
                 shapes += 1
         chars = len(texts[i].strip()) if i < len(texts) else 0
-        stats.append(PageStats(chars, min(1.0, image_area / area), shapes, images))
+        all_images = sum(1 for kind, *_ in items if kind == image)
+        stats.append(PageStats(chars, min(1.0, image_area / area), shapes, images, all_images))
     return stats
 
 
@@ -136,19 +145,22 @@ def _relative(box: tuple[float, ...], w: float, h: float) -> tuple[float, ...]:
 
 
 def figure_pages(path: Path, texts: list[str]) -> list[int]:
-    """図を読むページ（0 から）。前から MAX_PAGES ページまで"""
-    return [i for i, s in enumerate(page_stats(path, texts)) if s.has_figures][:MAX_PAGES]
+    """図を読むページ（0 から）。前から MAX_PAGES ページまで。
+    テキストを取れたページ（pypdf のページ数）の中だけ（pdfium と数が違っても外に出ない）"""
+    stats = page_stats(path, texts)[: len(texts)]
+    return [i for i, s in enumerate(stats) if s.has_figures][:MAX_PAGES]
 
 
 def render_page(path: Path, index: int) -> bytes:
     """ページを PNG にする"""
     import pypdfium2 as pdfium
 
-    pdf = pdfium.PdfDocument(str(path))
-    try:
-        image = pdf[index].render(scale=RENDER_SCALE).to_pil()
-    finally:
-        pdf.close()
+    with _PDFIUM:
+        pdf = pdfium.PdfDocument(str(path))
+        try:
+            image = pdf[index].render(scale=RENDER_SCALE).to_pil()
+        finally:
+            pdf.close()
     buf = io.BytesIO()
     image.save(buf, format="PNG")
     return buf.getvalue()
@@ -208,7 +220,11 @@ class FigureReader:
         texts は pdf_pages のページのテキスト。run は 1 ページ分の読み取りを GPU キューに積むもの
         """
         cache = self._load(sha1, model)
-        pages = await asyncio.to_thread(figure_pages, path, texts)
+        try:
+            pages = await asyncio.to_thread(figure_pages, path, texts)
+        except Exception:  # noqa: BLE001 PDFium の失敗は種類がまちまち。読めなければテキストだけ
+            log.exception("failed to find the figures in %s", path)
+            return {}
         for index in pages:
             if str(index) in cache:
                 continue
@@ -221,6 +237,9 @@ class FigureReader:
             except Exception:  # noqa: BLE001 1 ページ読めなくても資料全体は止めない
                 log.exception("failed to read the figures on page %d of %s", index + 1, path)
                 continue
+            if not reply.strip():
+                # 空の返事は一時的な失敗かもしれないので、覚えずに次に作るとき読み直す
+                continue
             cache[str(index)] = clean_description(reply, texts[index])
             self._save(sha1, model, cache)
         return {int(k): v for k, v in cache.items() if v and int(k) in pages}
@@ -228,7 +247,7 @@ class FigureReader:
     async def _describe(self, path: Path, index: int, texts: list[str], model: str) -> str:
         image = await asyncio.to_thread(render_page, path, index)
         messages = figure_messages(tidy(texts[index]), base64.b64encode(image).decode())
-        # 思考はオフ（ページごとに数十秒かかるうえ、説明の中身はほとんど変わらなかった）
+        # 思考はオフ（オフで構成図のつながりやグラフの数値まで読めた。ページの時間を延ばさない）
         return await self.ollama.chat(model, messages, think=False)
 
     def _path(self, sha1: str, model: str) -> Path:

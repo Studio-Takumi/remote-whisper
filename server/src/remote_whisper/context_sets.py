@@ -173,7 +173,9 @@ def split_materials(materials: str) -> list[str]:
     """MATERIALS_CHARS 文字ほどずつ、行の区切りで分ける。短ければ 1 つのまま"""
     if len(materials) <= MATERIALS_CHARS:
         return [materials]
-    return ["\n".join(lines) for lines in split_lines(materials.split("\n"), MATERIALS_CHARS)]
+    parts = ["\n".join(lines) for lines in split_lines(materials.split("\n"), MATERIALS_CHARS)]
+    # 改行のない長い行は split_lines では分かれないので、文字数で切る
+    return [p[i : i + MATERIALS_CHARS] for p in parts for i in range(0, len(p), MATERIALS_CHARS)]
 
 
 def sha1_of(path: Path) -> str:
@@ -332,6 +334,15 @@ class ContextSetService:
         task.add_done_callback(_log_failure)
         return {**entry.model_dump(by_alias=True, exclude={"session"}), "reused": False}
 
+    async def close(self) -> None:
+        """サーバーを止めるとき（GPU キューを止める前）。作っている途中のセットの処理を止める。
+        止めないと、GPU キューを止めたあとに次の頼みを積んで、キューを動かし直してしまう。
+        セットは generating のまま残り、次の起動で failed に直す（recover）"""
+        tasks = list(self._tasks)
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
     async def _run(self, job: Callable[[], Awaitable[T]]) -> T:
         """Ollama への 1 回の頼みを GPU キュー（優先度 3）に積んで、終わるのを待つ"""
         return await self.gpu.run(Priority.BACKGROUND, job, kind="contextSet")
@@ -423,7 +434,11 @@ class ContextSetService:
                 texts.append((path.name, await asyncio.to_thread(extract_text, path)))
                 continue
             assert self.figures is not None
-            figures = await self.figures.read(path, ref.sha1, pages, model, self._run)
+            try:
+                figures = await self.figures.read(path, ref.sha1, pages, model, self._run)
+            except Exception:  # noqa: BLE001 図を読めなくても、テキストだけで作る
+                log.exception("failed to read the figures of %s", path)
+                figures = {}
             log.info("read the figures on %d pages of %s", len(figures), path.name)
             texts.append((path.name, with_figures(pages, figures)))
         return texts
