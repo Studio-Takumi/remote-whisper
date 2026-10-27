@@ -207,6 +207,29 @@ def sha1_of(path: Path) -> str:
 OMITTED = "\n（以下省略）"
 
 
+def _shares(texts: list[tuple[str, str]], limit: int) -> list[int]:
+    """資料ごとに使う長さ。合計は limit 以下。長さに比例して按分するが、短い資料が按分で
+    消えないように最低限（200 文字。資料が多いときは limit を等分した長さ）は残す。
+    最低限まで引き上げた資料の分を先に取り、残りをほかの資料で按分し直す"""
+    floor = min(200, limit // len(texts))
+    shares: dict[int, int] = {}
+    while True:
+        rest = [i for i in range(len(texts)) if i not in shares]
+        room = limit - sum(shares.values())
+        total = sum(len(texts[i][1]) for i in rest) or 1
+        raised = {
+            i: min(len(texts[i][1]), floor)
+            for i in rest
+            if room * len(texts[i][1]) // total < min(len(texts[i][1]), floor)
+        }
+        if not raised:
+            break
+        shares.update(raised)
+    for i in rest:
+        shares[i] = min(len(texts[i][1]), room * len(texts[i][1]) // total)
+    return [shares[i] for i in range(len(texts))]
+
+
 def join_materials(texts: list[tuple[str, str]], limit: int = MAX_MATERIALS_CHARS) -> str:
     """資料ごとに見出しを付けてつなぐ。長ければ、それぞれの頭から按分して切る
 
@@ -216,19 +239,7 @@ def join_materials(texts: list[tuple[str, str]], limit: int = MAX_MATERIALS_CHAR
     overhead = sum(len(f"### {name}\n") + len(OMITTED) + 2 for name, _ in texts)
     if total + overhead > limit:
         limit = max(limit - overhead, len(texts))
-    shares = []
-    for _, text in texts:
-        # 短い資料が按分で消えないように最低限は残す
-        # （資料が多いときは、合計が limit を超えないように減らす）
-        floor = min(200, limit // len(texts))
-        shares.append(
-            min(len(text), max(floor, limit * len(text) // total)) if total > limit else len(text)
-        )
-    # 最低限を残した分だけ limit を超えたら、いちばん大きい取り分から引く
-    over = sum(shares) - limit
-    if over > 0:
-        largest = shares.index(max(shares))
-        shares[largest] = max(0, shares[largest] - over)
+    shares = [len(t) for _, t in texts] if total <= limit else _shares(texts, limit)
     parts = []
     for (name, text), share in zip(texts, shares, strict=True):
         body = text[:share] + (OMITTED if len(text) > share else "")
