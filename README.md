@@ -169,7 +169,7 @@ uv run remote-whisper --mock --mock-live-summary-sec 10   # 途中の要約を 1
 
 ### スクリーンショットを撮り直す
 
-`docs/images/` の画像は、モックサーバーとダミーデータを使って Playwright で撮っています。画面の URL に `?demo` を付けると、サーバーのデータではなく `web/src/mock.ts` のダミーデータ（架空のプロジェクトとセッション）を出すので、スクリプトはそれで撮ります。
+`docs/images/` の画像は、モックサーバーとダミーデータを使って Playwright で撮っています。画面の URL に `?demo` を付けると、サーバーのデータではなく `web/src/mock.ts` のダミーデータ（架空のプロジェクトとセッション）を出すので、スクリプトはそれで撮ります。ダミーにない状態（再生できる録音・浄書済み文字起こし・GPU のジョブ・マイクの警告など）は、スクリプトが画面のストアに直接入れて作ります。
 
 ```bash
 cd server && uv run remote-whisper --mock --mock-live-summary-sec 5   # ターミナル 1
@@ -177,7 +177,20 @@ cd web && npm run dev                                                  # ター�
 cd web && npx playwright install chromium && npm run screenshots       # ターミナル 3
 ```
 
-画面の URL は `SCREENSHOT_URL`（既定: `http://localhost:5173`）、手元の Chromium を使うときは `CHROMIUM_PATH` で指定できます。
+`npm run screenshots` は README に載せる画像だけを撮ります。公式 HP の「使い方」で使う場面（録音の流れ・設定の全ページ・うまく動かないときの表示・クラウド版の画面など、約 100 場面）も撮るときは `--all` を付けます。クラウド版の画面は、スクリプトが `localhost` をクラウド用のドメインとして開発サーバーをもう 1 つ（5199 番）立て、Worker の API は偽の返事にし、ホスト宛ての通信はモックサーバーへ流して撮ります。
+
+```bash
+cd web && npm run screenshots -- --all --out ../../rw-hp/public/screenshots   # 全部の場面を HP 用のフォルダへ
+cd web && npm run screenshots -- --only playback,settings --layouts desktop-light   # 一部だけ撮り直す
+```
+
+画像の名前は `<desktop|mobile>-<light|dark>-<場面>.png` です。画面の URL は `SCREENSHOT_URL`（既定: `http://localhost:5173`）、モックサーバーの URL は `SCREENSHOT_SERVER`（既定: `http://localhost:8000`）、手元の Chromium を使うときは `CHROMIUM_PATH` で指定できます。`SCREENSHOT_DEBUG=1` を付けると、撮れなかった場面のそのときの画面を `_fail-…png` として残します。
+
+常駐アイコン（トレイ・メニューバー）の色ごとの画像は、アイコンを描く処理から書き出します。
+
+```bash
+cd server && uv run python tray_icons.py <保存先> 128
+```
 
 ## 別の端末から使う（HTTPS）
 
