@@ -4,7 +4,7 @@
 //   cd server && uv run remote-whisper --mock --mock-live-summary-sec 5
 //   cd web && npm run dev
 // 撮る:
-//   cd web && npm run screenshots                       README と仕様書に載せるものだけ、docs/images/ に
+//   cd web && npm run screenshots                       README に載せるものだけ、docs/images/ に
 //   cd web && npm run screenshots -- --all --out <dir>  公式 HP の「使い方」で使うものも全部、<dir> に
 //
 // オプション:
@@ -52,7 +52,7 @@ const variants = ['desktop-light', 'desktop-dark', 'mobile-light', 'mobile-dark'
     (v) => !args.layouts || args.layouts.split(',').includes(v),
 );
 
-// README と仕様書に載せる画像（--all でないときは、これだけ撮る）
+// README に載せる画像（--all でないときは、これだけ撮る）
 const docsShots = new Set([
     'transcript',
     'summary',
@@ -1217,14 +1217,9 @@ const browser = await chromium.launch({
     args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'],
 });
 
-const wanted = (name) => args.all || docsShots.has(name);
-const picked = scenes.filter((scene) => {
-    const names = scene.shots ?? [scene.name];
-    if (!names.some(wanted)) {
-        return false;
-    }
-    return !only || only.some((o) => names.some((n) => n.includes(o)));
-});
+// 撮る画像。--only に合わないものは、同じ場面の中で撮るものでも保存しない（撮り直したもの以外を上書きしない）
+const wanted = (name) => (args.all || docsShots.has(name)) && (!only || only.some((o) => name.includes(o)));
+const picked = scenes.filter((scene) => (scene.shots ?? [scene.name]).some(wanted));
 
 let failed = 0;
 for (const variant of variants) {
@@ -1279,6 +1274,7 @@ for (const variant of variants) {
                 } else if (clip) {
                     const box = await clip(page).boundingBox();
                     const vp = page.viewportSize();
+                    // 画面の端で切った分は、反対側の余白を広げずにそのまま削る
                     const x = Math.max(0, box.x - pad);
                     const y = Math.max(0, box.y - pad);
                     await page.screenshot({
@@ -1286,8 +1282,8 @@ for (const variant of variants) {
                         clip: {
                             x,
                             y,
-                            width: Math.min(vp.width - x, box.width + pad * 2),
-                            height: Math.min(vp.height - y, box.height + pad * 2),
+                            width: Math.min(vp.width, box.x + box.width + pad) - x,
+                            height: Math.min(vp.height, box.y + box.height + pad) - y,
                         },
                     });
                 } else {
@@ -1307,6 +1303,21 @@ for (const variant of variants) {
                 await page
                     .screenshot({ path: path.join(outDir, `_fail-${variant}-${scene.name}.png`) })
                     .catch(() => {});
+            }
+            // 録音の途中で失敗したら、録音を終えてから閉じる（閉じるだけだと、モックサーバーがセッションを
+            // 60 秒持ち続けて、次の録音の場面を始められない）
+            const stopped = await page
+                .evaluate(async () => {
+                    const s = window.appStore?.getState();
+                    if (!s || s.recordingState === 'idle') {
+                        return false;
+                    }
+                    await s.stopRecording();
+                    return true;
+                })
+                .catch(() => false);
+            if (stopped) {
+                await page.waitForTimeout(1500);
             }
         }
         await context.close();
