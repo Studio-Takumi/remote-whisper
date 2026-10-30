@@ -177,7 +177,7 @@ cd web && npm run dev                                                  # ター�
 cd web && npx playwright install chromium && npm run screenshots       # ターミナル 3
 ```
 
-`npm run screenshots` は README に載せる画像だけを撮ります。公式 HP の「使い方」で使う場面（録音の流れ・設定の全ページ・うまく動かないときの表示・クラウド版の画面など、約 80 場面）も撮るときは `--all` を付けます。クラウド版の画面は、スクリプトが `localhost` をクラウド用のドメインとして開発サーバーをもう 1 つ（5199 番）立て、Worker の API は偽の返事にし、ホスト宛ての通信はモックサーバーへ流して撮ります。
+`npm run screenshots` は README に載せる画像だけを撮ります。公式 HP の「使い方」で使う場面（録音の流れ・設定の全ページ・うまく動かないときの表示・クラウド版の画面など、約 100 場面）も撮るときは `--all` を付けます。クラウド版の画面は、スクリプトが `localhost` をクラウド用のドメインとして開発サーバーをもう 1 つ（5199 番）立て、Worker の API は偽の返事にし、ホスト宛ての通信はモックサーバーへ流して撮ります。
 
 ```bash
 cd web && npm run screenshots -- --all --out ../../rw-hp/public/screenshots   # 全部の場面を HP 用のフォルダへ
