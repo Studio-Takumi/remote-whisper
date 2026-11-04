@@ -12,6 +12,7 @@
     "test": "vitest run",
     "preview": "vite preview",
     "screenshots": "node scripts/screenshots.mjs",
+    "icons": "node scripts/icons.mjs",
     "check:cloud-hosts": "node scripts/cloud-hosts.mjs"
   },
   "dependencies": {

@@ -1,11 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
-  <!-- 仮のアプリのアイコン（#104）。音声の波形。maskable でも切れないよう、中身は中央の 60% に収める -->
-  <rect width="512" height="512" fill="#171717"/>
-  <g fill="none" stroke="#fafafa" stroke-linecap="round" stroke-width="30">
-    <line x1="166" y1="226" x2="166" y2="286"/>
-    <line x1="211" y1="186" x2="211" y2="326"/>
-    <line x1="256" y1="156" x2="256" y2="356"/>
-    <line x1="301" y1="196" x2="301" y2="316"/>
-    <line x1="346" y1="231" x2="346" y2="281"/>
+  <!-- アプリのアイコン（#284）。ターミナルの「>」の後ろに音声の波形が続き、最後の 1 本が赤いカーソル。
+       pwa-192/512.png・apple-touch-icon.png はこれを書き出したもの。角は OS が丸めるので正方形のまま塗り、
+       maskable で丸く切られても欠けないよう、中身は中央の円（半径 40%）に収める -->
+  <rect width="512" height="512" fill="#0F1115"/>
+  <polyline points="120,188 180,256 120,324" fill="none" stroke="#2BB3A3"
+            stroke-width="36" stroke-linecap="round" stroke-linejoin="round"/>
+  <g fill="#E8ECEF">
+    <rect x="228" y="220" width="28" height="72"  rx="14"/>
+    <rect x="276" y="172" width="28" height="168" rx="14"/>
+    <rect x="324" y="200" width="28" height="112" rx="14"/>
   </g>
+  <rect x="372" y="156" width="40" height="200" rx="8" fill="#FF5A4E"/>
 </svg>
