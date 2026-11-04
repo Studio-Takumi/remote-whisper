@@ -13,7 +13,8 @@ from remote_whisper.hub import ServerStatus
 
 Color = Literal["gray", "blue", "red", "orange"]
 
-# 点の色（RGB）。灰: 待機中 / 青: GPU が処理中 / 赤: 録音中 / 橙: Whisper か Ollama が使えない
+# 状態の色（RGB）。アイコンのカーソルの色（#144 では右上の点の色だったので DOT_COLORS）。
+# 灰: 待機中 / 青: GPU が処理中 / 赤: 録音中 / 橙: Whisper か Ollama が使えない
 DOT_COLORS: dict[Color, tuple[int, int, int]] = {
     "gray": (156, 163, 175),
     "blue": (37, 99, 235),

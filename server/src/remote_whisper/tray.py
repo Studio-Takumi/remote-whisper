@@ -52,22 +52,23 @@ log = logging.getLogger(__name__)
 # （Windows は 100% で 16、125% で 20、150% で 24、200% で 32。Mac のメニューバーは 18pt の 1x・2x）
 WINDOWS_ICON_SIZES = (16, 20, 24, 32, 48)
 MAC_ICON_PT = 18
-# 波形の棒の本数と、高さ（アイコンの大きさに対する割合）。画面（PWA）のアイコンと同じ形
-BAR_HEIGHTS = (0.34, 0.56, 0.8, 0.56, 0.34)
-# 右上の点と重なりにくいよう、波形を少し下げる（アイコンの大きさに対する割合）
-BAR_DROP = 0.07
-# 棒の太さと間（アイコンの大きさに対する割合。16px でも 2px・1px は残す）
-BAR_WIDTH = 0.12
-BAR_GAP = 0.06
-# 点の半径と白い縁の太さ（アイコンの大きさに対する割合。16px でも潰れない大きさを下限にする）
-DOT_RADIUS = 0.18
-DOT_EDGE = 0.06
+# アイコンはロゴ（#284）の「>」とカーソルだけ。波形の棒は 16px では潰れるので省き、
+# カーソルの色で状態を示す。以下はどれもアイコンの大きさに対する割合
+# カーソル: 幅・高さ・右の余白（16px でも 4px・12px・2px になる）
+CURSOR_WIDTH = 0.26
+CURSOR_HEIGHT = 0.76
+CURSOR_MARGIN = 0.12
+# 「>」: 線の太さ・高さの半分・カーソルとの間・傾き（高さに対する横幅。ロゴと同じ角度）
+CHEVRON_STROKE = 0.14
+CHEVRON_HALF = 0.28
+CHEVRON_GAP = 0.1
+CHEVRON_SLANT = 0.88
 # 小さい画像は、境目がにじまないよう何倍かで描いてから縮める
 SUPERSAMPLE = 8
 # Mac のライト・ダークの判定を使い回す秒数と、その答え（[調べた時刻, 明るいか]）
 MAC_THEME_CACHE_SEC = 5.0
 _mac_theme_cache: list[Any] = [-MAC_THEME_CACHE_SEC - 1, False]
-BAR_LIGHT, BAR_DARK = (255, 255, 255, 255), (32, 32, 32, 255)
+MARK_LIGHT, MARK_DARK = (255, 255, 255, 255), (32, 32, 32, 255)
 # 状態を見に行く間隔（秒）
 REFRESH_SEC = 1.0
 
@@ -88,41 +89,43 @@ def shows_status_line() -> bool:
 
 
 def icon_image(color: Color, size: int = 32, light: bool = False) -> Any:
-    """size px 四方の、背景が透明なアイコン。波形の棒を描き、右上に状態の色の丸い点を打つ
+    """size px 四方の、背景が透明なアイコン。ロゴの「>」と、状態の色のカーソル（縦の棒）を描く
 
-    小さいほど潰れやすいので、棒の位置と太さは px の格子に合わせる（にじませない）。
-    light は背景（タスクバー・メニューバー）が明るいとき。棒を暗い色にして、見えるようにする
+    小さいほど潰れやすいので、カーソルの位置と大きさは px の格子に合わせる（にじませない）。
+    light は背景（タスクバー・メニューバー）が明るいとき。「>」を暗い色にして、見えるようにする
     """
     from PIL import Image, ImageDraw
 
     k = SUPERSAMPLE
     image = Image.new("RGBA", (size * k, size * k), (0, 0, 0, 0))
     draw = ImageDraw.Draw(image)
-    # 棒: 太さと間は px の整数にし、高さは size と偶奇をそろえて、上下が半 px ずれないようにする
-    width = max(2, round(size * BAR_WIDTH))
-    gap = max(1, round(size * BAR_GAP))
-    total = len(BAR_HEIGHTS) * width + (len(BAR_HEIGHTS) - 1) * gap
-    left = (size - total) // 2
-    drop = round(size * BAR_DROP)
-    bar_color = BAR_DARK if light else BAR_LIGHT
-    for i, ratio in enumerate(BAR_HEIGHTS):
-        height = max(2, round(size * ratio / 2) * 2)
-        x = left + i * (width + gap)
-        y = (size - height) // 2 + drop
-        draw.rounded_rectangle(
-            (x * k, y * k, (x + width) * k - 1, (y + height) * k - 1),
-            radius=width * k / 2,
-            fill=bar_color,
-        )
-    # 小さく表示されても見えるよう、大きめの点に白い縁を付ける（右上の角に寄せる）
-    edge = max(1.0, size * DOT_EDGE)
-    r = max(2.5, size * DOT_RADIUS)
-    cx, cy = size - r - edge, r + edge
-    draw.ellipse(
-        ((cx - r - edge) * k, (cy - r - edge) * k, (cx + r + edge) * k, (cy + r + edge) * k),
-        fill="white",
+    # カーソル: 右に寄せる。高さは size と偶奇をそろえて、上下が半 px ずれないようにする
+    width = max(3, round(size * CURSOR_WIDTH))
+    height = max(4, round(size * CURSOR_HEIGHT / 2) * 2)
+    right = size - max(1, round(size * CURSOR_MARGIN))
+    left = right - width
+    top = (size - height) // 2
+    draw.rounded_rectangle(
+        (left * k, top * k, right * k - 1, (top + height) * k - 1),
+        radius=max(1.0, size * 0.04) * k,
+        fill=DOT_COLORS[color],
     )
-    draw.ellipse(((cx - r) * k, (cy - r) * k, (cx + r) * k, (cy + r) * k), fill=DOT_COLORS[color])
+    # 「>」: カーソルの左に、先を縦の真ん中に合わせて描く。線の端と折れ目は丸める
+    stroke = max(2, round(size * CHEVRON_STROKE))
+    half = size * CHEVRON_HALF
+    tip = left - size * CHEVRON_GAP - stroke / 2
+    back = tip - half * CHEVRON_SLANT
+    middle = size / 2
+    points = [
+        (back * k, (middle - half) * k),
+        (tip * k, middle * k),
+        (back * k, (middle + half) * k),
+    ]
+    mark = MARK_DARK if light else MARK_LIGHT
+    draw.line(points, fill=mark, width=stroke * k, joint="curve")
+    r = stroke * k / 2
+    for x, y in (points[0], points[-1]):
+        draw.ellipse((x - r, y - r, x + r, y + r), fill=mark)
     return image.resize((size, size), Image.BOX)
 
 
