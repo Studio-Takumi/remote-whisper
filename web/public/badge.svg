@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96">
+  <!-- プッシュ通知のバッジ（#284）の元。Android は形（不透明なところ）だけを白で出すので、背景は透明にして
+       ロゴの「>」とカーソルだけを描く。badge.png はこれを書き出したもの -->
+  <polyline points="26,26 46,48 26,70" fill="none" stroke="#FFFFFF"
+            stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="58" y="22" width="14" height="52" rx="3" fill="#FFFFFF"/>
+</svg>

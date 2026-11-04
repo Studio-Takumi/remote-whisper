@@ -372,42 +372,59 @@ def test_mac_server_keeps_running_without_a_menu_bar():
 ICON_SIZES = (16, 18, 20, 24, 32, 36, 48)
 
 
+def opaque_colors(image, x_from, x_to):
+    """x_from 以上 x_to 未満の列にある、不透明な画素の色（RGBA）の集まり"""
+    return {
+        p
+        for x in range(x_from, x_to)
+        for y in range(image.size[1])
+        if (p := image.getpixel((x, y)))[3] == 255
+    }
+
+
 @pytest.mark.parametrize("size", ICON_SIZES)
-def test_icon_is_transparent_with_bars_and_dot(size):
+def test_icon_is_transparent_with_chevron_and_cursor(size):
     pytest.importorskip("PIL")
-    from remote_whisper.tray import DOT_RADIUS, icon_image
+    from remote_whisper.tray import icon_image
 
     image = icon_image("red", size)
     assert image.size == (size, size) and image.mode == "RGBA"
-    # 左上・左下の角は透明（背景を塗らない）
-    assert image.getpixel((0, 0))[3] == 0
-    assert image.getpixel((0, size - 1))[3] == 0
-    # 真ん中の棒は不透明な白
-    assert image.getpixel((size // 2, size // 2)) == (255, 255, 255, 255)
-    # 右上の点の真ん中が、状態の色になっている
-    r = max(2.5, size * DOT_RADIUS)
-    edge = max(1.0, size * 0.06)
-    assert image.getpixel((round(size - r - edge), round(r + edge)))[:3] == DOT_COLORS["red"]
+    # 四隅は透明（背景を塗らない）
+    for corner in ((0, 0), (0, size - 1), (size - 1, 0), (size - 1, size - 1)):
+        assert image.getpixel(corner)[3] == 0
+    # 左半分には白い「>」だけがある
+    assert opaque_colors(image, 0, size // 2) == {(255, 255, 255, 255)}
+    # 右寄りのカーソルの真ん中が、状態の色になっている
+    assert image.getpixel((round(size * 0.75), size // 2)) == (*DOT_COLORS["red"], 255)
+    # 「>」とカーソルの間には、何も描いていない列がある（重なっていない）
+    columns = [{image.getpixel((x, y))[3] for y in range(size)} for x in range(size)]
+    red = (*DOT_COLORS["red"], 255)
+    cursor_left = next(x for x in range(size) if image.getpixel((x, size // 2)) == red)
+    assert any(c == {0} for c in columns[size // 4 : cursor_left])
+    # 上下左右の端の行・列には、何も描いていない（はみ出していない）
+    edges = [(x, y) for x in range(size) for y in (0, size - 1)]
+    edges += [(x, y) for x in (0, size - 1) for y in range(size)]
+    assert all(image.getpixel(p)[3] == 0 for p in edges)
 
 
 @pytest.mark.parametrize("color", list(DOT_COLORS))
-def test_icon_dot_has_state_color_even_at_16px(color):
+def test_icon_cursor_has_state_color_even_at_16px(color):
     pytest.importorskip("PIL")
     from remote_whisper.tray import icon_image
 
     image = icon_image(color, 16)
     pixels = [image.getpixel((x, y)) for x in range(16) for y in range(16)]
-    assert sum(p[:3] == DOT_COLORS[color] and p[3] == 255 for p in pixels) >= 8
+    assert sum(p[:3] == DOT_COLORS[color] and p[3] == 255 for p in pixels) >= 20
 
 
-def test_icon_bars_follow_background_brightness():
+def test_icon_chevron_follows_background_brightness():
     pytest.importorskip("PIL")
     from remote_whisper.tray import icon_image
 
-    dark = icon_image("gray", 32, light=False).getpixel((16, 16))
-    light = icon_image("gray", 32, light=True).getpixel((16, 16))
-    assert dark == (255, 255, 255, 255)
-    assert light[:3] != dark[:3] and light[3] == 255
+    dark = opaque_colors(icon_image("gray", 32, light=False), 0, 16)
+    light = opaque_colors(icon_image("gray", 32, light=True), 0, 16)
+    assert dark == {(255, 255, 255, 255)}
+    assert light == {(32, 32, 32, 255)}
 
 
 def test_icon_images_carry_every_size_for_the_ico(monkeypatch):

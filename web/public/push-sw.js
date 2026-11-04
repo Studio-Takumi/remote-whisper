@@ -52,7 +52,8 @@ self.addEventListener('push', (event) => {
                 // 同じセッションの通知は 1 つにまとめる
                 tag,
                 icon: '/pwa-192.png',
-                badge: '/pwa-192.png',
+                // Android は形だけを白で出すので、背景が透明なバッジにする（不透明なアイコンだと白い四角になる）
+                badge: '/badge.png',
                 silent: showing,
                 data: { url },
             });
