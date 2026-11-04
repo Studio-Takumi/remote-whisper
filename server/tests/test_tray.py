@@ -396,6 +396,15 @@ def test_icon_is_transparent_with_chevron_and_cursor(size):
     assert opaque_colors(image, 0, size // 2) == {(255, 255, 255, 255)}
     # 右寄りのカーソルの真ん中が、状態の色になっている
     assert image.getpixel((round(size * 0.75), size // 2)) == (*DOT_COLORS["red"], 255)
+    # 「>」とカーソルの間には、何も描いていない列がある（重なっていない）
+    columns = [{image.getpixel((x, y))[3] for y in range(size)} for x in range(size)]
+    red = (*DOT_COLORS["red"], 255)
+    cursor_left = next(x for x in range(size) if image.getpixel((x, size // 2)) == red)
+    assert any(c == {0} for c in columns[size // 4 : cursor_left])
+    # 上下左右の端の行・列には、何も描いていない（はみ出していない）
+    edges = [(x, y) for x in range(size) for y in (0, size - 1)]
+    edges += [(x, y) for x in (0, size - 1) for y in range(size)]
+    assert all(image.getpixel(p)[3] == 0 for p in edges)
 
 
 @pytest.mark.parametrize("color", list(DOT_COLORS))
@@ -415,7 +424,7 @@ def test_icon_chevron_follows_background_brightness():
     dark = opaque_colors(icon_image("gray", 32, light=False), 0, 16)
     light = opaque_colors(icon_image("gray", 32, light=True), 0, 16)
     assert dark == {(255, 255, 255, 255)}
-    assert len(light) == 1 and light != dark
+    assert light == {(32, 32, 32, 255)}
 
 
 def test_icon_images_carry_every_size_for_the_ico(monkeypatch):
