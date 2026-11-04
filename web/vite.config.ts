@@ -39,7 +39,8 @@ export default defineConfig({
                 start_url: '/',
                 scope: '/',
                 display: 'standalone',
-                background_color: '#171717',
+                // 起動画面の背景はアイコン（#284）の背景に揃える。上のバーの色（theme_color）は画面の色のまま
+                background_color: '#0F1115',
                 theme_color: '#171717',
                 icons: [
                     { src: 'pwa-192.png', sizes: '192x192', type: 'image/png' },
