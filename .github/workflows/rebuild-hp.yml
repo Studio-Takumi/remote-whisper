@@ -1,0 +1,18 @@
+name: rebuild-hp
+
+# Release を出したら公式 HP（rw-hp）を作り直し、ダウンロードのリンクを新しい版にする
+on:
+  release:
+    types: [published, edited, deleted]
+  workflow_dispatch:
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.RW_HP_DISPATCH_TOKEN }}
+    steps:
+      - if: env.GH_TOKEN == ''
+        run: echo "::notice::RW_HP_DISPATCH_TOKEN が未登録なので HP の作り直しを飛ばします"
+      - if: env.GH_TOKEN != ''
+        run: gh workflow run deploy.yml -R Studio-Takumi/rw-hp -f reason="remote-whisper ${{ github.event.release.tag_name || 'manual' }}"
