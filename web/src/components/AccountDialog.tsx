@@ -11,6 +11,7 @@ import {
     fetchMe,
     loginHref,
     logout,
+    logoutEverywhere,
     putDataCollection,
     removeIdentity,
     useAccountStore,
@@ -27,6 +28,7 @@ export function AccountDialog({ open, onOpenChange }: { open: boolean; onOpenCha
     const { me, setMe } = useAccountStore();
     const dispatch = useCloudStore((s) => s.dispatch);
     const [confirmDelete, setConfirmDelete] = useState(false);
+    const [confirmAll, setConfirmAll] = useState(false);
     const [saving, setSaving] = useState(false);
 
     // 開いたときに取り直す（ほかのタブで足した手段も出すため）
@@ -43,6 +45,21 @@ export function AccountDialog({ open, onOpenChange }: { open: boolean; onOpenCha
         // ホストから消す DELETE はログイン中でないと通らないので、ログアウトの前に
         await stopPushOnSignOut();
         await logout().catch(() => undefined);
+        setMe(null);
+        dispatch({ type: 'loggedOut' });
+        onOpenChange(false);
+    };
+
+    // すべての端末からログアウト（#250）。成功したら、今の端末もログアウトしてログインの画面に戻る
+    const signOutEverywhere = async () => {
+        await stopPushOnSignOut();
+        try {
+            await logoutEverywhere();
+        } catch (e) {
+            toast.error(`ログアウトできません: ${(e as Error).message}`);
+            return;
+        }
+        setConfirmAll(false);
         setMe(null);
         dispatch({ type: 'loggedOut' });
         onOpenChange(false);
@@ -89,6 +106,7 @@ export function AccountDialog({ open, onOpenChange }: { open: boolean; onOpenCha
             open={open}
             onOpenChange={(o) => {
                 setConfirmDelete(false);
+                setConfirmAll(false);
                 onOpenChange(o);
             }}
         >
@@ -148,10 +166,39 @@ export function AccountDialog({ open, onOpenChange }: { open: boolean; onOpenCha
                                 現在は収集していません。収集を始めるときは、何を何に使うかをここに書きます
                             </p>
                         </section>
-                        <section className='flex flex-wrap items-center justify-between gap-2 border-t pt-3'>
-                            <Button size='sm' variant='outline' onClick={() => void signOut()}>
-                                ログアウト
-                            </Button>
+                        <section className='flex flex-col gap-2 border-t pt-3'>
+                            <div className='flex flex-wrap items-center gap-2'>
+                                <Button size='sm' variant='outline' onClick={() => void signOut()}>
+                                    ログアウト
+                                </Button>
+                                {!confirmAll && (
+                                    <Button
+                                        size='sm'
+                                        variant='outline'
+                                        onClick={() => {
+                                            setConfirmDelete(false);
+                                            setConfirmAll(true);
+                                        }}
+                                    >
+                                        すべての端末からログアウト
+                                    </Button>
+                                )}
+                            </div>
+                            {confirmAll && (
+                                <div className='flex flex-wrap items-center gap-2'>
+                                    <span className='text-xs text-destructive'>
+                                        この端末を含め、すべての端末でログアウトします
+                                    </span>
+                                    <Button size='sm' variant='destructive' onClick={() => void signOutEverywhere()}>
+                                        ログアウトする
+                                    </Button>
+                                    <Button size='sm' variant='ghost' onClick={() => setConfirmAll(false)}>
+                                        やめる
+                                    </Button>
+                                </div>
+                            )}
+                        </section>
+                        <section className='flex flex-wrap items-center justify-end gap-2 border-t pt-3'>
                             {confirmDelete ? (
                                 <span className='flex items-center gap-2'>
                                     <span className='text-xs text-destructive'>
@@ -162,7 +209,14 @@ export function AccountDialog({ open, onOpenChange }: { open: boolean; onOpenCha
                                     </Button>
                                 </span>
                             ) : (
-                                <Button size='sm' variant='ghost' onClick={() => setConfirmDelete(true)}>
+                                <Button
+                                    size='sm'
+                                    variant='ghost'
+                                    onClick={() => {
+                                        setConfirmAll(false);
+                                        setConfirmDelete(true);
+                                    }}
+                                >
                                     退会…
                                 </Button>
                             )}

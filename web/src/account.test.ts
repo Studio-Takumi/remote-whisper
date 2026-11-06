@@ -1,6 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { type Me, addableProviders, canRemove, canSubmitConsent, consentPayload, loginHref } from '@/account';
+import {
+    type Me,
+    addableProviders,
+    canRemove,
+    canSubmitConsent,
+    consentPayload,
+    loginHref,
+    logoutEverywhere,
+} from '@/account';
 
 const me: Me = {
     id: 'u1',
@@ -35,6 +43,14 @@ describe('account', () => {
         expect(canSubmitConsent(false, false)).toBe(false);
         expect(canSubmitConsent(true, true)).toBe(false);
         expect(canSubmitConsent(true, false)).toBe(true);
+    });
+
+    it('すべての端末からログアウトは DELETE /me/sessions を呼ぶ', async () => {
+        const fetchMock = vi.fn(async () => Response.json({ ok: true }));
+        vi.stubGlobal('fetch', fetchMock);
+        await logoutEverywhere();
+        expect(fetchMock).toHaveBeenCalledWith('/me/sessions', expect.objectContaining({ method: 'DELETE' }));
+        vi.unstubAllGlobals();
     });
 
     it('最後の 1 つは外せない', () => {

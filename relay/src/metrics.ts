@@ -31,6 +31,7 @@ const KNOWN_SEGMENTS = new Set([
     'me',
     'identities',
     'hosts',
+    'sessions',
     'metrics',
     'recording',
     'consent',
