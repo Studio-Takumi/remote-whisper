@@ -152,6 +152,16 @@ describe('ダウンロードにするときの Content-Disposition（#253）', (
         expect(attachmentDisposition(`inline; filename*=UTF-8''a%00.html`)).toBe('attachment');
     });
 
+    it('filename* は C1・向きの制御・ゼロ幅の文字が出ても落とす（invoice‮lmth.exe のような偽装）', () => {
+        for (const bad of ['%C2%85', '%C2%9F', '%E2%80%AE', '%E2%80%AA', '%E2%81%A6', '%E2%81%A9', '%E2%80%8B']) {
+            expect(attachmentDisposition(`inline; filename*=UTF-8''invoice${bad}lmth.exe`), bad).toBe('attachment');
+        }
+        // 普通の日本語は残す
+        expect(attachmentDisposition(`inline; filename*=UTF-8''%E8%AD%B0%E4%BA%8B%E9%8C%B2.html`)).toBe(
+            `attachment; filename*=UTF-8''%E8%AD%B0%E4%BA%8B%E9%8C%B2.html`,
+        );
+    });
+
     it('形の合わない filename* は落とす（UTF-8 以外・生の空白や引用符・壊れた %XX・UTF-8 として読めない）', () => {
         for (const bad of [
             `iso-8859-1''a.html`,
@@ -187,5 +197,33 @@ describe('ダウンロードにするときの Content-Disposition（#253）', (
         expect(out.get('Set-Cookie')).toBeNull();
         expect(out.get('Content-Security-Policy-Report-Only')).toBeNull();
         expect(out.get('Content-Security-Policy')).toContain('sandbox');
+    });
+
+    it('JavaScript・CSS の型は application/octet-stream に替え、ダウンロードにする（画面にスクリプト・スタイルとして読ませない）', () => {
+        for (const type of [
+            'text/javascript; charset=utf-8',
+            'application/javascript',
+            'application/ecmascript',
+            'text/css',
+        ]) {
+            const out = safeResponseHeaders(new Response('x', { headers: { 'Content-Type': type } }));
+            expect(out.get('Content-Type'), type).toBe('application/octet-stream');
+            expect(out.get('X-Content-Type-Options'), type).toBe('nosniff');
+            expect(out.get('Content-Disposition'), type).toBe('attachment');
+        }
+        // ほかの型はそのまま
+        const json = safeResponseHeaders(new Response('{}', { headers: { 'Content-Type': 'application/json' } }));
+        expect(json.get('Content-Type')).toBe('application/json');
+    });
+
+    it('本文のない 204・304 には attachment を付けない（型がなくても）', () => {
+        for (const status of [204, 304]) {
+            const res = new Response(null, { status, headers: { ETag: '"a"' } });
+            expect(res.headers.get('Content-Type')).toBeNull();
+            expect(safeResponseHeaders(res).get('Content-Disposition'), String(status)).toBeNull();
+        }
+        // 型のない 200 は今までどおり
+        const plain = new Response(null, { status: 200 });
+        expect(safeResponseHeaders(plain).get('Content-Disposition')).toBe('attachment');
     });
 });
