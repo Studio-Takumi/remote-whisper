@@ -93,7 +93,9 @@ export default defineConfig({
     },
     server: {
         proxy: {
-            '/api': server,
+            // Host は書き換えない（changeOrigin を付けない。文字列だけで書くと付く）。サーバーは Host と Origin が
+            // 同じオリジンかを確かめる（#249）ので、Host も Origin も開発サーバーのもの（localhost:5190 など）にそろえる
+            '/api': { target: server },
             '/ws': { target: server, ws: true },
         },
     },

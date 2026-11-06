@@ -142,7 +142,7 @@ npm install
 npm run dev
 ```
 
-開発中は、Vite の dev server が `/api` と `/ws` をサーバー（既定は `http://localhost:8000`）へ転送します。転送先は環境変数 `REMOTE_WHISPER_SERVER` で変えられます。
+開発中は、Vite の dev server が `/api` と `/ws` をサーバー（既定は `http://localhost:8000`）へ転送します。転送先は環境変数 `REMOTE_WHISPER_SERVER` で変えられます。別の PC のサーバーへ流すときは、開発サーバーを `http://localhost:5173` のように `localhost`（か IP アドレス）で開いてください。開発しているマシンの名前（`mac.local` など）で開くと、サーバーの PC からは知らない名前なので `403` になります（[spec/api.md 7.5](docs/spec/api.md)）。
 
 CI と同じチェックは次のとおりです。
 
@@ -244,6 +244,8 @@ HTTPS にする方法は何でも構いません。どの方法でも、`/api` �
 - Cloudflare Tunnel（Cloudflare Access などで自分だけが入れるようにしてください）
 - Caddy や nginx と Let's Encrypt の組み合わせ
 - [mkcert](https://github.com/FiloSottile/mkcert) で作った証明書（LAN 内だけで使う場合。証明書を各端末に信頼させる必要があります）
+
+サーバーは、ほかのサイトから使われないように、開いた名前（`Host`）と画面のオリジン（`Origin`）を確かめています（[spec/api.md 7.5](docs/spec/api.md)）。IP アドレス・`localhost`・`*.ts.net`・この PC の名前のほかの名前で開くときは、ホストの PC で `http://127.0.0.1:8000` を開き、設定の「表示・その他」の「許可するホスト名」にその名前（例: `rw.example.com`）を足してください。足していない名前で開くと `403` になります。
 
 ### 開発中
 

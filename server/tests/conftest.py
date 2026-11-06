@@ -37,6 +37,17 @@ def _isolated_home(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _testclient_host(request, monkeypatch):
+    """TestClient は Host に `testserver` を入れるので、この PC の名前として扱う（#249）
+
+    Host・Origin の確認そのもののテスト（test_host_check）では差し替えない
+    """
+    if request.module.__name__ == "test_host_check":
+        return
+    monkeypatch.setattr("remote_whisper.host_check.machine_names", lambda: {"testserver"})
+
+
+@pytest.fixture(autouse=True)
 def _simple_vad(request, monkeypatch):
     """区間の切り出しを、Silero VAD の代わりに音の大きさで判定する（テストの音は一定の音のため）
 

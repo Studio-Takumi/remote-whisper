@@ -52,7 +52,8 @@ def main() -> None:
     path = logs.setup(home)
     log.info("writing logs to %s", path)
     try:
-        app = create_app(home, mock=args.mock, mock_timing=timing)
+        # --host が名前なら、その名前で開くのも許す（トレイの「ブラウザで開く」もその名前。#249）
+        app = create_app(home, mock=args.mock, mock_timing=timing, listen_host=args.host)
         config = uvicorn.Config(
             app, host=args.host, port=args.port, log_config=None, access_log=False
         )
