@@ -6,6 +6,7 @@ import { createMathPlugin } from '@streamdown/math';
 import { Streamdown } from 'streamdown';
 
 import { copySelection } from '@/copyMarkdown';
+import { rehypePlugins } from '@/markdownImages';
 
 // 講義の要約では $x$ のようなインライン数式が出てくるので、$ 1つでも数式として扱う
 const math = createMathPlugin({ singleDollarTextMath: true });
@@ -23,7 +24,7 @@ function onCopy(e: ClipboardEvent<HTMLDivElement>) {
 export function Markdown({ children, streaming = false }: { children: string; streaming?: boolean }) {
     return (
         <div onCopy={onCopy}>
-            <Streamdown plugins={{ code, math, cjk }} isAnimating={streaming}>
+            <Streamdown plugins={{ code, math, cjk }} rehypePlugins={rehypePlugins} isAnimating={streaming}>
                 {children}
             </Streamdown>
         </div>
