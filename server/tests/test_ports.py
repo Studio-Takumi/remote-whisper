@@ -55,7 +55,8 @@ def test_bind_first_free_returns_none_when_all_are_in_use():
 def test_bind_first_free_holds_the_port_until_it_is_closed():
     sock, port = ports.bind_first_free("127.0.0.1", [free_port()])
     try:
-        # 選んだ番号は、ソケットを持っている間は取られない
+        # uvicorn が待ち受け始めたあと（listen 済み）は、選んだ番号は取られない
+        sock.listen()
         assert ports.bind_first_free("127.0.0.1", [port]) == (None, None)
     finally:
         sock.close()
