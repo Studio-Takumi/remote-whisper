@@ -293,7 +293,7 @@ erDiagram
         text public_key
         text status "pending・approved・rejected"
         text user_id FK "承認した人"
-        text client_hash "申請した接続元のハッシュ（回数の制限）"
+        text client_hash "申請した接続元の HMAC（回数の制限。鍵は relay_keys）"
         int last_polled_at
         int created_at
         int expires_at
@@ -314,6 +314,11 @@ erDiagram
         text link_user_id FK "手段を足すときの今のユーザー"
         int created_at
         int expires_at "10 分。1 回使ったら消す"
+    }
+    relay_keys {
+        text name PK "client_hash（接続元のハッシュの鍵）"
+        text key "32 バイトの乱数（base64url）。初めて要るときに作る"
+        int created_at
     }
 ```
 
