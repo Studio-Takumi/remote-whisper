@@ -1,0 +1,4 @@
+# Mac のシェルスクリプトと Info.plist は、どの OS で取り出しても LF にする（CRLF だと動かない。#292）
+*.sh text eol=lf
+mac/* text eol=lf
+icon/*.icns binary

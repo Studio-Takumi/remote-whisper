@@ -1,12 +1,19 @@
-# Windows の配布用のビルドとインストーラ（#168）
+# Windows の配布用のビルドとインストーラ（#168）と、Mac の .app と .dmg（#292）
 #
 # 数 GB のダウンロード・展開があるので、PR では動かさない（PR では packaging/ を変えたときの文法チェックだけ）。
-# 手で動かすとき（Actions の画面から。ブランチを選べる）と、v* のタグを push したときに動く。
-# できたインストーラは artifact に置く。タグのときは、下書きのリリースにも付ける
+# 手で動かすとき（Actions の画面から。ブランチと、作るもの（両方・Windows だけ・Mac だけ）を選べる）と、
+# v* のタグを push したときに動く（タグのときは両方）。
+# できたインストーラと .dmg は artifact に置く。タグのときは、下書きのリリースにも付ける
 name: Package
 
 on:
   workflow_dispatch:
+    inputs:
+      target:
+        description: 作るもの
+        type: choice
+        options: [both, windows, mac]
+        default: both
   push:
     tags: ["v*"]
   pull_request:
@@ -40,8 +47,23 @@ jobs:
           }
           if ($failed) { exit 1 }
 
+  # Mac の側の軽い確認（#292）。シェルの文法と Info.plist の形だけ見る
+  check-mac:
+    if: github.event_name == 'pull_request'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Parse shell scripts and Info.plist
+        run: |
+          set -euo pipefail
+          for file in packaging/*.sh packaging/mac/*.sh; do
+            bash -n "$file"
+            echo "ok: $file"
+          done
+          plutil -lint packaging/mac/Info.plist
+
   windows:
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && inputs.target != 'mac'
     runs-on: windows-latest
     timeout-minutes: 90
     # ビルドには書き込みの権限を付けない（リリースを作るのは、下の別のジョブ）
@@ -170,10 +192,92 @@ jobs:
           path: ${{ runner.temp }}/setup.log
           if-no-files-found: ignore
 
+  # Mac（Apple シリコン）の .app と .dmg（#292）。macos-latest は arm64
+  mac:
+    if: github.event_name != 'pull_request' && inputs.target != 'windows'
+    runs-on: macos-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      SMOKE_PORT: "18292"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: server/uv.lock
+          version: "0.13.4"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # 版の決め方は Windows と同じ
+      - name: Decide the version
+        id: version
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [ "$REF_TYPE" = tag ]; then
+            version="${REF_NAME#v}"
+          else
+            version="$(git rev-parse --short HEAD)"
+          fi
+          if ! [[ "$version" =~ ^[0-9A-Za-z][0-9A-Za-z._+-]*$ ]]; then
+            echo "invalid version: $version" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "version: $version"
+
+      - name: Build the app and the dmg
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          uname -m
+          sw_vers
+          packaging/build-mac.sh --out-dir "$RUNNER_TEMP/rw-mac" --version "$VERSION"
+
+      # .dmg に入れる前の .app から動かして確かめる
+      - name: Smoke test (build)
+        run: packaging/smoke-mac.sh "$RUNNER_TEMP/rw-mac/Remote Whisper.app" "$RUNNER_TEMP/rw-data-app" "$SMOKE_PORT"
+
+      # .dmg を開いて、利用者と同じように .app を写し、同じ確認をする
+      - name: Install from the dmg
+        run: |
+          set -euo pipefail
+          rm -rf "$RUNNER_TEMP/rw-mac/Remote Whisper.app"
+          dmg="$(ls "$RUNNER_TEMP"/rw-mac/remote-whisper-*-mac-arm64.dmg)"
+          mnt="$RUNNER_TEMP/rw-dmg"
+          hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "$dmg"
+          ls -la "$mnt"
+          # .dmg には .app と、アプリケーションへの記号リンクが入っている
+          test -d "$mnt/Remote Whisper.app"
+          test "$(readlink "$mnt/Applications")" = /Applications
+          mkdir -p "$RUNNER_TEMP/rw-installed"
+          ditto "$mnt/Remote Whisper.app" "$RUNNER_TEMP/rw-installed/Remote Whisper.app"
+          hdiutil detach "$mnt"
+
+      - name: Smoke test (installed)
+        run: packaging/smoke-mac.sh "$RUNNER_TEMP/rw-installed/Remote Whisper.app" "$RUNNER_TEMP/rw-data-installed" "$SMOKE_PORT"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: remote-whisper-mac-dmg
+          path: ${{ runner.temp }}/rw-mac/remote-whisper-*-mac-arm64.dmg
+          # dmg はすでに圧縮してある
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 14
+
   # タグのときだけ、下書きのリリースを作る。書き込みの権限はこのジョブだけに付ける
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: windows
+    needs: [windows, mac]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -186,5 +290,9 @@ jobs:
         with:
           name: remote-whisper-windows-installer
           path: installer
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: remote-whisper-mac-dmg
+          path: installer
       - name: Create a draft release
-        run: gh release create "$TAG" installer/remote-whisper-setup-*.exe --draft --generate-notes --title "$TAG"
+        run: gh release create "$TAG" installer/remote-whisper-setup-*.exe installer/remote-whisper-*-mac-arm64.dmg --draft --generate-notes --title "$TAG"
