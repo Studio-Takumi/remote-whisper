@@ -4,15 +4,22 @@
 
 `remote-whisper-gui`（Windows）は同じものを、コンソールを出さずに起動する（#135）。
 状態はタスクトレイ（Mac はメニューバー。#136）のアイコンで見る
+
+--auto-port を付けると、8000 番から順に空いている番号を探す（インストーラのショートカット用。#290。
+ports.py）。付けないときは今までどおり 8000 番（か --port の番号）で、使われていれば起動に失敗する。
+すでに同じデータのルートで動いているサーバーがあれば、2 つ目は起動せずにその画面を開く
 """
 
 import argparse
+import contextlib
 import logging
+import sys
 import threading
+import webbrowser
 
 import uvicorn
 
-from remote_whisper import cloud, logs, tray
+from remote_whisper import cloud, logs, ports, tray
 from remote_whisper.announcements import AnnouncementWatcher
 from remote_whisper.app import create_app
 from remote_whisper.cloudflared import CloudflaredRunner
@@ -22,11 +29,42 @@ from remote_whisper.tunnel import TunnelPort
 
 log = logging.getLogger("remote_whisper")
 
+NO_PORT_MESSAGE = (
+    "{first}〜{last} 番がすべてほかのアプリに使われているため、起動できませんでした\n"
+    "使っているアプリを閉じてから、もう一度起動してください"
+)
+PORT_CHANGED_NOTICE = "ほかのアプリが {default} 番を使っていたため、{port} 番で起動しました"
 
-def main() -> None:
+
+class PreboundServer(uvicorn.Server):
+    """bind 済みのソケットで待ち受ける uvicorn（番号を選んでから開くまでに取られないように）"""
+
+    def __init__(self, config: uvicorn.Config, sockets: list):
+        super().__init__(config)
+        self._prebound = sockets
+
+    def run(self, sockets: list | None = None) -> None:
+        super().run(sockets or self._prebound)
+
+
+def _say(message: str) -> None:
+    """標準エラーに出す（pythonw では stderr がないので、出せなくても止めない）"""
+    with contextlib.suppress(Exception):
+        if sys.stderr is not None:
+            print(message, file=sys.stderr)
+
+
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="remote-whisper")
     parser.add_argument("--host", default="127.0.0.1", help="待ち受けるアドレス（既定: 127.0.0.1）")
-    parser.add_argument("--port", type=int, default=8000, help="待ち受けるポート（既定: 8000）")
+    parser.add_argument(
+        "--port", type=int, default=None, help="待ち受けるポート（既定: 8000。使われていれば失敗）"
+    )
+    parser.add_argument(
+        "--auto-port",
+        action="store_true",
+        help="8000 番が使われていたら、空いている番号を順に使う（--port とは同時に使えない）",
+    )
     parser.add_argument(
         "--mock",
         action="store_true",
@@ -43,21 +81,55 @@ def main() -> None:
         action="store_true",
         help="タスクトレイ（Windows）・メニューバー（Mac）にアイコンを出さない",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
+    if args.auto_port and args.port is not None:
+        parser.error("--auto-port と --port は同時に使えません")
 
     timing = MockTiming(live_summary=args.mock_live_summary_sec)
     home = default_home()
+    use_tray = not args.no_tray and tray.available()
+    # データのルートのロックを取れなければ、同じデータで動いている（起動中を含む）サーバーがある。
+    # 2 つ目は起動せずに、動いている方の画面を開く
+    # （ログは動いている方が書いているので、ここでは開かない）
+    if not ports.acquire_lock(home):
+        url = ports.wait_for_running(home)
+        if url is None:
+            _say("すでに起動していますが、画面の場所を確認できなかったため、何も開きませんでした")
+        else:
+            _say(f"すでに {url} で動いているため、起動しませんでした")
+            if use_tray:
+                webbrowser.open(url)
+        return
+    if args.auto_port:
+        socks, port = ports.bind_first_free(args.host, ports.CANDIDATE_PORTS)
+    else:
+        # 今までどおり。bind は uvicorn に任せる（使われていれば起動に失敗する）
+        socks, port = None, args.port or ports.DEFAULT_PORT
     # ログは <データのルート>/log/server.log にも書く（#134）。uvicorn のログもそこに入れ、
     # アクセスログは自前（API のリクエストだけ。app.py）で書く
     path = logs.setup(home)
     log.info("writing logs to %s", path)
+    if port is None:
+        message = NO_PORT_MESSAGE.format(
+            first=ports.CANDIDATE_PORTS[0], last=ports.CANDIDATE_PORTS[-1]
+        )
+        log.error(message)
+        _say(message)
+        if use_tray:
+            tray.show_message(message)
+        logs.shutdown()
+        ports.release_lock()
+        sys.exit(1)
     try:
+        ports.write_port(home, args.host, port)
+        notice = None
+        if args.auto_port and port != ports.DEFAULT_PORT:
+            notice = PORT_CHANGED_NOTICE.format(default=ports.DEFAULT_PORT, port=port)
+            log.warning(notice)
         # --host が名前なら、その名前で開くのも許す（トレイの「ブラウザで開く」もその名前。#249）
         app = create_app(home, mock=args.mock, mock_timing=timing, listen_host=args.host)
-        config = uvicorn.Config(
-            app, host=args.host, port=args.port, log_config=None, access_log=False
-        )
-        server = uvicorn.Server(config)
+        config = uvicorn.Config(app, host=args.host, port=port, log_config=None, access_log=False)
+        server = PreboundServer(config, socks) if socks else uvicorn.Server(config)
         # トンネル専用の 8001 番（#160）。クラウドに登録しているときだけ開く
         # 8000 番と同じイベントループで動かす。ループは app の lifespan が渡す
         tunnel = TunnelPort(app, home)
@@ -69,14 +141,11 @@ def main() -> None:
             port_ready=lambda: tunnel.is_open,
         )
         app.state.cloudflared = runner
-        if args.no_tray or not tray.available():
+        if not use_tray:
             server.run()
             return
         # Windows: サーバーはメインスレッドで動かし（Ctrl+C で止められるように）、
         # トレイは別のスレッドで出す。Mac はその逆（AppKit はメインスレッドでしか動かない）
-        host = "127.0.0.1" if args.host in ("0.0.0.0", "::") else args.host
-        if ":" in host:
-            host = f"[{host}]"  # IPv6 のアドレスは URL では [] で囲む
         cloud_host = cloud.CloudHost(
             home,
             relay_url=lambda: app.state.ctx.settings.get().cloud.relay_url,
@@ -96,7 +165,7 @@ def main() -> None:
         runner.on_notice = lambda message: cloud_host.on_notice(message)
         icon = tray.Tray(
             status=lambda: app.state.ctx.hub.status,
-            url=f"http://{host}:{args.port}/",
+            url=ports.browser_url(args.host, port),
             log_dir=path.parent,
             # 止めるとき（lifespan の後片付け）を経てから止まる
             on_quit=lambda: setattr(server, "should_exit", True),
@@ -104,6 +173,8 @@ def main() -> None:
             cloud=cloud_host,
             # 運営からのお知らせ（#164）。登録しているときだけ、新しい版を読みに行く
             announcements=AnnouncementWatcher(home, notify=lambda m: cloud_host.on_notice(m)),
+            # 8000 番が使われていて別の番号にしたとき、アイコンが出たら知らせる
+            notice=notice,
         )
         if tray.must_run_on_main_thread():
             _serve_with_tray_on_main_thread(server, icon)
@@ -115,6 +186,8 @@ def main() -> None:
         finally:
             icon.stop()
     finally:
+        ports.clear_port(home)
+        ports.release_lock()
         log.info("server stopped")
         logs.shutdown()
 
