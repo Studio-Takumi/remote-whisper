@@ -31,6 +31,8 @@ args=()
 for a in "$@"; do
     case "$a" in
         --login) open_browser=0 ;;
+        # LaunchServices が付けることのあるプロセスの番号（サーバーは知らない引数なので捨てる）
+        -psn_*) ;;
         # --port <番号> を渡したときは、その番号だけを使う（--auto-port とは同時に使えない）
         --port | --port=*) auto_port=0; args+=("$a") ;;
         *) args+=("$a") ;;

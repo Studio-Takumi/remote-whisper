@@ -191,4 +191,6 @@ if [ "$make_dmg" = 1 ]; then
     hdiutil create -volname "$APP_NAME" -srcfolder "$stage" -fs APFS -format ULMO -ov "$dmg"
     rm -rf "$out_dir/work"
     echo "== dmg: $dmg ($(du -sm "$dmg" | cut -f 1) MB)"
+    # 利用者が、落とした .dmg と比べられるように出す（docs/install-mac.md の「開けないとき」）
+    echo "SHA256 $(shasum -a 256 "$dmg" | cut -d ' ' -f 1)  $(basename "$dmg")"
 fi

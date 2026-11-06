@@ -32,8 +32,13 @@ fail() { echo "smoke test failed: $1" >&2; exit 1; }
 
 unset REMOTE_WHISPER_WEB_DIST REMOTE_WHISPER_BUNDLE_DIR
 export REMOTE_WHISPER_HOME="$data_dir"
-# 画面を開く代わりに何もしない（CI にブラウザはない。--login でも開かないが、2 つ目の起動は開こうとする）
-export BROWSER="/usr/bin/true %s"
+# 画面を開く代わりに、開こうとした URL を記録する（CI にブラウザはない）。Python の webbrowser は
+# BROWSER の %s に URL を入れて動かす
+browser_dir="$(mktemp -d)"
+opened="$browser_dir/opened.txt"
+printf '#!/bin/sh\nprintf "%%s\\n" "$1" >> "%s"\n' "$opened" > "$browser_dir/record-url"
+chmod 755 "$browser_dir/record-url"
+export BROWSER="$browser_dir/record-url %s"
 
 pids=()
 cleanup() {
@@ -45,6 +50,7 @@ cleanup() {
         [ -n "$pid" ] && kill -KILL "$pid" 2>/dev/null || true
     done
     [ -n "${listener:-}" ] && kill "$listener" 2>/dev/null || true
+    rm -rf "$browser_dir"
 }
 trap cleanup EXIT
 
@@ -117,6 +123,20 @@ wait "${pids[0]}" 2>/dev/null || true
 pids=()
 [ -f "$data_dir/log/server.log" ] || fail "the data folder was created (log/server.log)"
 ok "the data folder was created (log/server.log)"
+[ ! -s "$opened" ] || fail "--login does not open the browser ($(cat "$opened"))"
+ok "--login does not open the browser"
+
+# Finder などから開いたとき（--login なし）: 待ち受けが始まったら、その画面をブラウザで開く。
+# LaunchServices が付けることのある -psn_ の引数は、起動用のスクリプトが捨てる
+"$launcher" -psn_0_12345 --mock --no-tray --port "$port" &
+pids+=($!)
+wait_for 60 "test -s '$opened'" || fail "the browser is opened without --login"
+[ "$(cat "$opened")" = "$base/" ] || fail "the browser is opened at $base/ ($(cat "$opened"))"
+ok "the browser is opened at $base/ (and -psn_ is ignored)"
+kill -TERM "${pids[0]}"
+wait "${pids[0]}" 2>/dev/null || true
+pids=()
+: > "$opened"
 
 # 8000 番が使われているとき（#290）: 引数なし（--auto-port）で起動すると別の番号で起動し、
 # 使った番号を port.json に書く。もう一度起動すると、2 つ目は起動せずに終わる
