@@ -1,14 +1,60 @@
 // サーバーに届いていない音声を IndexedDB に置いておく（#102。spec/flows.md 6.7）
 // ページを読み込み直しても（スマホでタブが落とされても）、溜めていた音声が失われないようにする。
 // 送ったチャンクは、サーバーが受け取った（ack）ら消す。IndexedDB が使えないブラウザでは何もしない
+import { SAMPLE_RATE } from '@/audio/microphone';
 
 const DB_NAME = 'remote-whisper';
 const CHUNKS = 'unsentChunks';
 // 置いておく量の上限（バイト）。16kHz・Int16 で約 60 分。超えた分は手元（メモリ）だけに持つ
 export const MAX_BYTES = 120 * 1024 * 1024;
 
-type ChunkRow = { session: string; seq: number; project: string; frame: ArrayBuffer };
-export type UnsentSession = { session: string; project: string; frames: { seq: number; frame: ArrayBuffer }[] };
+// host は録音していたホストの ID（クラウド版。#227）。ダイレクト版は null。
+// #227 より前に置いた行には host がない（undefined）。どのホストのものか分からないので、今つないでいるホストの
+// ものとみなす（それまでと同じ扱い）。キーや索引は変えないので、データベースの版は上げない
+type ChunkRow = { session: string; seq: number; project: string; host?: string | null; frame: ArrayBuffer };
+export type UnsentSession = {
+    session: string;
+    project: string;
+    host?: string | null;
+    frames: { seq: number; frame: ArrayBuffer }[];
+};
+// ほかのホストに残っている音声（ホストごと）
+export type UnsentElsewhere = { host: string; sessions: string[]; seconds: number };
+
+// 溜めていた音声の長さ（秒）。チャンクは先頭 4 バイトが連番、あとは 16kHz・Int16
+export function unsentSeconds(frames: { frame: ArrayBuffer }[]) {
+    const samples = frames.reduce((n, f) => n + (f.frame.byteLength - 4) / 2, 0);
+    return Math.round(samples / SAMPLE_RATE);
+}
+
+// 今つないでいるホスト（ダイレクト版は null）のものと、ほかのホストのものに分ける（#227）。
+// 今のホストのものは、復旧できる最初の 1 つだけを返す（それまでと同じ）
+export function splitByHost(
+    list: UnsentSession[],
+    current: string | null,
+): { mine: UnsentSession | null; elsewhere: UnsentElsewhere[] } {
+    let mine: UnsentSession | null = null;
+    const byHost = new Map<string, UnsentElsewhere>();
+    for (const entry of list) {
+        if (entry.frames.length === 0) {
+            continue;
+        }
+        const host = entry.host === undefined ? current : entry.host;
+        if (host === current) {
+            mine ??= entry;
+            continue;
+        }
+        if (host === null) {
+            // ダイレクト版の行がクラウド版に混ざることはない（オリジンが別）が、念のため数えない
+            continue;
+        }
+        const e = byHost.get(host) ?? { host, sessions: [], seconds: 0 };
+        e.sessions.push(entry.session);
+        e.seconds += unsentSeconds(entry.frames);
+        byHost.set(host, e);
+    }
+    return { mine, elsewhere: [...byHost.values()] };
+}
 
 let opening: Promise<IDBDatabase | null> | null = null;
 
@@ -50,7 +96,14 @@ export function restoreSize(session: string, frames: { frame: ArrayBuffer }[]) {
 }
 
 // チャンク（先頭4バイトが連番の、送るときの形）を置く。上限を超えたら置かずに false
-export async function saveChunk(session: string, project: string, seq: number, frame: ArrayBuffer) {
+// host は今つないでいるホスト（ダイレクト版は null。#227）
+export async function saveChunk(
+    session: string,
+    project: string,
+    host: string | null,
+    seq: number,
+    frame: ArrayBuffer,
+) {
     const size = (sizes.get(session) ?? 0) + frame.byteLength;
     if (size > MAX_BYTES) {
         return false;
@@ -62,7 +115,7 @@ export async function saveChunk(session: string, project: string, seq: number, f
     }
     try {
         const tx = db.transaction(CHUNKS, 'readwrite');
-        tx.objectStore(CHUNKS).put({ session, seq, project, frame } satisfies ChunkRow);
+        tx.objectStore(CHUNKS).put({ session, seq, project, host, frame } satisfies ChunkRow);
         await done(tx);
     } catch {
         // 容量が足りないなど。手元（メモリ）には残っている
@@ -126,7 +179,12 @@ export async function listUnsent(): Promise<UnsentSession[]> {
         });
         const bySession = new Map<string, UnsentSession>();
         for (const row of rows) {
-            const entry = bySession.get(row.session) ?? { session: row.session, project: row.project, frames: [] };
+            const entry = bySession.get(row.session) ?? {
+                session: row.session,
+                project: row.project,
+                host: row.host,
+                frames: [],
+            };
             entry.frames.push({ seq: row.seq, frame: row.frame });
             bySession.set(row.session, entry);
         }
