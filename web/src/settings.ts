@@ -178,8 +178,9 @@ export const defaultSettings: Settings = {
     projectOrder: [],
 };
 
-// 設定モーダルのページ（URL の /settings/<ページ>。#177）。最初のものが既定
-export const SETTINGS_PAGES = ['models', 'materials', 'recording', 'whisper', 'ollama', 'storage', 'display'];
+// 設定モーダルのページ（URL の /settings/<ページ>。#177）。最初のものが既定。
+// setup は初回のセットアップの案内（#291）
+export const SETTINGS_PAGES = ['models', 'materials', 'recording', 'whisper', 'ollama', 'storage', 'display', 'setup'];
 
 // おすすめのモデル（#179。「おすすめに戻す」と、モデルの横の表示）。サーバーの既定値と同じ
 export const recommendedModels: OllamaModels = defaultSettings.ollama.models;
