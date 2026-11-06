@@ -2,15 +2,22 @@
 
 import hashlib
 import json
+import logging
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 import httpx
 import pytest
 
+from remote_whisper import cloud
 from remote_whisper.cloud import (
+    CREDENTIALS_PERMISSION_ERROR,
+    CREDENTIALS_SAVE_ERROR,
     HOST_HEADER,
+    UNDO_FAILED_NOTICE,
+    CloudError,
     CloudHost,
     CloudView,
     Credentials,
@@ -18,6 +25,7 @@ from remote_whisper.cloud import (
     load_credentials,
     new_credentials,
     public_key_from_b64,
+    redact_code,
     save_credentials,
     sign_header,
     verify_header,
@@ -37,6 +45,7 @@ class FakeWorker:
         self.calls: list[str] = []
         self.started: dict | None = None
         self.unpaired: list[str] = []
+        self.unpair_answer: int | str | None = None
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         path = request.url.raw_path.decode()
@@ -72,6 +81,11 @@ class FakeWorker:
                 return httpx.Response(200, json={"status": "approved", "relayKey": "relay-key"})
             return httpx.Response(200, json={"status": answer})
         if path == "/pair/unpair":
+            # 取り消しの失敗（int は HTTP の状態、"offline" はつながらない）
+            if self.unpair_answer == "offline":
+                raise httpx.ConnectError("offline")
+            if self.unpair_answer is not None:
+                return httpx.Response(self.unpair_answer)
             self.unpaired.append(host_id)
             del self.public_keys[host_id]
             return httpx.Response(200, json={"ok": True})
@@ -163,8 +177,208 @@ def test_credentials_are_saved_owner_only(tmp_path):
         out = subprocess.run(["icacls", str(path)], capture_output=True, text=True).stdout
         assert os.environ["USERNAME"].lower() in out.lower()
         assert "BUILTIN\\Users" not in out and "Everyone" not in out
+        assert "Authenticated Users" not in out
     else:
         assert path.stat().st_mode & 0o777 == 0o600
+
+
+SID = "S-1-5-21-1111111111-2222222222-3333333333-1001"
+
+
+WHOAMI = "C:\\Windows\\System32\\whoami.exe"
+ICACLS = "C:\\Windows\\System32\\icacls.exe"
+
+
+def fake_icacls(monkeypatch, results, whoami=f'"example-pc\\taro","{SID}"'):
+    """Windows の icacls と whoami を偽物にする。icacls は results の順に答える（int は終了コード、
+    例外は投げる）。whoami は whoami の出力（例外なら投げる）
+
+    icacls が呼ばれたときの起動したパス・対象（フォルダなら中の名前、ファイルなら中身）・
+    そのときの cloud.json の中身を覚える
+    """
+    seen: list[dict] = []
+    answers = list(results)
+
+    def run(args, **kwargs):
+        if args[0].lower().endswith("whoami.exe"):
+            assert args[0] == WHOAMI
+            if isinstance(whoami, BaseException):
+                raise whoami
+            return subprocess.CompletedProcess(args, 0, whoami + "\n", "")
+        target = Path(args[1])
+        home = target.parent if target.is_dir() else target.parent.parent
+        seen.append(
+            {
+                "args": args,
+                "target": target,
+                "dir": target.is_dir(),
+                "listing": sorted(p.name for p in target.iterdir()) if target.is_dir() else None,
+                "content": None if target.is_dir() else target.read_bytes(),
+                "final": (home / "cloud.json").read_bytes()
+                if (home / "cloud.json").exists()
+                else None,
+            }
+        )
+        answer = answers.pop(0) if len(answers) > 1 else answers[0]
+        if isinstance(answer, BaseException):
+            raise answer
+        return subprocess.CompletedProcess(args, answer, "", "Access is denied." if answer else "")
+
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.delenv("SystemRoot", raising=False)
+    # 名前では指さない（SSH のセッションでは USERDOMAIN が WORKGROUP になり、名前を解けない）
+    monkeypatch.setenv("USERNAME", "taro")
+    monkeypatch.setenv("USERDOMAIN", "WORKGROUP")
+    monkeypatch.setattr(subprocess, "run", run)
+    return seen
+
+
+def leftovers(home):
+    return [p.name for p in home.iterdir() if p.name.startswith(".cloud.json.")]
+
+
+def test_windows_writes_the_secret_inside_a_restricted_temp_folder(tmp_path, monkeypatch):
+    # 親フォルダに一時ファイルを作ると、権限を付ける前にほかのユーザーにハンドルを開かれ、
+    # あとから書いた中身を読まれうる（#252）。先に絞った専用のフォルダの中で書く
+    old = new_credentials(RELAY)
+    (tmp_path / "cloud.json").write_text(json.dumps(old.to_json()), encoding="utf-8")
+    seen = fake_icacls(monkeypatch, [0])
+    creds = new_credentials(RELAY)
+    save_credentials(tmp_path, creds)
+    assert [c["args"][0] for c in seen] == [ICACLS, ICACLS]
+    folder, file = seen
+    # 1. 専用のフォルダを、中身がないうちに本人だけにする（中に作るものにも継がせる）
+    assert folder["dir"] and folder["target"].parent == tmp_path
+    assert folder["target"].name.startswith(".cloud.json.")
+    assert folder["listing"] == []
+    assert folder["args"][2:] == ["/inheritance:r", "/grant:r", f"*{SID}:(OI)(CI)F"]
+    # 2. その中で書いたファイルも継承を切る（置き換えたあとに親フォルダの権限を継がない）
+    assert file["target"].parent == folder["target"] and not file["dir"]
+    assert file["args"][2:] == ["/inheritance:r", "/grant:r", f"*{SID}:F"]
+    assert json.loads(file["content"])["hostId"] == creds.host_id
+    # ここまで cloud.json は前のまま。置き換えたあとは、一時のものを残さない
+    assert json.loads(file["final"])["hostId"] == old.host_id
+    assert load_credentials(tmp_path) == creds
+    assert leftovers(tmp_path) == []
+
+
+def test_windows_tools_follow_systemroot(tmp_path, monkeypatch):
+    fake_icacls(monkeypatch, [0])
+    calls = []
+
+    def run(args, **kwargs):
+        calls.append(args[0])
+        raise FileNotFoundError(args[0])
+
+    monkeypatch.setattr(subprocess, "run", run)
+    monkeypatch.setenv("SystemRoot", "D:\\Win\\")
+    with pytest.raises(CloudError):
+        save_credentials(tmp_path, new_credentials(RELAY))
+    assert calls == ["D:\\Win\\System32\\whoami.exe"]
+
+
+@pytest.mark.parametrize(
+    "results",
+    [[5], [FileNotFoundError("icacls")], [subprocess.TimeoutExpired("icacls", 10)], [0, 5]],
+    ids=["folder-fails", "not-found", "timeout", "file-fails"],
+)
+def test_windows_permission_failure_does_not_write_cloud_json(tmp_path, monkeypatch, results):
+    old = new_credentials(RELAY)
+    (tmp_path / "cloud.json").write_text(json.dumps(old.to_json()), encoding="utf-8")
+    fake_icacls(monkeypatch, results)
+    with pytest.raises(CloudError, match=CREDENTIALS_PERMISSION_ERROR):
+        save_credentials(tmp_path, new_credentials(RELAY))
+    # 前の cloud.json はそのまま。秘密鍵の入った一時のフォルダ・ファイルも残さない
+    assert load_credentials(tmp_path) == old
+    assert leftovers(tmp_path) == []
+
+
+@pytest.mark.parametrize("whoami", ["", "ERROR: Access is denied.", FileNotFoundError("whoami")])
+def test_windows_without_the_user_sid_does_not_write_cloud_json(tmp_path, monkeypatch, whoami):
+    seen = fake_icacls(monkeypatch, [0], whoami=whoami)
+    with pytest.raises(CloudError, match=CREDENTIALS_PERMISSION_ERROR):
+        save_credentials(tmp_path, new_credentials(RELAY))
+    assert seen == [] and not (tmp_path / "cloud.json").exists() and leftovers(tmp_path) == []
+
+
+def test_pairing_stops_when_cloud_json_cannot_be_restricted(tmp_path, monkeypatch):
+    fake_icacls(monkeypatch, [5])
+    worker = FakeWorker()
+    host, notices = make_host(tmp_path, worker)
+    assert host.start_pairing()
+    host.wait(10)
+    # Worker には申請しない。トレイで知らせる
+    assert worker.calls == []
+    assert notices == [f"クラウド版に登録できませんでした: {CREDENTIALS_PERMISSION_ERROR}"]
+    assert host.view == CloudView("unregistered")
+    assert not (tmp_path / "cloud.json").exists() and leftovers(tmp_path) == []
+
+
+def test_pairing_is_undone_when_the_relay_key_cannot_be_saved(tmp_path, monkeypatch):
+    # 申請の前は書けたが、承認のあとに書けなかった。Worker に使えない登録を残さない
+    fake_icacls(monkeypatch, [0, 0, 5])
+    worker = FakeWorker(answers=("approved",))
+    host, notices = make_host(tmp_path, worker)
+    assert host.start_pairing()
+    host.wait(10)
+    assert worker.unpaired == [worker.started["hostId"]]
+    assert notices[-1] == f"クラウド版に登録できませんでした: {CREDENTIALS_PERMISSION_ERROR}"
+    assert host.view == CloudView("unregistered")
+    assert not (tmp_path / "cloud.json").exists() and leftovers(tmp_path) == []
+
+
+def test_pairing_is_undone_when_the_relay_key_cannot_be_written(tmp_path, monkeypatch):
+    # 権限ではない失敗（ディスクがいっぱい・ほかのプロセスのロックなど）でも取り消す
+    worker = FakeWorker(answers=("approved",))
+    host, notices = make_host(tmp_path, worker)
+    real = cloud.write_owner_only
+    calls = []
+
+    def write(path, text):
+        calls.append(path)
+        if len(calls) == 2:
+            raise OSError(28, "No space left on device")
+        real(path, text)
+
+    monkeypatch.setattr(cloud, "write_owner_only", write)
+    assert host.start_pairing()
+    host.wait(10)
+    assert worker.unpaired == [worker.started["hostId"]]
+    assert notices[-1] == f"クラウド版に登録できませんでした: {CREDENTIALS_SAVE_ERROR}"
+    assert host.view == CloudView("unregistered")
+    assert not (tmp_path / "cloud.json").exists()
+
+
+@pytest.mark.parametrize("unpair_answer", [500, "offline"])
+def test_failed_undo_tells_to_remove_the_host_on_the_page(tmp_path, monkeypatch, unpair_answer):
+    # 取り消しも失敗した（5xx・つながらない）ら、Worker に登録が残るので、画面から外すように知らせる
+    fake_icacls(monkeypatch, [0, 0, 5])
+    worker = FakeWorker(answers=("approved",))
+    worker.unpair_answer = unpair_answer
+    host, notices = make_host(tmp_path, worker)
+    assert host.start_pairing()
+    host.wait(10)
+    assert worker.calls[-1] == "/pair/unpair" and worker.unpaired == []
+    assert notices[-1] == (
+        f"クラウド版に登録できませんでした: {CREDENTIALS_PERMISSION_ERROR}{UNDO_FAILED_NOTICE}"
+    )
+    assert "画面のホストの管理からも外してください" in notices[-1]
+    assert host.view == CloudView("unregistered")
+    assert not (tmp_path / "cloud.json").exists() and leftovers(tmp_path) == []
+
+
+def test_relay_key_is_saved_inside_a_restricted_temp_folder(tmp_path, monkeypatch):
+    seen = fake_icacls(monkeypatch, [0])
+    worker = FakeWorker(answers=("approved",))
+    host, _ = make_host(tmp_path, worker)
+    assert host.start_pairing()
+    host.wait(10)
+    assert host.view == CloudView("registered")
+    # 申請の前と承認のあとの 2 回とも、空の専用フォルダを絞ってから、その中で書いている
+    assert [(c["dir"], c["listing"]) for c in seen] == [(True, []), (False, None)] * 2
+    assert b"relay-key" in seen[3]["content"] and b"relay-key" not in seen[3]["final"]
+    assert load_credentials(tmp_path).relay_key == "relay-key"
+    assert leftovers(tmp_path) == []
 
 
 def test_broken_cloud_json_means_not_registered(tmp_path):
@@ -193,6 +407,50 @@ def test_pairing_approved(tmp_path):
     assert worker.calls.count("/pair/poll") == 3
     # 登録済みなら、もう一度は始めない
     assert not host.start_pairing()
+
+
+def test_pairing_code_is_kept_out_of_the_log(tmp_path, caplog):
+    caplog.set_level(logging.INFO)
+    worker = FakeWorker(answers=("approved",))
+    host, _ = make_host(tmp_path, worker, opened=[])
+    assert host.start_pairing()
+    host.wait(10)
+    assert "pairing page: " in caplog.text
+    assert f"{RELAY}/pair?code=" in caplog.text  # URL のほかの部分は残す
+    assert "ABCD-1234" not in caplog.text
+
+
+def test_pairing_code_is_kept_out_of_the_log_when_the_browser_fails(tmp_path, caplog):
+    caplog.set_level(logging.INFO)
+
+    def broken(url):
+        raise RuntimeError(f"cannot open {url}")
+
+    worker = FakeWorker(answers=("approved",))
+    host, _ = make_host(tmp_path, worker)
+    host.open_browser = broken
+    assert host.start_pairing()
+    host.wait(10)
+    assert "failed to open the pairing page" in caplog.text
+    assert "ABCD-1234" not in caplog.text
+
+
+def test_redact_code():
+    assert redact_code("https://x.test/pair?code=ABCD-1234") == "https://x.test/pair?code=XXXX-…"
+    assert (
+        redact_code("https://x.test/pair?a=1&code=ABCD-1234&b=2#f")
+        == "https://x.test/pair?a=1&code=XXXX-…&b=2#f"
+    )
+    assert redact_code("https://x.test/pair") == "https://x.test/pair"
+    # 大文字・複数・フラグメント
+    assert redact_code("https://x.test/pair?CODE=ABCD-1234") == "https://x.test/pair?CODE=XXXX-…"
+    assert (
+        redact_code("https://x.test/pair?code=A&code=B")
+        == "https://x.test/pair?code=XXXX-…&code=XXXX-…"
+    )
+    assert redact_code("https://x.test/pair?x=1#code=ABCD") == "https://x.test/pair?x=1#code=XXXX-…"
+    # 別の名前は巻き込まない
+    assert redact_code("https://x.test/pair?xcode=1") == "https://x.test/pair?xcode=1"
 
 
 @pytest.mark.parametrize(
