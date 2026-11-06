@@ -25,6 +25,7 @@ def test_not_a_bundle_by_default(monkeypatch, tmp_path):
 
 def test_bundle_is_found_from_the_python_prefix(monkeypatch, tmp_path):
     monkeypatch.delenv("REMOTE_WHISPER_BUNDLE_DIR", raising=False)
+    monkeypatch.setattr(sys, "platform", "win32")
     root = _make_bundle(tmp_path)
     monkeypatch.setattr(sys, "prefix", str(root / "python"))
     assert bundle.bundle_dir() == root
@@ -86,8 +87,50 @@ def test_marker_with_a_bom_is_read(monkeypatch, tmp_path):
 def test_cloudflared_that_is_a_directory_is_ignored(monkeypatch, tmp_path):
     root = _make_bundle(tmp_path)
     monkeypatch.setenv("REMOTE_WHISPER_BUNDLE_DIR", str(root))
+    monkeypatch.setattr(sys, "platform", "win32")
     (root / "cloudflared.exe").mkdir()
     assert bundle.bundled_cloudflared() is None
+
+
+def test_mac_bundle_uses_cloudflared_without_exe(monkeypatch, tmp_path):
+    # Mac の配布版（#292）は拡張子のない cloudflared。cloudflared.exe は見ない
+    root = _make_bundle(tmp_path)
+    monkeypatch.setenv("REMOTE_WHISPER_BUNDLE_DIR", str(root))
+    monkeypatch.setattr(sys, "platform", "darwin")
+    (root / "cloudflared.exe").write_bytes(b"x")
+    assert bundle.bundled_cloudflared() is None
+    (root / "cloudflared").write_bytes(b"x")
+    assert bundle.bundled_cloudflared() == root / "cloudflared"
+    assert bundle.runtime() == "mac-bundle"
+
+
+def _make_app(tmp_path):
+    app = tmp_path / "Remote Whisper.app"
+    root = app / "Contents" / "Resources" / "app"
+    root.mkdir(parents=True)
+    return app, _make_bundle(root)
+
+
+def test_app_bundle_is_the_enclosing_app_on_mac(monkeypatch, tmp_path):
+    app, root = _make_app(tmp_path)
+    monkeypatch.delenv("REMOTE_WHISPER_BUNDLE_DIR", raising=False)
+    monkeypatch.setattr(sys, "prefix", str(root / "python"))
+    monkeypatch.setattr(sys, "platform", "darwin")
+    assert bundle.app_bundle() == app
+    # Windows では .app はない
+    monkeypatch.setattr(sys, "platform", "win32")
+    assert bundle.app_bundle() is None
+
+
+def test_app_bundle_needs_the_app_layout(monkeypatch, tmp_path):
+    monkeypatch.setattr(sys, "platform", "darwin")
+    # 配布版でない（開発）
+    monkeypatch.setenv("REMOTE_WHISPER_BUNDLE_DIR", str(tmp_path / "none"))
+    assert bundle.app_bundle() is None
+    # 配布用のフォルダだが、.app の中ではない
+    root = _make_bundle(tmp_path)
+    monkeypatch.setenv("REMOTE_WHISPER_BUNDLE_DIR", str(root))
+    assert bundle.app_bundle() is None
 
 
 def test_app_version_prefers_the_bundle_over_git(monkeypatch, tmp_path):

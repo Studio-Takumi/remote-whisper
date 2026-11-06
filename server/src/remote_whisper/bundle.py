@@ -1,13 +1,17 @@
 """配布用のビルド（#168）の中で動いているときの、同梱物の場所
 
-配布用のフォルダは、こういう形になる（packaging/build.ps1 が作る）。
+配布用のフォルダは、こういう形になる
+（Windows は packaging/build.ps1、Mac は packaging/build-mac.sh が作る）。
 
     <app>/bundle.json        ビルドの印（{"version": "<コミットのハッシュ>"}）
-    <app>/python/            同梱の Python（sys.prefix。pythonw.exe -m remote_whisper で起動する）
+    <app>/python/            同梱の Python（sys.prefix。Windows は pythonw.exe、
+                             Mac は bin/python3 で -m remote_whisper を起動する）
     <app>/web/               画面のビルド結果
-    <app>/cloudflared.exe    同梱の cloudflared
+    <app>/cloudflared.exe    同梱の cloudflared（Mac は <app>/cloudflared）
     <app>/whisperx-requirements.txt  WhisperX を後から入れるときの、固定した依存（#291）
 
+Mac（#292）では、<app> は `Remote Whisper.app/Contents/Resources/app`
+（app_bundle() がその .app を返す）。
 開発（uv run）のときは bundle.json がないので、どれも None を返し、今までの動きのままになる
 """
 
@@ -85,5 +89,28 @@ def bundled_cloudflared() -> Path | None:
     root = bundle_dir()
     if root is None:
         return None
-    exe = root / "cloudflared.exe"
+    exe = root / ("cloudflared.exe" if sys.platform == "win32" else "cloudflared")
     return exe if exe.is_file() else None
+
+
+def app_bundle() -> Path | None:
+    """Mac の配布版の .app（`<名前>.app/Contents/Resources/app` の <名前>.app。#292）
+
+    Mac の配布版でなければ None
+    """
+    if sys.platform != "darwin":
+        return None
+    root = bundle_dir()
+    if root is None:
+        return None
+    resources = root.parent
+    contents = resources.parent
+    bundle = contents.parent
+    if (
+        root.name == "app"
+        and resources.name == "Resources"
+        and contents.name == "Contents"
+        and bundle.suffix == ".app"
+    ):
+        return bundle
+    return None
