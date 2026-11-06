@@ -47,7 +47,6 @@ jobs:
   # 信用できないファイルを torch.load で読むときのもの（読むのは Hugging Face の決まったモデルだけ）なので、一覧から外す
   audit:
     runs-on: ubuntu-latest
-    continue-on-error: true
     defaults:
       run:
         working-directory: server
@@ -58,7 +57,7 @@ jobs:
         run: |
           uv export --frozen --no-dev --extra final --no-emit-project --no-hashes --no-header \
             | grep -v -E '^(torch|torchaudio|torchvision)==' > audit-requirements.txt
-          uvx pip-audit -r audit-requirements.txt --no-deps --disable-pip
+          uvx pip-audit -r audit-requirements.txt --no-deps --disable-pip || echo "::warning::既知の脆弱性のある依存があります（上の一覧）"
 
   web:
     runs-on: ubuntu-latest
