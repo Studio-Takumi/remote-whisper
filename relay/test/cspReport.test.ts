@@ -154,7 +154,7 @@ describe('書く行', () => {
         const points = cspDataPoints([v!, v!, w!], SAFARI_IOS);
         expect(points).toHaveLength(2);
         expect(points[0]).toEqual({
-            blobs: ['csp', 'script-src-elem', 'enforce', '/s/:id', 'inline', 'safari', 'ios'],
+            blobs: ['csp_violation', 'script-src-elem', 'enforce', '/s/:id', 'inline', 'safari', 'ios'],
             doubles: [2],
             indexes: ['csp'],
         });
@@ -253,8 +253,8 @@ describe('POST /csp-report', () => {
         const { points, env: e } = fakeEnv();
         await worker.fetch(post(JSON.stringify(legacy())) as Parameters<typeof worker.fetch>[0], e);
         // 報告の 1 行と、HTTP の計測の 1 行
-        expect(points).toHaveLength(2);
-        const http = points.find((p) => p.blobs[1] === 'POST');
+        expect(points.map((p) => p.blobs[0]).sort()).toEqual(['csp', 'csp_violation']);
+        const http = points.find((p) => p.blobs[0] === 'csp');
         expect(http?.blobs.slice(0, 3)).toEqual(['csp', 'POST', '/csp-report']);
     });
 

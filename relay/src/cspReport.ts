@@ -142,8 +142,9 @@ export function cspDataPoints(violations: CspViolation[], userAgent: string): Cs
         }
     }
     return [...counts.values()].slice(0, MAX_POINTS).map(({ v, n }) => ({
-        // 1 種類 2 ディレクティブ 3 強制か報告だけか 4 画面のパス 5 読み込もうとしたもの 6 ブラウザ 7 OS
-        blobs: ['csp', v.directive, v.disposition, v.page, v.blocked, browserOf(userAgent), osOf(userAgent)],
+        // 1 種類（HTTP の計測の /csp-report の行は csp なので、別の名前にする）2 ディレクティブ 3 強制か報告だけか
+        // 4 画面のパス 5 読み込もうとしたもの 6 ブラウザ 7 OS
+        blobs: ['csp_violation', v.directive, v.disposition, v.page, v.blocked, browserOf(userAgent), osOf(userAgent)],
         // 1 同じ報告の件数
         doubles: [n],
         indexes: ['csp'],
