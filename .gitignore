@@ -25,3 +25,5 @@ Thumbs.db
 
 # Windows 配布用のビルド（#168）
 packaging/out/
+# Mac 配布用のビルド（#292）
+packaging/out-mac/
