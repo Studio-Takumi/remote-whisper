@@ -163,18 +163,48 @@ const cases = [
         },
     },
     {
-        name: 'ホスト ID のない古い音声は、今つないでいるホストで復旧する（#227）',
+        name: 'ホスト ID のない古い音声と null の音声は、今のホストに送らず捨てられるだけにする（#227）',
         hosts: [host(A, '書斎の PC', true)],
         check: async (page) => {
             await page.getByText('書斎の PC につないでいます').waitFor();
-            await seedUnsent(page, [{ session: 's-old' }]);
+            await seedUnsent(page, [{ session: 's-old' }, { session: 's-null', host: null }]);
             await page.reload();
-            await step(page.getByText('前にページを開いていたとき').waitFor(), '今のホストで復旧を出す');
+            await step(page.getByText('外したホストに届かなかった録音があります').waitFor(), '捨てるだけを出す');
+            if (await page.getByText('前にページを開いていたとき').isVisible()) {
+                throw new Error('どのホストのものか分からない音声を、今のホストで復旧しようとした');
+            }
+            await page.getByRole('button', { name: '捨てる' }).click();
+            for (let i = 0; (await countUnsent(page)) > 0; i++) {
+                if (i >= 20) {
+                    throw new Error('捨てても IndexedDB に残っている');
+                }
+                await page.waitForTimeout(100);
+            }
+        },
+    },
+    {
+        name: 'オフラインのホストの「切り替える」は押せず、オンラインになると押せる（#227）',
+        hosts: [host(A, '書斎の PC', true), host(B, 'ノート PC', false)],
+        remembered: A,
+        clock: true,
+        check: async (page, self) => {
+            await page.getByText('書斎の PC につないでいます').waitFor();
+            await seedUnsent(page, [{ session: 's-b', host: B }]);
+            await page.reload();
+            await step(page.getByText('ノート PC に届かなかった録音があります').waitFor(), 'B の音声を知らせる');
+            await step(page.getByText('オフラインです', { exact: true }).waitFor(), 'オフラインと出す');
+            const button = page.getByRole('button', { name: '切り替える', exact: true });
+            if (!(await button.isDisabled())) {
+                throw new Error('オフラインのホストの「切り替える」が押せる');
+            }
+            // 一覧を読み直すとオンラインになっている（読み直すのは 30 秒ごと）
+            self.hosts = [host(A, '書斎の PC', true), host(B, 'ノート PC', true)];
+            await page.clock.runFor(31_000);
+            await step(button.and(page.locator(':enabled')).waitFor(), 'オンラインになったら押せる');
         },
     },
 ];
 
-// 届かなかった音声（1 秒分のチャンク）を IndexedDB に置く。host を省くと、#227 より前の行（ホスト ID なし）
 // IndexedDB に残っている行の数
 function countUnsent(page) {
     return page.evaluate(
@@ -192,6 +222,7 @@ function countUnsent(page) {
     );
 }
 
+// 届かなかった音声（1 秒分のチャンク）を IndexedDB に置く。host を省くと、#227 より前の行（ホスト ID なし）になる
 async function seedUnsent(page, rows) {
     await page.evaluate(
         (rows) =>
@@ -229,6 +260,10 @@ for (const c of cases) {
         await context.addInitScript((id) => localStorage.setItem('rw.cloud.lastHostId', id), c.remembered);
     }
     const page = await context.newPage();
+    // clock: 時間を進めて確かめる（一覧を読み直す間隔など）
+    if (c.clock) {
+        await page.clock.install();
+    }
     await page.route('**/me', (route) => route.fulfill({ json: me }));
     // failFirst: 「もう一度」を押すまでは失敗させる（開発モードでは effect が 2 回走るので、回数では決めない）
     await page.route('**/me/hosts', (route) =>
