@@ -164,4 +164,26 @@ describe('データ収集の許可の変更', () => {
         await consent(cookie, { tosVersion: TOS_VERSION, dataCollection: false });
         expect((await send('PUT', '/me/consents/data_collection', { granted: 'yes' }, cookie)).status).toBe(400);
     });
+
+    it('本文が 1KB を超えたら 413（Content-Length がなくても）', async () => {
+        const { cookie } = await newUser();
+        const big = { tosVersion: TOS_VERSION, dataCollection: true, pad: 'x'.repeat(1024) };
+        expect((await send('POST', '/me/consent', big, cookie, ORIGIN)).status).toBe(413);
+        expect(
+            (await send('PUT', '/me/consents/data_collection', { granted: true, pad: big.pad }, cookie, ORIGIN)).status,
+        ).toBe(413);
+        const stream = new ReadableStream({
+            start(controller) {
+                controller.enqueue(new TextEncoder().encode('{"granted":true,"pad":"' + 'x'.repeat(2048)));
+                controller.close();
+            },
+        });
+        const res = await SELF.fetch(`${ORIGIN}/me/consents/data_collection`, {
+            method: 'PUT',
+            headers: { Cookie: cookie, Origin: ORIGIN },
+            body: stream,
+            duplex: 'half',
+        } as RequestInit);
+        expect(res.status).toBe(413);
+    });
 });

@@ -149,6 +149,11 @@ sequenceDiagram
 - 登録コードは 10 分有効・1 回だけ。DB にはコードのハッシュを置く。トレイとブラウザに同じコードを出し、同じことを確かめてから承認させる（ほかの人の PC を自分のアカウントに登録させる乗っ取りの対策）
 - 申請とポーリングには回数の制限を付ける。期限切れの申請は消す（#157）
   - 申請（`/pair/start`）は、同じ接続元（`CF-Connecting-IP` のハッシュ。IP そのものは置かない）から 10 分に 5 回まで
+  - 接続元のハッシュは、D1 の `relay_keys` に置いた鍵（初めて要るときに乱数で作る。Worker の secret は増やさない）での HMAC-SHA256（#252）。ただの SHA-256 だと、IPv4 は 2^32 通りを総当たりすれば `client_hash` から戻せる
+    - 守れる範囲: `client_hash` の列（`pairing_requests` の行）**だけ**が漏れたとき（クエリの結果・ログ・この表だけのエクスポートなど）。鍵が同じ D1 にあるので、D1 ごと（`wrangler d1 export`・Time Travel・バックアップ）を手に入れた人は、今でも鍵を使って総当たりで戻せる
+    - D1 と分けて守りたくなったら、鍵を Worker の secret に移す（secret が 1 つ増え、staging・本番に入れる手順が要る）
+    - `relay_keys` の行が壊れている（base64url で読めない・32 バイトに足りない）ときは、`/pair/start` は 500 を返し、鍵は作り直さない（黙って作り直すと、壊れた原因に気づけない。直すときは行を消せば、次の申請で作り直す）
+    - 鍵を入れる前の形の行は読み替えない（申請は 10 分で切れて、次の申請のときに消える。入れ替えた直後の 10 分だけ、回数の数え直しになる）
   - ポーリング（`/pair/poll`）は、1 つの申請につき 1 秒に 1 回まで
   - 期限切れの申請は、次の申請のときに消す
 - 登録コードは `XXXX-XXXX`（読み間違えやすい `0`・`O`・`1`・`I` を除いた英大文字と数字の 32 文字から 8 文字）。画面で打ち直されたものは、小文字・空白・ハイフンなしもそろえて受け付ける
@@ -158,10 +163,11 @@ sequenceDiagram
 
   | パス | 送るもの | 返すもの |
   |---|---|---|
-  | `/pair/start` | `{"hostId": "<UUID>", "hostName": "<PC 名>", "publicKey": "<base64url>"}`。署名は本文の `publicKey` で確かめる | `200 {"code": "ABCD-1234", "url": "https://<クラウドのドメイン>/pair?code=ABCD-1234", "expiresInSec": 600}`。登録済みのホスト ID なら `409`、回数の制限なら `429`、形が違えば `400`、署名が合わなければ `401` |
-  | `/pair/poll` | `{}` | `200 {"status": "pending"}`・`{"status": "approved", "relayKey": "<base64url>"}`・`{"status": "rejected"}`・`{"status": "expired"}`。申請が見つからない（期限切れで消した）なら `404`、署名が合わなければ `401`、回数の制限なら `429` |
-  | `/pair/unpair` | `{}` | `200 {"ok": true}`。hosts から消し、トンネルと DNS レコードを消す。ないホストなら `404` |
+  | `/pair/start` | `{"hostId": "<UUID>", "hostName": "<PC 名>", "publicKey": "<base64url>"}`。署名は本文の `publicKey` で確かめる | `200 {"code": "ABCD-1234", "url": "https://<クラウドのドメイン>/pair?code=ABCD-1234", "expiresInSec": 600}`。登録済みのホスト ID なら `409`、回数の制限なら `429`、形が違えば `400`、本文が 4096 バイトを超えたら `413`、署名が合わなければ `401` |
+  | `/pair/poll` | `{}` | `200 {"status": "pending"}`・`{"status": "approved", "relayKey": "<base64url>"}`・`{"status": "rejected"}`・`{"status": "expired"}`。申請が見つからない（期限切れで消した）なら `404`、署名が合わなければ `401`、回数の制限なら `429`、本文が 4096 バイトを超えたら `413` |
+  | `/pair/unpair` | `{}` | `200 {"ok": true}`。hosts から消し、トンネルと DNS レコードを消す。ないホストなら `404`、本文が 4096 バイトを超えたら `413` |
 
+  - `/pair/*`（`/pair/tunnel` を含む）の本文は 4096 バイトまで。ログインなしで呼べるので、超えたところで読むのをやめて `413` を返す（`Content-Length` がない chunked でも同じ。以前は `400`。正規のリクエストは 4096 バイトを超えない）
   - `approved` は、申請の期限（10 分）までは何度聞かれても同じ `relayKey` で返す。返事がネットワークで落ちても、ホストが聞き直せば受け取れる（持ち主のいないホストを Worker に残さない）。聞けるのは申請の秘密鍵を持つホストだけなので、何度返しても漏れない。期限を過ぎたら申請の行を消す（次の `/pair/poll` は `404`）。`relayKey` は 10.5 節の中継の鍵（32 バイト以上の乱数の base64url）
   - hosts に入れるのは、ブラウザで**承認したとき**。承認より前に `/pair/unpair` が来たら申請を取り消し済み（`rejected`）にして `200` を返し（申請の公開鍵で署名を確かめる）、そのあとの承認は「申請が見つからない」で断る。行は期限まで残す（消すと、申請と取り消しを繰り返して回数の制限を抜けられるため）
   - 確認の画面の `GET /pair/request` は `answeredByMe`（承認・拒否したのが自分か。まだなら `null`）も返す。ほかの人が先に承認していたら、画面で「心当たりがなければクラウド版から外す」と知らせる（コードが漏れたときに気づけるように）
@@ -202,7 +208,7 @@ sequenceDiagram
   - 3 秒ごとに `/pair/poll` を呼ぶ。`approved` なら `relayKey` を `cloud.json` に足して登録済みにする。`rejected`・`expired`・`404`・10 分たった・「登録をやめる」を押した・`401` などの断り（上の箇条）のどれかなら、`cloud.json` を消して登録していない状態に戻す（次は新しいホスト ID で申請する）。つながらない・`5xx`・`429` のときは、期限まで聞き直す
   - 中間サーバーの URL は全体設定の `cloud.relayUrl`（5.3 節。既定は staging の `https://rw-dev.studio-takumi.dev`。本番を用意したら `https://rw.studio-takumi.dev` に変える。docs/deploy.md の「本番を一から用意する」の 7）。登録したときの URL を `cloud.json` の `relayUrl` に残し、その後のやり取り（解除など）はそこにする
   - 「クラウド版から外す」を押すと（確認を出す）、`/pair/unpair` を呼び、cloudflared を止め（#159）、`cloud.json` を消す。中間サーバーにつながらないときも、この PC の資格情報は消し、「画面のホストの管理からも外してください」と通知する。`404`・`401` は、Worker 側ではもう外れている（画面から外したなど）とみなす
-  - `cloud.json` の形（権限は本人だけ。POSIX は 600、Windows は `icacls` で継承を切って今のユーザーだけにする）:
+  - `cloud.json` の形（権限は本人だけ。POSIX は 600、Windows は `icacls` で継承を切って今のユーザーだけにする。ユーザーは `whoami /user` の SID で指す。`USERDOMAIN\USERNAME` の名前は、SSH のセッションなどで `WORKGROUP\…` になり解けないことがある）。`icacls`・`whoami` は `%SystemRoot%\System32` のフルパスで起動する。書き方（#252）: Windows は、同じフォルダに専用の一時フォルダを作り、中身のないうちに継承を切って本人の SID だけ（`(OI)(CI)F`）にしてから、その中で一時ファイルを作って書き、ファイル自体も継承を切ってから `cloud.json` に置き換える。親フォルダに直接一時ファイルを作ると、権限を付ける前に親フォルダの権限でほかのユーザーにハンドルを開かれ、あとから書いた中身を読まれうる（Windows はハンドルを開いたときにしか権限を確かめない）。一時フォルダのハンドルを先に持たれても、中のファイルは開けない。POSIX は mkstemp の一時ファイルが最初から 600。権限を付けられなければ書かずに登録をやめ、トレイで「クラウド版に登録できませんでした: cloud.json を本人だけが読める設定にできません」と知らせる。承認のあとに書けなかったとき（権限・ディスクがいっぱいなど、理由を問わず）は、`/pair/unpair` で Worker の登録も取り消す。取り消せなかった（つながらない・5xx）ときは、通知に「中間サーバーに登録が残っているので、画面のホストの管理からも外してください」と書き足す。push の鍵（`push-vapid.pem`）も同じ書き方だが、権限を付けられなくても警告だけで普通に書く:
 
     ```json
     {
@@ -298,7 +304,7 @@ erDiagram
         text public_key
         text status "pending・approved・rejected"
         text user_id FK "承認した人"
-        text client_hash "申請した接続元のハッシュ（回数の制限）"
+        text client_hash "申請した接続元の HMAC（回数の制限。鍵は relay_keys）"
         int last_polled_at
         int created_at
         int expires_at
@@ -319,6 +325,11 @@ erDiagram
         text link_user_id FK "手段を足すときの今のユーザー"
         int created_at
         int expires_at "10 分。1 回使ったら消す"
+    }
+    relay_keys {
+        text name PK "client_hash（接続元のハッシュの鍵）"
+        text key "32 バイトの乱数（base64url）。初めて要るときに作る"
+        int created_at
     }
 ```
 
@@ -498,6 +509,7 @@ GROUP BY minutes_from ORDER BY minutes_from;
   - `GET /me` に、今の規約の版 `tosCurrent`・リンク先 `termsUrl`/`privacyUrl`・データ収集の今の許可 `dataCollection`（consents の `data_collection` の最後の行。なければ `false`）を含める。同意の画面を出すのは `tosVersion` が `null` のときだけ
   - `POST /me/consent` `{"tosVersion", "dataCollection"}`: `tosVersion` が今の版（`TOS_VERSION`）と同じときだけ受け付け、違えば 409。`users.tos_version` を入れ、consents に `tos`（granted=1）と `data_collection` を 1 つのバッチで追記する
   - `PUT /me/consents/data_collection` `{"granted"}`: 設定から変える。変えるたび（同じ値でも）consents に追記する。規約に同意していなければ 409
+  - `POST /me/consent`・`PUT /me/consents/data_collection` の本文は 1KB まで（正規の本文は 100 バイトに満たない）。超えたら最後まで読まずに `413`。`PATCH /me/hosts/<id>` の本文も 1KB まで（名前は 64 文字、`\uXXXX` で書いても 400 バイト足らず）で、超えたら `413`
   - consents の `version` は、`tos` では規約の版、`data_collection` では説明文の版（`DATA_COLLECTION_VERSION`）。規約の版が上がっても `tos_version` は更新しない
 - 規約の改定: 同意は取り直さず、施行日の前にお知らせで知らせる（10.12 節）。データ収集の目的を変えるときだけ、同意を取り直す
 - **最終要約の通知（#245。6.14 節）**: クラウド版でも、通知はホストが push サービスへ直接送る（Worker は通知に関わらず、VAPID の鍵も `wrangler secret` に置かない）。購読の API（`/api/push/...`）は、ほかの API と同じく Worker が中継する。ホストにつなげるのはホストを登録したアカウントのクライアントだけ（10.5 節）なので、購読も通知もそのアカウントのクライアントにしか届かない。service worker は Worker のオリジンで動くので、通知を押したときに開くのも Worker のオリジンの `/s/<UUID>`

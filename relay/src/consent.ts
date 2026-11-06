@@ -1,5 +1,5 @@
 // 初回の同意（#162）: 利用規約の版と、データ収集の許可。仕様書 spec/cloud.md 10.7・10.11 節
-import { error, json } from './http';
+import { TOO_LARGE, error, json, readJsonLimited } from './http';
 import type { Env } from './index';
 
 // 今の利用規約の版。改定しても同意は取り直さない（users.tos_version が null のときだけ同意を求める）
@@ -21,13 +21,16 @@ export async function dataCollectionGranted(env: Env, userId: string): Promise<b
     return row?.granted === 1;
 }
 
-async function readBody(request: Request): Promise<Record<string, unknown> | null> {
-    try {
-        const body = await request.json();
-        return body && typeof body === 'object' && !Array.isArray(body) ? (body as Record<string, unknown>) : null;
-    } catch {
-        return null;
+// 本文は {"tosVersion": "2026-10-20", "dataCollection": true} 程度（100 バイトに満たない）。
+// 1KB あれば余裕があり、それより大きいものは最後まで読まずに 413 にする
+const MAX_BODY_BYTES = 1024;
+
+async function readBody(request: Request): Promise<Record<string, unknown> | null | typeof TOO_LARGE> {
+    const body = await readJsonLimited(request, MAX_BODY_BYTES);
+    if (body === TOO_LARGE) {
+        return TOO_LARGE;
     }
+    return body && typeof body === 'object' && !Array.isArray(body) ? (body as Record<string, unknown>) : null;
 }
 
 function insertConsent(
@@ -54,6 +57,9 @@ function insertConsent(
 // POST /me/consent: 初回の同意。版が今の版のときだけ受け付ける
 export async function postConsent(request: Request, env: Env, userId: string): Promise<Response> {
     const body = await readBody(request);
+    if (body === TOO_LARGE) {
+        return error(413, '大きすぎます');
+    }
     if (!body || typeof body.tosVersion !== 'string' || typeof body.dataCollection !== 'boolean') {
         return error(400, 'tosVersion（文字列）と dataCollection（真偽値）が必要です');
     }
@@ -80,6 +86,9 @@ export async function postConsent(request: Request, env: Env, userId: string): P
 // PUT /me/consents/data_collection: 設定から変える。変えるたびに追記する（同じ値でも）
 export async function putDataCollection(request: Request, env: Env, userId: string): Promise<Response> {
     const body = await readBody(request);
+    if (body === TOO_LARGE) {
+        return error(413, '大きすぎます');
+    }
     if (!body || typeof body.granted !== 'boolean') {
         return error(400, 'granted（真偽値）が必要です');
     }

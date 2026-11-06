@@ -3,7 +3,7 @@ import { SELF, env } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
 
 import { base64url, sha256 } from '../src/http';
-import { normalizeCode, parseHostHeader } from '../src/pairing';
+import { CLIENT_HASH_KEY, clientHash, normalizeCode, parseHostHeader } from '../src/pairing';
 
 const ORIGIN = 'https://rw-dev.example';
 
@@ -268,6 +268,42 @@ describe('ホストの署名', () => {
     });
 });
 
+describe('本文の上限', () => {
+    // Content-Length のない（chunked の）本文
+    function chunked(bytes: number): Request {
+        const stream = new ReadableStream({
+            start(controller) {
+                controller.enqueue(new TextEncoder().encode('{"x":"' + 'x'.repeat(bytes)));
+                controller.close();
+            },
+        });
+        return new Request(`${ORIGIN}/pair/start`, { method: 'POST', body: stream, duplex: 'half' } as RequestInit);
+    }
+
+    it('上限より大きい chunked の本文は 413', async () => {
+        const request = chunked(8192);
+        expect(request.headers.get('Content-Length')).toBeNull();
+        expect((await SELF.fetch(request)).status).toBe(413);
+    });
+
+    it('Content-Length が上限より大きくても 413', async () => {
+        const host = await newHost();
+        const res = await hostCall(host, '/pair/start', { hostId: host.hostId, pad: 'x'.repeat(8192) });
+        expect(res.status).toBe(413);
+    });
+
+    it('署名つきのほかの口（poll・unpair・tunnel）も 413', async () => {
+        const big = '{"x":"' + 'x'.repeat(8192) + '"}';
+        for (const path of ['/pair/poll', '/pair/unpair', '/pair/tunnel']) {
+            const res = await SELF.fetch(`${ORIGIN}${path}`, {
+                method: 'POST',
+                body: big,
+            });
+            expect(res.status).toBe(413);
+        }
+    });
+});
+
 describe('回数の制限', () => {
     it('同じ接続元からの申請は 10 分に 5 回まで', async () => {
         const ip = '203.0.113.77';
@@ -289,6 +325,102 @@ describe('回数の制限', () => {
         await startPairing(host);
         expect((await poll(host)).status).toBe(200);
         expect((await poll(host)).status).toBe(429);
+    });
+});
+
+describe('接続元のハッシュ（#252）', () => {
+    const storedHash = async (host: Host) =>
+        (
+            await env.DB.prepare('SELECT client_hash FROM pairing_requests WHERE host_id = ?')
+                .bind(host.hostId)
+                .first<{ client_hash: string }>()
+        )?.client_hash;
+
+    it('D1 の鍵での HMAC にする。鍵は初めて要るときに 1 つだけ作る', async () => {
+        const ip = '203.0.113.10';
+        const a = { ...(await newHost()), ip };
+        const b = { ...(await newHost()), ip };
+        await startPairing(a);
+        await startPairing(b);
+        const keys = await env.DB.prepare('SELECT key FROM relay_keys WHERE name = ?')
+            .bind(CLIENT_HASH_KEY)
+            .all<{ key: string }>();
+        expect(keys.results).toHaveLength(1);
+        // 同じ接続元は同じハッシュ（回数を数えられる）。鍵での HMAC と一致する
+        const hash = await storedHash(a);
+        expect(hash).toBe(await storedHash(b));
+        expect(hash).toBe(await clientHash(env, ip));
+        const b64 = keys.results[0].key.replace(/-/g, '+').replace(/_/g, '/');
+        const raw = Uint8Array.from(atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4)), (c) => c.charCodeAt(0));
+        expect(raw.length).toBe(32);
+        const key = await crypto.subtle.importKey('raw', raw, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+        const mac = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`client:${ip}`));
+        expect(hash).toBe(base64url(mac));
+    });
+
+    it('鍵を知らなければ、IP を総当たりしても戻せない', async () => {
+        // D1 の中身（client_hash）だけを持っている人が、鍵のない SHA-256 で接続元を探す形
+        const ip = '192.0.2.123';
+        const host = { ...(await newHost()), ip };
+        await startPairing(host);
+        const hash = await storedHash(host);
+        expect(hash).toBeTruthy();
+        const found: string[] = [];
+        for (let i = 0; i < 256; i++) {
+            const guess = `192.0.2.${i}`;
+            for (const text of [`client:${guess}`, guess]) {
+                if ((await sha256(text)) === hash) {
+                    found.push(guess);
+                }
+            }
+        }
+        expect(found).toEqual([]);
+    });
+
+    it('鍵の行が壊れていたら、作り直さずに 500 を返す', async () => {
+        // 先に鍵を作っておき、壊したあとで元に戻す（ほかのテストに響かせない）
+        await startPairing(await newHost());
+        const readKey = () =>
+            env.DB.prepare('SELECT key FROM relay_keys WHERE name = ?').bind(CLIENT_HASH_KEY).first<{ key: string }>();
+        const row = await readKey();
+        try {
+            for (const broken of ['!!not-base64url!!', 'c2hvcnQ']) {
+                await env.DB.prepare('UPDATE relay_keys SET key = ? WHERE name = ?')
+                    .bind(broken, CLIENT_HASH_KEY)
+                    .run();
+                const host = await newHost();
+                const res = await hostCall(host, '/pair/start', {
+                    hostId: host.hostId,
+                    hostName: 'PC',
+                    publicKey: host.publicKey,
+                });
+                expect(res.status).toBe(500);
+                expect((await readKey())?.key).toBe(broken);
+                // 申請も入れない
+                const pending = await env.DB.prepare('SELECT 1 FROM pairing_requests WHERE host_id = ?')
+                    .bind(host.hostId)
+                    .first();
+                expect(pending).toBeNull();
+            }
+        } finally {
+            await env.DB.prepare('UPDATE relay_keys SET key = ? WHERE name = ?').bind(row?.key, CLIENT_HASH_KEY).run();
+        }
+    });
+
+    it('鍵を入れる前の形の行は数えない（期限で消えるのを待つ）', async () => {
+        const ip = '203.0.113.88';
+        const now = Date.now();
+        const old = await sha256(`client:${ip}`);
+        for (let i = 0; i < 5; i++) {
+            await env.DB.prepare(
+                `INSERT INTO pairing_requests
+                    (id, code_hash, host_id, host_name, public_key, client_hash, created_at, expires_at)
+                 VALUES (?, ?, ?, 'OLD-PC', 'pk', ?, ?, ?)`,
+            )
+                .bind(crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID(), old, now - 1000, now + 60_000)
+                .run();
+        }
+        await startPairing({ ...(await newHost()), ip });
     });
 });
 

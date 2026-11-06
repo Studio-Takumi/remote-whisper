@@ -3,7 +3,7 @@
 //
 // - 書くもの: 許可リストの数値・真偽・決まった形の文字列だけ。知らない項目は捨てる
 // - 書かないもの: 音声、文字起こし・要約・タイトル・用語の本文、プロジェクト名・ファイル名、error の文面、セッション ID、IP アドレス
-import { error } from './http';
+import { error, readLimited } from './http';
 import type { Env } from './index';
 import { browserOf, osOf } from './metrics';
 
@@ -175,43 +175,11 @@ async function allowed(env: Env, userId: string): Promise<boolean> {
     return res.meta.changes > 0;
 }
 
-// 本文を MAX_BODY_BYTES まで読む。超えたら null（Content-Length がなくても、超えたところで読むのをやめる）
-async function readLimited(request: Request): Promise<string | null> {
-    if (Number(request.headers.get('Content-Length') ?? '0') > MAX_BODY_BYTES) {
-        return null;
-    }
-    if (!request.body) {
-        return '';
-    }
-    const reader = request.body.getReader();
-    const chunks: Uint8Array[] = [];
-    let total = 0;
-    for (;;) {
-        const { done, value } = await reader.read();
-        if (done) {
-            break;
-        }
-        total += value.length;
-        if (total > MAX_BODY_BYTES) {
-            await reader.cancel();
-            return null;
-        }
-        chunks.push(value);
-    }
-    const all = new Uint8Array(total);
-    let offset = 0;
-    for (const c of chunks) {
-        all.set(c, offset);
-        offset += c.length;
-    }
-    return new TextDecoder().decode(all);
-}
-
 // POST /me/metrics/recording。ログインと Origin は handleMe が確かめ済み。
 // 受け取れないもの（形が違う・ほかの人のホスト・束縛がない）は、黙って捨てて 204 を返す
 export async function postRecordingMetrics(request: Request, env: Env, userId: string): Promise<Response> {
-    const text = await readLimited(request);
-    if (text === null) {
+    const bytes = await readLimited(request, MAX_BODY_BYTES);
+    if (bytes === null) {
         return error(413, '大きすぎます');
     }
     if (!(await allowed(env, userId))) {
@@ -219,7 +187,7 @@ export async function postRecordingMetrics(request: Request, env: Env, userId: s
     }
     let body: unknown;
     try {
-        body = JSON.parse(text);
+        body = JSON.parse(new TextDecoder().decode(bytes));
     } catch {
         return new Response(null, { status: 204 });
     }

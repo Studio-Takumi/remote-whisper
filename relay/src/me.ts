@@ -1,7 +1,7 @@
 // 自分のアカウント（#155）: /me（ログインしているか・ログイン手段の一覧）、ログイン手段を外す、退会
 import { currentUser } from './auth';
 import { PRIVACY_URL, TERMS_URL, TOS_VERSION, dataCollectionGranted, postConsent, putDataCollection } from './consent';
-import { clearSessionCookie, error, json, sameOrigin } from './http';
+import { TOO_LARGE, clearSessionCookie, error, json, readJsonLimited, sameOrigin } from './http';
 import type { Env } from './index';
 import { PROVIDERS } from './providers';
 import { postRecordingMetrics } from './recordingMetrics';
@@ -84,7 +84,12 @@ async function hosts(env: Env, userId: string): Promise<Response> {
 
 // ホストの名前を変える（#161）。PC 名と同じく、制御文字と書式の文字を除いて 1〜64 文字
 async function renameHost(request: Request, env: Env, userId: string, hostId: string): Promise<Response> {
-    const data = (await request.json().catch(() => null)) as { name?: unknown } | null;
+    // 名前は 64 文字まで。\uXXXX で書いても 400 バイト足らず、取り除かれる制御文字を混ぜても 1KB あれば足りる
+    const raw = await readJsonLimited(request, 1024);
+    if (raw === TOO_LARGE) {
+        return error(413, '大きすぎます');
+    }
+    const data = (raw ?? null) as { name?: unknown } | null;
     const name = typeof data?.name === 'string' ? data.name.replace(/[\p{Cc}\p{Cf}]/gu, '').trim() : '';
     if (name.length === 0 || name.length > 64) {
         return error(400, '名前は 1〜64 文字にしてください');
