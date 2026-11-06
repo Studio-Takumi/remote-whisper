@@ -1,0 +1,45 @@
+# 依存の更新の PR を週 1 回出す（#288）。PR が溜まらないよう、同時に開く数を絞る
+version: 2
+updates:
+  # workflow の uses:（SHA で固定したものの更新。コメントの版も一緒に直る）
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /web
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      web-minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: /relay
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      relay-minor-and-patch:
+        update-types: [minor, patch]
+
+  # server/uv.lock。torch 系は CUDA 12.8 版・torchaudio・pyannote・whisperx との組み合わせを固定しているので、
+  # 単独では上げない（#287）
+  - package-ecosystem: uv
+    directory: /server
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    ignore:
+      - dependency-name: torch
+      - dependency-name: torchaudio
+      - dependency-name: torchvision
+    groups:
+      server-minor-and-patch:
+        update-types: [minor, patch]
