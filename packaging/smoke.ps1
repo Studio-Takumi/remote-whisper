@@ -72,3 +72,49 @@ try {
 }
 
 Assert-True (Test-Path (Join-Path $DataDir 'log\server.log')) 'the data folder was created (log/server.log)'
+
+# 8000 番が使われているとき（#290）: --port なしで起動すると、別の番号で起動し、使った番号を port.json に書く。
+# そのあともう一度起動すると、2 つ目は起動せずに終わる（動いている方はそのまま）
+$busyData = "$DataDir-busy"
+$listener = $null
+try {
+    $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 8000)
+    $listener.Start()
+    Write-Host 'port 8000 is now in use by the smoke test'
+} catch {
+    Write-Host 'port 8000 was already in use'
+    $listener = $null
+}
+$env:REMOTE_WHISPER_HOME = $busyData
+$busyArgs = @('-m', 'remote_whisper', '--mock', '--no-tray')
+$first = Start-Process -FilePath $pythonw -ArgumentList $busyArgs -WorkingDirectory $AppDir -PassThru -WindowStyle Hidden
+try {
+    $portFile = Join-Path $busyData 'port.json'
+    $info = $null
+    for ($i = 0; $i -lt 60 -and -not $info; $i++) {
+        Start-Sleep -Seconds 1
+        if ($first.HasExited) { throw "the server exited early (code $($first.ExitCode))" }
+        if (Test-Path $portFile) { try { $info = Get-Content $portFile -Raw | ConvertFrom-Json } catch { $info = $null } }
+    }
+    Assert-True ($null -ne $info) 'port.json was written'
+    Assert-True ($info.port -ne 8000 -and $info.port -ne 8001) "started on another port ($($info.port)) while 8000 was in use"
+    $busyBase = "http://127.0.0.1:$($info.port)"
+    $ok = $false
+    for ($i = 0; $i -lt 60 -and -not $ok; $i++) {
+        try { $ok = (Invoke-RestMethod "$busyBase/api/health" -TimeoutSec 3).status -eq 'ok' } catch { Start-Sleep -Seconds 1 }
+    }
+    Assert-True $ok 'the server answers on the other port'
+
+    $second = Start-Process -FilePath $pythonw -ArgumentList $busyArgs -WorkingDirectory $AppDir -PassThru -WindowStyle Hidden
+    $exited = $second.WaitForExit(60000)
+    if (-not $exited) { & taskkill /F /T /PID $second.Id | Out-Null }
+    Assert-True ($exited -and $second.ExitCode -eq 0) 'a second launch exits without starting another server'
+    $after = Get-Content $portFile -Raw | ConvertFrom-Json
+    Assert-True ($after.pid -eq $info.pid -and $after.port -eq $info.port) 'the first server is still the one in port.json'
+    Assert-True ((Invoke-RestMethod "$busyBase/api/health").status -eq 'ok') 'the first server is still running'
+} finally {
+    if (-not $first.HasExited) { & taskkill /F /T /PID $first.Id | Out-Null }
+    $first.WaitForExit(10000) | Out-Null
+    if ($listener) { $listener.Stop() }
+    $env:REMOTE_WHISPER_HOME = $DataDir
+}
