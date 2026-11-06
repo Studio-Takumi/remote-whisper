@@ -310,6 +310,12 @@ def make_installer(tmp_path, monkeypatch, mode="ok", requirements=True):
 
 
 def site_of(site):
+    # 偽の pip が置き換えている途中（Windows）なら読み直す
+    for _ in range(50):
+        try:
+            return json.loads(site.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            time.sleep(0.02)
     return json.loads(site.read_text(encoding="utf-8"))
 
 
@@ -374,9 +380,9 @@ def test_cancel_rolls_back(tmp_path, monkeypatch):
     async def run():
         installer.start()
         # pip が入れ始める（偽の pip が一覧を書き換える）まで待つ
-        while "whisperx" not in site_of(site):
+        # （出力を読み終えて段階が downloading になるまでも待つ）
+        while "whisperx" not in site_of(site) or installer.job.phase != "downloading":
             await asyncio.sleep(0.05)
-        assert installer.job.phase == "downloading"
         installer.cancel()
         await finish(installer)
 

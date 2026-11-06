@@ -21,8 +21,18 @@ def load() -> dict[str, str]:
 
 
 def save(pkgs: dict[str, str]) -> None:
-    with open(site, "w", encoding="utf-8") as f:
+    # テストが途中を読まないように、別のファイルに書いてから置き換える
+    tmp = f"{site}.{os.getpid()}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(pkgs, f)
+    for _ in range(50):
+        try:
+            os.replace(tmp, site)
+            return
+        except PermissionError:
+            # Windows でテストが読んでいる間は置き換えられない
+            time.sleep(0.02)
+    raise RuntimeError("cannot replace the site file")
 
 
 if args[:1] == ["-c"]:
