@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 from test_mock import FAST, of_type, receive_until, start
 
 from remote_whisper.app import create_app
+from remote_whisper.cloud import OwnerOnlyError
 from remote_whisper.push import (
     KEY_FILE,
     NOTIFICATION_TITLE,
@@ -128,6 +129,21 @@ def test_key_is_kept_and_a_broken_key_is_remade(tmp_path):
     remade.ensure_key()
     assert remade.public_key() != public
     assert remade.subscriptions() == []
+
+
+def test_key_is_written_even_when_it_cannot_be_restricted(tmp_path, monkeypatch, caplog):
+    # 権限を付けられなくても、通知の鍵は作る（警告だけ。cloud.json とは違って止めない。#252）
+    def refuse(path, text):
+        raise OwnerOnlyError("icacls failed: Access is denied.")
+
+    monkeypatch.setattr("remote_whisper.push.write_owner_only", refuse)
+    push = PushService(tmp_path)
+    push.ensure_key()
+    pem = (tmp_path / KEY_FILE).read_text(encoding="ascii")
+    assert pem.startswith("-----BEGIN PRIVATE KEY-----")
+    assert PushService(tmp_path).public_key() == push.public_key()
+    assert "cannot restrict" in caplog.text
+    assert [p.name for p in tmp_path.iterdir() if p.name.startswith(f".{KEY_FILE}.")] == []
 
 
 def test_subscriptions_are_replaced_by_endpoint_and_capped(tmp_path, monkeypatch):

@@ -19,9 +19,11 @@ import json
 import logging
 import os
 import re
+import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import uuid
@@ -39,7 +41,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PublicKey,
 )
 
-from remote_whisper.fsutil import atomic_write_json
+from remote_whisper.fsutil import atomic_write_text
 
 log = logging.getLogger(__name__)
 
@@ -214,17 +216,19 @@ class OwnerOnlyError(OSError):
 
 
 CREDENTIALS_PERMISSION_ERROR = "cloud.json を本人だけが読める設定にできません"
+CREDENTIALS_SAVE_ERROR = "cloud.json に書き込めません"
+# 承認のあとに書けず、Worker の登録も取り消せなかったときに書き足す
+UNDO_FAILED_NOTICE = "。中間サーバーに登録が残っているので、画面のホストの管理からも外してください"
 
 
 def save_credentials(home: Path, credentials: Credentials) -> None:
-    """cloud.json を書く。権限は中身を書く前の一時ファイルに付けてから置き換える（#252）
+    """cloud.json を、本人だけが読み書きできるファイルとして書く（write_owner_only。#252）
 
-    Windows では、置き換えたあとに権限を付けると、それまでのわずかな間は親フォルダの権限を継ぐ
-    （データのルートをドライブの直下などに置くと、ほかのユーザーから読める）。権限を付けられ
-    なければ書かずに CloudError にする（登録をやめて、トレイで知らせる）
+    権限を付けられなければ書かずに CloudError にする（登録をやめて、トレイで知らせる）
     """
+    text = json.dumps(credentials.to_json(), ensure_ascii=False, indent=2) + "\n"
     try:
-        atomic_write_json(credentials_path(home), credentials.to_json(), prepare=restrict_to_owner)
+        write_owner_only(credentials_path(home), text)
     except OwnerOnlyError as e:
         log.warning("cannot save %s: %s", credentials_path(home), e)
         raise CloudError(CREDENTIALS_PERMISSION_ERROR) from e
@@ -232,6 +236,41 @@ def save_credentials(home: Path, credentials: Credentials) -> None:
 
 def delete_credentials(home: Path) -> None:
     credentials_path(home).unlink(missing_ok=True)
+
+
+def write_owner_only(path: Path, text: str) -> None:
+    """path を、本人だけが読み書きできるファイルとして書き換える（一時ファイルから置き換える）
+
+    権限を付けられなければ OwnerOnlyError（元のファイルはそのまま。一時のものは残さない）。
+    POSIX は mkstemp の一時ファイルが最初から 600。
+    Windows は、同じフォルダに専用の一時フォルダを作り、継承を切って今のユーザーだけ
+    （`(OI)(CI)` でフォルダの中に作るものにも効く）にしてから、その中で一時ファイルを作って書き、
+    置き換える。一時ファイルを親フォルダに直接作ると、権限を付ける前に親フォルダの権限で
+    ほかのユーザーにハンドルを開かれ、あとから書いた中身を読まれうる（Windows はハンドルを
+    開いたときにしか権限を確かめない）。一時フォルダは中身のないうちに絞るので、そのハンドルを
+    持たれても、中のファイルは開けない。置き換えたあとも親フォルダの継承を受けないように、
+    ファイル自体も継承を切っておく
+    """
+    if sys.platform != "win32":
+        atomic_write_text(path, text)
+        try:
+            restrict_to_owner(path)  # mkstemp で 600 のはずだが、念のため
+        except OwnerOnlyError:
+            path.unlink(missing_ok=True)
+            raise
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    sid = _current_user_sid()
+    tmp_dir = Path(tempfile.mkdtemp(dir=path.parent, prefix=f".{path.name}.", suffix=".dir"))
+    try:
+        _icacls(tmp_dir, "/inheritance:r", "/grant:r", f"*{sid}:(OI)(CI)F")
+        tmp = tmp_dir / path.name
+        with open(tmp, "x", encoding="utf-8", newline="\n") as f:
+            f.write(text)
+        _icacls(tmp, "/inheritance:r", "/grant:r", f"*{sid}:F")
+        os.replace(tmp, path)
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 def restrict_to_owner(path: Path) -> None:
@@ -245,9 +284,11 @@ def restrict_to_owner(path: Path) -> None:
         except OSError as e:
             raise OwnerOnlyError(f"chmod failed: {e}") from e
         return
-    result = _run_windows_tool(
-        ["icacls", str(path), "/inheritance:r", "/grant:r", f"*{_current_user_sid()}:F"]
-    )
+    _icacls(path, "/inheritance:r", "/grant:r", f"*{_current_user_sid()}:F")
+
+
+def _icacls(path: Path, *args: str) -> None:
+    result = _run_windows_tool("icacls.exe", str(path), *args)
     if result.returncode != 0:
         raise OwnerOnlyError(f"icacls failed: {(result.stdout + result.stderr).strip()}")
 
@@ -258,7 +299,7 @@ def _current_user_sid() -> str:
     名前（USERDOMAIN\\USERNAME）で指すと、SSH のセッションなどで USERDOMAIN が WORKGROUP になり、
     icacls が名前を SID に変えられずに失敗する
     """
-    result = _run_windows_tool(["whoami", "/user", "/fo", "csv", "/nh"])
+    result = _run_windows_tool("whoami.exe", "/user", "/fo", "csv", "/nh")
     sid = result.stdout.strip().rsplit(",", 1)[-1].strip().strip('"')
     if result.returncode != 0 or not sid.startswith("S-1-"):
         output = (result.stdout + result.stderr).strip()
@@ -266,10 +307,19 @@ def _current_user_sid() -> str:
     return sid
 
 
-def _run_windows_tool(args: list[str]) -> subprocess.CompletedProcess[str]:
+def system32(name: str) -> str:
+    """Windows の System32 のプログラムのフルパス。名前だけで起動すると、CreateProcess は
+    System32 より先にアプリのフォルダとカレントディレクトリを探すので、置かれた偽物を拾いうる
+    """
+    root = os.environ.get("SystemRoot") or "C:\\Windows"
+    return f"{root.rstrip(chr(92))}\\System32\\{name}"
+
+
+def _run_windows_tool(name: str, *args: str) -> subprocess.CompletedProcess[str]:
+    exe = system32(name)
     try:
-        return subprocess.run(  # noqa: S603, S607
-            args,
+        return subprocess.run(  # noqa: S603
+            [exe, *args],
             capture_output=True,
             text=True,
             errors="replace",
@@ -278,7 +328,7 @@ def _run_windows_tool(args: list[str]) -> subprocess.CompletedProcess[str]:
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except (OSError, subprocess.SubprocessError) as e:
-        raise OwnerOnlyError(f"cannot run {args[0]}: {e}") from e
+        raise OwnerOnlyError(f"cannot run {exe}: {e}") from e
 
 
 # --- 中間サーバー（Worker）とのやり取り ---
@@ -534,6 +584,22 @@ class CloudHost:
         except Exception:  # noqa: BLE001 通知が出せなくても続ける
             log.warning("failed to show a cloud notice", exc_info=True)
 
+    def _undo_approval(self, client: "RelayClient", error: Exception) -> CloudError:
+        """承認のあとに中継の鍵を書けなかった。Worker の登録を取り消し、通知に出す CloudError を返す
+
+        取り消せなかったとき（つながらない・5xx など）は、画面から外すように書き足す
+        """
+        log.warning("cannot save the relay key; unpairing", exc_info=error)
+        message = str(error) if isinstance(error, CloudError) else CREDENTIALS_SAVE_ERROR
+        try:
+            removed = client.unpair()
+        except Exception:  # noqa: BLE001 取り消せなくても、通知は出す
+            log.warning("cannot unpair after the failed save", exc_info=True)
+            removed = False
+        if not removed:
+            message += UNDO_FAILED_NOTICE
+        return CloudError(message)
+
     def _pair(self) -> None:
         try:
             message = self._pair_steps()
@@ -606,12 +672,10 @@ class CloudHost:
                                 credentials, relay_key=relay_key, registered_at=int(self.clock())
                             ),
                         )
-                    except CloudError:
-                        # 中継の鍵を置けないなら、Worker の登録も取り消す（使えない登録を残さない）
-                        # 取り消せなくても、画面のホストの管理から外せる
-                        with contextlib.suppress(CloudError):
-                            client.unpair()
-                        raise
+                    except Exception as e:
+                        # 中継の鍵を置けない（権限・ディスクがいっぱい・ほかのプロセスの
+                        # ロックなど）なら、Worker の登録も取り消す（使えない登録を残さない）
+                        raise self._undo_approval(client, e) from e
                     self._view = CloudView("registered")
                     self._registration_changed()
                     log.info("cloud pairing approved (host %s)", credentials.host_id)
