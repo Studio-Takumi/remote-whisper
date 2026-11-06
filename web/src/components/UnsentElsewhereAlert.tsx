@@ -35,7 +35,7 @@ export function UnsentElsewhereAlert() {
                     >
                         <HardDriveUploadIcon className='hidden size-4 shrink-0 text-amber-600 md:block dark:text-amber-400' />
                         <p className='min-w-0 flex-1 break-words'>
-                            {removed ? '外したホスト' : `${host?.name ?? 'ほかのホスト'} `}に未送信の音声があります
+                            {removed ? '外したホスト' : `${host?.name ?? 'ほかのホスト'} `}に届かなかった録音があります
                         </p>
                         <div className='flex shrink-0 gap-2'>
                             {removed ? (

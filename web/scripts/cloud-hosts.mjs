@@ -1,5 +1,5 @@
 // クラウド版のホストの選択（#161）を、偽の Worker で確かめる（0 台・1 台・2 台以上・オフライン・前に選んだもの、
-// ほかのホストの未送信の音声（#227））
+// ほかのホストの届かなかった録音（#227））
 //
 // 動かし方: cd web && npm run check:cloud-hosts
 // - vite の開発サーバーを localhost をクラウド用のドメインとして立て（VITE_CLOUD_HOSTS=localhost）、
@@ -117,7 +117,7 @@ const cases = [
         check: (page) => page.getByText('どの PC もオフラインです').waitFor(),
     },
     {
-        name: 'ほかのホストの未送信の音声は知らせ、切り替えるとそのホストで復旧する（#227）',
+        name: 'ほかのホストの届かなかった録音は知らせ、切り替えるとそのホストで復旧する（#227）',
         hosts: [host(A, '書斎の PC', true), host(B, 'ノート PC', true)],
         check: async (page) => {
             await page.locator('[data-hosts=choose]').waitFor();
@@ -125,28 +125,28 @@ const cases = [
             await page.getByText('書斎の PC につないでいます').waitFor();
             await seedUnsent(page, [{ session: 's-b', host: B }]);
             await page.reload();
-            await step(page.getByText('ノート PC に未送信の音声があります').waitFor(), 'B の音声を知らせる');
+            await step(page.getByText('ノート PC に届かなかった録音があります').waitFor(), 'B の音声を知らせる');
             if (await page.getByText('前にページを開いていたとき').isVisible()) {
                 throw new Error('A につないでいるのに B の音声を復旧しようとした');
             }
             await page.getByRole('button', { name: '切り替える', exact: true }).click();
             await step(page.getByText('ノート PC につないでいます').waitFor(), '読み込み直して B につなぐ');
             await step(page.getByText('前にページを開いていたとき').waitFor(), 'B で復旧を出す');
-            if (await page.getByText('に未送信の音声があります').isVisible()) {
+            if (await page.getByText('に届かなかった録音があります').isVisible()) {
                 throw new Error('B につないだのに、まだほかのホストとして出ている');
             }
         },
     },
     {
-        name: '外したホストの未送信の音声は捨てられる（#227）',
+        name: '外したホストの届かなかった録音は捨てられる（#227）',
         hosts: [host(A, '書斎の PC', true)],
         check: async (page) => {
             await page.getByText('書斎の PC につないでいます').waitFor();
             await seedUnsent(page, [{ session: 's-c', host: 'removed-host' }]);
             await page.reload();
-            await step(page.getByText('外したホストに未送信の音声があります').waitFor(), '外したホストを知らせる');
+            await step(page.getByText('外したホストに届かなかった録音があります').waitFor(), '外したホストを知らせる');
             await page.getByRole('button', { name: '捨てる' }).click();
-            await page.getByText('外したホストに未送信の音声があります').waitFor({ state: 'detached' });
+            await page.getByText('外したホストに届かなかった録音があります').waitFor({ state: 'detached' });
             // IndexedDB から消し終わるのを待つ（すぐに読み込み直すと、消す前に止まることがある）
             for (let i = 0; (await countUnsent(page)) > 0; i++) {
                 if (i >= 20) {
@@ -157,7 +157,7 @@ const cases = [
             await page.reload();
             await page.getByText('書斎の PC につないでいます').waitFor();
             await page.waitForTimeout(500);
-            if (await page.getByText('未送信の音声があります').isVisible()) {
+            if (await page.getByText('届かなかった録音があります').isVisible()) {
                 throw new Error('捨てたのに、読み込み直すとまた出る');
             }
         },
