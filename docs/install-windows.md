@@ -1,6 +1,6 @@
 # Windows にインストールして使う
 
-Python・uv・cloudflared を自分で入れずに、インストーラ 1 つで remote-whisper のホスト（文字起こしをする PC）を使えるようにするものです（#168）。リアルタイムの文字起こし（faster-whisper）までが入っています。録音後の最終の文字起こし（WhisperX。話者分けを含む）は入っていません（後述）。
+Python・uv・cloudflared を自分で入れずに、インストーラ 1 つで remote-whisper のホスト（文字起こしをする PC）を使えるようにするものです（#168）。リアルタイムの文字起こし（faster-whisper）までが入っています。録音後の最終の文字起こし（WhisperX。話者分けを含む）は入っていませんが、初めて画面を開いたときの案内から入れられます（後述）。
 
 開発の手順（`uv run remote-whisper`）は今までどおり使えます。このインストーラは、リポジトリを持っていない人向けです。
 
@@ -26,25 +26,28 @@ Python・uv・cloudflared を自分で入れずに、インストーラ 1 つで
 6. **文字起こし**: 話した内容が文字起こしで出る。**初回は Whisper のモデル（large-v3-turbo。約 1.6GB）のダウンロードがあるので、出るまでに数分かかります**（ダウンロード先は HuggingFace のキャッシュ `%USERPROFILE%\.cache\huggingface`）。
 7. **アンインストール**: 設定の「アプリ」から「Remote Whisper」を削除する。データのフォルダ（`.remote-whisper`）が残っていることを確かめる。
 
-## Ollama・HuggingFace のトークンがないとき
+## 初回のセットアップ（Ollama・要約のモデル・WhisperX・HuggingFace のトークン）
 
-- Ollama が入っていない（または動いていない）と、トレイのアイコンのカーソル（縦の棒）が橙になり、要約・用語リストの生成は「Ollama に接続できないため〜を作れませんでした」と出て作りません。**文字起こしそのものは動きます**。要約を使うときは [Ollama](https://ollama.com/) を入れてください。
-- HuggingFace のトークンがないと、話者分けはしません（今までと同じ）。
+画面（`http://127.0.0.1:8000/`）を初めて開くと、足りないものがあれば「はじめに」が出ます（#291。あとからは設定の「セットアップ」で開けます）。どれも飛ばせて、**飛ばしても文字起こしは動きます**。クラウド版の画面からは見るだけで、入れる操作はホストの PC で開いた画面からします。
+
+1. **Ollama**（要約と用語リストを作るアプリ）: 同梱していません。入っていなければ「ダウンロードのページを開く」で公式のページを開いて入れ、「もう一度確かめる」を押します。入っていない間は、トレイのアイコンのカーソル（縦の棒）が橙になり、要約・用語リストは「Ollama に接続できないため〜を作れませんでした」と出て作りません。
+2. **要約のモデル**: おすすめのモデルのうち入っていないものを、大きさを見て「取得」で取ります（Ollama がダウンロードします。録音中は始められません。途中でやめられます）。
+3. **WhisperX**（浄書と話者分けに使うライブラリ）: 「入れる」で、同梱の Python に入れます。CUDA 版の torch を含むので、画面に出る目安くらいのダウンロードと時間がかかります。入れる中身は、ビルドのときに `uv.lock` から作った `whisperx-requirements.txt`（版とハッシュを固定）なので、同梱の依存の版は変わりません。失敗した・やめたときは、入れる前の状態に戻します（途中で PC やサーバーが止まったときは、次に起動したときに戻します）。pip の出力は `%USERPROFILE%\.remote-whisper\log\whisperx-install.log` に残ります。入れ終えたら、サーバーを再起動しなくても浄書できます。
+4. **HuggingFace のトークン**（話者分けのモデルを取るためのもの）: 画面のリンクから、話者分けのモデル（`pyannote/speaker-diarization-community-1`）のページで利用条件に同意し、Read のトークンを作って貼り、「保存」を押します。トークンは `%USERPROFILE%\.remote-whisper\huggingface-token`（本人だけが読める権限）にだけ置き、画面・ログには出しません。環境変数 `HF_TOKEN` があれば、そちらを使います。トークンがないと、話者分けはしません。
 
 ## 上書きで更新するとき
 
 新しい版のインストーラをもう一度実行すると、同じ場所に上書きします（データは残ります。起動中のサーバーは、インストーラが止めます）。「ログオン時に起動」のチェックを外して入れ直すと、自動起動の登録は消えます。
 
-**後から入れた WhisperX は、更新のたびに依存が `uv.lock` の版に戻るので、整合が崩れることがあります。更新したら、下の WhisperX の手順をやり直してください。**
+**後から入れた WhisperX は、更新で同梱の依存の版が変わると、整合が崩れることがあります。更新したら、設定の「セットアップ」で WhisperX が「入っています」になっているかを見て、なっていなければ入れ直してください。**
 
-## WhisperX（最終の文字起こし・話者分け）を後から入れる
+## WhisperX を手で入れる（画面から入れられないとき）
 
-WhisperX は CUDA 版の torch で数 GB になるので、このインストーラには入れていません。後から入れる手順（設定や初回の案内から入れられるようにするのは、別の Issue で扱います）:
+画面の「入れる」が使えないときは、同じものを手で入れられます（`uv` が要ります。https://docs.astral.sh/uv/）:
 
 ```powershell
 $app = "$env:LOCALAPPDATA\Programs\Remote Whisper"
-# uv が要ります（https://docs.astral.sh/uv/）
-uv pip install --python "$app\python\python.exe" --break-system-packages --extra-index-url https://download.pytorch.org/whl/cu128 "whisperx>=3.8.6,<3.9" "torch==2.8.*" "torchaudio==2.8.*" "torchvision==0.23.*" fugashi unidic-lite
+uv pip install --python "$app\python\python.exe" --break-system-packages --extra-index-url https://download.pytorch.org/whl/cu128 --require-hashes --requirement "$app\whisperx-requirements.txt"
 ```
 
 ## 方式の選び方（Python ごと同梱 / PyInstaller）
@@ -60,8 +63,8 @@ Python ごと同梱にしました。理由:
 
 - 署名していない（SmartScreen の警告が出る）。
 - インストーラが大きい（CUDA のライブラリを含み、約 1.4GB）。Inno Setup の単一の exe は 2GB が上限（分割しない場合）なので、ライブラリが増えると近づく。
-- WhisperX の手順の `uv pip install` は `uv.lock` で固定していないため、共通の依存（numpy など）の版が変わることがある。
-- **GPU（NVIDIA）がないとき**: 文字起こしは使えません（CPU 向けの設定は用意していない）。サーバーは起動し、トレイのアイコンのカーソルが橙になり、録音しても Whisper が動かない。確かめた動作ではなく、設計上の想定です（実機で確認する項目）。
+- WhisperX を入れられるのは、`whisperx-requirements.txt` を同梱した版から（#291）。それより古い版では、extra `final` の依存を、入っているものの版を変えない制約を付けて入れる（`uv.lock` には固定されない）。
+- **GPU（NVIDIA）がないとき**: 文字起こしは CPU で動きます（#274）。GPU より数倍以上遅くなるので、初回の案内にその旨を出します。モデルを small などにすると速くなります。
 - **ポート 8000 が他で使われているとき**: サーバーは起動に失敗して終わる（ログの `%USERPROFILE%\.remote-whisper\log\server.log` に残る）。ショートカットは `--port` を付けていないので、使われているアプリを止めるか、ショートカットの引数に `--port <番号>` を足す。これも実機で確認する項目。
 - Windows 10/11 の x64 だけ。
 - 起動の窓口は `pythonw.exe -m remote_whisper` を指すショートカットで、専用のアイコンはまだない。
