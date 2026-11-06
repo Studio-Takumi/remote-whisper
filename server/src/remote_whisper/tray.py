@@ -6,7 +6,9 @@
 - 左クリックで画面をブラウザで開く。右クリックのメニューは
   「画面を開く / ログのフォルダを開く / クラウドの状態の行・クラウド版にログイン（など） / 終了」。
   クラウドの項目（#158）は、登録していなければ「クラウド版にログイン」、登録中は「登録をやめる」、
-  登録済みなら「クラウド版から外す」だけを出す。登録コードと結果は通知（Mac は osascript）でも出す
+  登録済みなら「クラウド版から外す」だけを出す。登録コードと結果は通知（Mac は osascript）でも出す。
+  Mac の配布版（#292）では、終了の上に「ログイン時に起動」（チェックの付く項目。login_item.py）
+  も出す
 - Mac ではクリックでメニューが開き、マウスを乗せたときの文が出ないことがあるので、
   メニューの一番上に状態の行を出す。アイコンはテンプレート画像にしない（カーソルの色が見えるように）
 - pystray と Pillow は Windows と Mac だけの依存。ないときは available() が False になり、
@@ -26,6 +28,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from remote_whisper import bundle, login_item
 from remote_whisper.announcements import AnnouncementWatcher
 from remote_whisper.cloud import CloudHost, CloudView
 from remote_whisper.hub import ServerStatus
@@ -36,6 +39,7 @@ from remote_whisper.tray_state import (
     MENU_CLOUD_CANCEL,
     MENU_CLOUD_LOGIN,
     MENU_CLOUD_UNPAIR,
+    MENU_LOGIN_ITEM,
     MENU_LOGS,
     MENU_OPEN,
     MENU_QUIT,
@@ -318,6 +322,39 @@ def notify_mac(message: str) -> None:
     )
 
 
+# NSApplication の delegate は弱い参照なので、ここで持っておく
+_reopen_delegate: Any = None
+
+
+def install_reopen_handler(on_reopen: Callable[[], None]) -> None:
+    """Mac の配布版（#292）: 動いている .app を Finder などからもう一度開いたら、画面を開く
+
+    LaunchServices は、動いている .app をもう一度開くと、2 つ目を起動せずに「開き直す」イベント
+    （applicationShouldHandleReopen）を送るだけなので、それを受けて画面を開く。
+    メインスレッドで呼ぶ（Tray.run の中、icon.run の前）。ほかのスレッドからは何もしない
+    """
+    global _reopen_delegate
+    if threading.current_thread() is not threading.main_thread():
+        log.warning("the reopen handler must be installed on the main thread; skipped")
+        return
+    try:
+        import AppKit
+        import Foundation
+
+        class ReopenDelegate(Foundation.NSObject):
+            def applicationShouldHandleReopen_hasVisibleWindows_(self, app, flag):  # noqa: N802
+                try:
+                    on_reopen()
+                except Exception:  # noqa: BLE001
+                    log.warning("failed to open the web UI on reopen", exc_info=True)
+                return False
+
+        _reopen_delegate = ReopenDelegate.alloc().init()
+        AppKit.NSApplication.sharedApplication().setDelegate_(_reopen_delegate)
+    except Exception:  # noqa: BLE001 開き直しで画面が開かないだけ（メニューからは開ける）
+        log.warning("failed to install the reopen handler", exc_info=True)
+
+
 def open_folder(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
     if sys.platform == "win32":
@@ -357,6 +394,8 @@ class Tray:
         self.cloud = cloud
         if cloud is not None:
             cloud.on_notice = self._notify
+        # Mac の配布版の .app（#292）。あれば「ログイン時に起動」を出す
+        self.app_bundle = bundle.app_bundle()
         self._icon: Any = None
         self._shown: TrayState | None = None
         self._light = False
@@ -395,6 +434,16 @@ class Tray:
                 ),
                 pystray.Menu.SEPARATOR,
             ]
+        if self.app_bundle is not None and login_item.supported(self.app_bundle):
+            # Mac の配布版（#292）: ログイン時に起動するかを切り替える
+            items += [
+                pystray.MenuItem(
+                    MENU_LOGIN_ITEM,
+                    self._toggle_login_item,
+                    checked=lambda _: login_item.is_enabled(self.app_bundle),
+                ),
+                pystray.Menu.SEPARATOR,
+            ]
         items.append(pystray.MenuItem(MENU_QUIT, self._quit))
         if shows_status_line():
             # 押せない行として、今の状態を出す（変わったら update_menu で書き直す）
@@ -417,6 +466,11 @@ class Tray:
         # 作っている間にサーバーが止まった（ポートが使われていたなど）なら、出さずに戻る
         if self._stopped.is_set():
             return
+        if sys.platform == "darwin" and self.app_bundle is not None:
+            # AppKit はメインスレッドでしか触れない。pystray の setup（_setup）は別のスレッドで
+            # 動くので、ここ（Mac ではメインスレッド。NSApplication は Icon を作ったときに
+            # できている）で入れる
+            install_reopen_handler(self._open)
         self._icon.run(setup=self._setup)
 
     def stop(self) -> None:
@@ -534,6 +588,20 @@ class Tray:
             return
         self.cloud.unpair()
         self.update(self._state())
+
+    def _toggle_login_item(self, *_: Any) -> None:
+        try:
+            if login_item.is_enabled(self.app_bundle):
+                login_item.disable()
+            elif self.app_bundle is not None:
+                login_item.enable(self.app_bundle)
+        except OSError:
+            log.exception("failed to change launching at login")
+            self._notify("ログイン時に起動の設定を変えられませんでした")
+            return
+        if self._icon is not None:
+            with contextlib.suppress(Exception):
+                self._icon.update_menu()
 
     def _open(self, *_: Any) -> None:
         webbrowser.open(self.url)
