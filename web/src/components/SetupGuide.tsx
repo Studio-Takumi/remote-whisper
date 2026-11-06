@@ -363,6 +363,9 @@ function WhisperXStep({
                 </div>
             </>
         );
+    } else if (status.runtime !== 'dev') {
+        // 固定した依存の一覧を同梱していない古い配布版: 画面からは入れない
+        body = <Note warn>この版では画面から入れられません。新しい版のインストーラを入れてください</Note>;
     } else {
         // 開発の環境（uv）: 案内だけ
         body = (
