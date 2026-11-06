@@ -166,19 +166,28 @@ def test_credentials_are_saved_owner_only(tmp_path):
         out = subprocess.run(["icacls", str(path)], capture_output=True, text=True).stdout
         assert os.environ["USERNAME"].lower() in out.lower()
         assert "BUILTIN\\Users" not in out and "Everyone" not in out
+        assert "Authenticated Users" not in out
     else:
         assert path.stat().st_mode & 0o777 == 0o600
 
 
-def fake_icacls(monkeypatch, results):
-    """Windows の icacls を偽物にする。results の順に答える（int は終了コード、例外は投げる）
+SID = "S-1-5-21-1111111111-2222222222-3333333333-1001"
 
-    呼ばれたときの対象のファイルの名前と中身・cloud.json があったかを覚える
+
+def fake_icacls(monkeypatch, results, whoami=f'"example-pc\\taro","{SID}"'):
+    """Windows の icacls と whoami を偽物にする。icacls は results の順に答える（int は終了コード、
+    例外は投げる）。whoami は whoami の出力（例外なら投げる）
+
+    icacls が呼ばれたときの対象のファイルの名前と中身・cloud.json があったかを覚える
     """
     seen: list[dict] = []
     answers = list(results)
 
     def run(args, **kwargs):
+        if args[0] == "whoami":
+            if isinstance(whoami, BaseException):
+                raise whoami
+            return subprocess.CompletedProcess(args, 0, whoami + "\n", "")
         target = Path(args[1])
         seen.append(
             {
@@ -196,8 +205,9 @@ def fake_icacls(monkeypatch, results):
         return subprocess.CompletedProcess(args, answer, "", "Access is denied." if answer else "")
 
     monkeypatch.setattr(sys, "platform", "win32")
+    # 名前では指さない（SSH のセッションでは USERDOMAIN が WORKGROUP になり、名前を解けない）
     monkeypatch.setenv("USERNAME", "taro")
-    monkeypatch.setenv("USERDOMAIN", "EXAMPLE-PC")
+    monkeypatch.setenv("USERDOMAIN", "WORKGROUP")
     monkeypatch.setattr(subprocess, "run", run)
     return seen
 
@@ -216,7 +226,7 @@ def test_windows_restricts_the_temp_file_before_writing_the_secret(tmp_path, mon
     assert len(seen) == 1
     call = seen[0]
     assert call["target"].name.startswith(".cloud.json.") and call["target"].name != "cloud.json"
-    assert call["args"][2:] == ["/inheritance:r", "/grant:r", "EXAMPLE-PC\\taro:F"]
+    assert call["args"][2:] == ["/inheritance:r", "/grant:r", f"*{SID}:F"]
     # 権限を付けた時点では、一時ファイルは空で、cloud.json はまだ前のまま
     assert call["content"] == b""
     assert json.loads(call["final"])["hostId"] == old.host_id
@@ -238,10 +248,10 @@ def test_windows_permission_failure_does_not_write_cloud_json(tmp_path, monkeypa
     assert leftovers(tmp_path) == []
 
 
-def test_windows_without_username_does_not_write_cloud_json(tmp_path, monkeypatch):
-    seen = fake_icacls(monkeypatch, [0])
-    monkeypatch.delenv("USERNAME")
-    with pytest.raises(CloudError):
+@pytest.mark.parametrize("whoami", ["", "ERROR: Access is denied.", FileNotFoundError("whoami")])
+def test_windows_without_the_user_sid_does_not_write_cloud_json(tmp_path, monkeypatch, whoami):
+    seen = fake_icacls(monkeypatch, [0], whoami=whoami)
+    with pytest.raises(CloudError, match=CREDENTIALS_PERMISSION_ERROR):
         save_credentials(tmp_path, new_credentials(RELAY))
     assert seen == [] and not (tmp_path / "cloud.json").exists() and leftovers(tmp_path) == []
 

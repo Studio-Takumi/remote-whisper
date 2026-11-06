@@ -237,7 +237,7 @@ def delete_credentials(home: Path) -> None:
 def restrict_to_owner(path: Path) -> None:
     """ファイルを本人だけが読み書きできるようにする。できなければ OwnerOnlyError
 
-    POSIX は 600。Windows は icacls で継承を切り、今のユーザーだけにする
+    POSIX は 600。Windows は icacls で継承を切り、今のユーザー（SID で指す）だけにする
     """
     if sys.platform != "win32":
         try:
@@ -245,24 +245,40 @@ def restrict_to_owner(path: Path) -> None:
         except OSError as e:
             raise OwnerOnlyError(f"chmod failed: {e}") from e
         return
-    user = os.environ.get("USERNAME")
-    if not user:
-        raise OwnerOnlyError("USERNAME is not set")
-    domain = os.environ.get("USERDOMAIN")
-    account = f"{domain}\\{user}" if domain else user
+    result = _run_windows_tool(
+        ["icacls", str(path), "/inheritance:r", "/grant:r", f"*{_current_user_sid()}:F"]
+    )
+    if result.returncode != 0:
+        raise OwnerOnlyError(f"icacls failed: {(result.stdout + result.stderr).strip()}")
+
+
+def _current_user_sid() -> str:
+    """今のユーザーの SID（whoami /user）
+
+    名前（USERDOMAIN\\USERNAME）で指すと、SSH のセッションなどで USERDOMAIN が WORKGROUP になり、
+    icacls が名前を SID に変えられずに失敗する
+    """
+    result = _run_windows_tool(["whoami", "/user", "/fo", "csv", "/nh"])
+    sid = result.stdout.strip().rsplit(",", 1)[-1].strip().strip('"')
+    if result.returncode != 0 or not sid.startswith("S-1-"):
+        output = (result.stdout + result.stderr).strip()
+        raise OwnerOnlyError(f"cannot get the user's SID: {output}")
+    return sid
+
+
+def _run_windows_tool(args: list[str]) -> subprocess.CompletedProcess[str]:
     try:
-        result = subprocess.run(  # noqa: S603, S607
-            ["icacls", str(path), "/inheritance:r", "/grant:r", f"{account}:F"],
+        return subprocess.run(  # noqa: S603, S607
+            args,
             capture_output=True,
             text=True,
+            errors="replace",
             check=False,
             timeout=10,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except (OSError, subprocess.SubprocessError) as e:
-        raise OwnerOnlyError(f"cannot run icacls: {e}") from e
-    if result.returncode != 0:
-        raise OwnerOnlyError(f"icacls failed: {(result.stdout + result.stderr).strip()}")
+        raise OwnerOnlyError(f"cannot run {args[0]}: {e}") from e
 
 
 # --- 中間サーバー（Worker）とのやり取り ---
