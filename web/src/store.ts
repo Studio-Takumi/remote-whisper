@@ -3,7 +3,17 @@ import { create } from 'zustand';
 
 import { ApiError, type CorrectionsJson, type ProjectJson, type TermsJson, type TranscriptJson, api } from '@/api';
 import { type MicState, Microphone, MicrophoneError, SAMPLE_RATE, watchMicrophonePermission } from '@/audio/microphone';
-import { type UnsentSession, clearSession, deleteUpTo, listUnsent, restoreSize, saveChunk } from '@/audio/unsentStore';
+import {
+    type UnsentElsewhere,
+    type UnsentSession,
+    clearSession,
+    deleteUpTo,
+    listUnsent,
+    restoreSize,
+    saveChunk,
+    splitByHost,
+    unsentSeconds,
+} from '@/audio/unsentStore';
 import { keepScreenOn, screenKeptOn } from '@/audio/wakeLock';
 import { AudioSender, connection } from '@/connection';
 import { type Correction, applyCorrectionLocally, mergeLiveLines } from '@/corrections';
@@ -128,6 +138,11 @@ type AppState = {
     recoverUnsent: () => Promise<void>;
     // 届かなかった音声を捨てる
     discardUnsent: () => Promise<void>;
+    // ほかのホストで録音していて、届かなかった音声（クラウド版。#227）。そのホストにつないだときに復旧する。
+    // host が null は、どのホストのものか分からないもの（復旧しない）
+    unsentElsewhere: UnsentElsewhere[];
+    // ほかのホストの届かなかった音声を捨てる（外したホストと、どのホストのものか分からないもの）
+    discardUnsentElsewhere: (hosts: (string | null)[]) => Promise<void>;
     pauseRecording: () => Promise<void>;
     resumeRecording: () => void;
     stopRecording: () => Promise<void>;
@@ -513,7 +528,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     function persistUnsent(target: AudioSender, sessionId: string, projectId: string) {
         let warned = false;
         target.onFrame = (seq, frame) => {
-            void saveChunk(sessionId, projectId, seq, frame).then((saved) => {
+            void saveChunk(sessionId, projectId, getHostId(), seq, frame).then((saved) => {
                 if (!saved && !warned) {
                     warned = true;
                     toast.warning(
@@ -940,6 +955,7 @@ export const useAppStore = create<AppState>()((set, get) => {
         micState: 'ok',
         transcriptionStalled: false,
         unsent: null,
+        unsentElsewhere: [],
         pendingAudio: 0,
         partial: null,
         liveDraft: null,
@@ -1175,6 +1191,14 @@ export const useAppStore = create<AppState>()((set, get) => {
             } finally {
                 starting = false;
                 resuming = false;
+            }
+        },
+
+        discardUnsentElsewhere: async (hosts) => {
+            const entries = get().unsentElsewhere.filter((e) => hosts.includes(e.host));
+            set((s) => ({ unsentElsewhere: s.unsentElsewhere.filter((e) => !hosts.includes(e.host)) }));
+            for (const session of entries.flatMap((e) => e.sessions)) {
+                await clearSession(session);
             }
         },
 
@@ -1485,17 +1509,19 @@ export const useAppStore = create<AppState>()((set, get) => {
             // 前にページを開いていたときに、サーバーに届かなかった音声が残っていないか（#102）
             if (!isDemo) {
                 void listUnsent().then((list) => {
-                    const entry = list.find((e) => e.frames.length > 0);
+                    // 復旧するのは、今つないでいるホストのものだけ。ほかのホストのものは知らせるだけにして、
+                    // そのホストにつないだときに復旧する（#227。ダイレクト版はすべて今のホストのもの）
+                    const { mine: entry, elsewhere } = splitByHost(list, getHostId());
+                    set({ unsentElsewhere: elsewhere });
                     if (!entry || get().recordingState !== 'idle') {
                         return;
                     }
                     unsentEntry = entry;
-                    const samples = entry.frames.reduce((n, f) => n + (f.frame.byteLength - 4) / 2, 0);
                     set({
                         unsent: {
                             sessionId: entry.session,
                             projectId: entry.project,
-                            seconds: Math.round(samples / SAMPLE_RATE),
+                            seconds: unsentSeconds(entry.frames),
                         },
                     });
                 });
