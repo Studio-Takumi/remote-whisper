@@ -429,6 +429,28 @@ def test_install_is_refused_while_recording(home, tmp_path, monkeypatch):
     assert installer.job is None
 
 
+def test_final_worker_reads_audio_without_the_ffmpeg_command(tmp_path, monkeypatch):
+    """配布版には ffmpeg のコマンドがないので、浄書の子プロセスは PyAV で録音を読む"""
+    import wave
+
+    import numpy as np
+
+    from remote_whisper.final_transcribe_worker import load_audio
+
+    # PATH に ffmpeg がなくても読める
+    monkeypatch.setenv("PATH", str(tmp_path))
+    path = tmp_path / "a.wav"
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(2)
+        w.setsampwidth(2)
+        w.setframerate(8000)
+        w.writeframes((np.ones(8000 * 2, dtype=np.int16) * 16384).tobytes())
+    audio = load_audio(str(path))
+    assert audio.dtype == np.float32
+    assert abs(len(audio) - 16000) < 200
+    assert 0.4 < float(np.median(audio)) < 0.6
+
+
 def test_bundled_python_is_the_console_one(tmp_path, monkeypatch):
     (tmp_path / "bundle.json").write_text("{}", encoding="utf-8")
     monkeypatch.setenv("REMOTE_WHISPER_BUNDLE_DIR", str(tmp_path))
