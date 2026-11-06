@@ -43,10 +43,12 @@ OLLAMA_DOWNLOAD_URL = "https://ollama.com/download"
 # おすすめのモデルの大きさ（GB。`ollama list` の値）。外に取りに行かずに出すため、ここに持つ
 MODEL_SIZES_GB = {"qwen3.5:0.8b": 1.2, "qwen3.5:2b": 3.1, "qwen3.5:4b": 4.0}
 
-# WhisperX（最終の文字起こし）の大きさと時間の目安（Windows の配布版。CUDA 版の torch を含む）
-WHISPERX_DOWNLOAD_GB = 3.5
-WHISPERX_DISK_GB = 6.0
-WHISPERX_MINUTES = (10, 30)
+# WhisperX（最終の文字起こし）の大きさと時間の目安（Windows の配布版。CUDA 版の torch を含む）。
+# 2026-11 に Windows の配布版で測った値: ダウンロード 3.56GB、python フォルダが 2.05GB → 9.86GB、
+# 光回線で 5 分 39 秒。回線が遅いと延びるので、時間は幅を持たせる
+WHISPERX_DOWNLOAD_GB = 3.6
+WHISPERX_DISK_GB = 8.0
+WHISPERX_MINUTES = (5, 30)
 # 開発の環境（uv）で入れるときのコマンド（案内だけ）
 WHISPERX_DEV_COMMAND = "uv sync --extra final"
 # CUDA 版の torch（server/pyproject.toml の pytorch-cu128 と同じ）
