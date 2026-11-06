@@ -97,6 +97,10 @@ export type Settings = {
         // cloudflared の場所（#159）。空なら PATH の cloudflared。画面では変えない
         cloudflaredPath: string;
     };
+    // 8000 番を開ける名前（#249）。IP アドレス・localhost・*.ts.net・この PC の名前のほかに足すもの。古いサーバーにはない
+    network?: {
+        allowedHosts: string[];
+    };
     // サイドバーのプロジェクトの並び順（プロジェクト ID。#173）。ここにないものは先頭。
     // 一覧（GET /api/projects）はこの順で返ってくる。変えるのは並び替えのときだけ（changeSettings は送らない）
     projectOrder: string[];
@@ -167,6 +171,9 @@ export const defaultSettings: Settings = {
     cloud: {
         relayUrl: 'https://rw-dev.studio-takumi.dev',
         cloudflaredPath: '',
+    },
+    network: {
+        allowedHosts: [],
     },
     projectOrder: [],
 };

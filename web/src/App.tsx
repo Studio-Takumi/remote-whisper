@@ -15,6 +15,7 @@ import { SessionView } from '@/components/SessionView';
 import { SettingsDialog } from '@/components/SettingsDialog';
 import { TopBar } from '@/components/TopBar';
 import { UnsentAlert } from '@/components/UnsentAlert';
+import { UnsentElsewhereAlert } from '@/components/UnsentElsewhereAlert';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { Toaster } from '@/components/ui/sonner';
 import { isCloud } from '@/endpoint';
@@ -88,6 +89,7 @@ function AppMain() {
                 <AnnouncementBanner />
                 <TopBar />
                 <UnsentAlert />
+                <UnsentElsewhereAlert />
                 <PwaUpdater />
                 <SessionView />
                 <MicButton />

@@ -6,13 +6,18 @@ on:
     types: [published, edited, deleted]
   workflow_dispatch:
 
+# GITHUB_TOKEN は使わない（rw-hp には別の token で送る）
+permissions: {}
+
 jobs:
   dispatch:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ secrets.RW_HP_DISPATCH_TOKEN }}
+      # タグ名は run: に直接埋めず、env を通す（スクリプトの注入を防ぐ）
+      TAG_NAME: ${{ github.event.release.tag_name || 'manual' }}
     steps:
       - if: env.GH_TOKEN == ''
         run: echo "::notice::RW_HP_DISPATCH_TOKEN が未登録なので HP の作り直しを飛ばします"
       - if: env.GH_TOKEN != ''
-        run: gh workflow run deploy.yml -R Studio-Takumi/rw-hp -f reason="remote-whisper ${{ github.event.release.tag_name || 'manual' }}"
+        run: gh workflow run deploy.yml -R Studio-Takumi/rw-hp -f reason="remote-whisper $TAG_NAME"

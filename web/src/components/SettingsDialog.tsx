@@ -143,7 +143,11 @@ function SettingsForm({
             .filter((e) => e !== '')
             .map((e) => (e.startsWith('.') ? e : `.${e}`));
         const roots = draft.materials.roots.map((r) => r.trim()).filter((r) => r !== '');
-        onSave({ ...draft, materials: { ...draft.materials, roots, extensions } });
+        // 開ける名前も、入力途中の空要素を落とす（#249）。古いサーバー（network がない）には送らない
+        const network = draft.network && {
+            allowedHosts: draft.network.allowedHosts.map((h) => h.trim()).filter((h) => h !== ''),
+        };
+        onSave({ ...draft, materials: { ...draft.materials, roots, extensions }, ...(network && { network }) });
     }
 
     return (
@@ -623,6 +627,29 @@ function SettingsForm({
                             />
                         </Row>
                     </Section>
+                    {/* 8000 番を開ける名前（#249）。古いサーバー（network がない）では出さない */}
+                    {draft.network && (
+                        <Section title='接続'>
+                            <Row
+                                id='allowed-hosts'
+                                label='許可するホスト名'
+                                description='IP アドレス・localhost・Tailscale の名前・この PC の名前のほかに開く名前です。カンマで区切ります'
+                            >
+                                <Input
+                                    id='allowed-hosts'
+                                    className='w-56'
+                                    placeholder='pc.example.com'
+                                    value={draft.network.allowedHosts.join(', ')}
+                                    onChange={(e) =>
+                                        setDraft((d) => ({
+                                            ...d,
+                                            network: { allowedHosts: e.target.value.split(',') },
+                                        }))
+                                    }
+                                />
+                            </Row>
+                        </Section>
+                    )}
                     {/* 端末ごとの設定（テーマ・通知。#239・#245）。全体設定の保存とは別に、切り替えたときに効く */}
                     <Section title='この端末' description='保存を押さなくても、切り替えた時点で効きます'>
                         <ThemeRow />

@@ -41,94 +41,97 @@ export function AppSidebar() {
     const setSettingsOpen = useAppStore((s) => s.setSettingsOpen);
 
     return (
-        <Sidebar collapsible='icon'>
-            <SidebarHeader className='flex flex-row items-center justify-between'>
-                <p className='text-xl font-semibold group-data-[collapsible=icon]:hidden'>Remote Whisper</p>
-                <SidebarTrigger />
-            </SidebarHeader>
-            <SidebarContent>
-                <SidebarGroup>
+        <>
+            <Sidebar collapsible='icon'>
+                <SidebarHeader className='flex flex-row items-center justify-between'>
+                    <p className='text-xl font-semibold group-data-[collapsible=icon]:hidden'>Remote Whisper</p>
+                    <SidebarTrigger />
+                </SidebarHeader>
+                <SidebarContent>
+                    <SidebarGroup>
+                        <SidebarMenu>
+                            <SidebarMenuItem>
+                                <SidebarMenuButton
+                                    tooltip='新規プロジェクト作成'
+                                    onClick={() => {
+                                        setOpenMobile(false);
+                                        setNewProjectOpen(true);
+                                    }}
+                                >
+                                    <PlusIcon />
+                                    <span>新規プロジェクト作成</span>
+                                </SidebarMenuButton>
+                            </SidebarMenuItem>
+                        </SidebarMenu>
+                    </SidebarGroup>
+                    <SidebarGroup className='group-data-[collapsible=icon]:hidden'>
+                        <ProjectList
+                            projects={projects}
+                            activeProject={selection.projectId}
+                            activeSession={selection.sessionId}
+                            showMeta={showMeta}
+                            onSelectSession={(projectId, sessionId) => {
+                                selectSession(projectId, sessionId);
+                                setOpenMobile(false);
+                            }}
+                            onNewSession={(projectId) => {
+                                newSession(projectId);
+                                setOpenMobile(false);
+                            }}
+                            moveBlocker={(session) =>
+                                moveBlocker(session, {
+                                    jobs: server.jobs,
+                                    transcribing: server.transcribing,
+                                    summarizing: server.summarizing,
+                                    recordingSessionId,
+                                })
+                            }
+                            onMove={(from, sessionId, to) => void moveSession(from, sessionId, to)}
+                            onReorder={(ids) => void reorderProjects(ids)}
+                        />
+                    </SidebarGroup>
+                </SidebarContent>
+                <SidebarFooter>
+                    {/* テーマは全体設定ではなく、この端末の見た目 */}
+                    <SidebarMenu>
+                        <SidebarMenuItem>
+                            <ThemeToggle />
+                        </SidebarMenuItem>
+                    </SidebarMenu>
+                    {/* 録音中に変えられない項目は、設定画面の中で項目ごとに押せなくする */}
                     <SidebarMenu>
                         <SidebarMenuItem>
                             <SidebarMenuButton
-                                tooltip='新規プロジェクト作成'
+                                tooltip='設定'
                                 onClick={() => {
                                     setOpenMobile(false);
-                                    setNewProjectOpen(true);
+                                    setSettingsOpen(true);
                                 }}
                             >
-                                <PlusIcon />
-                                <span>新規プロジェクト作成</span>
+                                <SettingsIcon />
+                                <span>設定</span>
                             </SidebarMenuButton>
                         </SidebarMenuItem>
+                        {/* クラウド版のときだけ、アカウント（#155） */}
+                        {isCloud && (
+                            <SidebarMenuItem>
+                                <SidebarMenuButton
+                                    tooltip='アカウント'
+                                    onClick={() => {
+                                        setOpenMobile(false);
+                                        setAccountOpen(true);
+                                    }}
+                                >
+                                    <UserIcon />
+                                    <span>アカウント</span>
+                                </SidebarMenuButton>
+                            </SidebarMenuItem>
+                        )}
                     </SidebarMenu>
-                </SidebarGroup>
-                <SidebarGroup className='group-data-[collapsible=icon]:hidden'>
-                    <ProjectList
-                        projects={projects}
-                        activeProject={selection.projectId}
-                        activeSession={selection.sessionId}
-                        showMeta={showMeta}
-                        onSelectSession={(projectId, sessionId) => {
-                            selectSession(projectId, sessionId);
-                            setOpenMobile(false);
-                        }}
-                        onNewSession={(projectId) => {
-                            newSession(projectId);
-                            setOpenMobile(false);
-                        }}
-                        moveBlocker={(session) =>
-                            moveBlocker(session, {
-                                jobs: server.jobs,
-                                transcribing: server.transcribing,
-                                summarizing: server.summarizing,
-                                recordingSessionId,
-                            })
-                        }
-                        onMove={(from, sessionId, to) => void moveSession(from, sessionId, to)}
-                        onReorder={(ids) => void reorderProjects(ids)}
-                    />
-                </SidebarGroup>
-            </SidebarContent>
-            <SidebarFooter>
-                {/* テーマは全体設定ではなく、この端末の見た目 */}
-                <SidebarMenu>
-                    <SidebarMenuItem>
-                        <ThemeToggle />
-                    </SidebarMenuItem>
-                </SidebarMenu>
-                {/* 録音中に変えられない項目は、設定画面の中で項目ごとに押せなくする */}
-                <SidebarMenu>
-                    <SidebarMenuItem>
-                        <SidebarMenuButton
-                            tooltip='設定'
-                            onClick={() => {
-                                setOpenMobile(false);
-                                setSettingsOpen(true);
-                            }}
-                        >
-                            <SettingsIcon />
-                            <span>設定</span>
-                        </SidebarMenuButton>
-                    </SidebarMenuItem>
-                    {/* クラウド版のときだけ、アカウント（#155） */}
-                    {isCloud && (
-                        <SidebarMenuItem>
-                            <SidebarMenuButton
-                                tooltip='アカウント'
-                                onClick={() => {
-                                    setOpenMobile(false);
-                                    setAccountOpen(true);
-                                }}
-                            >
-                                <UserIcon />
-                                <span>アカウント</span>
-                            </SidebarMenuButton>
-                        </SidebarMenuItem>
-                    )}
-                </SidebarMenu>
-                {isCloud && <AccountDialog open={accountOpen} onOpenChange={setAccountOpen} />}
-            </SidebarFooter>
-        </Sidebar>
+                </SidebarFooter>
+            </Sidebar>
+            {/* スマホではサイドバーが閉じると中身が消えるので、ダイアログはサイドバーの外に置く */}
+            {isCloud && <AccountDialog open={accountOpen} onOpenChange={setAccountOpen} />}
+        </>
     );
 }

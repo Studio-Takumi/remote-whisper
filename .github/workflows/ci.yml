@@ -5,6 +5,10 @@ on:
   pull_request:
   push:
     branches: [main]
+  # 依存に新しい脆弱性が見つかることがあるので、コードを変えなくても週 1 回 audit を回す（#287）。
+  # schedule のときは audit だけ動かす（ほかのジョブは if で飛ばす）
+  schedule:
+    - cron: "17 21 * * 0"
 
 # 読むだけ（#166）
 permissions:
@@ -12,11 +16,12 @@ permissions:
 
 # 同じブランチに続けて push したら、古い方の実行は止める
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event_name == 'schedule' && 'schedule' || 'run' }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   server:
+    if: github.event_name != 'schedule'
     # Windows だけのテスト（パスの扱い・タスクトレイ）があるので、windows でも回す
     strategy:
       fail-fast: false
@@ -27,8 +32,8 @@ jobs:
       run:
         working-directory: server
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
         with:
           enable-cache: true
           cache-dependency-glob: server/uv.lock
@@ -51,22 +56,33 @@ jobs:
       run:
         working-directory: server
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
       - name: Audit
         run: |
           uv export --frozen --no-dev --extra final --no-emit-project --no-hashes --no-header \
             | grep -v -E '^(torch|torchaudio|torchvision)==' > audit-requirements.txt
-          uvx pip-audit -r audit-requirements.txt --no-deps --disable-pip || echo "::warning::既知の脆弱性のある依存があります（上の一覧）"
+          echo "::notice title=pip-audit::torch・torchaudio・torchvision は固定していて上げられないので、監査から外している（#287）"
+          # pip-audit の終了コード: 0 = 見つからず、1 = 脆弱性あり、それ以外 = ツール自体の失敗
+          # （ネットワーク・OSV の障害など）。脆弱性は警告にとどめ、ツールの失敗は赤くする
+          status=0
+          uvx pip-audit -r audit-requirements.txt --no-deps --disable-pip || status=$?
+          if [ "$status" -eq 1 ]; then
+            echo "::warning title=pip-audit::既知の脆弱性のある依存があります（上の一覧）"
+          elif [ "$status" -ne 0 ]; then
+            echo "::error title=pip-audit::pip-audit 自体が失敗しました（終了コード $status）"
+            exit "$status"
+          fi
 
   web:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: web
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
           cache: npm
@@ -85,13 +101,14 @@ jobs:
 
   # クラウド版の中間サーバー（#154）。Workers の実行環境（workerd）の中で、ローカルの D1 ごとテストする
   relay:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: relay
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
           cache: npm

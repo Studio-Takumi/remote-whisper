@@ -21,6 +21,7 @@ from remote_whisper.context_sets import ContextSetService, OllamaGenerator
 from remote_whisper.final_summary import FinalSummarizer
 from remote_whisper.final_transcriber import FinalTranscriber, installed
 from remote_whisper.gpu_stats import GpuStats
+from remote_whisper.host_check import HostCheckMiddleware
 from remote_whisper.janitor import Janitor
 from remote_whisper.logs import traffic
 from remote_whisper.material_figures import FigureReader
@@ -84,11 +85,15 @@ def web_dist_dir() -> Path:
 
 
 def create_app(
-    home: Path | None = None, mock: bool = False, mock_timing: MockTiming | None = None
+    home: Path | None = None,
+    mock: bool = False,
+    mock_timing: MockTiming | None = None,
+    listen_host: str | None = None,
 ) -> FastAPI:
     """home はデータのルート。省略すると REMOTE_WHISPER_HOME か ~/.remote-whisper
 
     mock が True なら、Whisper と Ollama の代わりにダミーを使う（GPU なしでフロントを開発するため）
+    listen_host は起動したときの `--host`。名前なら、その名前で開くのも許す（#249）
     """
     home = home or default_home()
     # バージョンは起動したときのものにする（動いている間に git pull しても変わらないように）
@@ -307,6 +312,14 @@ def create_app(
             (time.monotonic() - started) * 1000,
         )
         return response
+
+    # Host・Origin の確認（#249）。一番外に置き、ほかのサイトからのリクエストは何もさせずに断る。
+    # トンネル（8001 番）からのものは見ない
+    app.add_middleware(
+        HostCheckMiddleware,
+        extra=lambda: ctx.settings.get().network.allowed_hosts,
+        listen_host=listen_host,
+    )
 
     @app.get("/api/health")
     def health() -> dict:

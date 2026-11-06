@@ -25,6 +25,9 @@ export async function handleMe(request: Request, env: Env, path: string): Promis
     if (path === '/me' && request.method === 'DELETE') {
         return deleteAccount(env, user.userId);
     }
+    if (path === '/me/sessions' && request.method === 'DELETE') {
+        return logoutEverywhere(env, user.userId);
+    }
     if (path === '/me/consent' && request.method === 'POST') {
         return postConsent(request, env, user.userId);
     }
@@ -33,7 +36,7 @@ export async function handleMe(request: Request, env: Env, path: string): Promis
     }
     const m = /^\/me\/identities\/([^/]+)$/.exec(path);
     if (m && request.method === 'DELETE') {
-        return removeIdentity(env, user.userId, m[1]);
+        return removeIdentity(env, user.userId, user.sessionId, m[1]);
     }
     if (path === '/me/hosts' && request.method === 'GET') {
         return hosts(env, user.userId);
@@ -144,7 +147,13 @@ async function me(env: Env, userId: string): Promise<Response> {
     });
 }
 
-async function removeIdentity(env: Env, userId: string, identityId: string): Promise<Response> {
+// すべての端末からログアウト（#250）。そのユーザーのログインセッションを全部消す（今の端末も）
+async function logoutEverywhere(env: Env, userId: string): Promise<Response> {
+    await env.DB.prepare('DELETE FROM web_sessions WHERE user_id = ?').bind(userId).run();
+    return json({ ok: true }, 200, { 'Set-Cookie': clearSessionCookie() });
+}
+
+async function removeIdentity(env: Env, userId: string, sessionId: string, identityId: string): Promise<Response> {
     const count = await env.DB.prepare('SELECT COUNT(*) AS n FROM auth_identities WHERE user_id = ?')
         .bind(userId)
         .first<{ n: number }>();
@@ -161,6 +170,9 @@ async function removeIdentity(env: Env, userId: string, identityId: string): Pro
     if (res.meta.changes === 0) {
         return error(404, 'そのログイン手段はありません');
     }
+    // 外した手段で入った人（盗んだ人）を締め出すため、今の端末以外のログインセッションを消す（#250）。
+    // 今の端末は、操作している本人なので残す
+    await env.DB.prepare('DELETE FROM web_sessions WHERE user_id = ? AND id != ?').bind(userId, sessionId).run();
     return me(env, userId);
 }
 
