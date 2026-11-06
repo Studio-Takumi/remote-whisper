@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from pydantic.alias_generators import to_camel
 
 from remote_whisper.fsutil import atomic_write_json
+from remote_whisper.host_check import is_valid_allowed_host
 
 SETTINGS_VERSION = 1
 
@@ -56,6 +57,8 @@ TUNNEL_LOCKED: tuple[tuple[str, str], ...] = (
     ("materials", "roots"),
     ("materials", "extensions"),
     ("ollama", "host"),
+    # 8000 番を開ける名前（#249）。広げると、ほかのサイトから 8000 番を使われうる
+    ("network", "allowedHosts"),
 )
 
 
@@ -365,6 +368,27 @@ class CloudSettings(_Model):
         return f"{url.scheme}://{host}{port}"
 
 
+class NetworkSettings(_Model):
+    """8000 番の Host・Origin の確認（#249。spec/api.md 7.5）。録音中も変えられる"""
+
+    # IP アドレス・localhost・*.ts.net・この PC の名前のほかに、8000 番を開ける名前。
+    # `*.example.com` と書くと、その下の名前をすべて許す
+    allowed_hosts: list[str] = Field(default_factory=list, max_length=50)
+
+    @field_validator("allowed_hosts")
+    @classmethod
+    def _allowed_hosts(cls, value: list[str]) -> list[str]:
+        names: list[str] = []
+        for item in value:
+            if not is_valid_allowed_host(item):
+                raise ValueError(
+                    "ホスト名だけ（例: pc.example.com・*.example.com）を書いてください"
+                    "（http:// やポートは付けません）"
+                )
+            names.append(item.strip().lower().rstrip("."))
+        return list(dict.fromkeys(names))
+
+
 class Settings(_Model):
     version: int = SETTINGS_VERSION
     whisper: WhisperSettings = Field(default_factory=WhisperSettings)
@@ -374,6 +398,7 @@ class Settings(_Model):
     materials: MaterialsSettings = Field(default_factory=MaterialsSettings)
     display: DisplaySettings = Field(default_factory=DisplaySettings)
     cloud: CloudSettings = Field(default_factory=CloudSettings)
+    network: NetworkSettings = Field(default_factory=NetworkSettings)
     # サイドバーのプロジェクトの並び順（プロジェクト ID。#173）。
     # ここにないプロジェクトは先頭に出す。消えたプロジェクトの ID が残っていても読むときに無視する。
     # 録音中も変えられる（#133）

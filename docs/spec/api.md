@@ -106,5 +106,29 @@
 
 ## 7.4 検討事項（今回は実装しない）
 
-- 認証。サーバーは localhost か Tailscale のネットワークの中だけで公開する。Tailscale は自分の端末しか入れないので、当面はこれを認証の代わりにする。外部に公開する場合は、トークン認証と WebSocket の `Origin` の確認を追加する。
+- 認証。サーバーは localhost か Tailscale のネットワークの中だけで公開する。Tailscale は自分の端末しか入れないので、当面はこれを認証の代わりにする。外部に公開する場合は、トークン認証を追加する（Host・Origin の確認は 7.5 節で入れた）。
 - HTTPS。`getUserMedia` は安全なコンテキストでしか使えないので、実際に使うときは `tailscale serve` などで HTTPS にする。
+
+## 7.5 Host・Origin の確認（#249）
+
+8000 番は、すべてのリクエスト（API・WebSocket・画面の静的ファイル）の `Host` と `Origin` を確かめ、許していないものは断る（`server/src/remote_whisper/host_check.py`）。ホストの PC や同じ LAN の端末のブラウザで、ほかのサイトを開いているときに、そのサイトから 8000 番を使われないようにするため。
+
+- **防ぐもの**
+  - クロスサイトの WebSocket の乗っ取り（CSWSH）: ほかのサイトの画面が `ws://127.0.0.1:8000/ws` につないで録音・文字起こしを読む。ブラウザは WebSocket に同一オリジンの制限をかけないので、`Origin` で断る
+  - DNS rebinding: 攻撃する人の名前（`evil.example`）を、あとからこの PC のアドレスに向け直して、API（設定の書き換え・文字起こしの読み出し）を同じオリジンとして読む。このときブラウザは `Host: evil.example` を送るので、`Host` で断る
+- **許す Host**（ポートは見ない。大文字小文字・末尾の `.` は無視）
+  - IP アドレス（`127.0.0.1`・`::1`・LAN の IP・Tailscale の IP など、どれでも）。IP アドレスで開いた画面はそのアドレスのオリジンになるので、向け直しには使えない。DHCP でアドレスが変わっても、つなぎ直さずに使えるように、この PC のアドレスかどうかは見ない
+  - `localhost`
+  - `*.ts.net`（`tailscale serve`。名前は Tailscale の DNS が決めるので、攻撃する人は向け直せない）
+  - この PC の名前（OS のホスト名・その最初のラベル・`<最初のラベル>.local`）。mDNS や Tailscale の MagicDNS の短い名前で開いている人のため
+  - 起動したときの `--host` の名前（トレイの「ブラウザで開く」はこの名前で開く）
+  - 全体設定の `network.allowedHosts`（5.3 節）。HTTPS の中継（Caddy・nginx など）の名前を足す
+  - `Host` がないリクエスト（HTTP/1.0 など。ブラウザは必ず送る）
+- **許す Origin**
+  - `Origin` がない（ブラウザ以外。ブラウザの同じオリジンの GET）
+  - `Host` と同じオリジン（ホスト名とポート。ポートを書いていなければ `Origin` の scheme の既定のポート。`tailscale serve` は `Host` に `x.ts.net`、`Origin` に `https://x.ts.net` が来る）。scheme は見ない（HTTPS の中継の後ろでは、サーバーには http で届くため）
+  - `network.allowedHosts` の名前のオリジン（`Host` を書き換える中継の後ろに置いたとき。nginx の既定は `Host` を転送先の `127.0.0.1:8000` にする）
+  - `null`・`http`/`https` 以外（拡張機能など）は断る
+- **Vite の開発サーバー**: `/api`・`/ws` の転送は `Host` を書き換えない（`changeOrigin` を付けない）。`Host` も `Origin` も開発サーバーのもの（`localhost:5190` など）になり、同じオリジンとして通る
+- **断るとき**: HTTP は `403`（`{"detail": "..."}`）。WebSocket はつなぐ前に閉じる（ブラウザには HTTP の `403` が返る）。何もしないで断るので、設定の書き換えなどは起きない。ログ（`server.log`）に、メソッド・パス・断った理由（host か origin）と `Host`・`Origin` の値を警告で書く。接続元の IP は書かない。同じ組は 60 秒に 1 回だけ書く
+- **トンネル（8001 番）は見ない**: Worker の署名で守っていて（10.5 節）、`Origin` は Worker が確かめる。`RelayAuthApp` が付けた印（`via_tunnel`）があるリクエストは、そのまま通す
