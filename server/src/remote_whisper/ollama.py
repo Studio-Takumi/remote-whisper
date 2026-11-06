@@ -260,6 +260,38 @@ class OllamaClient:
                 log.info("ollama unloaded %s to load %s while recording", other, model)
             self._pinned.discard(other)
 
+    async def pull(self, model: str) -> AsyncIterator[dict[str, Any]]:
+        """モデルを取ってくる（`/api/pull`。初回のセットアップ。#291）。進み具合を 1 行ずつ返す
+
+        GPU は使わないので GPU キューには積まない。止めるときは、呼んだ側がタスクを cancel する
+        （接続が切れると Ollama も取るのをやめる。途中まで取った分は、次に取るときに使われる）
+        """
+        # 数 GB を取るので、届くまでの待ち時間は設けない
+        timeout = httpx.Timeout(REQUEST_TIMEOUT, read=None)
+        try:
+            async with (
+                self._client(timeout) as client,
+                client.stream("POST", "/api/pull", json={"model": model, "stream": True}) as res,
+            ):
+                if res.is_error:
+                    await res.aread()
+                    raise httpx.HTTPStatusError(
+                        f"{res.status_code}: {res.text}", request=res.request, response=res
+                    )
+                await self._ok()
+                async for line in res.aiter_lines():
+                    if not line.strip():
+                        continue
+                    chunk = json.loads(line)
+                    if chunk.get("error"):
+                        raise OllamaUnavailable(str(chunk["error"]))
+                    yield chunk
+        except (httpx.HTTPError, httpx.InvalidURL, ValueError) as e:
+            raise await self._failed(e) from e
+        # 入っているモデルが変わったので、覚えている能力と「入っていない」を消す
+        self._capabilities.pop(model, None)
+        self._missing.discard(model)
+
     async def chat(self, model: str, messages: list[dict[str, Any]], **kwargs: Any) -> str:
         """本文をまとめて返す"""
         return "".join([part async for part in self.chat_stream(model, messages, **kwargs)])

@@ -13,11 +13,13 @@ import { PairPage } from '@/components/PairPage';
 import { PwaUpdater } from '@/components/PwaUpdater';
 import { SessionView } from '@/components/SessionView';
 import { SettingsDialog } from '@/components/SettingsDialog';
+import { SetupDialog } from '@/components/SetupDialog';
 import { TopBar } from '@/components/TopBar';
 import { UnsentAlert } from '@/components/UnsentAlert';
 import { UnsentElsewhereAlert } from '@/components/UnsentElsewhereAlert';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { Toaster } from '@/components/ui/sonner';
+import { isDemo } from '@/data';
 import { isCloud } from '@/endpoint';
 import { pairingCode } from '@/pairing';
 import { startRouter } from '@/router';
@@ -109,6 +111,8 @@ function AppMain() {
                     }
                 }}
             />
+            {/* 初めて開いたときの「はじめに」（#291）。デモ（?demo）ではホストがないので出さない */}
+            {!isDemo && <SetupDialog />}
             <DevPanel />
             <Toaster />
         </SidebarProvider>

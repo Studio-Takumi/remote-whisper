@@ -39,6 +39,17 @@ def _free(torch: Any) -> None:
         torch.cuda.empty_cache()
 
 
+def load_audio(path: str) -> Any:
+    """録音を 16kHz・モノラルの float32 で読む（whisperx.load_audio と同じ形）
+
+    whisperx.load_audio は ffmpeg のコマンドを呼ぶが、配布版（#168）には ffmpeg がなく、
+    何も入れていない PC では読めない（#291）。faster-whisper が使う PyAV で読む
+    """
+    from faster_whisper.audio import decode_audio
+
+    return decode_audio(path, sampling_rate=16000)
+
+
 def run(job: dict[str, Any]) -> dict[str, Any]:
     # torch.hub などのキャッシュも HF_HOME の下に置く（C: の既定の場所に落とさない）
     if os.environ.get("HF_HOME") and not os.environ.get("TORCH_HOME"):
@@ -49,7 +60,7 @@ def run(job: dict[str, Any]) -> dict[str, Any]:
     device = "cuda" if torch.cuda.is_available() else "cpu"
     compute_type = job.get("computeType", "float16") if device == "cuda" else "int8"
     language = job.get("language", "ja")
-    audio = whisperx.load_audio(job["audio"])
+    audio = load_audio(job["audio"])
 
     t = time.monotonic()
     asr_options = {}

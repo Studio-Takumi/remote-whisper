@@ -41,6 +41,11 @@ Assert-True ($LASTEXITCODE -eq 0 -and "$cfVersion" -match 'cloudflared') "cloudf
 $found = & $python -I -c "from remote_whisper import bundle; print(bundle.bundled_cloudflared())"
 Assert-True ($LASTEXITCODE -eq 0 -and "$found".Trim() -eq $cloudflared) 'the bundled cloudflared is the default'
 
+# 初回のセットアップの案内（#291）: 配布版と判定され、WhisperX を同梱の python.exe と固定の一覧で入れられる
+$setup = & $python -I -c "from remote_whisper import bundle; print(bundle.runtime(), bundle.bundled_python(), bundle.bundled_whisperx_requirements())"
+$expectedSetup = "windows-bundle $python $(Join-Path $AppDir 'whisperx-requirements.txt')"
+Assert-True ($LASTEXITCODE -eq 0 -and "$setup".Trim() -eq $expectedSetup) "the setup guide sees the bundle ($setup)"
+
 # --mock は faster_whisper・ctranslate2・トレイを読み込まないので、本番の経路の依存がそろっているかを別に見る
 & $python -I -c "import faster_whisper, ctranslate2, pystray, PIL, cryptography, nvidia.cublas, nvidia.cudnn"
 Assert-True ($LASTEXITCODE -eq 0) 'faster_whisper, ctranslate2, pystray, PIL and the CUDA libraries can be imported'

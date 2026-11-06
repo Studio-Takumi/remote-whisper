@@ -14,12 +14,16 @@
 ├─ cloud.json                 # クラウド版に登録したときだけ。ホスト ID・鍵・中継の鍵（10.6 節。権限は本人だけ）
 ├─ push-vapid.pem             # 最終要約の通知（Web Push）の VAPID の秘密鍵（6.14 節。起動したときに作る。権限は本人だけ）
 ├─ push-subscriptions.json    # 通知を許可したクライアントの購読（6.14 節）
+├─ huggingface-token          # 画面から保存した HuggingFace のトークン（6.15 節。権限は本人だけ）
+├─ setup/
+│  └─ whisperx-install.json   # WhisperX を入れている途中の印と、入れる前のパッケージの一覧（6.15 節）
 ├─ cache/
 │  └─ figures/
 │     └─ <SHA-1>-<モデル>.json  # 参考資料の PDF の図の説明（6.6 節、#271。ページ番号 → 説明）
 ├─ log/
 │  ├─ server.log              # サーバーのログ（6.10 節）
-│  └─ server.log.YYYY-MM-DD   # 前の日の分（10 日分）
+│  ├─ server.log.YYYY-MM-DD   # 前の日の分（10 日分）
+│  └─ whisperx-install.log    # WhisperX を入れたときの pip の出力（6.15 節）
 └─ projects/
    └─ <プロジェクト ID>/
       ├─ project.json
