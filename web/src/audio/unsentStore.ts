@@ -9,8 +9,8 @@ const CHUNKS = 'unsentChunks';
 export const MAX_BYTES = 120 * 1024 * 1024;
 
 // host は録音していたホストの ID（クラウド版。#227）。ダイレクト版は null。
-// #227 より前に置いた行には host がない（undefined）。どのホストのものか分からないので、今つないでいるホストの
-// ものとみなす（それまでと同じ扱い）。キーや索引は変えないので、データベースの版は上げない
+// #227 より前に置いた行には host がない（undefined）。扱いは splitByHost を見る。
+// キーや索引は変えないので、データベースの版は上げない
 type ChunkRow = { session: string; seq: number; project: string; host?: string | null; frame: ArrayBuffer };
 export type UnsentSession = {
     session: string;
@@ -18,8 +18,9 @@ export type UnsentSession = {
     host?: string | null;
     frames: { seq: number; frame: ArrayBuffer }[];
 };
-// ほかのホストに残っている音声（ホストごと）
-export type UnsentElsewhere = { host: string; sessions: string[]; seconds: number };
+// ほかのホストに残っている音声（ホストごと）。host が null は、どのホストのものか分からないもの
+// （クラウド版で、ホスト ID のない古い行と、host が null の行）
+export type UnsentElsewhere = { host: string | null; sessions: string[]; seconds: number };
 
 // 溜めていた音声の長さ（秒）。チャンクは先頭 4 バイトが連番、あとは 16kHz・Int16
 export function unsentSeconds(frames: { frame: ArrayBuffer }[]) {
@@ -29,23 +30,24 @@ export function unsentSeconds(frames: { frame: ArrayBuffer }[]) {
 
 // 今つないでいるホスト（ダイレクト版は null）のものと、ほかのホストのものに分ける（#227）。
 // 今のホストのものは、復旧できる最初の 1 つだけを返す（それまでと同じ）
+// - ダイレクト版（current が null）: ホスト ID のない古い行も null の行も、今のホストのもの
+//   （ダイレクト版はホストのアドレスで開くので、IndexedDB にはそのホストの行しかない）
+// - クラウド版: ホスト ID のない古い行と null の行は、どのホストのものか分からないので今のホストに送らない。
+//   host を null にして返し、捨てられるようにする（同じブラウザで別のアカウントがログインしたとき、
+//   前の人の録音を今の人のホストに送らないため。spec/cloud.md 10.6）
 export function splitByHost(
     list: UnsentSession[],
     current: string | null,
 ): { mine: UnsentSession | null; elsewhere: UnsentElsewhere[] } {
     let mine: UnsentSession | null = null;
-    const byHost = new Map<string, UnsentElsewhere>();
+    const byHost = new Map<string | null, UnsentElsewhere>();
     for (const entry of list) {
         if (entry.frames.length === 0) {
             continue;
         }
-        const host = entry.host === undefined ? current : entry.host;
+        const host = entry.host ?? null;
         if (host === current) {
             mine ??= entry;
-            continue;
-        }
-        if (host === null) {
-            // ダイレクト版の行がクラウド版に混ざることはない（オリジンが別）が、念のため数えない
             continue;
         }
         const e = byHost.get(host) ?? { host, sessions: [], seconds: 0 };
@@ -177,6 +179,10 @@ export async function listUnsent(): Promise<UnsentSession[]> {
             req.onsuccess = () => resolve(req.result as ChunkRow[]);
             req.onerror = () => resolve([]);
         });
+        // ホストはセッションの最初の行のものを使う。録音中はホストを切り替えられず（spec/cloud.md 10.6）、
+        // 切り替えると読み込み直すので、同じセッションの行でホストが違うことは起きない前提。
+        // 復旧はそのホストにつないでいるときだけなので、続きの行も同じホストになる
+        // （ダイレクト版で古い行を復旧すると null の行が続くが、ダイレクト版ではどちらも今のホストのもの）
         const bySession = new Map<string, UnsentSession>();
         for (const row of rows) {
             const entry = bySession.get(row.session) ?? {

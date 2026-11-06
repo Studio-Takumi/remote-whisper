@@ -138,10 +138,11 @@ type AppState = {
     recoverUnsent: () => Promise<void>;
     // 届かなかった音声を捨てる
     discardUnsent: () => Promise<void>;
-    // ほかのホストで録音していて、届かなかった音声（クラウド版。#227）。そのホストにつないだときに復旧する
+    // ほかのホストで録音していて、届かなかった音声（クラウド版。#227）。そのホストにつないだときに復旧する。
+    // host が null は、どのホストのものか分からないもの（復旧しない）
     unsentElsewhere: UnsentElsewhere[];
-    // ほかのホストの届かなかった音声を捨てる（外したホストのもの）
-    discardUnsentElsewhere: (host: string) => Promise<void>;
+    // ほかのホストの届かなかった音声を捨てる（外したホストと、どのホストのものか分からないもの）
+    discardUnsentElsewhere: (hosts: (string | null)[]) => Promise<void>;
     pauseRecording: () => Promise<void>;
     resumeRecording: () => void;
     stopRecording: () => Promise<void>;
@@ -1193,10 +1194,10 @@ export const useAppStore = create<AppState>()((set, get) => {
             }
         },
 
-        discardUnsentElsewhere: async (host) => {
-            const entry = get().unsentElsewhere.find((e) => e.host === host);
-            set((s) => ({ unsentElsewhere: s.unsentElsewhere.filter((e) => e.host !== host) }));
-            for (const session of entry?.sessions ?? []) {
+        discardUnsentElsewhere: async (hosts) => {
+            const entries = get().unsentElsewhere.filter((e) => hosts.includes(e.host));
+            set((s) => ({ unsentElsewhere: s.unsentElsewhere.filter((e) => !hosts.includes(e.host)) }));
+            for (const session of entries.flatMap((e) => e.sessions)) {
                 await clearSession(session);
             }
         },
