@@ -58,7 +58,7 @@ flowchart LR
 
 ## サーバーのセットアップ
 
-Windows で、Python や uv を入れずに使いたいときは、インストーラがあります（[docs/install-windows.md](docs/install-windows.md)）。以下は、リポジトリから動かす（開発用の）手順です。
+Windows で、Python や uv を入れずに使いたいときは、インストーラがあります（[docs/install-windows.md](docs/install-windows.md)）。Apple シリコンの Mac では、`.dmg` があります（[docs/install-mac.md](docs/install-mac.md)）。以下は、リポジトリから動かす（開発用の）手順です。
 
 ### 必要なもの
 - NVIDIA GPU と、それに対応したドライバ
@@ -91,7 +91,7 @@ uv run remote-whisper              # http://127.0.0.1:8000
 uv run remote-whisper --host 0.0.0.0 --port 8000   # LAN からも見える（認証がないので注意）
 ```
 
-番号は 8000 番のままです。使われていれば、別の番号にはせず、起動に失敗します（`tailscale serve` や Vite の転送先が 8000 番のため）。空いている番号を自動で探す `--auto-port` は、Windows のインストーラのショートカット用です（[docs/install-windows.md](docs/install-windows.md)）。同じデータのフォルダで 2 つ目を起動すると、起動せずに、動いている方の画面を開いて終わります（トレイを出せるとき。理由は標準エラーに出します）。
+番号は 8000 番のままです。使われていれば、別の番号にはせず、起動に失敗します（`tailscale serve` や Vite の転送先が 8000 番のため）。空いている番号を自動で探す `--auto-port` は、Windows のインストーラのショートカットと Mac のアプリ用です（[docs/install-windows.md](docs/install-windows.md)・[docs/install-mac.md](docs/install-mac.md)）。`--open-browser` を付けると、起動したら画面をブラウザで開きます（Mac のアプリを開いたとき）。同じデータのフォルダで 2 つ目を起動すると、起動せずに、動いている方の画面を開いて終わります（トレイを出せるとき。理由は標準エラーに出します）。
 
 Windows では、タスクトレイ（右下）にアイコンが出ます。「>」の右のカーソル（縦の棒）の色が状態です（灰: 待機中 / 青: GPU で処理中 / 赤: 録音中 / 橙: Whisper か Ollama が使えない）。左クリックで画面を開き、右クリックのメニューからログのフォルダを開いたり、サーバーを止めたりできます。コンソールを出さずに常駐させるときは `.venv\Scripts\remote-whisper-gui.exe --port 8000` で起動します（ログはファイルに残ります）。トレイが要らなければ `--no-tray` を付けます。Mac では、同じアイコンがメニューバーに出ます（クリックで開くメニューの一番上に状態が出ます）。
 
