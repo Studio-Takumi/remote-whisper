@@ -245,6 +245,8 @@ HTTPS にする方法は何でも構いません。どの方法でも、`/api` �
 - Caddy や nginx と Let's Encrypt の組み合わせ
 - [mkcert](https://github.com/FiloSottile/mkcert) で作った証明書（LAN 内だけで使う場合。証明書を各端末に信頼させる必要があります）
 
+サーバーは、ほかのサイトから使われないように、開いた名前（`Host`）と画面のオリジン（`Origin`）を確かめています（[spec/api.md 7.5](docs/spec/api.md)）。IP アドレス・`localhost`・`*.ts.net`・この PC の名前のほかの名前で開くときは、ホストの PC で `http://127.0.0.1:8000` を開き、設定の「表示・その他」の「許可するホスト名」にその名前（例: `rw.example.com`）を足してください。足していない名前で開くと `403` になります。
+
 ### 開発中
 
 フロントを手元の `localhost` で起動（`npm run dev`）すれば HTTPS は要りません。Vite が `/api` と `/ws` をサーバーに転送します（「フロントエンドの開発」を参照）。
