@@ -1,4 +1,5 @@
-// クラウド版のホストの選択（#161）を、偽の Worker で確かめる（0 台・1 台・2 台以上・オフライン・前に選んだもの）
+// クラウド版のホストの選択（#161）を、偽の Worker で確かめる（0 台・1 台・2 台以上・オフライン・前に選んだもの、
+// ほかのホストの届かなかった録音（#227））
 //
 // 動かし方: cd web && npm run check:cloud-hosts
 // - vite の開発サーバーを localhost をクラウド用のドメインとして立て（VITE_CLOUD_HOSTS=localhost）、
@@ -115,7 +116,142 @@ const cases = [
         hosts: [host(A, '書斎の PC', false)],
         check: (page) => page.getByText('どの PC もオフラインです').waitFor(),
     },
+    {
+        name: 'ほかのホストの届かなかった録音は知らせ、切り替えるとそのホストで復旧する（#227）',
+        hosts: [host(A, '書斎の PC', true), host(B, 'ノート PC', true)],
+        check: async (page) => {
+            await page.locator('[data-hosts=choose]').waitFor();
+            await page.getByRole('button', { name: /書斎の PC/ }).click();
+            await page.getByText('書斎の PC につないでいます').waitFor();
+            await seedUnsent(page, [{ session: 's-b', host: B }]);
+            await page.reload();
+            await step(page.getByText('ノート PC に届かなかった録音があります').waitFor(), 'B の音声を知らせる');
+            if (await page.getByText('前にページを開いていたとき').isVisible()) {
+                throw new Error('A につないでいるのに B の音声を復旧しようとした');
+            }
+            await page.getByRole('button', { name: '切り替える', exact: true }).click();
+            await step(page.getByText('ノート PC につないでいます').waitFor(), '読み込み直して B につなぐ');
+            await step(page.getByText('前にページを開いていたとき').waitFor(), 'B で復旧を出す');
+            if (await page.getByText('に届かなかった録音があります').isVisible()) {
+                throw new Error('B につないだのに、まだほかのホストとして出ている');
+            }
+        },
+    },
+    {
+        name: '外したホストの届かなかった録音は捨てられる（#227）',
+        hosts: [host(A, '書斎の PC', true)],
+        check: async (page) => {
+            await page.getByText('書斎の PC につないでいます').waitFor();
+            await seedUnsent(page, [{ session: 's-c', host: 'removed-host' }]);
+            await page.reload();
+            await step(page.getByText('外したホストに届かなかった録音があります').waitFor(), '外したホストを知らせる');
+            await page.getByRole('button', { name: '捨てる' }).click();
+            await page.getByText('外したホストに届かなかった録音があります').waitFor({ state: 'detached' });
+            // IndexedDB から消し終わるのを待つ（すぐに読み込み直すと、消す前に止まることがある）
+            for (let i = 0; (await countUnsent(page)) > 0; i++) {
+                if (i >= 20) {
+                    throw new Error('捨てても IndexedDB に残っている');
+                }
+                await page.waitForTimeout(100);
+            }
+            await page.reload();
+            await page.getByText('書斎の PC につないでいます').waitFor();
+            await page.waitForTimeout(500);
+            if (await page.getByText('届かなかった録音があります').isVisible()) {
+                throw new Error('捨てたのに、読み込み直すとまた出る');
+            }
+        },
+    },
+    {
+        name: 'ホスト ID のない古い音声と null の音声は、今のホストに送らず捨てられるだけにする（#227）',
+        hosts: [host(A, '書斎の PC', true)],
+        check: async (page) => {
+            await page.getByText('書斎の PC につないでいます').waitFor();
+            await seedUnsent(page, [{ session: 's-old' }, { session: 's-null', host: null }]);
+            await page.reload();
+            await step(page.getByText('外したホストに届かなかった録音があります').waitFor(), '捨てるだけを出す');
+            if (await page.getByText('前にページを開いていたとき').isVisible()) {
+                throw new Error('どのホストのものか分からない音声を、今のホストで復旧しようとした');
+            }
+            await page.getByRole('button', { name: '捨てる' }).click();
+            for (let i = 0; (await countUnsent(page)) > 0; i++) {
+                if (i >= 20) {
+                    throw new Error('捨てても IndexedDB に残っている');
+                }
+                await page.waitForTimeout(100);
+            }
+        },
+    },
+    {
+        name: 'オフラインのホストの「切り替える」は押せず、オンラインになると押せる（#227）',
+        hosts: [host(A, '書斎の PC', true), host(B, 'ノート PC', false)],
+        remembered: A,
+        clock: true,
+        check: async (page, self) => {
+            await page.getByText('書斎の PC につないでいます').waitFor();
+            await seedUnsent(page, [{ session: 's-b', host: B }]);
+            await page.reload();
+            await step(page.getByText('ノート PC に届かなかった録音があります').waitFor(), 'B の音声を知らせる');
+            await step(page.getByText('オフラインです', { exact: true }).waitFor(), 'オフラインと出す');
+            const button = page.getByRole('button', { name: '切り替える', exact: true });
+            if (!(await button.isDisabled())) {
+                throw new Error('オフラインのホストの「切り替える」が押せる');
+            }
+            // 一覧を読み直すとオンラインになっている（読み直すのは 30 秒ごと）
+            self.hosts = [host(A, '書斎の PC', true), host(B, 'ノート PC', true)];
+            await page.clock.runFor(31_000);
+            await step(button.and(page.locator(':enabled')).waitFor(), 'オンラインになったら押せる');
+        },
+    },
 ];
+
+// IndexedDB に残っている行の数
+function countUnsent(page) {
+    return page.evaluate(
+        () =>
+            new Promise((resolve) => {
+                const req = indexedDB.open('remote-whisper', 1);
+                req.onsuccess = () => {
+                    const count = req.result.transaction('unsentChunks').objectStore('unsentChunks').count();
+                    count.onsuccess = () => {
+                        req.result.close();
+                        resolve(count.result);
+                    };
+                };
+            }),
+    );
+}
+
+// 届かなかった音声（1 秒分のチャンク）を IndexedDB に置く。host を省くと、#227 より前の行（ホスト ID なし）になる
+async function seedUnsent(page, rows) {
+    await page.evaluate(
+        (rows) =>
+            new Promise((resolve, reject) => {
+                const req = indexedDB.open('remote-whisper', 1);
+                req.onupgradeneeded = () =>
+                    req.result.createObjectStore('unsentChunks', { keyPath: ['session', 'seq'] });
+                req.onerror = () => reject(req.error);
+                req.onsuccess = () => {
+                    const tx = req.result.transaction('unsentChunks', 'readwrite');
+                    for (const r of rows) {
+                        tx.objectStore('unsentChunks').put({
+                            session: r.session,
+                            seq: 0,
+                            project: 'p',
+                            ...('host' in r ? { host: r.host } : {}),
+                            frame: new ArrayBuffer(4 + 16000 * 2),
+                        });
+                    }
+                    tx.oncomplete = () => {
+                        req.result.close();
+                        resolve();
+                    };
+                    tx.onerror = () => reject(tx.error);
+                };
+            }),
+        rows,
+    );
+}
 
 let failed = 0;
 for (const c of cases) {
@@ -124,6 +260,10 @@ for (const c of cases) {
         await context.addInitScript((id) => localStorage.setItem('rw.cloud.lastHostId', id), c.remembered);
     }
     const page = await context.newPage();
+    // clock: 時間を進めて確かめる（一覧を読み直す間隔など）
+    if (c.clock) {
+        await page.clock.install();
+    }
     await page.route('**/me', (route) => route.fulfill({ json: me }));
     // failFirst: 「もう一度」を押すまでは失敗させる（開発モードでは effect が 2 回走るので、回数では決めない）
     await page.route('**/me/hosts', (route) =>
