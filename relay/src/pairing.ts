@@ -98,8 +98,10 @@ export async function clientHash(env: Env, ip: string): Promise<string> {
 
 // --- 接続元の国（#251） ---
 
-// Cloudflare が付ける接続元の国（ISO 3166-1 の 2 文字。Tor は T1）。request.cf がない（ローカルの
-// wrangler dev・テスト）か、わからない（XX）ときは null。IP も地域（都道府県など）も使わない
+// Cloudflare が付ける接続元の国（ISO 3166-1 の 2 文字。Tor は T1）。国がない（cf を付けずに呼んだテストなど）・
+// わからない（XX）・形が違うときは null。IP も地域（都道府県など）も使わない。
+// ローカルの wrangler dev でも miniflare が cf を付けるが、どのリクエストにも同じ値なので、ホストとブラウザで
+// 国が同じになり、比べても違わない（countryMismatch は false）
 export function clientCountry(request: Request): string | null {
     const country = (request as Request & { cf?: { country?: unknown } }).cf?.country;
     return typeof country === 'string' && /^[A-Z][A-Z0-9]$/.test(country) && country !== 'XX' ? country : null;

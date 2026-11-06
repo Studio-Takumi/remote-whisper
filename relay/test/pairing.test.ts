@@ -51,7 +51,7 @@ async function hostCall(
     return SELF.fetch(`${ORIGIN}${path}`, { method: 'POST', headers, body, ...cfOf(host.country) });
 }
 
-// Cloudflare が付ける request.cf（国だけ）。undefined なら付けない（ローカルの wrangler dev の形）
+// Cloudflare が付ける request.cf（国だけ）。undefined なら付けない（国がわからないときの形）
 function cfOf(country: string | undefined) {
     return country === undefined ? {} : ({ cf: { country } } as unknown as RequestInit);
 }
@@ -477,7 +477,28 @@ describe('接続元の国（#251）', () => {
         expect((await seen(cookie, code, { ip: host.ip, country: 'KR' })).countryMismatch).toBe(false);
     });
 
-    it('どちらかの国がわからない（request.cf がない・XX）ときは比べない', async () => {
+    it('client_hash の鍵が壊れていても 500 にせず、国だけで知らせる', async () => {
+        const host = { ...(await newHost()), ip: '203.0.113.60', country: 'JP' };
+        const { code } = await startPairing(host);
+        const { cookie } = await newUser();
+        const readKey = () =>
+            env.DB.prepare('SELECT key FROM relay_keys WHERE name = ?').bind(CLIENT_HASH_KEY).first<{ key: string }>();
+        const row = await readKey();
+        try {
+            await env.DB.prepare('UPDATE relay_keys SET key = ? WHERE name = ?')
+                .bind('!!not-base64url!!', CLIENT_HASH_KEY)
+                .run();
+            // 同じ接続元でも、ハッシュで比べられないので国だけで判断する
+            expect((await seen(cookie, code, { ip: host.ip, country: 'US' })).countryMismatch).toBe(true);
+            expect((await seen(cookie, code, { ip: '192.0.2.60', country: 'JP' })).countryMismatch).toBe(false);
+            // 鍵は作り直さない
+            expect((await readKey())?.key).toBe('!!not-base64url!!');
+        } finally {
+            await env.DB.prepare('UPDATE relay_keys SET key = ? WHERE name = ?').bind(row?.key, CLIENT_HASH_KEY).run();
+        }
+    });
+
+    it('どちらかの国がわからない（cf に国がない・XX）ときは比べない', async () => {
         const { cookie } = await newUser();
         const unknownHost = { ...(await newHost()) };
         const a = await startPairing(unknownHost);
