@@ -38,6 +38,8 @@ class AppContext:
     uploads: Any = None
     # 最終要約ができたときの通知（PushService。#245）
     push: Any = None
+    # 初回のセットアップの案内（SetupService。#291）
+    setup: Any = None
     # GPU を使う処理（Whisper・Ollama）を順番に実行するキュー。
     # 待っている数は status の queue、ジョブの一覧は jobs で送る
     gpu: GpuQueue = field(init=False)

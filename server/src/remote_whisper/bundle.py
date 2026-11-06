@@ -6,6 +6,7 @@
     <app>/python/            同梱の Python（sys.prefix。pythonw.exe -m remote_whisper で起動する）
     <app>/web/               画面のビルド結果
     <app>/cloudflared.exe    同梱の cloudflared
+    <app>/whisperx-requirements.txt  WhisperX を後から入れるときの、固定した依存（#291）
 
 開発（uv run）のときは bundle.json がないので、どれも None を返し、今までの動きのままになる
 """
@@ -39,6 +40,44 @@ def bundled_version() -> str | None:
 def bundled_web_dist() -> Path | None:
     root = bundle_dir()
     return root / "web" if root is not None else None
+
+
+WHISPERX_REQUIREMENTS = "whisperx-requirements.txt"
+
+
+def runtime() -> str:
+    """どの形で動いているか（初回のセットアップの案内で出し分ける。#291）
+
+    `windows-bundle`（Windows の配布版）・`mac-bundle`（Mac の配布版。#292）・
+    `dev`（開発の環境。uv）
+    """
+    if bundle_dir() is None:
+        return "dev"
+    return "windows-bundle" if sys.platform == "win32" else "mac-bundle"
+
+
+def bundled_python() -> Path | None:
+    """同梱の Python（コンソール版。pip を動かすのに使う）。配布版でなければ None
+
+    サーバーは pythonw.exe で動いているので、sys.executable ではなく同じフォルダの python.exe を使う
+    """
+    if bundle_dir() is None:
+        return None
+    prefix = Path(sys.prefix)
+    exe = prefix / "python.exe" if sys.platform == "win32" else prefix / "bin" / "python3"
+    return exe if exe.is_file() else None
+
+
+def bundled_whisperx_requirements() -> Path | None:
+    """WhisperX（最終の文字起こし）を入れるときの、版とハッシュを固定した依存の一覧（#291）
+
+    packaging/build.ps1 が `uv export --extra final` で作って同梱する。古い配布版にはない
+    """
+    root = bundle_dir()
+    if root is None:
+        return None
+    path = root / WHISPERX_REQUIREMENTS
+    return path if path.is_file() else None
 
 
 def bundled_cloudflared() -> Path | None:

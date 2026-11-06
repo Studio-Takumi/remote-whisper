@@ -37,6 +37,13 @@
 | GET | `/api/push/key` | 最終要約の通知（#245。6.14 節）の VAPID の公開鍵（`{"publicKey": "<base64url>"}`）。秘密鍵は返さない |
 | POST | `/api/push/subscriptions` | 通知の購読を足す。本文はブラウザの `PushSubscription.toJSON()`（`endpoint`・`keys.p256dh`・`keys.auth`）。同じ `endpoint` は置き換える。push サービスの URL でない・鍵が読めなければ `422` |
 | DELETE | `/api/push/subscriptions?endpoint=…` | 通知の購読を消す（その端末の設定をオフにした）。なければ何もしない |
+| GET | `/api/setup` | 初回のセットアップの案内（#291。6.15 節）。足りないものと、取っている・入れている途中の進み具合（下の「セットアップの状態」）。トンネル（クラウド版）からも見られる |
+| POST | `/api/setup/ollama/pull` | Ollama のモデルを取ってくる（`/api/pull`）。本文は `{"models": ["qwen3.5:4b", …]}`（順に取る）。取ってよいのは、おすすめのモデルだけ（ほかは `400`。6.15 節）。録音中は `409`（「録音が終わってから」）、取っている途中なら `409`、Ollama のないサーバー（モック）は `409`・`503`。`202` でセットアップの状態を返す |
+| DELETE | `/api/setup/ollama/pull` | モデルを取るのをやめる。セットアップの状態を返す |
+| POST | `/api/setup/whisperx` | WhisperX を同梱の Python に入れる（配布版だけ。開発の環境・もう入っている・入れている途中・録音中は `409`）。`202` でセットアップの状態を返す |
+| DELETE | `/api/setup/whisperx` | 入れるのをやめて、元に戻す（戻すのは後ろで。進み具合は `GET /api/setup`）。戻している途中はやめられない |
+| PUT | `/api/setup/hf-token` | HuggingFace のトークンを保存する。本文は `{"token": "hf_…"}`。形が違えば `422`（送った本文は返さない）。セットアップの状態を返す（**トークンそのものは返さない**） |
+| DELETE | `/api/setup/hf-token` | 保存したトークンを消す。セットアップの状態を返す |
 
 - `{pid}` には、プロジェクト ID の代わりにプロジェクトの UUID（5.2 節）も使える。プロジェクトの一覧とセッションの一覧・メタ情報には `uuid` を付ける。
 - 画面の URL（`/s/<UUID>` など、8 章）にはファイルがないので、`/api`・`/ws` 以外の拡張子のないパスには `index.html` を返す（SPA のフォールバック）。拡張子のあるもの（なくなった JS など）は `404` のまま。
@@ -45,6 +52,15 @@
 - セッションの一覧とメタ情報には、`files`（`recording`・`transcript` があるか、浄書済み文字起こしの版の数 `finalTranscripts`、最終要約の数 `summaries`、リアルタイム要約があるか `liveSummary`）を付ける。クライアントはこれを見て「期限切れ」を出す。
 - 文字起こしのファイルが消えたセッションの `GET .../transcript` は `410`（セッション自体がなければ `404`）。文字起こしは `lines`（`[{time, text}]`）とフロントマター `meta` で返す。
 - `GET .../summaries/latest` でリアルタイム要約を返すときは `kind: "live"`、最終要約は `kind: "final"` を付ける。どちらもなければ `404`。
+- **セットアップの状態（#291）**: `GET /api/setup` などが返すもの。
+  - `runtime`: どの形で動いているか。`windows-bundle`（Windows の配布版）・`mac-bundle`（Mac の配布版。#292）・`dev`（開発の環境。uv）
+  - `remote`: トンネル（クラウド版）から来たリクエストか。`true` なら画面はボタンを押せなくする
+  - `recording`: 録音中か
+  - `gpu`: `nvidia`（NVIDIA の GPU とドライバがある）・`mac`（Apple Silicon で mlx-whisper がある）・`none`（どちらもない。CPU で動く。#274）
+  - `ollama`: `running`（つながる）、`found`（この PC に入っていそうか。動いていないときに「起動して」と「入れて」を出し分ける）、`downloadUrl`（公式のダウンロードのページ）、`models`（おすすめのモデル。`name`・`sizeGb`・`installed`）、`pull`（取っている・取り終えたもの。なければ `null`。`state`（`running` / `done` / `failed` / `cancelled`）・`models`・`model`（取っているもの）・`index`・`completed`・`total`（バイト）・`error`）
+  - `whisperx`: `installed`、`installable`（画面のボタンで入れられるか。同梱の Python と固定した依存の一覧の両方がある配布版だけ `true`）、`downloadGb`・`diskGb`・`minutes`（大きさと時間の目安）、`command`（開発の環境で入れるコマンド。ほかは `null`）、`install`（入れている・入れ終えたもの。なければ `null`。`state`（`running` / `done` / `failed` / `cancelled`）・`phase`（`preparing` / `downloading` / `installing` / `rollingBack`）・`package`（取っているパッケージ）・`collected`・`rolledBack`・`rollbackFailed`・`elapsedSec`）
+  - `hfToken`: `source`（最終の文字起こしが使うトークンの出どころ。`env`（環境変数 `HF_TOKEN`）・`file`（画面から保存したもの）・`login`（`hf auth login` で保存したもの）・`null`（ない））。**トークンそのものはどの API も返さない**
+- **トンネル（クラウド版）から断るもの（#291）**: `/api/setup` の `GET` 以外（トークンの保存・消す、WhisperX を入れる・やめる、モデルを取る・やめる）は、トンネル（8001 番。`via_tunnel`）から来たら `403`。クラウドのログインを盗まれても、ホストに数 GB を落とさせたり、話者分けに使うトークンを差し替えさせたりしないように。ダイレクト版（8000 番）は Host・Origin の確認（7.5 節）の下で受け付ける
 
 ## 7.2 WebSocket `/ws`
 

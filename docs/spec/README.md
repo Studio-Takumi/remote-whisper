@@ -12,7 +12,7 @@
 | 1〜3 | [README.md](README.md)（このファイル） | 目的と範囲・基本方針・用語 |
 | 4 | [data-model.md](data-model.md) | データモデル |
 | 5 | [files.md](files.md) | ファイル構成（データのルート・ID と命名・`setting.json`・`project.json`・フロントマター） |
-| 6 | [flows.md](flows.md) | 処理の流れ（構成・録音・GPU ジョブ・要約・参考資料・障害・保存期間・浄書・ログ・アップロード・置き換え） |
+| 6 | [flows.md](flows.md) | 処理の流れ（構成・録音・GPU ジョブ・要約・参考資料・障害・保存期間・浄書・ログ・アップロード・置き換え・通知・初回のセットアップ） |
 | 7 | [api.md](api.md) | API（REST・WebSocket・安全対策） |
 | 8 | [ui.md](ui.md) | 画面のイメージ |
 | 9 | [notes.md](notes.md) | 実装メモ |

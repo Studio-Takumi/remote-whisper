@@ -11,12 +11,14 @@ import {
     PlusIcon,
     SparklesIcon,
     Trash2Icon,
+    WrenchIcon,
 } from 'lucide-react';
 
 import { DensitySelect } from '@/components/DensitySelect';
 import { ModelsPage } from '@/components/ModelsPage';
 import { PushToggle } from '@/components/PushToggle';
 import { OptionSelect, Row, Section } from '@/components/SettingsParts';
+import { SetupGuide } from '@/components/SetupGuide';
 import { ShortcutInput } from '@/components/ShortcutInput';
 import { ThemeRow } from '@/components/ThemeToggle';
 import { VersionInfo } from '@/components/VersionInfo';
@@ -35,6 +37,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { useSetupStatus } from '@/hooks/useSetupStatus';
 import { withCurrent } from '@/options';
 import type { SettingsOptions } from '@/protocol';
 import { recordingLocks } from '@/recording';
@@ -197,6 +200,10 @@ function SettingsForm({
                     <TabsTrigger value='display'>
                         <MonitorIcon />
                         表示・その他
+                    </TabsTrigger>
+                    <TabsTrigger value='setup'>
+                        <WrenchIcon />
+                        セットアップ
                     </TabsTrigger>
                 </TabsList>
 
@@ -656,6 +663,11 @@ function SettingsForm({
                         <PushToggle />
                     </Section>
                 </TabsContent>
+
+                {/* 初回のセットアップの案内（#291）。全体設定の保存とは別に、ボタンを押した時点で実行する */}
+                <TabsContent value='setup' className='min-h-0 overflow-x-hidden overflow-y-auto pr-2'>
+                    <SetupPage settings={settings} />
+                </TabsContent>
             </Tabs>
             <DialogFooter className='sm:items-center'>
                 {/* バージョンは左下に。スマホの幅（縦に逆順で並ぶ）ではボタンの下に回る */}
@@ -669,6 +681,14 @@ function SettingsForm({
             </DialogFooter>
         </>
     );
+}
+
+function SetupPage({ settings }: { settings: Settings }) {
+    const { status, setStatus, refresh, error } = useSetupStatus(true);
+    if (status === null) {
+        return <p className='text-xs text-muted-foreground'>{error ?? '確かめています…'}</p>;
+    }
+    return <SetupGuide status={status} onStatus={setStatus} onRefresh={refresh} settings={settings} />;
 }
 
 function NumberInput({

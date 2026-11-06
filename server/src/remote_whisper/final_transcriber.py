@@ -79,9 +79,12 @@ class FinalTranscriber:
         recording: Callable[[], bool] = lambda: False,
         command: list[str] | None = None,
         available: Callable[[], bool] = installed,
+        extra_env: Callable[[], dict[str, str]] = dict,
     ):
-        """command はテスト用（子プロセスの代わりに動かすもの）"""
+        """command はテスト用（子プロセスの代わりに動かすもの）。
+        extra_env は子プロセスに足す環境変数（HuggingFace のトークン。#291）"""
         self.settings = settings
+        self.extra_env = extra_env
         self.hub = hub
         self.gpu = gpu
         self.whisper = whisper
@@ -268,7 +271,8 @@ class FinalTranscriber:
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
-                env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+                # extra_env は画面から保存した HuggingFace のトークン（#291）。ログには書かない
+                env={**os.environ, **self.extra_env(), "PYTHONIOENCODING": "utf-8"},
             )
             assert self._proc.stdin is not None and self._proc.stdout is not None
             output = asyncio.create_task(logs.forward_output(self._proc.stdout, worker_log))
