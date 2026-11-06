@@ -341,6 +341,36 @@ describe('接続元のハッシュ（#252）', () => {
         expect(found).toEqual([]);
     });
 
+    it('鍵の行が壊れていたら、作り直さずに 500 を返す', async () => {
+        // 先に鍵を作っておき、壊したあとで元に戻す（ほかのテストに響かせない）
+        await startPairing(await newHost());
+        const readKey = () =>
+            env.DB.prepare('SELECT key FROM relay_keys WHERE name = ?').bind(CLIENT_HASH_KEY).first<{ key: string }>();
+        const row = await readKey();
+        try {
+            for (const broken of ['!!not-base64url!!', 'c2hvcnQ']) {
+                await env.DB.prepare('UPDATE relay_keys SET key = ? WHERE name = ?')
+                    .bind(broken, CLIENT_HASH_KEY)
+                    .run();
+                const host = await newHost();
+                const res = await hostCall(host, '/pair/start', {
+                    hostId: host.hostId,
+                    hostName: 'PC',
+                    publicKey: host.publicKey,
+                });
+                expect(res.status).toBe(500);
+                expect((await readKey())?.key).toBe(broken);
+                // 申請も入れない
+                const pending = await env.DB.prepare('SELECT 1 FROM pairing_requests WHERE host_id = ?')
+                    .bind(host.hostId)
+                    .first();
+                expect(pending).toBeNull();
+            }
+        } finally {
+            await env.DB.prepare('UPDATE relay_keys SET key = ? WHERE name = ?').bind(row?.key, CLIENT_HASH_KEY).run();
+        }
+    });
+
     it('鍵を入れる前の形の行は数えない（期限で消えるのを待つ）', async () => {
         const ip = '203.0.113.88';
         const now = Date.now();

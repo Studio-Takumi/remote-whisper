@@ -63,8 +63,11 @@ export async function handlePairing(request: Request, env: Env, path: string): P
 export const CLIENT_HASH_KEY = 'client_hash';
 
 // 接続元（IP アドレス）の HMAC-SHA256。ただの SHA-256 だと、IPv4 は 2^32 通りを総当たりすれば
-// D1 の中身から戻せるので、D1 の relay_keys に置いた鍵を使う（Worker の secret は増やさない）。
-// 鍵は初めて要るときに乱数で作る。同時に作られても INSERT OR IGNORE で 1 つに決まり、読み直した方を使う
+// client_hash から戻せるので、D1 の relay_keys に置いた鍵を使う（Worker の secret は増やさない）。
+// 守れるのは client_hash の列（pairing_requests の行）だけが漏れたとき。鍵も同じ D1 にあるので、
+// D1 ごと（エクスポート・Time Travel・バックアップ）を持つ人は今でも戻せる（分けるなら鍵を secret に移す）。
+// 鍵は初めて要るときに乱数で作る。同時に作られても INSERT OR IGNORE で 1 つに決まり、読み直した方を使う。
+// 行が壊れていたら作り直さずに投げる（呼ぶ側で 500。黙って作り直すと、壊れた原因に気づけない）
 export async function clientHash(env: Env, ip: string): Promise<string> {
     const select = env.DB.prepare('SELECT key FROM relay_keys WHERE name = ?').bind(CLIENT_HASH_KEY);
     let row = await select.first<{ key: string }>();
@@ -216,7 +219,13 @@ async function start(request: Request, env: Env): Promise<Response> {
     const now = Date.now();
     await env.DB.prepare('DELETE FROM pairing_requests WHERE expires_at <= ?').bind(now).run();
     // 接続元ごとの回数の制限（IP アドレスは鍵つきのハッシュにして置く）
-    const client = await clientHash(env, request.headers.get('CF-Connecting-IP') ?? 'unknown');
+    let client: string;
+    try {
+        client = await clientHash(env, request.headers.get('CF-Connecting-IP') ?? 'unknown');
+    } catch (e) {
+        console.error('cannot hash the client address', e);
+        return error(500, 'internal error');
+    }
     const recent = await env.DB.prepare(
         'SELECT COUNT(*) AS n FROM pairing_requests WHERE client_hash = ? AND created_at > ?',
     )
