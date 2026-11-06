@@ -109,3 +109,19 @@ export async function readLimited(request: Request, maxBytes: number): Promise<U
     }
     return all;
 }
+
+// 小さな JSON の本文を maxBytes まで読んで解釈する。大きすぎたら TOO_LARGE（呼ぶ側で 413）、
+// JSON として読めなければ undefined（JSON.parse は undefined を返さないので区別できる）
+export const TOO_LARGE = Symbol('too large');
+
+export async function readJsonLimited(request: Request, maxBytes: number): Promise<unknown> {
+    const bytes = await readLimited(request, maxBytes);
+    if (bytes === null) {
+        return TOO_LARGE;
+    }
+    try {
+        return JSON.parse(new TextDecoder().decode(bytes));
+    } catch {
+        return undefined;
+    }
+}

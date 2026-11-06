@@ -442,6 +442,15 @@ def test_redact_code():
         == "https://x.test/pair?a=1&code=XXXX-…&b=2#f"
     )
     assert redact_code("https://x.test/pair") == "https://x.test/pair"
+    # 大文字・複数・フラグメント
+    assert redact_code("https://x.test/pair?CODE=ABCD-1234") == "https://x.test/pair?CODE=XXXX-…"
+    assert (
+        redact_code("https://x.test/pair?code=A&code=B")
+        == "https://x.test/pair?code=XXXX-…&code=XXXX-…"
+    )
+    assert redact_code("https://x.test/pair?x=1#code=ABCD") == "https://x.test/pair?x=1#code=XXXX-…"
+    # 別の名前は巻き込まない
+    assert redact_code("https://x.test/pair?xcode=1") == "https://x.test/pair?xcode=1"
 
 
 @pytest.mark.parametrize(
