@@ -254,13 +254,13 @@ sequenceDiagram
     - 違反は `report-uri /csp-report` で Worker に送らせる。`report-to` は付けない（付けると Chromium は `report-uri` を使わなくなるが、#253 で確かめた Chromium では `report-to` の報告が届かなかった。`report-uri` は Chromium・WebKit で届くことを確かめた）。Worker は Reporting API の形も読めるので、あとで `report-to` に替えてもよい。Report-Only の行は置かない。新しいポリシーを試すときは、強制の行はそのままにして `Content-Security-Policy-Report-Only` の行を足す（報告の `disposition` が `report` になるので分けて数えられる）
   - **CSP の違反の報告（#253）**: `POST /csp-report`（`relay/src/cspReport.ts`。`run_worker_first` に入れる）。ブラウザが Cookie なしで送ることがあるので、ログインも Origin も確かめない。そのかわり:
     - 本文は 32KB まで（超えたら `413`。`readLimited` で、`Content-Length` がなくても読みながら止める）、1 回の本文から読む報告は 20 件まで
-    - 接続元（IP）ごとに 1 分に 20 回まで（超えたら `429`）。Workers の Rate Limiting の束縛（`CSP_REPORT_LIMITER`）で数え、IP はこちらに置かない。束縛がない（ローカル）ときは制限しない。制限を確かめられないときは受けない
+    - 接続元（IP）ごとに 1 分に 20 回まで（超えたら `429`）。Workers の Rate Limiting の束縛（`CSP_REPORT_LIMITER`）で数え、IP はこちらに置かない。鍵は IPv4 はアドレス、IPv6 は頭 64 ビット（/64 ごと）。束縛は `wrangler.jsonc` の上の段にもあるので、ローカルの `wrangler dev` とテストでも効く。束縛がない（設定から外した）ときは制限しない。制限を確かめられないときは受けない
     - 受ける形は report-uri の `{"csp-report": {...}}` と Reporting API の `[{"type": "csp-violation", "body": {...}}]`。画面の URL がこのオリジンでない報告・形の違うものは黙って捨てる。返事はいつも `204`（POST 以外は `405`）
     - Analytics Engine に書くのは数だけ（形は 10.9 節の「CSP の違反の形」）。クエリ・フラグメント・スクリプトの抜粋（sample）・ポリシーの全文・ファイル名と行番号・IP アドレスは書かない
   - Worker が答える返事: 同じヘッダーと `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`。`/me`・`/pair/`・`/auth/` は `Cache-Control: no-store`
-  - 中継した返事: ホストの CSP は使わず `sandbox; default-src 'none'; frame-ancestors 'none'` を付ける。HTML・SVG・XML・JavaScript の型と、型のない返事（ブラウザが中身から HTML と推測することがある）は `Content-Disposition: attachment` でダウンロードにする（ホストが返したものを、このオリジンの文書として描かせない）。ホストが `Content-Disposition` を付けていれば、種類（`inline` など）は `attachment` に替え、ファイル名は残す（#253。書き出しを中継から落とすときのため）:
+  - 中継した返事: ホストの CSP は使わず `sandbox; default-src 'none'; frame-ancestors 'none'` を付ける。HTML・SVG・XML・JavaScript・CSS の型と、型のない返事（ブラウザが中身から HTML と推測することがある）は `Content-Disposition: attachment` でダウンロードにする（ホストが返したものを、このオリジンの文書として描かせない）。本文のない `204`・`304` には付けない（`304` はキャッシュの返事のヘッダーを上書きするため）。JavaScript・CSS の型（`javascript`・`ecmascript`・`css` を含むもの）は `Content-Type` を `application/octet-stream` に替える（画面の CSP の `'self'` は `/h/` の中継も含むので、`<script src="/h/…">`・Worker・スタイルシートとして読ませない。`nosniff` と合わせて効く）。ホストが `Content-Disposition` を付けていれば、種類（`inline` など）は `attachment` に替え、ファイル名は残す（#253。書き出しを中継から落とすときのため）:
     - `filename`: 表示できる ASCII だけにし（ほかの文字・CR・LF などの制御文字は `_`）、`"` と `\` を逃がして引用符で囲み直す。255 文字まで
-    - `filename*`: `UTF-8''<%XX の並び>` の形のものだけ残す（ほかの文字コード・言語の付いたもの・生の空白や引用符を含むもの・デコードして制御文字が出るもの・UTF-8 として読めないものは落とす）
+    - `filename*`: `UTF-8''<%XX の並び>` の形のものだけ残す（ほかの文字コード・言語の付いたもの・生の空白や引用符を含むもの・デコードして制御文字（C0・DEL・C1）や向きの制御（U+202A〜202E・U+2066〜2069 など）・ゼロ幅の文字が出るもの・UTF-8 として読めないものは落とす）
     - どちらも残らなければ、ただの `attachment`。描かせない型（JSON・Markdown など）は、ホストの値をそのまま通す
   - HSTS は付けない（`.dev` は TLD ごと HSTS の preload に入っている）
 - **すべての端末からログアウト（#250）**: `DELETE /me/sessions`（ログインと Origin を確かめる。ログインなしは `401`、Origin 違いは `403`）。そのユーザーの `web_sessions` を全部消し、今の端末の Cookie も消す。アカウントの画面の「すべての端末からログアウト」から、確認を出してから呼ぶ。成功したら画面もログインの画面に戻る。ログインセッションを盗まれたと思ったときに、盗んだ側のセッションを止めるため。ほかのユーザーのセッションには触らない
@@ -444,7 +444,7 @@ GROUP BY kind, path, status ORDER BY n DESC LIMIT 20;
 | `blob2` | 違反したディレクティブ（`effective-directive`。`script-src-elem`・`connect-src` など。形の違うものは `other`） |
 | `blob3` | `enforce`（強制で止めた）か `report`（Report-Only で報告だけ）。ほかは `other` |
 | `blob4` | 画面のパス。`/s/`・`/p/`・`/settings/` などの決まった区切りだけ残し、ID は `:id`、ほかは `:v`（HTTP の計測の `blob3` と同じ規則）。クエリ・フラグメントは書かない |
-| `blob5` | 読み込もうとしたもの。`inline`・`eval`・`wasm-eval`・`data`・`blob` などの種類か、URL のオリジンとパス（パスは同じ規則で伏せる。クエリは書かない）。同じオリジンは `self`、同じホストの WebSocket は `self:wss`（`self:ws`） |
+| `blob5` | 読み込もうとしたもの。`inline`・`eval`・`wasm-eval`・`data`・`blob` などの種類か、URL のオリジンとパス（パスは同じ規則で伏せる。クエリは書かない）。同じオリジンは `self`、同じホストの WebSocket は `self:wss`（`self:ws`）。トンネルの公開ホスト名はホスト ID を伏せる（`https://rwt-dev-:id.studio-takumi.dev`） |
 | `blob6`・`blob7` | ブラウザ・OS の大まかな種類（HTTP の計測と同じ） |
 | `double1` | その本文の中で同じだった報告の件数 |
 | `index1` | `csp` |
