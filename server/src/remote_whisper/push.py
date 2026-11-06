@@ -32,7 +32,7 @@ from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
-from remote_whisper.cloud import restrict_to_owner
+from remote_whisper.cloud import OwnerOnlyError, restrict_to_owner
 from remote_whisper.fsutil import atomic_write_json, atomic_write_text
 
 log = logging.getLogger(__name__)
@@ -54,6 +54,14 @@ PUSH_SERVICE_HOSTS = (
 )
 NOTIFICATION_TITLE = "最終要約ができました"
 RECORD_SIZE = 4096
+
+
+def _restrict_or_warn(path: Path) -> None:
+    """push の鍵の権限。付けられなくても、通知が送れなくなるよりはよいので警告だけにする"""
+    try:
+        restrict_to_owner(path)
+    except OwnerOnlyError as e:
+        log.warning("cannot restrict %s: %s", path, e)
 
 
 def b64url(data: bytes) -> str:
@@ -178,8 +186,7 @@ class PushService:
             serialization.NoEncryption(),
         )
         path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write_text(path, pem.decode("ascii"))
-        restrict_to_owner(path)
+        atomic_write_text(path, pem.decode("ascii"), prepare=_restrict_or_warn)
         # 作り直したら、前の鍵で作った購読はもう送れない
         self._write_subscriptions([])
         log.info("made a new push key")

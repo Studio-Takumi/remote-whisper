@@ -209,11 +209,25 @@ def load_credentials(home: Path) -> Credentials | None:
         return None
 
 
+class OwnerOnlyError(OSError):
+    """ファイルを本人だけが読み書きできるようにできなかった"""
+
+
+CREDENTIALS_PERMISSION_ERROR = "cloud.json を本人だけが読める設定にできません"
+
+
 def save_credentials(home: Path, credentials: Credentials) -> None:
-    path = credentials_path(home)
-    # 一時ファイルは mkstemp で作るので、POSIX では最初から 600
-    atomic_write_json(path, credentials.to_json())
-    restrict_to_owner(path)
+    """cloud.json を書く。権限は中身を書く前の一時ファイルに付けてから置き換える（#252）
+
+    Windows では、置き換えたあとに権限を付けると、それまでのわずかな間は親フォルダの権限を継ぐ
+    （データのルートをドライブの直下などに置くと、ほかのユーザーから読める）。権限を付けられ
+    なければ書かずに CloudError にする（登録をやめて、トレイで知らせる）
+    """
+    try:
+        atomic_write_json(credentials_path(home), credentials.to_json(), prepare=restrict_to_owner)
+    except OwnerOnlyError as e:
+        log.warning("cannot save %s: %s", credentials_path(home), e)
+        raise CloudError(CREDENTIALS_PERMISSION_ERROR) from e
 
 
 def delete_credentials(home: Path) -> None:
@@ -221,18 +235,19 @@ def delete_credentials(home: Path) -> None:
 
 
 def restrict_to_owner(path: Path) -> None:
-    """ファイルを本人だけが読み書きできるようにする
+    """ファイルを本人だけが読み書きできるようにする。できなければ OwnerOnlyError
 
-    POSIX は 600。Windows は icacls で継承を切り、今のユーザーだけにする（うまくいかなくても
-    止めない。データのルートは既定ではユーザーのフォルダの中なので、ほかのユーザーからは読めない）
+    POSIX は 600。Windows は icacls で継承を切り、今のユーザーだけにする
     """
     if sys.platform != "win32":
-        os.chmod(path, 0o600)
+        try:
+            os.chmod(path, 0o600)
+        except OSError as e:
+            raise OwnerOnlyError(f"chmod failed: {e}") from e
         return
     user = os.environ.get("USERNAME")
     if not user:
-        log.warning("cannot restrict %s: USERNAME is not set", path)
-        return
+        raise OwnerOnlyError("USERNAME is not set")
     domain = os.environ.get("USERDOMAIN")
     account = f"{domain}\\{user}" if domain else user
     try:
@@ -244,10 +259,10 @@ def restrict_to_owner(path: Path) -> None:
             timeout=10,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
-        if result.returncode != 0:
-            log.warning("icacls failed for %s: %s", path, result.stdout + result.stderr)
-    except (OSError, subprocess.SubprocessError):
-        log.warning("cannot restrict %s", path, exc_info=True)
+    except (OSError, subprocess.SubprocessError) as e:
+        raise OwnerOnlyError(f"cannot run icacls: {e}") from e
+    if result.returncode != 0:
+        raise OwnerOnlyError(f"icacls failed: {(result.stdout + result.stderr).strip()}")
 
 
 # --- 中間サーバー（Worker）とのやり取り ---
@@ -568,10 +583,19 @@ class CloudHost:
                     relay_key = answer.get("relayKey")
                     if not isinstance(relay_key, str) or not relay_key:
                         raise CloudError("承認されましたが、中継の鍵を受け取れませんでした")
-                    save_credentials(
-                        self.home,
-                        replace(credentials, relay_key=relay_key, registered_at=int(self.clock())),
-                    )
+                    try:
+                        save_credentials(
+                            self.home,
+                            replace(
+                                credentials, relay_key=relay_key, registered_at=int(self.clock())
+                            ),
+                        )
+                    except CloudError:
+                        # 中継の鍵を置けないなら、Worker の登録も取り消す（使えない登録を残さない）
+                        # 取り消せなくても、画面のホストの管理から外せる
+                        with contextlib.suppress(CloudError):
+                            client.unpair()
+                        raise
                     self._view = CloudView("registered")
                     self._registration_changed()
                     log.info("cloud pairing approved (host %s)", credentials.host_id)

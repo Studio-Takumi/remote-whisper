@@ -5,12 +5,15 @@ import json
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 import httpx
 import pytest
 
 from remote_whisper.cloud import (
+    CREDENTIALS_PERMISSION_ERROR,
     HOST_HEADER,
+    CloudError,
     CloudHost,
     CloudView,
     Credentials,
@@ -165,6 +168,122 @@ def test_credentials_are_saved_owner_only(tmp_path):
         assert "BUILTIN\\Users" not in out and "Everyone" not in out
     else:
         assert path.stat().st_mode & 0o777 == 0o600
+
+
+def fake_icacls(monkeypatch, results):
+    """Windows の icacls を偽物にする。results の順に答える（int は終了コード、例外は投げる）
+
+    呼ばれたときの対象のファイルの名前と中身・cloud.json があったかを覚える
+    """
+    seen: list[dict] = []
+    answers = list(results)
+
+    def run(args, **kwargs):
+        target = Path(args[1])
+        seen.append(
+            {
+                "args": args,
+                "target": target,
+                "content": target.read_bytes(),
+                "final": (target.parent / "cloud.json").read_bytes()
+                if (target.parent / "cloud.json").exists()
+                else None,
+            }
+        )
+        answer = answers.pop(0) if len(answers) > 1 else answers[0]
+        if isinstance(answer, BaseException):
+            raise answer
+        return subprocess.CompletedProcess(args, answer, "", "Access is denied." if answer else "")
+
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setenv("USERNAME", "taro")
+    monkeypatch.setenv("USERDOMAIN", "EXAMPLE-PC")
+    monkeypatch.setattr(subprocess, "run", run)
+    return seen
+
+
+def leftovers(home):
+    return [p.name for p in home.iterdir() if p.name.startswith(".cloud.json.")]
+
+
+def test_windows_restricts_the_temp_file_before_writing_the_secret(tmp_path, monkeypatch):
+    # 置き換えたあとに権限を付けると、その間は親フォルダの権限を継ぐ（#252）
+    old = new_credentials(RELAY)
+    (tmp_path / "cloud.json").write_text(json.dumps(old.to_json()), encoding="utf-8")
+    seen = fake_icacls(monkeypatch, [0])
+    creds = new_credentials(RELAY)
+    save_credentials(tmp_path, creds)
+    assert len(seen) == 1
+    call = seen[0]
+    assert call["target"].name.startswith(".cloud.json.") and call["target"].name != "cloud.json"
+    assert call["args"][2:] == ["/inheritance:r", "/grant:r", "EXAMPLE-PC\\taro:F"]
+    # 権限を付けた時点では、一時ファイルは空で、cloud.json はまだ前のまま
+    assert call["content"] == b""
+    assert json.loads(call["final"])["hostId"] == old.host_id
+    assert load_credentials(tmp_path) == creds
+    assert leftovers(tmp_path) == []
+
+
+@pytest.mark.parametrize(
+    "result", [5, FileNotFoundError("icacls"), subprocess.TimeoutExpired("icacls", 10)]
+)
+def test_windows_permission_failure_does_not_write_cloud_json(tmp_path, monkeypatch, result):
+    old = new_credentials(RELAY)
+    (tmp_path / "cloud.json").write_text(json.dumps(old.to_json()), encoding="utf-8")
+    fake_icacls(monkeypatch, [result])
+    with pytest.raises(CloudError, match=CREDENTIALS_PERMISSION_ERROR):
+        save_credentials(tmp_path, new_credentials(RELAY))
+    # 前の cloud.json はそのまま。秘密鍵の入った一時ファイルも残さない
+    assert load_credentials(tmp_path) == old
+    assert leftovers(tmp_path) == []
+
+
+def test_windows_without_username_does_not_write_cloud_json(tmp_path, monkeypatch):
+    seen = fake_icacls(monkeypatch, [0])
+    monkeypatch.delenv("USERNAME")
+    with pytest.raises(CloudError):
+        save_credentials(tmp_path, new_credentials(RELAY))
+    assert seen == [] and not (tmp_path / "cloud.json").exists() and leftovers(tmp_path) == []
+
+
+def test_pairing_stops_when_cloud_json_cannot_be_restricted(tmp_path, monkeypatch):
+    fake_icacls(monkeypatch, [5])
+    worker = FakeWorker()
+    host, notices = make_host(tmp_path, worker)
+    assert host.start_pairing()
+    host.wait(10)
+    # Worker には申請しない。トレイで知らせる
+    assert worker.calls == []
+    assert notices == [f"クラウド版に登録できませんでした: {CREDENTIALS_PERMISSION_ERROR}"]
+    assert host.view == CloudView("unregistered")
+    assert not (tmp_path / "cloud.json").exists() and leftovers(tmp_path) == []
+
+
+def test_pairing_is_undone_when_the_relay_key_cannot_be_saved(tmp_path, monkeypatch):
+    # 申請の前は書けたが、承認のあとに書けなかった。Worker に使えない登録を残さない
+    fake_icacls(monkeypatch, [0, 5])
+    worker = FakeWorker(answers=("approved",))
+    host, notices = make_host(tmp_path, worker)
+    assert host.start_pairing()
+    host.wait(10)
+    assert worker.unpaired == [worker.started["hostId"]]
+    assert notices[-1] == f"クラウド版に登録できませんでした: {CREDENTIALS_PERMISSION_ERROR}"
+    assert host.view == CloudView("unregistered")
+    assert not (tmp_path / "cloud.json").exists() and leftovers(tmp_path) == []
+
+
+def test_relay_key_is_saved_through_a_restricted_temp_file(tmp_path, monkeypatch):
+    seen = fake_icacls(monkeypatch, [0])
+    worker = FakeWorker(answers=("approved",))
+    host, _ = make_host(tmp_path, worker)
+    assert host.start_pairing()
+    host.wait(10)
+    assert host.view == CloudView("registered")
+    # 申請の前と承認のあとの 2 回とも、中身を書く前の一時ファイルに付けている
+    assert [c["target"].name.startswith(".cloud.json.") for c in seen] == [True, True]
+    assert all(c["content"] == b"" for c in seen)
+    assert seen[1]["final"] is not None and b"relay-key" not in seen[1]["final"]
+    assert load_credentials(tmp_path).relay_key == "relay-key"
 
 
 def test_broken_cloud_json_means_not_registered(tmp_path):
