@@ -79,6 +79,14 @@ class CloudRefused(CloudError):
 # --- 鍵と署名 ---
 
 
+_CODE_PARAM = re.compile(r"(?<=[?&#])(code=)[^&#]*", re.IGNORECASE)
+
+
+def redact_code(url: str) -> str:
+    """ログに書く URL の `code=` の値を伏せる（ほかの部分は残す）。"""
+    return _CODE_PARAM.sub(r"\1XXXX-…", url)
+
+
 def b64url(data: bytes) -> str:
     """base64url（パディングなし）"""
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
@@ -633,7 +641,7 @@ class CloudHost:
             )
             # ログには登録コードを書かない（#166。URL のクエリに入っている）。
             # コードはトレイの通知とメニューに出る
-            page = str(httpx.URL(ticket.url).copy_with(query=None, fragment=None))
+            page = redact_code(ticket.url)
             try:
                 self.open_browser(ticket.url)
             except Exception as e:  # noqa: BLE001 開けなくても、画面の場所はログに、コードは通知に出ている

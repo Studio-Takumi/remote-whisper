@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -24,6 +25,7 @@ from remote_whisper.cloud import (
     load_credentials,
     new_credentials,
     public_key_from_b64,
+    redact_code,
     save_credentials,
     sign_header,
     verify_header,
@@ -405,6 +407,41 @@ def test_pairing_approved(tmp_path):
     assert worker.calls.count("/pair/poll") == 3
     # 登録済みなら、もう一度は始めない
     assert not host.start_pairing()
+
+
+def test_pairing_code_is_kept_out_of_the_log(tmp_path, caplog):
+    caplog.set_level(logging.INFO)
+    worker = FakeWorker(answers=("approved",))
+    host, _ = make_host(tmp_path, worker, opened=[])
+    assert host.start_pairing()
+    host.wait(10)
+    assert "pairing page: " in caplog.text
+    assert f"{RELAY}/pair?code=" in caplog.text  # URL のほかの部分は残す
+    assert "ABCD-1234" not in caplog.text
+
+
+def test_pairing_code_is_kept_out_of_the_log_when_the_browser_fails(tmp_path, caplog):
+    caplog.set_level(logging.INFO)
+
+    def broken(url):
+        raise RuntimeError(f"cannot open {url}")
+
+    worker = FakeWorker(answers=("approved",))
+    host, _ = make_host(tmp_path, worker)
+    host.open_browser = broken
+    assert host.start_pairing()
+    host.wait(10)
+    assert "failed to open the pairing page" in caplog.text
+    assert "ABCD-1234" not in caplog.text
+
+
+def test_redact_code():
+    assert redact_code("https://x.test/pair?code=ABCD-1234") == "https://x.test/pair?code=XXXX-…"
+    assert (
+        redact_code("https://x.test/pair?a=1&code=ABCD-1234&b=2#f")
+        == "https://x.test/pair?a=1&code=XXXX-…&b=2#f"
+    )
+    assert redact_code("https://x.test/pair") == "https://x.test/pair"
 
 
 @pytest.mark.parametrize(
