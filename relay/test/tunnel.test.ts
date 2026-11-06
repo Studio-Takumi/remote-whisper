@@ -385,6 +385,7 @@ describe('ホストの一覧と管理（#161）', () => {
         expect((await rename(alice.cookie, '')).status).toBe(400);
         expect((await rename(alice.cookie, 'x'.repeat(65))).status).toBe(400);
         expect((await rename(alice.cookie, 3)).status).toBe(400);
+        expect((await rename(alice.cookie, 'x'.repeat(2048))).status).toBe(413);
     });
 });
 

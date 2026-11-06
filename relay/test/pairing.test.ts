@@ -268,6 +268,42 @@ describe('ホストの署名', () => {
     });
 });
 
+describe('本文の上限', () => {
+    // Content-Length のない（chunked の）本文
+    function chunked(bytes: number): Request {
+        const stream = new ReadableStream({
+            start(controller) {
+                controller.enqueue(new TextEncoder().encode('{"x":"' + 'x'.repeat(bytes)));
+                controller.close();
+            },
+        });
+        return new Request(`${ORIGIN}/pair/start`, { method: 'POST', body: stream, duplex: 'half' } as RequestInit);
+    }
+
+    it('上限より大きい chunked の本文は 413', async () => {
+        const request = chunked(8192);
+        expect(request.headers.get('Content-Length')).toBeNull();
+        expect((await SELF.fetch(request)).status).toBe(413);
+    });
+
+    it('Content-Length が上限より大きくても 413', async () => {
+        const host = await newHost();
+        const res = await hostCall(host, '/pair/start', { hostId: host.hostId, pad: 'x'.repeat(8192) });
+        expect(res.status).toBe(413);
+    });
+
+    it('署名つきのほかの口（poll・unpair・tunnel）も 413', async () => {
+        const big = '{"x":"' + 'x'.repeat(8192) + '"}';
+        for (const path of ['/pair/poll', '/pair/unpair', '/pair/tunnel']) {
+            const res = await SELF.fetch(`${ORIGIN}${path}`, {
+                method: 'POST',
+                body: big,
+            });
+            expect(res.status).toBe(413);
+        }
+    });
+});
+
 describe('回数の制限', () => {
     it('同じ接続元からの申請は 10 分に 5 回まで', async () => {
         const ip = '203.0.113.77';

@@ -163,10 +163,11 @@ sequenceDiagram
 
   | パス | 送るもの | 返すもの |
   |---|---|---|
-  | `/pair/start` | `{"hostId": "<UUID>", "hostName": "<PC 名>", "publicKey": "<base64url>"}`。署名は本文の `publicKey` で確かめる | `200 {"code": "ABCD-1234", "url": "https://<クラウドのドメイン>/pair?code=ABCD-1234", "expiresInSec": 600}`。登録済みのホスト ID なら `409`、回数の制限なら `429`、形が違えば `400`、署名が合わなければ `401` |
-  | `/pair/poll` | `{}` | `200 {"status": "pending"}`・`{"status": "approved", "relayKey": "<base64url>"}`・`{"status": "rejected"}`・`{"status": "expired"}`。申請が見つからない（期限切れで消した）なら `404`、署名が合わなければ `401`、回数の制限なら `429` |
-  | `/pair/unpair` | `{}` | `200 {"ok": true}`。hosts から消し、トンネルと DNS レコードを消す。ないホストなら `404` |
+  | `/pair/start` | `{"hostId": "<UUID>", "hostName": "<PC 名>", "publicKey": "<base64url>"}`。署名は本文の `publicKey` で確かめる | `200 {"code": "ABCD-1234", "url": "https://<クラウドのドメイン>/pair?code=ABCD-1234", "expiresInSec": 600}`。登録済みのホスト ID なら `409`、回数の制限なら `429`、形が違えば `400`、本文が 4096 バイトを超えたら `413`、署名が合わなければ `401` |
+  | `/pair/poll` | `{}` | `200 {"status": "pending"}`・`{"status": "approved", "relayKey": "<base64url>"}`・`{"status": "rejected"}`・`{"status": "expired"}`。申請が見つからない（期限切れで消した）なら `404`、署名が合わなければ `401`、回数の制限なら `429`、本文が 4096 バイトを超えたら `413` |
+  | `/pair/unpair` | `{}` | `200 {"ok": true}`。hosts から消し、トンネルと DNS レコードを消す。ないホストなら `404`、本文が 4096 バイトを超えたら `413` |
 
+  - `/pair/*`（`/pair/tunnel` を含む）の本文は 4096 バイトまで。ログインなしで呼べるので、超えたところで読むのをやめて `413` を返す（`Content-Length` がない chunked でも同じ。以前は `400`。正規のリクエストは 4096 バイトを超えない）
   - `approved` は、申請の期限（10 分）までは何度聞かれても同じ `relayKey` で返す。返事がネットワークで落ちても、ホストが聞き直せば受け取れる（持ち主のいないホストを Worker に残さない）。聞けるのは申請の秘密鍵を持つホストだけなので、何度返しても漏れない。期限を過ぎたら申請の行を消す（次の `/pair/poll` は `404`）。`relayKey` は 10.5 節の中継の鍵（32 バイト以上の乱数の base64url）
   - hosts に入れるのは、ブラウザで**承認したとき**。承認より前に `/pair/unpair` が来たら申請を取り消し済み（`rejected`）にして `200` を返し（申請の公開鍵で署名を確かめる）、そのあとの承認は「申請が見つからない」で断る。行は期限まで残す（消すと、申請と取り消しを繰り返して回数の制限を抜けられるため）
   - 確認の画面の `GET /pair/request` は `answeredByMe`（承認・拒否したのが自分か。まだなら `null`）も返す。ほかの人が先に承認していたら、画面で「心当たりがなければクラウド版から外す」と知らせる（コードが漏れたときに気づけるように）
@@ -508,6 +509,7 @@ GROUP BY minutes_from ORDER BY minutes_from;
   - `GET /me` に、今の規約の版 `tosCurrent`・リンク先 `termsUrl`/`privacyUrl`・データ収集の今の許可 `dataCollection`（consents の `data_collection` の最後の行。なければ `false`）を含める。同意の画面を出すのは `tosVersion` が `null` のときだけ
   - `POST /me/consent` `{"tosVersion", "dataCollection"}`: `tosVersion` が今の版（`TOS_VERSION`）と同じときだけ受け付け、違えば 409。`users.tos_version` を入れ、consents に `tos`（granted=1）と `data_collection` を 1 つのバッチで追記する
   - `PUT /me/consents/data_collection` `{"granted"}`: 設定から変える。変えるたび（同じ値でも）consents に追記する。規約に同意していなければ 409
+  - `POST /me/consent`・`PUT /me/consents/data_collection` の本文は 1KB まで（正規の本文は 100 バイトに満たない）。超えたら最後まで読まずに `413`。`PATCH /me/hosts/<id>` の本文も 1KB まで（名前は 64 文字、`\uXXXX` で書いても 400 バイト足らず）で、超えたら `413`
   - consents の `version` は、`tos` では規約の版、`data_collection` では説明文の版（`DATA_COLLECTION_VERSION`）。規約の版が上がっても `tos_version` は更新しない
 - 規約の改定: 同意は取り直さず、施行日の前にお知らせで知らせる（10.12 節）。データ収集の目的を変えるときだけ、同意を取り直す
 - **最終要約の通知（#245。6.14 節）**: クラウド版でも、通知はホストが push サービスへ直接送る（Worker は通知に関わらず、VAPID の鍵も `wrangler secret` に置かない）。購読の API（`/api/push/...`）は、ほかの API と同じく Worker が中継する。ホストにつなげるのはホストを登録したアカウントのクライアントだけ（10.5 節）なので、購読も通知もそのアカウントのクライアントにしか届かない。service worker は Worker のオリジンで動くので、通知を押したときに開くのも Worker のオリジンの `/s/<UUID>`
