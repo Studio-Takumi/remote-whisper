@@ -330,9 +330,13 @@ def install_reopen_handler(on_reopen: Callable[[], None]) -> None:
     """Mac の配布版（#292）: 動いている .app を Finder などからもう一度開いたら、画面を開く
 
     LaunchServices は、動いている .app をもう一度開くと、2 つ目を起動せずに「開き直す」イベント
-    （applicationShouldHandleReopen）を送るだけなので、それを受けて画面を開く。メインスレッドで呼ぶ
+    （applicationShouldHandleReopen）を送るだけなので、それを受けて画面を開く。
+    メインスレッドで呼ぶ（Tray.run の中、icon.run の前）。ほかのスレッドからは何もしない
     """
     global _reopen_delegate
+    if threading.current_thread() is not threading.main_thread():
+        log.warning("the reopen handler must be installed on the main thread; skipped")
+        return
     try:
         import AppKit
         import Foundation
@@ -436,7 +440,7 @@ class Tray:
                 pystray.MenuItem(
                     MENU_LOGIN_ITEM,
                     self._toggle_login_item,
-                    checked=lambda _: login_item.is_enabled(),
+                    checked=lambda _: login_item.is_enabled(self.app_bundle),
                 ),
                 pystray.Menu.SEPARATOR,
             ]
@@ -462,6 +466,11 @@ class Tray:
         # 作っている間にサーバーが止まった（ポートが使われていたなど）なら、出さずに戻る
         if self._stopped.is_set():
             return
+        if sys.platform == "darwin" and self.app_bundle is not None:
+            # AppKit はメインスレッドでしか触れない。pystray の setup（_setup）は別のスレッドで
+            # 動くので、ここ（Mac ではメインスレッド。NSApplication は Icon を作ったときに
+            # できている）で入れる
+            install_reopen_handler(self._open)
         self._icon.run(setup=self._setup)
 
     def stop(self) -> None:
@@ -486,8 +495,6 @@ class Tray:
         threading.Thread(target=self._refresh, name="tray-refresh", daemon=True).start()
         if sys.platform == "darwin":
             threading.Thread(target=self._catch_signals, name="tray-signals", daemon=True).start()
-            if self.app_bundle is not None:
-                install_reopen_handler(self._open)
 
     def _catch_signals(self) -> None:
         """Mac: Ctrl+C・kill で、サーバーの後片付けを経てから止める
@@ -584,7 +591,7 @@ class Tray:
 
     def _toggle_login_item(self, *_: Any) -> None:
         try:
-            if login_item.is_enabled():
+            if login_item.is_enabled(self.app_bundle):
                 login_item.disable()
             elif self.app_bundle is not None:
                 login_item.enable(self.app_bundle)
