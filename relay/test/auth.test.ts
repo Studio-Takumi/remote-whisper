@@ -302,6 +302,24 @@ describe('ログアウト・退会', () => {
         expect((await me(other)).status).toBe(200);
     });
 
+    it('ログイン手段を外せなかったとき（409・404）も、ほかのログインセッションは消えない', async () => {
+        users.e5 = { subject: '914', name: 'しろう', email: null };
+        const other = cookieOf(await login('github', 'e5'));
+        const cookie = cookieOf(await login('github', 'e5'));
+        const body = (await (await me(cookie)).json()) as { identities: { id: string }[] };
+        const del = (id: string) =>
+            SELF.fetch(`${ORIGIN}/me/identities/${id}`, {
+                method: 'DELETE',
+                headers: { Cookie: cookie, Origin: ORIGIN },
+            });
+        // 最後の 1 つ
+        expect((await del(body.identities[0].id)).status).toBe(409);
+        expect((await me(other)).status).toBe(200);
+        // ない ID
+        expect((await del('no-such-identity')).status).toBe(404);
+        expect((await me(other)).status).toBe(200);
+    });
+
     it('ログイン手段を外すと、今の端末以外のログインセッションが消える', async () => {
         users.e3 = { subject: '912', name: 'さぶろう', email: null };
         users.e4 = { subject: '913', name: 'さぶろう', email: null };
