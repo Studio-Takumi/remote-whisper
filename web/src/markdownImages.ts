@@ -20,6 +20,8 @@ type HastNode = {
     value?: string;
 };
 
+// 外部の画像の URL。/i は念のためで、実際には効いていない（HTTPS: のような大文字のスキームは、
+// この前の sanitize が src ごと落とすので、リンクにならずに消える。読み込まないのは同じ）
 const EXTERNAL = /^(?:https?:)?\/\//i;
 
 function imageLink(src: string, insideLink: boolean): HastNode {
