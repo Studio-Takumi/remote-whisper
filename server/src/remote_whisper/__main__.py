@@ -8,6 +8,8 @@
 --auto-port を付けると、8000 番から順に空いている番号を探す（インストーラのショートカット用。#290。
 ports.py）。付けないときは今までどおり 8000 番（か --port の番号）で、使われていれば起動に失敗する。
 すでに同じデータのルートで動いているサーバーがあれば、2 つ目は起動せずにその画面を開く
+
+--open-browser を付けると、待ち受けを始めたら画面をブラウザで開く（Mac のアプリを開いたとき。#292）
 """
 
 import argparse
@@ -15,7 +17,10 @@ import contextlib
 import logging
 import sys
 import threading
+import time
 import webbrowser
+from collections.abc import Callable
+from typing import Any
 
 import uvicorn
 
@@ -34,6 +39,8 @@ NO_PORT_MESSAGE = (
     "使っているアプリを閉じてから、もう一度起動してください"
 )
 PORT_CHANGED_NOTICE = "ほかのアプリが {default} 番を使っていたため、{port} 番で起動しました"
+# --open-browser で、待ち受けが始まるのを待つ秒数
+OPEN_BROWSER_TIMEOUT_SEC = 120.0
 
 
 class PreboundServer(uvicorn.Server):
@@ -80,6 +87,11 @@ def main(argv: list[str] | None = None) -> None:
         "--no-tray",
         action="store_true",
         help="タスクトレイ（Windows）・メニューバー（Mac）にアイコンを出さない",
+    )
+    parser.add_argument(
+        "--open-browser",
+        action="store_true",
+        help="起動したら画面をブラウザで開く（Mac のアプリを開いたとき。#292）",
     )
     args = parser.parse_args(argv)
     if args.auto_port and args.port is not None:
@@ -141,6 +153,8 @@ def main(argv: list[str] | None = None) -> None:
             port_ready=lambda: tunnel.is_open,
         )
         app.state.cloudflared = runner
+        if args.open_browser:
+            _open_when_started(server, ports.browser_url(args.host, port))
         if not use_tray:
             server.run()
             return
@@ -190,6 +204,31 @@ def main(argv: list[str] | None = None) -> None:
         ports.release_lock()
         log.info("server stopped")
         logs.shutdown()
+
+
+def _open_when_started(
+    server: uvicorn.Server,
+    url: str,
+    timeout: float = OPEN_BROWSER_TIMEOUT_SEC,
+    open_url: Callable[[str], Any] = webbrowser.open,
+) -> threading.Thread:
+    """サーバーが待ち受けを始めたら、画面をブラウザで開く（--open-browser。#292）
+
+    起動に失敗した・timeout 秒たっても始まらないときは開かない
+    """
+
+    def wait_and_open() -> None:
+        deadline = time.monotonic() + timeout
+        while not server.started:
+            if server.should_exit or time.monotonic() > deadline:
+                return
+            time.sleep(0.2)
+        with contextlib.suppress(Exception):
+            open_url(url)
+
+    thread = threading.Thread(target=wait_and_open, name="open-browser", daemon=True)
+    thread.start()
+    return thread
 
 
 def _serve_with_tray_on_main_thread(server: uvicorn.Server, icon: "tray.Tray") -> None:

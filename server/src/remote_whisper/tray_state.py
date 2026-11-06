@@ -40,6 +40,8 @@ TOOLTIP_MAX = 127
 MENU_OPEN = "画面を開く"
 MENU_LOGS = "ログのフォルダを開く"
 MENU_QUIT = "終了"
+# Mac の配布版だけ（#292。login_item.py）。チェックの付く項目
+MENU_LOGIN_ITEM = "ログイン時に起動"
 # クラウド版のホストの登録（#158。spec/cloud.md 10.6）。状態に合うものだけを出す
 MENU_CLOUD_LOGIN = "クラウド版にログイン"
 MENU_CLOUD_CANCEL = "登録をやめる"
