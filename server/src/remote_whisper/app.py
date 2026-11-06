@@ -45,9 +45,11 @@ from remote_whisper.routes import projects as projects_routes
 from remote_whisper.routes import push as push_routes
 from remote_whisper.routes import sessions as sessions_routes
 from remote_whisper.routes import settings as settings_routes
+from remote_whisper.routes import setup as setup_routes
 from remote_whisper.routes import version as version_routes
 from remote_whisper.routes import ws as ws_routes
 from remote_whisper.settings import SettingsStore, default_home
+from remote_whisper.setup import SetupService, worker_env
 from remote_whisper.uploads import UploadService
 from remote_whisper.version import app_version
 from remote_whisper.whisper_worker import WhisperWorker, default_backend
@@ -130,6 +132,8 @@ def create_app(
         except OSError:
             log.exception("could not prepare the push key; notifications are off")
             ctx.push = None
+        # 前に WhisperX を入れている途中でサーバーが止まっていたら、元に戻す（#291）
+        ctx.setup.installer.recover()
         # 保存期間を過ぎたファイルを、起動時とその後1日1回消す
         janitor.start()
         # GPU の使用率と VRAM を数秒おきに送る（取れない環境と、GPU を使わないモック・
@@ -161,6 +165,8 @@ def create_app(
         await gpu_stats.close()
         await janitor.close()
         await ctx.uploads.close()
+        # モデルの取得と WhisperX を入れるのを止める（入れている途中なら、次に起動したときに戻す）
+        await ctx.setup.close()
         # 止めるときは、録音中の WAV を閉じて録音を終えたあとの処理を止め、GPU のジョブキューを止め
         # （待っているジョブは cancel）、Whisper を下ろす。録音の側を先に止めるのは、止めたキューに
         # 最終の要約などのジョブが積まれて、ワーカーが作り直されないようにするため
@@ -241,6 +247,8 @@ def create_app(
             ollama=ctx.ollama,
             recording=lambda: ctx.is_recording,
             available=installed if backend != "fake" else lambda: False,
+            # 画面から保存した HuggingFace のトークン（#291）を子プロセスに渡す
+            extra_env=lambda: worker_env(home),
         )
         ctx.recorder.final_transcript = ctx.final_transcriber
         if ctx.ollama is not None:
@@ -281,6 +289,17 @@ def create_app(
         fallback_lines=mock_script_lines if mock else None,
     )
     ctx.uploads.material_range = material_range
+    # 初回のセットアップの案内（#291）。WhisperX が入っているかは、最終の文字起こしと同じに見る
+    ctx.setup = SetupService(
+        home,
+        ctx.settings,
+        ollama=ctx.ollama,
+        recording=lambda: ctx.is_recording,
+        whisperx_installed=lambda: (
+            ctx.final_transcriber is not None and ctx.final_transcriber.available()
+        ),
+        mock=mock,
+    )
     # 最終要約ができたら通知する（#245）。録音を終えたあとと、音声ファイルのアップロードのとき。
     # 再生成は、頼んだ人が画面で待っているので送らない
     ctx.push = PushService(home)
@@ -334,6 +353,8 @@ def create_app(
     app.include_router(ws_routes.router)
     app.include_router(version_routes.router)
     app.include_router(push_routes.router)
+    app.include_router(setup_routes.router)
+    app.include_router(setup_routes.host)
     if mock:
         app.include_router(mock_routes.router)
 

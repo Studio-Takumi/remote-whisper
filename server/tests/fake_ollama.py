@@ -25,6 +25,8 @@ class FakeOllama:
         self.requests: list[tuple[str, dict]] = []
         # 頼み方（/api/chat の body）から本文を決める関数。None を返せば reply を使う
         self.reply_for = None
+        # /api/pull（#291）が返す行。None なら、2 回に分けて取り終えて、モデルを足す
+        self.pull_lines: list[dict] | None = None
 
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self.handle)
@@ -48,6 +50,17 @@ class FakeOllama:
             return httpx.Response(200, json={"capabilities": self.models[body["model"]]})
         if path == "/api/generate":
             return httpx.Response(200, json={"model": body["model"], "done": True})
+        if path == "/api/pull":
+            lines = self.pull_lines
+            if lines is None:
+                lines = [
+                    {"status": "pulling manifest"},
+                    {"status": "pulling a", "digest": "a", "total": 100, "completed": 50},
+                    {"status": "pulling a", "digest": "a", "total": 100, "completed": 100},
+                    {"status": "success"},
+                ]
+                self.models[body["model"]] = ["completion"]
+            return httpx.Response(200, content="\n".join(json.dumps(x) for x in lines) + "\n")
         if path == "/api/chat":
             if body["model"] not in self.models:
                 return httpx.Response(404, json={"error": f"model '{body['model']}' not found"})
