@@ -130,6 +130,10 @@ jobs:
           # スタートメニューのショートカット
           $link = Join-Path ([Environment]::GetFolderPath('Programs')) 'Remote Whisper.lnk'
           if (-not (Test-Path $link)) { throw 'the Start menu shortcut was not created' }
+          # ショートカットに専用のアイコンが付いている（#290）
+          $icon = (New-Object -ComObject WScript.Shell).CreateShortcut($link).IconLocation
+          Write-Host "Icon: $icon"
+          if ($icon -notlike "*$dir*remote-whisper.ico*" -or -not (Test-Path "$dir\remote-whisper.ico")) { throw 'the shortcut does not use the app icon' }
 
       - name: Smoke test (installed)
         shell: pwsh

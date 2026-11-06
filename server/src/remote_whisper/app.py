@@ -34,6 +34,7 @@ from remote_whisper.mock import (
     mock_script_lines,
 )
 from remote_whisper.ollama import OllamaClient
+from remote_whisper.ports import INSTANCE_ID
 from remote_whisper.projects import ProjectStore
 from remote_whisper.push import PushService
 from remote_whisper.recorder import RecordingManager
@@ -342,7 +343,9 @@ def create_app(
 
     @app.get("/api/health")
     def health() -> dict:
-        return {"status": "ok", "mock": mock}
+        # instance は起動ごとのランダムな値。二重起動のとき、動いているのが自分のサーバーかを
+        # 確かめるのに使う（#290）
+        return {"status": "ok", "mock": mock, "instance": INSTANCE_ID}
 
     app.include_router(settings_routes.router)
     app.include_router(options_routes.router)
