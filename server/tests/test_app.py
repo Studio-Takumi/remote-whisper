@@ -7,7 +7,9 @@ def test_health():
     client = TestClient(create_app())
     res = client.get("/api/health")
     assert res.status_code == 200
-    assert res.json() == {"status": "ok", "mock": False}
+    body = res.json()
+    assert body["status"] == "ok" and body["mock"] is False
+    assert isinstance(body["instance"], str) and body["instance"]
 
 
 def test_serves_web_dist(tmp_path, monkeypatch):

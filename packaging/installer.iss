@@ -23,7 +23,7 @@
 #define AppName "Remote Whisper"
 ; Starts without a console window. The status is shown in the task tray icon.
 #define AppExe "python\pythonw.exe"
-#define AppArgs "-m remote_whisper"
+#define AppArgs "-m remote_whisper --auto-port"
 
 [Setup]
 ; Keep this GUID fixed: it identifies the app for upgrades and uninstall.

@@ -86,7 +86,7 @@ try {
     $listener = $null
 }
 $env:REMOTE_WHISPER_HOME = $busyData
-$busyArgs = @('-m', 'remote_whisper', '--mock', '--no-tray')
+$busyArgs = @('-m', 'remote_whisper', '--mock', '--no-tray', '--auto-port')
 $first = Start-Process -FilePath $pythonw -ArgumentList $busyArgs -WorkingDirectory $AppDir -PassThru -WindowStyle Hidden
 try {
     $portFile = Join-Path $busyData 'port.json'
@@ -116,5 +116,52 @@ try {
     if (-not $first.HasExited) { & taskkill /F /T /PID $first.Id | Out-Null }
     $first.WaitForExit(10000) | Out-Null
     if ($listener) { $listener.Stop() }
+    $env:REMOTE_WHISPER_HOME = $DataDir
+}
+
+# 止めてすぐ、同じ番号で --auto-port 起動できる（Windows の排他の bind は、接続が残っていると
+# 同じ番号に bind し直せないおそれがあるため。開いたままの接続を残して強制終了する）
+$restartData = "$DataDir-restart"
+$env:REMOTE_WHISPER_HOME = $restartData
+$restartArgs = @('-m', 'remote_whisper', '--mock', '--no-tray', '--auto-port')
+$client = $null
+$run = Start-Process -FilePath $pythonw -ArgumentList $restartArgs -WorkingDirectory $AppDir -PassThru -WindowStyle Hidden
+try {
+    $restartFile = Join-Path $restartData 'port.json'
+    $before = $null
+    for ($i = 0; $i -lt 60 -and -not $before; $i++) {
+        Start-Sleep -Seconds 1
+        if ($run.HasExited) { throw "the server exited early (code $($run.ExitCode))" }
+        if (Test-Path $restartFile) { try { $before = Get-Content $restartFile -Raw | ConvertFrom-Json } catch { $before = $null } }
+    }
+    Assert-True ($null -ne $before) 'port.json was written (restart test)'
+    $restartBase = "http://127.0.0.1:$($before.port)"
+    $ok = $false
+    for ($i = 0; $i -lt 60 -and -not $ok; $i++) {
+        try { $ok = (Invoke-RestMethod "$restartBase/api/health" -TimeoutSec 3).status -eq 'ok' } catch { Start-Sleep -Seconds 1 }
+    }
+    Assert-True $ok 'the server answers (restart test)'
+    1..5 | ForEach-Object { Invoke-RestMethod "$restartBase/api/health" | Out-Null }
+    # 開いたままの接続（keep-alive）を残す
+    $client = [System.Net.Sockets.TcpClient]::new('127.0.0.1', [int]$before.port)
+    $bytes = [System.Text.Encoding]::ASCII.GetBytes("GET /api/health HTTP/1.1`r`nHost: 127.0.0.1:$($before.port)`r`nConnection: keep-alive`r`n`r`n")
+    $client.GetStream().Write($bytes, 0, $bytes.Length)
+    Start-Sleep -Seconds 1
+    & taskkill /F /T /PID $run.Id | Out-Null
+    $run.WaitForExit(10000) | Out-Null
+    Remove-Item $restartFile -ErrorAction SilentlyContinue
+    $run = Start-Process -FilePath $pythonw -ArgumentList $restartArgs -WorkingDirectory $AppDir -PassThru -WindowStyle Hidden
+    $after = $null
+    for ($i = 0; $i -lt 60 -and -not $after; $i++) {
+        Start-Sleep -Seconds 1
+        if ($run.HasExited) { throw "the restarted server exited (code $($run.ExitCode))" }
+        if (Test-Path $restartFile) { try { $after = Get-Content $restartFile -Raw | ConvertFrom-Json } catch { $after = $null } }
+    }
+    Assert-True ($null -ne $after) 'port.json was written again'
+    Assert-True ($after.port -eq $before.port) "the restarted server uses the same port ($($before.port))"
+} finally {
+    if ($client) { $client.Close() }
+    if (-not $run.HasExited) { & taskkill /F /T /PID $run.Id | Out-Null }
+    $run.WaitForExit(10000) | Out-Null
     $env:REMOTE_WHISPER_HOME = $DataDir
 }

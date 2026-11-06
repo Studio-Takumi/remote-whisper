@@ -5,11 +5,13 @@
 `remote-whisper-gui`（Windows）は同じものを、コンソールを出さずに起動する（#135）。
 状態はタスクトレイ（Mac はメニューバー。#136）のアイコンで見る
 
---port を付けないと、8000 番から順に空いている番号を探す（#290。ports.py）。
+--auto-port を付けると、8000 番から順に空いている番号を探す（インストーラのショートカット用。#290。
+ports.py）。付けないときは今までどおり 8000 番（か --port の番号）で、使われていれば起動に失敗する。
 すでに同じデータのルートで動いているサーバーがあれば、2 つ目は起動せずにその画面を開く
 """
 
 import argparse
+import contextlib
 import logging
 import sys
 import threading
@@ -28,7 +30,7 @@ from remote_whisper.tunnel import TunnelPort
 log = logging.getLogger("remote_whisper")
 
 NO_PORT_MESSAGE = (
-    "{ports} 番がすべてほかのアプリに使われているため、起動できませんでした\n"
+    "{first}〜{last} 番がすべてほかのアプリに使われているため、起動できませんでした\n"
     "使っているアプリを閉じてから、もう一度起動してください"
 )
 PORT_CHANGED_NOTICE = "ほかのアプリが {default} 番を使っていたため、{port} 番で起動しました"
@@ -45,14 +47,23 @@ class PreboundServer(uvicorn.Server):
         super().run(sockets or self._prebound)
 
 
-def main() -> None:
+def _say(message: str) -> None:
+    """標準エラーに出す（pythonw では stderr がないので、出せなくても止めない）"""
+    with contextlib.suppress(Exception):
+        if sys.stderr is not None:
+            print(message, file=sys.stderr)
+
+
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="remote-whisper")
     parser.add_argument("--host", default="127.0.0.1", help="待ち受けるアドレス（既定: 127.0.0.1）")
     parser.add_argument(
-        "--port",
-        type=int,
-        default=None,
-        help="待ち受けるポート（付けなければ 8000 番から順に、空いている番号を使う）",
+        "--port", type=int, default=None, help="待ち受けるポート（既定: 8000。使われていれば失敗）"
+    )
+    parser.add_argument(
+        "--auto-port",
+        action="store_true",
+        help="8000 番が使われていたら、空いている番号を順に使う（--port とは同時に使えない）",
     )
     parser.add_argument(
         "--mock",
@@ -70,42 +81,55 @@ def main() -> None:
         action="store_true",
         help="タスクトレイ（Windows）・メニューバー（Mac）にアイコンを出さない",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
+    if args.auto_port and args.port is not None:
+        parser.error("--auto-port と --port は同時に使えません")
 
     timing = MockTiming(live_summary=args.mock_live_summary_sec)
     home = default_home()
     use_tray = not args.no_tray and tray.available()
-    # すでに動いていたら、2 つ目は起動せずに、動いている方の画面を開く（ログは動いている方が
-    # 書いているので、ここでは開かない）
-    running = ports.find_running(home)
-    if running is not None:
-        if use_tray:
-            webbrowser.open(running)
+    # データのルートのロックを取れなければ、同じデータで動いている（起動中を含む）サーバーがある。
+    # 2 つ目は起動せずに、動いている方の画面を開く
+    # （ログは動いている方が書いているので、ここでは開かない）
+    if not ports.acquire_lock(home):
+        url = ports.wait_for_running(home)
+        if url is None:
+            _say("すでに起動していますが、画面の場所を確認できなかったため、何も開きませんでした")
+        else:
+            _say(f"すでに {url} で動いているため、起動しませんでした")
+            if use_tray:
+                webbrowser.open(url)
         return
-    candidates = ports.CANDIDATE_PORTS if args.port is None else (args.port,)
-    sock, port = ports.bind_first_free(args.host, candidates)
+    if args.auto_port:
+        socks, port = ports.bind_first_free(args.host, ports.CANDIDATE_PORTS)
+    else:
+        # 今までどおり。bind は uvicorn に任せる（使われていれば起動に失敗する）
+        socks, port = None, args.port or ports.DEFAULT_PORT
     # ログは <データのルート>/log/server.log にも書く（#134）。uvicorn のログもそこに入れ、
     # アクセスログは自前（API のリクエストだけ。app.py）で書く
     path = logs.setup(home)
     log.info("writing logs to %s", path)
-    if sock is None or port is None:
-        label = f"{candidates[0]}〜{candidates[-1]}" if len(candidates) > 1 else f"{candidates[0]}"
-        message = NO_PORT_MESSAGE.format(ports=label)
+    if port is None:
+        message = NO_PORT_MESSAGE.format(
+            first=ports.CANDIDATE_PORTS[0], last=ports.CANDIDATE_PORTS[-1]
+        )
         log.error(message)
+        _say(message)
         if use_tray:
             tray.show_message(message)
         logs.shutdown()
+        ports.release_lock()
         sys.exit(1)
     try:
         ports.write_port(home, args.host, port)
         notice = None
-        if args.port is None and port != ports.DEFAULT_PORT:
+        if args.auto_port and port != ports.DEFAULT_PORT:
             notice = PORT_CHANGED_NOTICE.format(default=ports.DEFAULT_PORT, port=port)
             log.warning(notice)
         # --host が名前なら、その名前で開くのも許す（トレイの「ブラウザで開く」もその名前。#249）
         app = create_app(home, mock=args.mock, mock_timing=timing, listen_host=args.host)
         config = uvicorn.Config(app, host=args.host, port=port, log_config=None, access_log=False)
-        server = PreboundServer(config, [sock])
+        server = PreboundServer(config, socks) if socks else uvicorn.Server(config)
         # トンネル専用の 8001 番（#160）。クラウドに登録しているときだけ開く
         # 8000 番と同じイベントループで動かす。ループは app の lifespan が渡す
         tunnel = TunnelPort(app, home)
@@ -163,6 +187,7 @@ def main() -> None:
             icon.stop()
     finally:
         ports.clear_port(home)
+        ports.release_lock()
         log.info("server stopped")
         logs.shutdown()
 
