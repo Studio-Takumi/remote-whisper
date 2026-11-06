@@ -5,6 +5,8 @@
 通ることを確かめる
 """
 
+import asyncio
+import json
 import logging
 
 import pytest
@@ -179,6 +181,74 @@ def test_refused_is_logged_without_ip(app, caplog):
     assert not any("testclient" in m for m in messages)
 
 
+def call_raw(scope_type, headers):
+    """ヘッダーをそのまま（重なりも含めて）並べた scope で、ミドルウェアを 1 回呼ぶ。
+    (中まで通ったか, 返したもの) を返す"""
+    reached = []
+    sent = []
+
+    async def inner(scope, receive, send):
+        reached.append(True)
+
+    async def receive():
+        return {"type": "websocket.connect"}
+
+    async def send(message):
+        sent.append(message)
+
+    middleware = host_check.HostCheckMiddleware(inner)
+    scope = {
+        "type": scope_type,
+        "method": "GET",
+        "path": "/ws" if scope_type == "websocket" else "/api/settings",
+        "headers": [(k.encode(), v.encode()) for k, v in headers],
+    }
+    asyncio.run(middleware(scope, receive, send))
+    return bool(reached), sent
+
+
+@pytest.mark.parametrize("scope_type", ["http", "websocket"])
+@pytest.mark.parametrize(
+    ("headers", "reason"),
+    [
+        # 正しい Host と攻撃する人の Host（どちらを読むかで食い違わせる）。どちらの順でも
+        ([("host", "127.0.0.1:8000"), ("host", "evil.example")], "duplicate host"),
+        ([("host", "evil.example"), ("host", "127.0.0.1:8000")], "duplicate host"),
+        (
+            [
+                ("host", "127.0.0.1:8000"),
+                ("origin", "http://127.0.0.1:8000"),
+                ("origin", "https://evil.example"),
+            ],
+            "duplicate origin",
+        ),
+    ],
+)
+def test_duplicate_headers_are_refused(caplog, scope_type, headers, reason):
+    caplog.set_level(logging.WARNING, logger="remote_whisper.host_check")
+    reached, sent = call_raw(scope_type, headers)
+    assert not reached
+    if scope_type == "websocket":
+        assert sent == [{"type": "websocket.close", "code": 1008}]
+    else:
+        assert sent[0]["status"] == 403
+        assert "重なって" in json.loads(sent[1]["body"])["detail"]
+    messages = [r.getMessage() for r in caplog.records if r.name == "remote_whisper.host_check"]
+    assert len(messages) == 1
+    assert f": {reason} (" in messages[0]
+
+
+def test_x_forwarded_host_is_ignored(app):
+    """X-Forwarded-Host は見ない（Host だけで決める）。足しても通れない・断られない"""
+    with TestClient(app, base_url="http://127.0.0.1:8000") as client:
+        res = client.get("/api/health", headers={"x-forwarded-host": "evil.example"})
+        assert res.status_code == 200
+        headers = {"host": "evil.example", "x-forwarded-host": "127.0.0.1:8000"}
+        assert client.get("/api/health", headers=headers).status_code == 403
+        with pytest.raises(WebSocketDisconnect), client.websocket_connect("/ws", headers=headers):
+            pass
+
+
 def test_refused_log_is_throttled(caplog):
     caplog.set_level(logging.WARNING, logger="remote_whisper.host_check")
     now = [0.0]
@@ -338,6 +408,10 @@ def test_origin_allowed(origin, host, ok):
         ("", False),
         ("*", False),
         ("*.", False),
+        # ラベルが 1 つだけのワイルドカード（その TLD の下の名前すべて）・IP のワイルドカード
+        ("*.com", False),
+        ("*.localhost", False),
+        ("*.1.2.3.4", False),
         ("**.example.com", False),
         ("pc.example.com:8000", False),
         ("https://pc.example.com", False),

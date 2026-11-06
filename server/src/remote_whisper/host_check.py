@@ -110,6 +110,10 @@ def is_valid_allowed_host(value: str) -> bool:
     name = value.strip().lower().rstrip(".")
     if name.startswith("*."):
         name = name[2:]
+        # `*.com` のような、ラベルが 1 つだけのワイルドカードは広すぎる（その下のどの名前でも
+        # rebinding が通る）ので受け付けない。IP アドレスにも付けられない
+        if "." not in name or is_ip(name):
+            return False
     if not name or len(name) > 253:
         return False
     return is_ip(name) or bool(HOSTNAME_PATTERN.fullmatch(name))
@@ -208,8 +212,11 @@ class HostCheckMiddleware:
     def _refuse_reason(self, scope: dict) -> str | None:
         hosts = _header(scope, b"host")
         origins = _header(scope, b"origin")
-        if len(hosts) > 1 or len(origins) > 1:
-            return "header"
+        # 同じヘッダーが 2 つあれば、どちらを信じるかで食い違わないように断る
+        if len(hosts) > 1:
+            return "duplicate host"
+        if len(origins) > 1:
+            return "duplicate origin"
         host = None
         if hosts:
             host = split_host(hosts[0])
@@ -235,10 +242,10 @@ class HostCheckMiddleware:
         self._logged[key] = now
         kind = "websocket" if scope["type"] == "websocket" else scope.get("method", "?")
         log.warning(
-            "refused %s %s: %s not allowed (host %s, origin %s)",
+            "refused %s %s: %s (host %s, origin %s)",
             kind,
             _for_log(scope.get("path", "")),
-            "origin" if reason == "origin" else "host",
+            reason if reason.startswith("duplicate") else f"{reason} not allowed",
             _for_log(host),
             _for_log(origin),
         )
@@ -252,6 +259,8 @@ class HostCheckMiddleware:
             return
         if reason == "origin":
             detail = "ほかのサイトの画面からは使えません"
+        elif reason.startswith("duplicate"):
+            detail = "Host か Origin のヘッダーが重なっています"
         else:
             detail = (
                 "この名前では開けません。ホストの PC で localhost から開き、"

@@ -127,8 +127,8 @@
 - **許す Origin**
   - `Origin` がない（ブラウザ以外。ブラウザの同じオリジンの GET）
   - `Host` と同じオリジン（ホスト名とポート。ポートを書いていなければ `Origin` の scheme の既定のポート。`tailscale serve` は `Host` に `x.ts.net`、`Origin` に `https://x.ts.net` が来る）。scheme は見ない（HTTPS の中継の後ろでは、サーバーには http で届くため）
-  - `network.allowedHosts` の名前のオリジン（`Host` を書き換える中継の後ろに置いたとき。nginx の既定は `Host` を転送先の `127.0.0.1:8000` にする）
+  - `network.allowedHosts` の名前のオリジン（`Host` を書き換える中継の後ろに置いたとき。nginx の既定は `Host` を転送先の `127.0.0.1:8000` にする）。**このときはポートを見ない**ので、IP アドレスを足すと、その IP のどのポートの画面からでも通る（足すのは中継の名前だけにする）
   - `null`・`http`/`https` 以外（拡張機能など）は断る
 - **Vite の開発サーバー**: `/api`・`/ws` の転送は `Host` を書き換えない（`changeOrigin` を付けない）。`Host` も `Origin` も開発サーバーのもの（`localhost:5190` など）になり、同じオリジンとして通る
-- **断るとき**: HTTP は `403`（`{"detail": "..."}`）。WebSocket はつなぐ前に閉じる（ブラウザには HTTP の `403` が返る）。何もしないで断るので、設定の書き換えなどは起きない。ログ（`server.log`）に、メソッド・パス・断った理由（host か origin）と `Host`・`Origin` の値を警告で書く。接続元の IP は書かない。同じ組は 60 秒に 1 回だけ書く
+- **断るとき**: HTTP は `403`（`{"detail": "..."}`）。WebSocket はつなぐ前に閉じる（ブラウザには HTTP の `403` が返る）。何もしないで断るので、設定の書き換えなどは起きない。`Host` か `Origin` が 2 つ以上あるときも、どちらを読むかで食い違わないように断る。`X-Forwarded-Host` などの転送のヘッダーは見ない。ログ（`server.log`）に、メソッド・パス・断った理由（`host not allowed`・`origin not allowed`・`duplicate host`・`duplicate origin`）と `Host`・`Origin` の値を警告で書く。接続元の IP は書かない。同じ組は 60 秒に 1 回だけ書く
 - **トンネル（8001 番）は見ない**: Worker の署名で守っていて（10.5 節）、`Origin` は Worker が確かめる。`RelayAuthApp` が付けた印（`via_tunnel`）があるリクエストは、そのまま通す
