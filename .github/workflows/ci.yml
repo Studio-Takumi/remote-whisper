@@ -42,6 +42,24 @@ jobs:
       - name: Test
         run: uv run --no-sync pytest
 
+  # 依存の既知の脆弱性を見る（#287）。pip-audit は重大度を返さないので、落とさずに一覧を出すだけにする。
+  # torch は CUDA 12.8 版・torchaudio・pyannote との組み合わせを固定していて上げられず、脆弱性の多くは
+  # 信用できないファイルを torch.load で読むときのもの（読むのは Hugging Face の決まったモデルだけ）なので、一覧から外す
+  audit:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Audit
+        run: |
+          uv export --frozen --no-dev --extra final --no-emit-project --no-hashes --no-header \
+            | grep -v -E '^(torch|torchaudio|torchvision)==' > audit-requirements.txt
+          uvx pip-audit -r audit-requirements.txt --no-deps --disable-pip
+
   web:
     runs-on: ubuntu-latest
     defaults:
