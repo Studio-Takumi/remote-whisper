@@ -1153,7 +1153,9 @@ async function routeCloud(page, options) {
     await page.route(/\/h\/[^/]+\/api\//, async (route) => {
         const target = new URL(route.request().url());
         const rest = target.pathname.replace(/^\/h\/[^/]+/, '');
-        const response = await route.fetch({ url: `${serverUrl}${rest}${target.search}` });
+        // 画面の Origin（開発サーバーのオリジン）は渡さない。流す先の 8000 番は、Host と違うオリジンを断る（#249）
+        const { origin: _origin, ...headers } = route.request().headers();
+        const response = await route.fetch({ url: `${serverUrl}${rest}${target.search}`, headers });
         await route.fulfill({ response });
     });
     await page.routeWebSocket(/\/h\/[^/]+\/ws/, (ws) => {
