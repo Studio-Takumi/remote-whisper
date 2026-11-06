@@ -4,15 +4,20 @@
 
 `remote-whisper-gui`（Windows）は同じものを、コンソールを出さずに起動する（#135）。
 状態はタスクトレイ（Mac はメニューバー。#136）のアイコンで見る
+
+--port を付けないと、8000 番から順に空いている番号を探す（#290。ports.py）。
+すでに同じデータのルートで動いているサーバーがあれば、2 つ目は起動せずにその画面を開く
 """
 
 import argparse
 import logging
+import sys
 import threading
+import webbrowser
 
 import uvicorn
 
-from remote_whisper import cloud, logs, tray
+from remote_whisper import cloud, logs, ports, tray
 from remote_whisper.announcements import AnnouncementWatcher
 from remote_whisper.app import create_app
 from remote_whisper.cloudflared import CloudflaredRunner
@@ -22,11 +27,33 @@ from remote_whisper.tunnel import TunnelPort
 
 log = logging.getLogger("remote_whisper")
 
+NO_PORT_MESSAGE = (
+    "{ports} 番がすべてほかのアプリに使われているため、起動できませんでした\n"
+    "使っているアプリを閉じてから、もう一度起動してください"
+)
+PORT_CHANGED_NOTICE = "ほかのアプリが {default} 番を使っていたため、{port} 番で起動しました"
+
+
+class PreboundServer(uvicorn.Server):
+    """bind 済みのソケットで待ち受ける uvicorn（番号を選んでから開くまでに取られないように）"""
+
+    def __init__(self, config: uvicorn.Config, sockets: list):
+        super().__init__(config)
+        self._prebound = sockets
+
+    def run(self, sockets: list | None = None) -> None:
+        super().run(sockets or self._prebound)
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(prog="remote-whisper")
     parser.add_argument("--host", default="127.0.0.1", help="待ち受けるアドレス（既定: 127.0.0.1）")
-    parser.add_argument("--port", type=int, default=8000, help="待ち受けるポート（既定: 8000）")
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="待ち受けるポート（付けなければ 8000 番から順に、空いている番号を使う）",
+    )
     parser.add_argument(
         "--mock",
         action="store_true",
@@ -47,17 +74,38 @@ def main() -> None:
 
     timing = MockTiming(live_summary=args.mock_live_summary_sec)
     home = default_home()
+    use_tray = not args.no_tray and tray.available()
+    # すでに動いていたら、2 つ目は起動せずに、動いている方の画面を開く（ログは動いている方が
+    # 書いているので、ここでは開かない）
+    running = ports.find_running(home)
+    if running is not None:
+        if use_tray:
+            webbrowser.open(running)
+        return
+    candidates = ports.CANDIDATE_PORTS if args.port is None else (args.port,)
+    sock, port = ports.bind_first_free(args.host, candidates)
     # ログは <データのルート>/log/server.log にも書く（#134）。uvicorn のログもそこに入れ、
     # アクセスログは自前（API のリクエストだけ。app.py）で書く
     path = logs.setup(home)
     log.info("writing logs to %s", path)
+    if sock is None or port is None:
+        label = f"{candidates[0]}〜{candidates[-1]}" if len(candidates) > 1 else f"{candidates[0]}"
+        message = NO_PORT_MESSAGE.format(ports=label)
+        log.error(message)
+        if use_tray:
+            tray.show_message(message)
+        logs.shutdown()
+        sys.exit(1)
     try:
+        ports.write_port(home, args.host, port)
+        notice = None
+        if args.port is None and port != ports.DEFAULT_PORT:
+            notice = PORT_CHANGED_NOTICE.format(default=ports.DEFAULT_PORT, port=port)
+            log.warning(notice)
         # --host が名前なら、その名前で開くのも許す（トレイの「ブラウザで開く」もその名前。#249）
         app = create_app(home, mock=args.mock, mock_timing=timing, listen_host=args.host)
-        config = uvicorn.Config(
-            app, host=args.host, port=args.port, log_config=None, access_log=False
-        )
-        server = uvicorn.Server(config)
+        config = uvicorn.Config(app, host=args.host, port=port, log_config=None, access_log=False)
+        server = PreboundServer(config, [sock])
         # トンネル専用の 8001 番（#160）。クラウドに登録しているときだけ開く
         # 8000 番と同じイベントループで動かす。ループは app の lifespan が渡す
         tunnel = TunnelPort(app, home)
@@ -69,14 +117,11 @@ def main() -> None:
             port_ready=lambda: tunnel.is_open,
         )
         app.state.cloudflared = runner
-        if args.no_tray or not tray.available():
+        if not use_tray:
             server.run()
             return
         # Windows: サーバーはメインスレッドで動かし（Ctrl+C で止められるように）、
         # トレイは別のスレッドで出す。Mac はその逆（AppKit はメインスレッドでしか動かない）
-        host = "127.0.0.1" if args.host in ("0.0.0.0", "::") else args.host
-        if ":" in host:
-            host = f"[{host}]"  # IPv6 のアドレスは URL では [] で囲む
         cloud_host = cloud.CloudHost(
             home,
             relay_url=lambda: app.state.ctx.settings.get().cloud.relay_url,
@@ -96,7 +141,7 @@ def main() -> None:
         runner.on_notice = lambda message: cloud_host.on_notice(message)
         icon = tray.Tray(
             status=lambda: app.state.ctx.hub.status,
-            url=f"http://{host}:{args.port}/",
+            url=ports.browser_url(args.host, port),
             log_dir=path.parent,
             # 止めるとき（lifespan の後片付け）を経てから止まる
             on_quit=lambda: setattr(server, "should_exit", True),
@@ -104,6 +149,8 @@ def main() -> None:
             cloud=cloud_host,
             # 運営からのお知らせ（#164）。登録しているときだけ、新しい版を読みに行く
             announcements=AnnouncementWatcher(home, notify=lambda m: cloud_host.on_notice(m)),
+            # 8000 番が使われていて別の番号にしたとき、アイコンが出たら知らせる
+            notice=notice,
         )
         if tray.must_run_on_main_thread():
             _serve_with_tray_on_main_thread(server, icon)
@@ -115,6 +162,7 @@ def main() -> None:
         finally:
             icon.stop()
     finally:
+        ports.clear_port(home)
         log.info("server stopped")
         logs.shutdown()
 
