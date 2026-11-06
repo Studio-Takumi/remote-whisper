@@ -142,7 +142,7 @@ npm install
 npm run dev
 ```
 
-開発中は、Vite の dev server が `/api` と `/ws` をサーバー（既定は `http://localhost:8000`）へ転送します。転送先は環境変数 `REMOTE_WHISPER_SERVER` で変えられます。
+開発中は、Vite の dev server が `/api` と `/ws` をサーバー（既定は `http://localhost:8000`）へ転送します。転送先は環境変数 `REMOTE_WHISPER_SERVER` で変えられます。別の PC のサーバーへ流すときは、開発サーバーを `http://localhost:5173` のように `localhost`（か IP アドレス）で開いてください。開発しているマシンの名前（`mac.local` など）で開くと、サーバーの PC からは知らない名前なので `403` になります（[spec/api.md 7.5](docs/spec/api.md)）。
 
 CI と同じチェックは次のとおりです。
 
