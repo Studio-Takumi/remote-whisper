@@ -315,7 +315,9 @@ describe('ログアウト・退会', () => {
         // 最後の 1 つ
         expect((await del(body.identities[0].id)).status).toBe(409);
         expect((await me(other)).status).toBe(200);
-        // ない ID
+        // ない ID（手段が 2 つあるとき）
+        users.e6 = { subject: '915', name: 'しろう', email: null };
+        await login('google', 'e6', { link: cookie });
         expect((await del('no-such-identity')).status).toBe(404);
         expect((await me(other)).status).toBe(200);
     });
