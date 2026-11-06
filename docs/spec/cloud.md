@@ -71,7 +71,7 @@ flowchart LR
 | `/h/<hostId>/ws` | ホストの `/ws` へ中継 |
 | `/auth/login/<provider>`・`/auth/callback/<provider>`・`/auth/logout` | ログイン（10.7 節）。provider は `google`・`discord`・`github` |
 | `/pair?code=...`・`/pair/start`・`/pair/poll` | ホストの登録（10.6 節） |
-| `/me/...` | 自分のアカウント・ホスト一覧・同意など、Worker が答える API |
+| `/me/...` | 自分のアカウント・ホスト一覧・同意・すべての端末からログアウト（`DELETE /me/sessions`）など、Worker が答える API |
 | `/healthz` | Worker の死活 |
 
 - 画面の URL（`/s/<UUID>` など、#177）にはホストを入れない。どのホストを開いているかは画面の状態（とホストが 1 台ならそれ）で決める。ホストを切り替えるとセッションの一覧が替わる
@@ -233,6 +233,8 @@ sequenceDiagram
   - Worker が答える返事: 同じヘッダーと `Content-Security-Policy: default-src 'none'`。`/me`・`/pair/`・`/auth/` は `Cache-Control: no-store`
   - 中継した返事: ホストの CSP は使わず `sandbox; default-src 'none'` を付ける。HTML・SVG・XML・JavaScript の型は `Content-Disposition: attachment` でダウンロードにする（ホストが返したものを、このオリジンの文書として描かせない）
   - HSTS は付けない（`.dev` は TLD ごと HSTS の preload に入っている）
+- **すべての端末からログアウト（#250）**: `DELETE /me/sessions`（ログインと Origin を確かめる。ログインなしは `401`、Origin 違いは `403`）。そのユーザーの `web_sessions` を全部消し、今の端末の Cookie も消す。アカウントの画面の「すべての端末からログアウト」から、確認を出してから呼ぶ。成功したら画面もログインの画面に戻る。ログインセッションを盗まれたと思ったときに、盗んだ側のセッションを止めるため。ほかのユーザーのセッションには触らない
+- **ログイン手段を外したとき（#250）**: 外した手段で入った人（盗んだ人）を締め出すため、**今の端末以外**のそのユーザーのログインセッションを消す。今の端末は操作している本人なので残す（外すたびにログインし直させない）。外せなかったとき（`403`・`404`・`409`）は何も消さない。手段を足したときは消さない
 - 退会: ユーザー・ログイン手段・ログインセッション・ホスト（とトンネル）・同意の履歴（consents）を消す。**同意の履歴も当面は消す**（持つデータを減らす。法令上残す必要があるとわかったら、ユーザーと切り離して残す形に変える。10.16 節）
 - OAuth のコールバックは `/auth/callback/google`・`/auth/callback/discord`・`/auth/callback/github`。クライアント ID とシークレットは secret（10.15 節）
 

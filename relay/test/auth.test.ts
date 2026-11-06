@@ -277,6 +277,52 @@ describe('ログアウト・退会', () => {
         expect((await me(cookie)).status).toBe(401);
     });
 
+    it('すべての端末からログアウトは、同じオリジンからだけ。そのユーザーの全セッションが消える（ほかのユーザーは残る）', async () => {
+        users.e1 = { subject: '910', name: 'いちろう', email: null };
+        users.e2 = { subject: '911', name: 'じろう', email: null };
+        const phone = cookieOf(await login('google', 'e1'));
+        const pc = cookieOf(await login('google', 'e1'));
+        const other = cookieOf(await login('github', 'e2'));
+        const del = (cookie: string, origin?: string) =>
+            SELF.fetch(`${ORIGIN}/me/sessions`, {
+                method: 'DELETE',
+                headers: { Cookie: cookie, ...(origin ? { Origin: origin } : {}) },
+            });
+        // Origin の確認（CSRF）: 別のオリジンからも、Origin がないときも通らず、何も消えない
+        expect((await del(pc, 'https://evil.example')).status).toBe(403);
+        expect((await del(pc)).status).toBe(403);
+        expect((await me(phone)).status).toBe(200);
+        // ログインしていなければ 401
+        expect((await del('')).status).toBe(401);
+        const out = await del(pc, ORIGIN);
+        expect(out.status).toBe(200);
+        expect(out.headers.get('Set-Cookie')).toContain('Max-Age=0');
+        expect((await me(pc)).status).toBe(401);
+        expect((await me(phone)).status).toBe(401);
+        expect((await me(other)).status).toBe(200);
+    });
+
+    it('ログイン手段を外すと、今の端末以外のログインセッションが消える', async () => {
+        users.e3 = { subject: '912', name: 'さぶろう', email: null };
+        users.e4 = { subject: '913', name: 'さぶろう', email: null };
+        const stolen = cookieOf(await login('github', 'e3'));
+        const cookie = cookieOf(await login('github', 'e3'));
+        await login('google', 'e4', { link: cookie });
+        const body = (await (await me(cookie)).json()) as { identities: { id: string; provider: string }[] };
+        const github = body.identities.find((i) => i.provider === 'github');
+        const del = (c: string, origin: string) =>
+            SELF.fetch(`${ORIGIN}/me/identities/${github?.id}`, {
+                method: 'DELETE',
+                headers: { Cookie: c, Origin: origin },
+            });
+        // 外せなかった（Origin 違い）ときは、何も消えない
+        expect((await del(cookie, 'https://evil.example')).status).toBe(403);
+        expect((await me(stolen)).status).toBe(200);
+        expect((await del(cookie, ORIGIN)).status).toBe(200);
+        expect((await me(cookie)).status).toBe(200);
+        expect((await me(stolen)).status).toBe(401);
+    });
+
     it('退会すると、ユーザー・ログイン手段・ログインセッションが消える', async () => {
         users.d2 = { subject: '901', name: 'はちろう', email: null };
         const cookie = cookieOf(await login('github', 'd2'));

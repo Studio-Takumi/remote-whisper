@@ -1,7 +1,7 @@
 // 自分のアカウント（#155）: /me（ログインしているか・ログイン手段の一覧）、ログイン手段を外す、退会
 import { currentUser } from './auth';
 import { PRIVACY_URL, TERMS_URL, TOS_VERSION, dataCollectionGranted, postConsent, putDataCollection } from './consent';
-import { clearSessionCookie, error, json, sameOrigin } from './http';
+import { SESSION_COOKIE, clearSessionCookie, error, getCookie, json, sameOrigin, sha256 } from './http';
 import type { Env } from './index';
 import { PROVIDERS } from './providers';
 import { postRecordingMetrics } from './recordingMetrics';
@@ -25,6 +25,9 @@ export async function handleMe(request: Request, env: Env, path: string): Promis
     if (path === '/me' && request.method === 'DELETE') {
         return deleteAccount(env, user.userId);
     }
+    if (path === '/me/sessions' && request.method === 'DELETE') {
+        return logoutEverywhere(env, user.userId);
+    }
     if (path === '/me/consent' && request.method === 'POST') {
         return postConsent(request, env, user.userId);
     }
@@ -33,7 +36,7 @@ export async function handleMe(request: Request, env: Env, path: string): Promis
     }
     const m = /^\/me\/identities\/([^/]+)$/.exec(path);
     if (m && request.method === 'DELETE') {
-        return removeIdentity(env, user.userId, m[1]);
+        return removeIdentity(request, env, user.userId, m[1]);
     }
     if (path === '/me/hosts' && request.method === 'GET') {
         return hosts(env, user.userId);
@@ -144,7 +147,13 @@ async function me(env: Env, userId: string): Promise<Response> {
     });
 }
 
-async function removeIdentity(env: Env, userId: string, identityId: string): Promise<Response> {
+// すべての端末からログアウト（#250）。そのユーザーのログインセッションを全部消す（今の端末も）
+async function logoutEverywhere(env: Env, userId: string): Promise<Response> {
+    await env.DB.prepare('DELETE FROM web_sessions WHERE user_id = ?').bind(userId).run();
+    return json({ ok: true }, 200, { 'Set-Cookie': clearSessionCookie() });
+}
+
+async function removeIdentity(request: Request, env: Env, userId: string, identityId: string): Promise<Response> {
     const count = await env.DB.prepare('SELECT COUNT(*) AS n FROM auth_identities WHERE user_id = ?')
         .bind(userId)
         .first<{ n: number }>();
@@ -161,6 +170,12 @@ async function removeIdentity(env: Env, userId: string, identityId: string): Pro
     if (res.meta.changes === 0) {
         return error(404, 'そのログイン手段はありません');
     }
+    // 外した手段で入った人（盗んだ人）を締め出すため、今の端末以外のログインセッションを消す（#250）。
+    // 今の端末は、操作している本人なので残す
+    const token = getCookie(request, SESSION_COOKIE);
+    await env.DB.prepare('DELETE FROM web_sessions WHERE user_id = ? AND token_hash != ?')
+        .bind(userId, token ? await sha256(token) : '')
+        .run();
     return me(env, userId);
 }
 
