@@ -94,6 +94,8 @@ export async function fetchMe(): Promise<Me | null> {
 }
 
 export const logout = () => request<{ ok: boolean }>(authLogoutUrl(), { method: 'POST' });
+// すべての端末からログアウト（#250）。今の端末も含む
+export const logoutEverywhere = () => request<{ ok: boolean }>(meUrl('/sessions'), { method: 'DELETE' });
 export const removeIdentity = (id: string) =>
     request<Me>(meUrl(`/identities/${encodeURIComponent(id)}`), { method: 'DELETE' });
 const jsonInit = (method: string, body: unknown): RequestInit => ({
