@@ -50,8 +50,21 @@ def agent(app: Path) -> dict:
     }
 
 
-def is_enabled(directory: Path | None = None) -> bool:
-    return plist_path(directory).is_file()
+def is_enabled(app: Path | None = None, directory: Path | None = None) -> bool:
+    """ログイン時に起動するか。app を渡したら、plist がその .app を起動するときだけ True
+
+    アプリを別の場所に移したあとは、古い場所を指す plist は有効とみなさない（押すと書き直す）
+    """
+    path = plist_path(directory)
+    if not path.is_file():
+        return False
+    if app is None:
+        return True
+    try:
+        args = plistlib.loads(path.read_bytes()).get("ProgramArguments")
+    except (OSError, ValueError, AttributeError):
+        return False
+    return isinstance(args, list) and bool(args) and args[0] == str(app / LAUNCHER)
 
 
 def enable(app: Path, directory: Path | None = None) -> None:
