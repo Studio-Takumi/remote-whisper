@@ -30,7 +30,8 @@ export interface Env {
     TUNNEL_PREFIX?: string;
     // HTTP の計測（#163）。なければ書かない
     METRICS?: AnalyticsEngineDataset;
-    // CSP の違反の報告（/csp-report。#253）の、接続元ごとの回数の制限。なければ制限しない
+    // CSP の違反の報告（/csp-report。#253）の、接続元ごとの回数の制限（wrangler.jsonc の
+    // ratelimits。上の段にもあるので wrangler dev でも効く）。束縛がないのは設定から外したときだけで、そのときは制限しない
     CSP_REPORT_LIMITER?: RateLimit;
 }
 

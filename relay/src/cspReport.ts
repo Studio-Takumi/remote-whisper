@@ -61,7 +61,11 @@ export function screenPath(path: string): string {
         .slice(0, 96);
 }
 
-// 読み込もうとしたもの。種類の言葉か、URL のオリジンとパス（同じオリジンは self）。クエリは捨てる
+// トンネルの公開ホスト名（rwt-<ホスト ID の頭>.…。relay.ts の TUNNEL_HOSTNAME と同じ形）。ホスト ID は伏せる
+const TUNNEL_HOST = /^(rwt-(?:[a-z]+-)?)(?:[0-9a-f]{12}|[0-9a-f]{32})(\.[a-z0-9.-]+)$/;
+
+// 読み込もうとしたもの。種類の言葉か、URL のオリジンとパス（同じオリジンは self、トンネルのホスト ID は :id）。
+// クエリは捨てる
 export function blockedOf(value: string, origin: string): string {
     const v = value.trim().toLowerCase();
     if (BLOCKED_KEYWORDS.has(v)) {
@@ -79,8 +83,10 @@ export function blockedOf(value: string, origin: string): string {
     }
     // 同じホストの WebSocket（wss:）は、connect-src 'self' に当たるかを見たいので分けて書く
     const sameHostWs = ['ws:', 'wss:'].includes(url.protocol) && url.host === new URL(origin).host;
+    const tunnel = TUNNEL_HOST.exec(url.hostname);
+    const other = tunnel ? `${url.protocol}//${tunnel[1]}:id${tunnel[2]}${url.port ? `:${url.port}` : ''}` : url.origin;
     const where =
-        url.origin === origin ? 'self' : sameHostWs ? `self:${url.protocol.slice(0, -1)}` : url.origin.slice(0, 80);
+        url.origin === origin ? 'self' : sameHostWs ? `self:${url.protocol.slice(0, -1)}` : other.slice(0, 80);
     return `${where}${normalizePath(url.pathname)}`.slice(0, 160);
 }
 
@@ -151,15 +157,37 @@ export function cspDataPoints(violations: CspViolation[], userAgent: string): Cs
     }));
 }
 
-// 接続元ごとの回数の制限（wrangler.jsonc の ratelimits。束縛がなければ制限しない＝ローカル）。
+// 回数の制限の鍵にする接続元。IPv6 は頭 64 ビット（/64 を持つ相手が、アドレスを替えて制限を逃れないように）
+export function limitKey(ip: string | null): string {
+    if (!ip) {
+        return 'csp:unknown';
+    }
+    if (!ip.includes(':')) {
+        return `csp:${ip}`;
+    }
+    // :: を 0 の並びに広げてから、頭の 4 つ（64 ビット）だけを使う
+    const [head, tail] = ip.toLowerCase().split('::');
+    const left = head ? head.split(':') : [];
+    const right = tail !== undefined ? (tail ? tail.split(':') : []) : [];
+    const groups =
+        tail !== undefined
+            ? [...left, ...Array(Math.max(0, 8 - left.length - right.length)).fill('0'), ...right]
+            : left;
+    return `csp:${groups
+        .slice(0, 4)
+        .map((g) => g.replace(/^0+(?=.)/, ''))
+        .join(':')}::/64`;
+}
+
+// 接続元ごとの回数の制限（wrangler.jsonc の ratelimits。上の段にもあるので wrangler dev とテストでも効く。
+// 束縛がないのは、設定から外したときとテストで渡さないときだけで、そのときは制限しない）。
 // 数えるのは Cloudflare の中で、こちらでは IP アドレスを置かない
 async function allowed(request: Request, env: Env): Promise<boolean> {
     if (!env.CSP_REPORT_LIMITER) {
         return true;
     }
-    const ip = request.headers.get('CF-Connecting-IP') ?? 'unknown';
     try {
-        return (await env.CSP_REPORT_LIMITER.limit({ key: `csp:${ip}` })).success;
+        return (await env.CSP_REPORT_LIMITER.limit({ key: limitKey(request.headers.get('CF-Connecting-IP')) })).success;
     } catch {
         // 制限を確かめられないときは受けない（数えるだけのものなので、落としても困らない）
         return false;

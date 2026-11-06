@@ -8,6 +8,7 @@ import {
     blockedOf,
     cspDataPoints,
     handleCspReport,
+    limitKey,
     parseViolation,
     screenPath,
 } from '../src/cspReport';
@@ -136,6 +137,31 @@ describe('報告を読む', () => {
         expect(blockedOf(`${ORIGIN}/h/${HOST}/api/projects/meetings`, ORIGIN)).toBe('self/h/:id/api/projects/:v');
         expect(blockedOf('', ORIGIN)).toBe('none');
         expect(blockedOf('not a url', ORIGIN)).toBe('other');
+    });
+
+    it('トンネルの公開ホスト名はホスト ID を伏せる', () => {
+        expect(blockedOf('https://rwt-dev-0123456789ab.studio-takumi.dev/api/x?k=1', ORIGIN)).toBe(
+            'https://rwt-dev-:id.studio-takumi.dev/api/:v',
+        );
+        expect(blockedOf(`wss://rwt-${'a'.repeat(32)}.studio-takumi.dev:8443/ws`, ORIGIN)).toBe(
+            'wss://rwt-:id.studio-takumi.dev:8443/ws',
+        );
+        // 形の違うものは、そのままのオリジン
+        expect(blockedOf('https://rwt-xyz.example/', ORIGIN)).toBe('https://rwt-xyz.example/');
+    });
+
+    it('回数の制限の鍵: IPv4 はそのまま、IPv6 は頭 64 ビット', () => {
+        expect(limitKey('203.0.113.7')).toBe('csp:203.0.113.7');
+        expect(limitKey(null)).toBe('csp:unknown');
+        const a = limitKey('2001:db8:1:2:aaaa:bbbb:cccc:dddd');
+        expect(a).toBe('csp:2001:db8:1:2::/64');
+        // 同じ /64 の別のアドレス・省略の書き方が違っても同じ鍵
+        expect(limitKey('2001:db8:1:2::1')).toBe(a);
+        expect(limitKey('2001:0DB8:0001:0002:0:0:0:ffff')).toBe(a);
+        expect(limitKey('2001:db8::1')).toBe('csp:2001:db8:0:0::/64');
+        expect(limitKey('::1')).toBe('csp:0:0:0:0::/64');
+        // 別の /64 は別の鍵
+        expect(limitKey('2001:db8:1:3::1')).not.toBe(a);
     });
 
     it('画面のパスは router.ts の区切りだけ残す', () => {
