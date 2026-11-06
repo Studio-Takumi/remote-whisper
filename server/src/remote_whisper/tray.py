@@ -288,6 +288,26 @@ def confirm(message: str, ok_label: str = "終了") -> bool:
     return True
 
 
+def show_message(message: str) -> None:
+    """知らせを出す（OK だけ）。アイコンを出す前に、起動をやめるときに使う。出せなくても止めない"""
+    try:
+        if sys.platform == "win32":
+            import ctypes
+
+            mb_ok, mb_iconerror, mb_topmost, mb_setforeground = 0x0, 0x10, 0x40000, 0x10000
+            flags = mb_ok | mb_iconerror | mb_topmost | mb_setforeground
+            ctypes.windll.user32.MessageBoxW(0, message, APP_NAME, flags)
+        elif sys.platform == "darwin":
+            quote = message.replace("\\", "\\\\").replace('"', '\\"')
+            script = (
+                f'display dialog "{quote}" with title "{APP_NAME}" with icon stop '
+                'buttons {"OK"} default button "OK"'
+            )
+            subprocess.run(["osascript", "-e", script], capture_output=True, check=False)  # noqa: S603, S607
+    except Exception:  # noqa: BLE001
+        log.warning("failed to show a message", exc_info=True)
+
+
 def notify_mac(message: str) -> None:
     """Mac の通知（pystray の Mac 版は通知を出せないので、osascript で出す）"""
     quote = message.replace("\\", "\\\\").replace('"', '\\"')
@@ -320,12 +340,15 @@ class Tray:
         on_quit: Callable[[], None],
         cloud: CloudHost | None = None,
         announcements: AnnouncementWatcher | None = None,
+        notice: str | None = None,
     ):
         """status はサーバーの今の状態を返すもの、on_quit はサーバーを止めるもの
 
         cloud はクラウド版のホストの登録（#158）。None ならクラウドの行と項目を出さない
         announcements は運営からのお知らせ（#164）。登録しているときだけ新しい版を通知する
+        notice はアイコンが出たときに 1 回だけ出す通知（別の番号で起動したとき。#290）
         """
+        self.notice = notice
         self.announcements = announcements
         self.status = status
         self.url = url
@@ -411,6 +434,8 @@ class Tray:
             icon.stop()
             return
         icon.visible = True
+        if self.notice:
+            self._notify(self.notice)
         if self.announcements is not None:
             self.announcements.start()
         threading.Thread(target=self._refresh, name="tray-refresh", daemon=True).start()
