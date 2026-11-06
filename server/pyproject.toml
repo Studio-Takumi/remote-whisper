@@ -13,10 +13,10 @@ dependencies = [
     "httpx>=0.27",
     "nvidia-cublas-cu12; sys_platform == 'win32' or sys_platform == 'linux'",
     "nvidia-cudnn-cu12==9.*; sys_platform == 'win32' or sys_platform == 'linux'",
-    "pypdf[crypto]>=5",
+    "pypdf[crypto]>=7",
     # 参考資料の PDF のページを画像にして、図を読む（#271）。画像は pillow で PNG にする
     "pypdfium2>=4.30",
-    "pillow>=10",
+    "pillow>=13",
     "nvidia-ml-py>=13.615.71",
     # クラウド版のホストの鍵（Ed25519）と署名（#158）。pypdf[crypto] でも入っているが、直接使うので書く
     "cryptography>=44",
