@@ -9,6 +9,8 @@ export type PairRequest = {
     // 承認・拒否したのが自分か（まだなら null）
     answeredByMe: boolean | null;
     expiresAt: number;
+    // 申請した PC と接続元の国が違うか（#251。古い Worker では返らない）
+    countryMismatch?: boolean;
 };
 
 // 開いている画面が登録の確認か。そうならコード（そろえる前のまま）
