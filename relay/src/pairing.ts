@@ -9,7 +9,7 @@
 // - GET /pair/request?code=: 確認の画面に出す申請（PC 名など）
 // - POST /pair/approve・/pair/reject {code}: 承認・拒否。承認したときに hosts に入れる
 import { currentUser } from './auth';
-import { base64url, error, json, randomToken, sameOrigin, sha256 } from './http';
+import { base64url, error, json, randomToken, readLimited, sameOrigin, sha256 } from './http';
 import type { Env } from './index';
 import { type HostTunnel, MAX_HOSTS_PER_USER, TunnelUnavailable, deleteTunnel, ensureTunnel } from './tunnel';
 
@@ -39,6 +39,17 @@ type PairingRow = {
 };
 
 export async function handlePairing(request: Request, env: Env, path: string): Promise<Response> {
+    try {
+        return await dispatch(request, env, path);
+    } catch (e) {
+        if (e instanceof BodyTooLarge) {
+            return error(413, 'too large');
+        }
+        throw e;
+    }
+}
+
+async function dispatch(request: Request, env: Env, path: string): Promise<Response> {
     const route = `${request.method} ${path}`;
     switch (route) {
         case 'POST /pair/start':
@@ -170,13 +181,15 @@ async function verifyHost(header: HostHeader, publicKey: string, request: Reques
     }
 }
 
-async function readBody(request: Request): Promise<Uint8Array | null> {
-    const length = Number(request.headers.get('Content-Length') ?? '0');
-    if (length > MAX_BODY_BYTES) {
-        return null;
+// 本文が MAX_BODY_BYTES を超えたときに投げる（handlePairing が 413 にする）
+class BodyTooLarge extends Error {}
+
+async function readBody(request: Request): Promise<Uint8Array> {
+    const body = await readLimited(request, MAX_BODY_BYTES);
+    if (body === null) {
+        throw new BodyTooLarge();
     }
-    const body = new Uint8Array(await request.arrayBuffer());
-    return body.length > MAX_BODY_BYTES ? null : body;
+    return body;
 }
 
 function parseJson(body: Uint8Array): Record<string, unknown> | null {
@@ -194,8 +207,8 @@ function parseJson(body: Uint8Array): Record<string, unknown> | null {
 
 async function start(request: Request, env: Env): Promise<Response> {
     const body = await readBody(request);
-    const data = body && parseJson(body);
-    if (!body || !data) {
+    const data = parseJson(body);
+    if (!data) {
         return error(400, 'bad request');
     }
     const { hostId, hostName, publicKey } = data;
@@ -268,7 +281,7 @@ async function start(request: Request, env: Env): Promise<Response> {
 async function signedRequest(request: Request) {
     const body = await readBody(request);
     const header = parseHostHeader(request.headers.get('X-RW-Host'));
-    return body && header ? { body, header } : null;
+    return header ? { body, header } : null;
 }
 
 async function poll(request: Request, env: Env): Promise<Response> {
@@ -399,7 +412,7 @@ async function fromBrowser(request: Request, env: Env, path: string): Promise<Re
         code = normalizeCode(new URL(request.url).searchParams.get('code'));
     } else {
         const body = await readBody(request);
-        const data = body && parseJson(body);
+        const data = parseJson(body);
         code = normalizeCode(typeof data?.code === 'string' ? data.code : null);
     }
     if (!code) {

@@ -76,3 +76,36 @@ export function safeReturnTo(value: string | null): string {
         return '/';
     }
 }
+
+// 本文を maxBytes まで読む。超えたら null。Content-Length がなくても（chunked でも）、超えたところで読むのをやめる。
+// ログインなしで呼べる口（/pair/*）や、小さな JSON を受ける口（recordingMetrics・CSP の報告）で使う
+export async function readLimited(request: Request, maxBytes: number): Promise<Uint8Array | null> {
+    if (Number(request.headers.get('Content-Length') ?? '0') > maxBytes) {
+        return null;
+    }
+    if (!request.body) {
+        return new Uint8Array(0);
+    }
+    const reader = request.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    for (;;) {
+        const { done, value } = await reader.read();
+        if (done) {
+            break;
+        }
+        total += value.length;
+        if (total > maxBytes) {
+            await reader.cancel();
+            return null;
+        }
+        chunks.push(value);
+    }
+    const all = new Uint8Array(total);
+    let offset = 0;
+    for (const c of chunks) {
+        all.set(c, offset);
+        offset += c.length;
+    }
+    return all;
+}
