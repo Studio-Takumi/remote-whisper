@@ -9,7 +9,7 @@
 // - GET /pair/request?code=: 確認の画面に出す申請（PC 名など）
 // - POST /pair/approve・/pair/reject {code}: 承認・拒否。承認したときに hosts に入れる
 import { currentUser } from './auth';
-import { error, json, randomToken, sameOrigin, sha256 } from './http';
+import { base64url, error, json, randomToken, sameOrigin, sha256 } from './http';
 import type { Env } from './index';
 import { type HostTunnel, MAX_HOSTS_PER_USER, TunnelUnavailable, deleteTunnel, ensureTunnel } from './tunnel';
 
@@ -55,6 +55,34 @@ export async function handlePairing(request: Request, env: Env, path: string): P
             return fromBrowser(request, env, path);
     }
     return error(404, 'Not found');
+}
+
+// --- 接続元のハッシュ（#252） ---
+
+// 鍵の名前（relay_keys.name）
+export const CLIENT_HASH_KEY = 'client_hash';
+
+// 接続元（IP アドレス）の HMAC-SHA256。ただの SHA-256 だと、IPv4 は 2^32 通りを総当たりすれば
+// client_hash から戻せるので、D1 の relay_keys に置いた鍵を使う（Worker の secret は増やさない）。
+// 守れるのは client_hash の列（pairing_requests の行）だけが漏れたとき。鍵も同じ D1 にあるので、
+// D1 ごと（エクスポート・Time Travel・バックアップ）を持つ人は今でも戻せる（分けるなら鍵を secret に移す）。
+// 鍵は初めて要るときに乱数で作る。同時に作られても INSERT OR IGNORE で 1 つに決まり、読み直した方を使う。
+// 行が壊れていたら作り直さずに投げる（呼ぶ側で 500。黙って作り直すと、壊れた原因に気づけない）
+export async function clientHash(env: Env, ip: string): Promise<string> {
+    const select = env.DB.prepare('SELECT key FROM relay_keys WHERE name = ?').bind(CLIENT_HASH_KEY);
+    let row = await select.first<{ key: string }>();
+    if (!row) {
+        await env.DB.prepare('INSERT OR IGNORE INTO relay_keys (name, key, created_at) VALUES (?, ?, ?)')
+            .bind(CLIENT_HASH_KEY, randomToken(32), Date.now())
+            .run();
+        row = await select.first<{ key: string }>();
+    }
+    const raw = row && base64urlDecode(row.key);
+    if (!raw || raw.length < 32) {
+        throw new Error('relay_keys: bad client_hash key');
+    }
+    const key = await crypto.subtle.importKey('raw', raw, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    return base64url(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`client:${ip}`)));
 }
 
 // --- 署名（10.5 節） ---
@@ -190,8 +218,14 @@ async function start(request: Request, env: Env): Promise<Response> {
     }
     const now = Date.now();
     await env.DB.prepare('DELETE FROM pairing_requests WHERE expires_at <= ?').bind(now).run();
-    // 接続元ごとの回数の制限（IP アドレスはハッシュにして置く）
-    const client = await sha256(`client:${request.headers.get('CF-Connecting-IP') ?? 'unknown'}`);
+    // 接続元ごとの回数の制限（IP アドレスは鍵つきのハッシュにして置く）
+    let client: string;
+    try {
+        client = await clientHash(env, request.headers.get('CF-Connecting-IP') ?? 'unknown');
+    } catch (e) {
+        console.error('cannot hash the client address', e);
+        return error(500, 'internal error');
+    }
     const recent = await env.DB.prepare(
         'SELECT COUNT(*) AS n FROM pairing_requests WHERE client_hash = ? AND created_at > ?',
     )
