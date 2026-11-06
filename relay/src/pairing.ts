@@ -96,6 +96,41 @@ export async function clientHash(env: Env, ip: string): Promise<string> {
     return base64url(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(`client:${ip}`)));
 }
 
+// --- 接続元の国（#251） ---
+
+// Cloudflare が付ける接続元の国（ISO 3166-1 の 2 文字。Tor は T1）。request.cf がない（ローカルの
+// wrangler dev・テスト）か、わからない（XX）ときは null。IP も地域（都道府県など）も使わない
+export function clientCountry(request: Request): string | null {
+    const country = (request as Request & { cf?: { country?: unknown } }).cf?.country;
+    return typeof country === 'string' && /^[A-Z][A-Z0-9]$/.test(country) && country !== 'XX' ? country : null;
+}
+
+// 確認の画面を開いた人の接続元が、申請した PC の接続元と国から違うか。コードを盗んだり送りつけたりして、
+// PC が手元にない人に承認させる手口に気づかせる（止めはしない。Tailscale・VPN・モバイル回線で国が変わるため）。
+// 同じ接続元（client_hash が同じ）なら違わない。どちらかの国がわからなければ比べない（false）
+async function countryMismatch(
+    request: Request,
+    env: Env,
+    row: { client_hash: string | null; client_country: string | null },
+): Promise<boolean> {
+    const mine = clientCountry(request);
+    if (!mine || !row.client_country || mine === row.client_country) {
+        return false;
+    }
+    const ip = request.headers.get('CF-Connecting-IP');
+    if (ip && row.client_hash) {
+        try {
+            if ((await clientHash(env, ip)) === row.client_hash) {
+                return false;
+            }
+        } catch (e) {
+            // 鍵が壊れていても、国だけで知らせる（申請はもう通っているので、ここで 500 にはしない）
+            console.error('cannot hash the client address', e);
+        }
+    }
+    return true;
+}
+
 // --- 署名（10.5 節） ---
 
 export function newCode(): string {
@@ -260,10 +295,20 @@ async function start(request: Request, env: Env): Promise<Response> {
     try {
         await env.DB.prepare(
             `INSERT INTO pairing_requests
-                (id, code_hash, host_id, host_name, public_key, client_hash, created_at, expires_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                (id, code_hash, host_id, host_name, public_key, client_hash, client_country, created_at, expires_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
-            .bind(crypto.randomUUID(), await sha256(code), hostId, name, publicKey, client, now, now + PAIR_TTL_MS)
+            .bind(
+                crypto.randomUUID(),
+                await sha256(code),
+                hostId,
+                name,
+                publicKey,
+                client,
+                clientCountry(request),
+                now,
+                now + PAIR_TTL_MS,
+            )
             .run();
     } catch {
         // 同じホスト ID の申請が同時に来た（ユニーク索引）
@@ -422,10 +467,18 @@ async function fromBrowser(request: Request, env: Env, path: string): Promise<Re
     const now = Date.now();
     if (path === '/pair/request') {
         const row = await env.DB.prepare(
-            'SELECT host_name, status, user_id, expires_at FROM pairing_requests WHERE code_hash = ? AND expires_at > ?',
+            `SELECT host_name, status, user_id, expires_at, client_hash, client_country
+             FROM pairing_requests WHERE code_hash = ? AND expires_at > ?`,
         )
             .bind(codeHash, now)
-            .first<{ host_name: string; status: string; user_id: string | null; expires_at: number }>();
+            .first<{
+                host_name: string;
+                status: string;
+                user_id: string | null;
+                expires_at: number;
+                client_hash: string | null;
+                client_country: string | null;
+            }>();
         if (!row) {
             return error(404, '登録の申請が見つかりません（期限が切れたかもしれません）');
         }
@@ -436,6 +489,9 @@ async function fromBrowser(request: Request, env: Env, path: string): Promise<Re
             // 承認・拒否したのが自分か（ほかの人が先に承認していたら、画面で知らせる）
             answeredByMe: row.user_id === null ? null : row.user_id === user.userId,
             expiresAt: row.expires_at,
+            // 申請した PC と国が違う接続元から開いているか（#251）。申請した PC の国そのものは返さない
+            // （コードを手に入れた人に、PC の持ち主の居場所を教えないため）
+            countryMismatch: await countryMismatch(request, env, row),
         });
     }
     if (path === '/pair/reject') {

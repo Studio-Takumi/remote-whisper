@@ -7,7 +7,7 @@ import { CLIENT_HASH_KEY, clientHash, normalizeCode, parseHostHeader } from '../
 
 const ORIGIN = 'https://rw-dev.example';
 
-type Host = { hostId: string; keys: CryptoKeyPair; publicKey: string; ip: string };
+type Host = { hostId: string; keys: CryptoKeyPair; publicKey: string; ip: string; country?: string };
 
 async function newHost(): Promise<Host> {
     const keys = (await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify'])) as CryptoKeyPair;
@@ -48,7 +48,12 @@ async function hostCall(
     if (header !== null) {
         headers['X-RW-Host'] = header;
     }
-    return SELF.fetch(`${ORIGIN}${path}`, { method: 'POST', headers, body });
+    return SELF.fetch(`${ORIGIN}${path}`, { method: 'POST', headers, body, ...cfOf(host.country) });
+}
+
+// Cloudflare が付ける request.cf（国だけ）。undefined なら付けない（ローカルの wrangler dev の形）
+function cfOf(country: string | undefined) {
+    return country === undefined ? {} : ({ cf: { country } } as unknown as RequestInit);
 }
 
 async function startPairing(host: Host) {
@@ -77,16 +82,24 @@ async function newUser() {
     return { userId, cookie: `__Host-rw_session=${token}` };
 }
 
-function browser(cookie: string, path: string, init: { method?: string; body?: object; origin?: string | null } = {}) {
+function browser(
+    cookie: string,
+    path: string,
+    init: { method?: string; body?: object; origin?: string | null; ip?: string; country?: string } = {},
+) {
     const headers: Record<string, string> = { Cookie: cookie, 'Content-Type': 'application/json' };
     const origin = init.origin === undefined ? ORIGIN : init.origin;
     if (origin) {
         headers.Origin = origin;
     }
+    if (init.ip) {
+        headers['CF-Connecting-IP'] = init.ip;
+    }
     return SELF.fetch(`${ORIGIN}${path}`, {
         method: init.method ?? 'GET',
         headers,
         body: init.body ? JSON.stringify(init.body) : undefined,
+        ...cfOf(init.country),
     });
 }
 
@@ -421,6 +434,78 @@ describe('接続元のハッシュ（#252）', () => {
                 .run();
         }
         await startPairing({ ...(await newHost()), ip });
+    });
+});
+
+describe('接続元の国（#251）', () => {
+    const seen = async (cookie: string, code: string, from: { ip?: string; country?: string }) => {
+        const res = await browser(cookie, `/pair/request?code=${code}`, from);
+        expect(res.status).toBe(200);
+        return (await res.json()) as Record<string, unknown>;
+    };
+
+    it('コードを送りつける手口: ほかの国で申請したコードを開くと知らせる。承認は止めない', async () => {
+        // 攻撃する人が自分の PC（US）で申請し、そのコードの URL を被害者（JP）に送る
+        const attacker = { ...(await newHost()), ip: '198.51.100.7', country: 'US' };
+        const { code } = await startPairing(attacker);
+        const victim = await newUser();
+        const body = await seen(victim.cookie, code, { ip: '203.0.113.20', country: 'JP' });
+        expect(body.countryMismatch).toBe(true);
+        // 申請した PC の国は返さない
+        expect(Object.values(body)).not.toContain('US');
+        expect(Object.keys(body).sort()).toEqual(
+            ['answeredByMe', 'code', 'countryMismatch', 'expiresAt', 'hostName', 'status'].sort(),
+        );
+        // 止めはしない（Tailscale・VPN・モバイル回線で国が変わるため）
+        expect((await approve(victim.cookie, code)).status).toBe(200);
+    });
+
+    it('コードを盗む手口: 盗んだ人がほかの国から開くと知らせる', async () => {
+        const owner = { ...(await newHost()), ip: '203.0.113.30', country: 'JP' };
+        const { code } = await startPairing(owner);
+        const thief = await newUser();
+        expect((await seen(thief.cookie, code, { ip: '198.51.100.30', country: 'T1' })).countryMismatch).toBe(true);
+    });
+
+    it('同じ国・同じ接続元なら知らせない', async () => {
+        const host = { ...(await newHost()), ip: '203.0.113.40', country: 'JP' };
+        const { code } = await startPairing(host);
+        const { cookie } = await newUser();
+        // 同じ国のほかの回線（スマホのモバイル回線など）
+        expect((await seen(cookie, code, { ip: '192.0.2.40', country: 'JP' })).countryMismatch).toBe(false);
+        // 同じ接続元（client_hash が同じ）なら、国の判定が揺れても知らせない
+        expect((await seen(cookie, code, { ip: host.ip, country: 'KR' })).countryMismatch).toBe(false);
+    });
+
+    it('どちらかの国がわからない（request.cf がない・XX）ときは比べない', async () => {
+        const { cookie } = await newUser();
+        const unknownHost = { ...(await newHost()) };
+        const a = await startPairing(unknownHost);
+        expect((await seen(cookie, a.code, { country: 'JP' })).countryMismatch).toBe(false);
+        const xxHost = { ...(await newHost()), country: 'XX' };
+        const b = await startPairing(xxHost);
+        expect((await seen(cookie, b.code, { country: 'JP' })).countryMismatch).toBe(false);
+        const jpHost = { ...(await newHost()), country: 'JP' };
+        const c = await startPairing(jpHost);
+        expect((await seen(cookie, c.code, {})).countryMismatch).toBe(false);
+        expect((await seen(cookie, c.code, { country: 'XX' })).countryMismatch).toBe(false);
+    });
+
+    it('D1 には国だけを置く（IP も地域も置かない）', async () => {
+        const host = { ...(await newHost()), ip: '198.51.100.99', country: 'DE' };
+        await startPairing(host);
+        const row = await env.DB.prepare('SELECT * FROM pairing_requests WHERE host_id = ?')
+            .bind(host.hostId)
+            .first<Record<string, unknown>>();
+        expect(row?.client_country).toBe('DE');
+        expect(JSON.stringify(row)).not.toContain(host.ip);
+        // 形の違う値は置かない
+        const odd = { ...(await newHost()), country: 'jp' };
+        await startPairing(odd);
+        const oddRow = await env.DB.prepare('SELECT client_country FROM pairing_requests WHERE host_id = ?')
+            .bind(odd.hostId)
+            .first<{ client_country: string | null }>();
+        expect(oddRow?.client_country).toBeNull();
     });
 });
 
