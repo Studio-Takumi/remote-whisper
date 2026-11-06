@@ -52,11 +52,21 @@ if args[:3] == ["-m", "pip", "uninstall"]:
 if args[:3] == ["-m", "pip", "install"]:
     pkgs = load()
     if "--no-deps" in args:
-        # 版を戻す
-        for spec in args:
-            if "==" in spec:
-                name, version = spec.split("==")
-                pkgs[name] = version
+        # 版を戻す。--requirement なら、その一覧の行（`名前==版 ...`）から。--require-hashes なら
+        # ハッシュのない行があれば失敗する（本物の pip と同じ）
+        specs = [a for a in args if "==" in a]
+        if "--requirement" in args:
+            path = args[args.index("--requirement") + 1]
+            with open(path, encoding="utf-8") as f:
+                text = f.read()
+            lines = [ln for ln in text.splitlines() if ln and not ln[0].isspace()]
+            if "--require-hashes" in args and text.count("--hash=") < len(lines):
+                print("ERROR: hashes are required", flush=True)
+                sys.exit(1)
+            specs += [ln.split(" ")[0] for ln in lines]
+        for spec in specs:
+            name, version = spec.split("==")
+            pkgs[name] = version
         save(pkgs)
         sys.exit(0)
     mode = os.environ.get("FAKE_PIP", "ok")
@@ -68,6 +78,7 @@ if args[:3] == ["-m", "pip", "install"]:
     pkgs["torch"] = "2.8.0"
     if mode == "change":
         pkgs["numpy"] = "9.9.9"
+        pkgs["faster-whisper"] = "9.9.9"
     save(pkgs)
     if mode == "hang":
         time.sleep(60)

@@ -5,7 +5,8 @@
 
 - 外に何かを取りに行くのは、画面のボタンを押したとき（API を呼ばれたとき）だけ
 - Ollama のモデルの取得（`/api/pull`）は GPU を使わないので GPU キューには積まない。録音中は始めない
-- WhisperX は配布版だけ、同梱の Python に pip で入れる。入れる前の site-packages の一覧を控え、
+- WhisperX は配布版だけ、同梱の Python に、同梱の固定した依存の一覧（版とハッシュ）で pip で入れる。
+  入れる前の site-packages の一覧を控え、
   失敗した・やめた・途中でサーバーが止まったときは、その一覧に戻す（足したものを消し、版が変わった
   ものを戻す）。開発の環境（uv）では案内だけ（`uv sync --extra final`）
 - HuggingFace のトークンはデータのルートのファイル（本人だけが読める権限）に置き、
@@ -17,7 +18,6 @@
 import asyncio
 import contextlib
 import importlib
-import importlib.metadata
 import json
 import logging
 import os
@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Any
 
 from remote_whisper import bundle
-from remote_whisper.cloud import restrict_to_owner
+from remote_whisper.cloud import OwnerOnlyError, write_owner_only
 from remote_whisper.fsutil import atomic_write_json, atomic_write_text
 from remote_whisper.ollama import OllamaUnavailable
 from remote_whisper.settings import RECOMMENDED_MODELS, SettingsStore, has_model
@@ -125,8 +125,13 @@ def save_hf_token(home: Path, token: str) -> None:
     if not _HF_TOKEN.fullmatch(token):
         raise SetupError(422, "トークンの形が違います（hf_ で始まる文字列です）")
     path = hf_token_path(home)
-    atomic_write_text(path, token + "\n")
-    restrict_to_owner(path)
+    # cloud.json と同じく、本人だけが読めるファイルとして書く（#252）。権限を付けられなければ
+    # 書かない（前のファイルはそのまま。一時のものは残らない）
+    try:
+        write_owner_only(path, token + "\n")
+    except OwnerOnlyError as e:
+        log.warning("cannot save the HuggingFace token: %s", e)
+        raise SetupError(500, "トークンを本人だけが読める設定にできないため、保存できません") from e
     log.info("saved the HuggingFace token")
 
 
@@ -219,18 +224,28 @@ def canonical(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
-def final_packages() -> list[str]:
-    """server の extra `final` の依存（pyproject.toml の optional-dependencies）"""
-    try:
-        requires = importlib.metadata.requires("remote-whisper") or []
-    except importlib.metadata.PackageNotFoundError:
-        return []
-    packages = []
-    for req in requires:
-        spec, _, marker = req.partition(";")
-        if re.search(r"""extra\s*==\s*['"]final['"]""", marker):
-            packages.append(spec.strip())
-    return packages
+_PINNED = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)==([^\s;\\]+)")
+
+
+def locked_entries(text: str) -> dict[tuple[str, str], list[str]]:
+    """`uv export` の一覧を、(名前, 版) → その項目の行（マーカーとハッシュを含む）に分ける
+
+    同じ名前・版でもマーカー違いの項目（torch の CUDA 版と CPU 版など）は、まとめて持つ
+    """
+    entries: dict[tuple[str, str], list[str]] = {}
+    current: list[str] | None = None
+    for line in text.splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if not line[0].isspace():
+            m = _PINNED.match(line)
+            current = None
+            if m:
+                current = entries.setdefault((canonical(m.group(1)), m.group(2)), [])
+                current.append(line)
+        elif current is not None:
+            current.append(line)
+    return entries
 
 
 @dataclass
@@ -267,7 +282,9 @@ class WhisperXInstaller:
     """同梱の Python に WhisperX を pip で入れる（配布版だけ）
 
     python は対象の Python を動かすコマンド（テストでは偽物）。requirements は版とハッシュを固定した
-    依存の一覧（配布版に同梱。なければ extra `final` の依存を、今の版を変えないようにして入れる）
+    依存の一覧（配布版に同梱する whisperx-requirements.txt）。入れるのも戻すのも、この一覧の行を
+    `--require-hashes` で使う。どちらかがなければ入れられない（固定しない版を入れると、同梱の依存の
+    版が変わりうるため。Mac の配布版（#292）も一覧を同梱する前提）
     """
 
     def __init__(
@@ -275,13 +292,11 @@ class WhisperXInstaller:
         home: Path,
         python: list[str] | None,
         requirements: Path | None = None,
-        packages: Callable[[], list[str]] = final_packages,
         on_installed: Callable[[], None] = importlib.invalidate_caches,
     ):
         self.home = home
         self.python = python
         self.requirements = requirements
-        self.packages = packages
         self.on_installed = on_installed
         self.job: InstallJob | None = None
         self._proc: asyncio.subprocess.Process | None = None
@@ -292,7 +307,8 @@ class WhisperXInstaller:
 
     @property
     def installable(self) -> bool:
-        return self.python is not None
+        """同梱の Python と、固定した依存の一覧の両方があるときだけ"""
+        return self.python is not None and self.requirements is not None
 
     @property
     def dir(self) -> Path:
@@ -437,12 +453,9 @@ class WhisperXInstaller:
             "--extra-index-url",
             TORCH_INDEX,
         ]
-        if self.requirements is not None:
-            # 版とハッシュを固定した一覧（uv.lock と同じ版）。入っているものは、同じ版なのでそのまま
-            return [*args, "--require-hashes", "--requirement", str(self.requirements)]
-        # 古い配布版: 今入っているものの版を変えないようにして、extra final の依存を入れる
-        constraints = self.dir / "constraints.txt"
-        return [*args, "--constraint", str(constraints), *self.packages()]
+        # 版とハッシュを固定した一覧（uv.lock と同じ版）。入っているものは、同じ版なのでそのまま
+        assert self.requirements is not None
+        return [*args, "--require-hashes", "--requirement", str(self.requirements)]
 
     async def _install(self) -> None:
         job = self.job
@@ -458,11 +471,6 @@ class WhisperXInstaller:
             before = await self._snapshot()
             # 入れる前の一覧を控える。途中でサーバーが止まっても、次に起動したときに戻せるように
             atomic_write_json(self.marker, before)
-            if self.requirements is None:
-                atomic_write_text(
-                    self.dir / "constraints.txt",
-                    "".join(f"{name}=={version}\n" for name, version in sorted(before.items())),
-                )
             if self._cancelled:
                 raise asyncio.CancelledError
             job.phase = "downloading"
@@ -511,7 +519,7 @@ class WhisperXInstaller:
         after_c = {canonical(k): (k, v) for k, v in after.items()}
         added = sorted(name for c, (name, _) in after_c.items() if c not in before_c)
         restore = sorted(
-            f"{name}=={version}"
+            (c, name, version)
             for c, (name, version) in before_c.items()
             if c not in after_c or after_c[c][1] != version
         )
@@ -520,19 +528,7 @@ class WhisperXInstaller:
             await self._run(["-m", "pip", "uninstall", "--yes", *added])
         if restore:
             log.info("restoring %d packages changed by the install", len(restore))
-            await self._run(
-                [
-                    "-m",
-                    "pip",
-                    "install",
-                    "--no-input",
-                    "--no-deps",
-                    "--no-cache-dir",
-                    "--extra-index-url",
-                    TORCH_INDEX,
-                    *restore,
-                ]
-            )
+            await self._restore(restore)
         now = await self._snapshot()
         ok = {canonical(k): v for k, v in now.items()} == {
             canonical(k): v for k, v in before.items()
@@ -542,6 +538,36 @@ class WhisperXInstaller:
         else:
             log.error("could not roll back the WhisperX install; see %s", self.log_path)
         return ok
+
+    async def _restore(self, packages: list[tuple[str, str, str]]) -> None:
+        """版が変わった・消えたパッケージを、入れる前の版で入れ直す（(そろえた名前, 名前, 版)）
+
+        固定した一覧にその版の行があるもの（同梱の依存はすべて同じ uv.lock から作ったので、ここに
+        入る）は、その行（ハッシュ付き）を抜き出して `--require-hashes` で入れる。一覧にない版
+        （利用者が後から足したものなど）はハッシュが分からないので、版だけを指定して入れる
+        """
+        args = ["-m", "pip", "install", "--no-input", "--no-deps", "--no-cache-dir"]
+        args += ["--extra-index-url", TORCH_INDEX]
+        entries: dict[tuple[str, str], list[str]] = {}
+        if self.requirements is not None and self.requirements.is_file():
+            entries = locked_entries(self.requirements.read_text(encoding="utf-8"))
+        hashed: list[str] = []
+        unhashed: list[str] = []
+        for c, name, version in packages:
+            lines = entries.get((c, version))
+            if lines:
+                hashed += lines
+            else:
+                unhashed.append(f"{name}=={version}")
+        if hashed:
+            restore_file = self.dir / "whisperx-restore.txt"
+            atomic_write_text(restore_file, "\n".join(hashed) + "\n")
+            await self._run([*args, "--require-hashes", "--requirement", str(restore_file)])
+        if unhashed:
+            log.warning(
+                "restoring %d packages without hashes (not in the locked list)", len(unhashed)
+            )
+            await self._run([*args, *unhashed])
 
 
 # --- まとめ ---
@@ -639,9 +665,11 @@ class SetupService:
     # --- Ollama のモデル ---
 
     def pullable(self) -> set[str]:
-        """取ってよいモデル（おすすめと、設定で選んでいるもの）"""
-        chosen = self.settings.get().ollama.models.model_dump(by_alias=True).values()
-        return {*recommended_models(), *chosen}
+        """取ってよいモデル（おすすめのものだけ）
+
+        設定で選んでいるモデル（ollama.models）は入れない。トンネル（クラウド版）からも変えられる
+        ので、それを足すと、トンネルから任意のモデルを取らせる抜け道になる"""
+        return set(recommended_models())
 
     def start_pull(self, models: list[str]) -> None:
         self._ensure_idle()
@@ -673,6 +701,10 @@ class SetupService:
             log.warning("pulling ollama model %s failed: %s", job.models[job.index], e)
             job.state = "failed"
             job.error = "Ollama から取得できませんでした"
+        except Exception:  # noqa: BLE001 思わぬ返事など。取っている途中のまま残さない
+            log.exception("pulling ollama model %s failed", job.models[job.index])
+            job.state = "failed"
+            job.error = "取得できませんでした"
 
     async def cancel_pull(self) -> None:
         task = self._pull_task
