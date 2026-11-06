@@ -82,6 +82,12 @@ Push-Location $Server
 try {
     Invoke-Checked uv @('build', '--wheel', '--out-dir', $Wheels)
     Invoke-Checked uv @('export', '--locked', '--no-dev', '--no-emit-project', '--output-file', $Requirements)
+    # WhisperX（extra final）を後から画面のボタンで入れるときの、版とハッシュを固定した一覧（#291）。
+    # 同梱の依存と同じ uv.lock から作るので、入れても同梱のものの版は変わらない
+    Invoke-Checked uv @(
+        'export', '--locked', '--no-dev', '--no-emit-project', '--extra', 'final',
+        '--output-file', (Join-Path $App 'whisperx-requirements.txt')
+    )
 } finally {
     Pop-Location
 }
