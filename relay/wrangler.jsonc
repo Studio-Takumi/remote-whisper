@@ -15,7 +15,7 @@
     "directory": "../web/dist",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/h/*", "/auth/*", "/me", "/me/*", "/pair/*", "/healthz"],
+    "run_worker_first": ["/h/*", "/auth/*", "/me", "/me/*", "/pair/*", "/healthz", "/csp-report"],
   },
   "d1_databases": [
     {
@@ -29,6 +29,9 @@
   // トンネルの公開ホスト名は <TUNNEL_PREFIX><ホスト ID の頭 12 文字（重なったら 32 文字）>.<TUNNEL_DOMAIN>（#159・#166。1 段のサブドメイン）。
   // TUNNEL_PREFIX は環境どうしで重ならないこと（名前の重なりは環境ごとの D1 でしか見えないため）
   "vars": { "CLOUD_ENV": "dev", "TUNNEL_DOMAIN": "studio-takumi.dev", "TUNNEL_PREFIX": "rwt-local-" },
+  // CSP の違反の報告（/csp-report。#253）の回数の制限。接続元（IP）ごとに 1 分に 20 回まで。
+  // 環境ごとに書く（上の段から引き継がれない）。namespace_id は環境どうしで重ねない（重ねると数を分け合う）
+  "ratelimits": [{ "name": "CSP_REPORT_LIMITER", "namespace_id": "2531", "simple": { "limit": 20, "period": 60 } }],
   "env": {
     "staging": {
       "name": "remote-whisper-staging",
@@ -45,6 +48,7 @@
         },
       ],
       "vars": { "CLOUD_ENV": "staging", "TUNNEL_DOMAIN": "studio-takumi.dev", "TUNNEL_PREFIX": "rwt-dev-" },
+      "ratelimits": [{ "name": "CSP_REPORT_LIMITER", "namespace_id": "2532", "simple": { "limit": 20, "period": 60 } }],
       // HTTP の計測（#163）。ローカルでは束縛を付けない（書かない）。
       // アカウントで Analytics Engine が有効でないと、束縛を付けたデプロイは断られる（code 10089）
       "analytics_engine_datasets": [{ "binding": "METRICS", "dataset": "remote_whisper_staging" }],
@@ -65,6 +69,7 @@
         },
       ],
       "vars": { "CLOUD_ENV": "production", "TUNNEL_DOMAIN": "studio-takumi.dev", "TUNNEL_PREFIX": "rwt-" },
+      "ratelimits": [{ "name": "CSP_REPORT_LIMITER", "namespace_id": "2533", "simple": { "limit": 20, "period": 60 } }],
       // Analytics Engine を有効にしたら（CLOUD_TODO の 14）戻す
       // "analytics_engine_datasets": [{ "binding": "METRICS", "dataset": "remote_whisper" }],
     },

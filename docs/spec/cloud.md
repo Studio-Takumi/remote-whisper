@@ -247,11 +247,21 @@ sequenceDiagram
 - ログインのあとに戻るパス（`?return=`）は、同じオリジンのパスだけ。`//`・`\`・制御文字（ブラウザが読み飛ばすタブ・改行）を含むものは `/` にする
 - **セキュリティのヘッダー（#166）**:
   - 画面（静的アセット）: `web/public/_headers` に書く（Workers の assets が読む）
-    - `X-Frame-Options: DENY`（iframe に入れて `/pair?code=` の承認などを押させる攻撃を防ぐ）
+    - `X-Frame-Options: DENY` と CSP の `frame-ancestors 'none'`（iframe に入れて `/pair?code=` の承認などを押させる攻撃を防ぐ）
     - `nosniff`・`Referrer-Policy`・`Permissions-Policy`（マイクは自分のオリジンだけ）
-    - CSP はまず `Report-Only`。インラインのスクリプトは index.html のテーマの設定だけで、LF・CRLF のハッシュで許す。中身を変えたらハッシュも替える
-  - Worker が答える返事: 同じヘッダーと `Content-Security-Policy: default-src 'none'`。`/me`・`/pair/`・`/auth/` は `Cache-Control: no-store`
-  - 中継した返事: ホストの CSP は使わず `sandbox; default-src 'none'` を付ける。HTML・SVG・XML・JavaScript の型は `Content-Disposition: attachment` でダウンロードにする（ホストが返したものを、このオリジンの文書として描かせない）
+    - **CSP は強制**（`Content-Security-Policy`。#247 で Report-Only で入れ、#253 で主な画面を Chromium と WebKit で回して違反がないことを確かめてから替えた。確かめ方は `cd web && npm run check:csp`）。読み込めるのは自分のオリジンのものだけ（`connect-src 'self'` は同じホストの `wss:` も含む。Playwright の WebKit でも当たることを確かめた。iPhone の Safari の実機は #253 の PR の手順で確かめる）。インラインのスクリプトは index.html のテーマの設定だけで、LF・CRLF のハッシュで許す。中身を変えたらハッシュも替える（`web/src/headers.test.ts` が確かめる）。shiki の wasm のために `'wasm-unsafe-eval'`、スタイルは `'unsafe-inline'`（UI のライブラリが style を差し込む。外せるかは Report-Only で試してから）
+    - Cloudflare の Web Analytics（RUM）が差し込むスクリプト（`static.cloudflareinsights.com`）は許さない（ほかのオリジンのスクリプトを画面で動かさない。差し込みは Cloudflare の設定で切る。docs/deploy.md の「CSP の違反を見る」）
+    - 違反は `report-uri /csp-report` で Worker に送らせる。`report-to` は付けない（付けると Chromium は `report-uri` を使わなくなるが、#253 で確かめた Chromium では `report-to` の報告が届かなかった。`report-uri` は Chromium・WebKit で届くことを確かめた）。Worker は Reporting API の形も読めるので、あとで `report-to` に替えてもよい。Report-Only の行は置かない。新しいポリシーを試すときは、強制の行はそのままにして `Content-Security-Policy-Report-Only` の行を足す（報告の `disposition` が `report` になるので分けて数えられる）
+  - **CSP の違反の報告（#253）**: `POST /csp-report`（`relay/src/cspReport.ts`。`run_worker_first` に入れる）。ブラウザが Cookie なしで送ることがあるので、ログインも Origin も確かめない。そのかわり:
+    - 本文は 32KB まで（超えたら `413`。`readLimited` で、`Content-Length` がなくても読みながら止める）、1 回の本文から読む報告は 20 件まで
+    - 接続元（IP）ごとに 1 分に 20 回まで（超えたら `429`）。Workers の Rate Limiting の束縛（`CSP_REPORT_LIMITER`）で数え、IP はこちらに置かない。鍵は IPv4 はアドレス、IPv6 は頭 64 ビット（/64 ごと）。束縛は `wrangler.jsonc` の上の段にもあるので、ローカルの `wrangler dev` とテストでも効く。束縛がない（設定から外した）ときは制限しない。制限を確かめられないときは受けない
+    - 受ける形は report-uri の `{"csp-report": {...}}` と Reporting API の `[{"type": "csp-violation", "body": {...}}]`。画面の URL がこのオリジンでない報告・形の違うものは黙って捨てる。返事はいつも `204`（POST 以外は `405`）
+    - Analytics Engine に書くのは数だけ（形は 10.9 節の「CSP の違反の形」）。クエリ・フラグメント・スクリプトの抜粋（sample）・ポリシーの全文・ファイル名と行番号・IP アドレスは書かない
+  - Worker が答える返事: 同じヘッダーと `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`。`/me`・`/pair/`・`/auth/` は `Cache-Control: no-store`
+  - 中継した返事: ホストの CSP は使わず `sandbox; default-src 'none'; frame-ancestors 'none'` を付ける。HTML・SVG・XML・JavaScript・CSS の型と、型のない返事（ブラウザが中身から HTML と推測することがある）は `Content-Disposition: attachment` でダウンロードにする（ホストが返したものを、このオリジンの文書として描かせない）。本文のない `204`・`304` には付けない（`304` はキャッシュの返事のヘッダーを上書きするため）。JavaScript・CSS の型（`javascript`・`ecmascript`・`css` を含むもの）は `Content-Type` を `application/octet-stream` に替える（画面の CSP の `'self'` は `/h/` の中継も含むので、`<script src="/h/…">`・Worker・スタイルシートとして読ませない。`nosniff` と合わせて効く）。ホストが `Content-Disposition` を付けていれば、種類（`inline` など）は `attachment` に替え、ファイル名は残す（#253。書き出しを中継から落とすときのため）:
+    - `filename`: 表示できる ASCII だけにし（ほかの文字・CR・LF などの制御文字は `_`）、`"` と `\` を逃がして引用符で囲み直す。255 文字まで
+    - `filename*`: `UTF-8''<%XX の並び>` の形のものだけ残す（ほかの文字コード・言語の付いたもの・生の空白や引用符を含むもの・デコードして制御文字（C0・DEL・C1）や向きの制御（U+202A〜202E・U+2066〜2069 など）・ゼロ幅の文字が出るもの・UTF-8 として読めないものは落とす）
+    - どちらも残らなければ、ただの `attachment`。描かせない型（JSON・Markdown など）は、ホストの値をそのまま通す
   - HSTS は付けない（`.dev` は TLD ごと HSTS の preload に入っている）
 - **すべての端末からログアウト（#250）**: `DELETE /me/sessions`（ログインと Origin を確かめる。ログインなしは `401`、Origin 違いは `403`）。そのユーザーの `web_sessions` を全部消し、今の端末の Cookie も消す。アカウントの画面の「すべての端末からログアウト」から、確認を出してから呼ぶ。成功したら画面もログインの画面に戻る。ログインセッションを盗まれたと思ったときに、盗んだ側のセッションを止めるため。ほかのユーザーのセッションには触らない
   - **止まらないもの**: ほかの端末の通知の購読（ホストの `push-subscriptions.json`。最終要約の通知はそのまま届く）と、つながっている WebSocket（素通しなので Worker から切れない。つなぎ直すときにログインが確かめられる）。止めたいときは、ホストを解除して登録し直す（WebSocket が切れ、購読もホストの資格情報の更新で入れ直しになる）か、通知をオフにする（その端末の購読をやめる）
@@ -359,6 +369,8 @@ erDiagram
 1. **Worker が中継する HTTP**（#163）: ユーザー ID・ホスト ID、メソッド・パス（ID は `:id` に伏せる）・ステータス・かかった ms・本文の大きさ、WebSocket をつないだ回数（つなぐときは HTTP なので）、ログイン・登録の回数、国、ブラウザ・OS の大まかな種類
 2. **画面が録音ごとに送る数字**（#206）: クラウド版のときだけ、録音 1 回につき 1 回、最終要約ができたとき（ページを閉じたときは `sendBeacon` でその時点まで）に `POST /me/metrics/recording` で送る。ユーザーは Worker がログインの情報から付け、ホストは本文の `hostId` を受け取って、Worker がそのユーザーの（解除していない）ホストかを確かめる（違えば捨てる）。送られる数字は偽れる前提で扱い、回数の制限を付ける（1 ユーザーあたり 1 時間に 60 件まで。形は下の「録音ごとの数字の形」）
 
+ほかに、ブラウザが送る **CSP の違反の報告**（#253。10.7 節）の数も書く（形は下の「CSP の違反の形」）。
+
 | まとまり | 録音ごとに送る項目 |
 |---|---|
 | 録音 | 録音の秒数（一時停止を除く）、一時停止の回数、続きから録音したか、マイクかファイルのアップロードか |
@@ -380,7 +392,7 @@ Worker は、`/healthz` 以外のすべての HTTP（ホストへの中継・ロ
 
 | 列 | 中身 |
 |---|---|
-| `blob1` | 種類（`relay`・`auth`・`pair`・`me`・`other`） |
+| `blob1` | 種類（`relay`・`auth`・`pair`・`me`・`csp`（`/csp-report`）・`other`） |
 | `blob2` | メソッド |
 | `blob3` | パス。決まった語（許可リスト）だけ残し、UUID・数字・16 文字以上の英数字は `:id`、ほか（プロジェクト ID・用語など）は `:v` に伏せる。クエリは書かない。区切り 6 つ・96 文字まで |
 | `blob4` | 国（`cf.country`。分からなければ `XX`） |
@@ -403,7 +415,7 @@ SELECT toStartOfDay(timestamp) AS day,
        count(DISTINCT blob7) AS users,
        sumIf(_sample_interval, blob9 = 'ws' AND double1 = 101) AS ws_connects
 FROM remote_whisper_staging
-WHERE blob1 NOT IN ('recording', 'recording_host') AND timestamp > now() - INTERVAL '30' DAY
+WHERE blob1 NOT IN ('recording', 'recording_host', 'csp_violation') AND timestamp > now() - INTERVAL '30' DAY
 GROUP BY day ORDER BY day;
 
 -- 中継した API の遅さ（パスごとの 50%・95%）
@@ -418,8 +430,32 @@ GROUP BY path ORDER BY requests DESC LIMIT 20;
 -- エラーの多いところ（4xx・5xx）
 SELECT blob1 AS kind, blob3 AS path, double1 AS status, sum(_sample_interval) AS n
 FROM remote_whisper_staging
-WHERE blob1 NOT IN ('recording', 'recording_host') AND double1 >= 400 AND timestamp > now() - INTERVAL '1' DAY
+WHERE blob1 NOT IN ('recording', 'recording_host', 'csp_violation') AND double1 >= 400 AND timestamp > now() - INTERVAL '1' DAY
 GROUP BY kind, path, status ORDER BY n DESC LIMIT 20;
+```
+
+### CSP の違反の形（#253）
+
+`POST /csp-report`（10.7 節）で受けた報告を、1 回の本文につき、同じ違反をまとめて最大 5 行書く（`relay/src/cspReport.ts`）。`/csp-report` を受けたこと自体は HTTP の計測の行（`blob1` が `csp`）にもなるので、違反の行は `blob1` を `csp_violation` にして分ける。HTTP の計測を集計するときは `csp_violation` を除く。
+
+| 列 | 中身 |
+|---|---|
+| `blob1` | `csp_violation` |
+| `blob2` | 違反したディレクティブ（`effective-directive`。`script-src-elem`・`connect-src` など。形の違うものは `other`） |
+| `blob3` | `enforce`（強制で止めた）か `report`（Report-Only で報告だけ）。ほかは `other` |
+| `blob4` | 画面のパス。`/s/`・`/p/`・`/settings/` などの決まった区切りだけ残し、ID は `:id`、ほかは `:v`（HTTP の計測の `blob3` と同じ規則）。クエリ・フラグメントは書かない |
+| `blob5` | 読み込もうとしたもの。`inline`・`eval`・`wasm-eval`・`data`・`blob` などの種類か、URL のオリジンとパス（パスは同じ規則で伏せる。クエリは書かない）。同じオリジンは `self`、同じホストの WebSocket は `self:wss`（`self:ws`）。トンネルの公開ホスト名はホスト ID を伏せる（`https://rwt-dev-:id.studio-takumi.dev`） |
+| `blob6`・`blob7` | ブラウザ・OS の大まかな種類（HTTP の計測と同じ） |
+| `double1` | その本文の中で同じだった報告の件数 |
+| `index1` | `csp` |
+
+```sql
+-- この 7 日の違反（ディレクティブ・画面・読み込もうとしたもの・ブラウザごと）
+SELECT blob2 AS directive, blob3 AS disposition, blob4 AS page, blob5 AS blocked, blob6 AS browser,
+       sum(_sample_interval * double1) AS n
+FROM remote_whisper_staging
+WHERE blob1 = 'csp_violation' AND timestamp > now() - INTERVAL '7' DAY
+GROUP BY directive, disposition, page, blocked, browser ORDER BY n DESC LIMIT 50;
 ```
 
 ### 録音ごとの数字の形（#206）

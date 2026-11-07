@@ -135,8 +135,9 @@ export async function handleHostRelay(request: Request, env: Env, path: string):
 // ホストがこのオリジンに Cookie を置いたり、ほかへ飛ばしたり、サイトのデータを消したりできないようにする。
 // リダイレクトはホストの中の話なので Location も落とす。中身の型をブラウザに推測させない。
 // 中継した返事をこのオリジンの文書として描かせない（#166。ホストが HTML や SVG を返しても、スクリプトを
-// 動かせない sandbox にし、HTML・SVG・XML はダウンロードとして返す）。ホスト側の CSP は信じず、こちらで決める
-function safeResponseHeaders(res: Response): Headers {
+// 動かせない sandbox にし、HTML・SVG・XML・JavaScript と型のないものはダウンロードとして返す）。
+// ホスト側の CSP は信じず、こちらで決める。ダウンロードにするときも、ホストが付けたファイル名は残す（#253）
+export function safeResponseHeaders(res: Response): Headers {
     const out = new Headers();
     for (const [name, value] of res.headers) {
         const lower = name.toLowerCase();
@@ -153,9 +154,69 @@ function safeResponseHeaders(res: Response): Headers {
     }
     out.set('X-Content-Type-Options', 'nosniff');
     out.set('Content-Security-Policy', "sandbox; default-src 'none'; frame-ancestors 'none'");
-    const type = (res.headers.get('Content-Type') ?? '').toLowerCase();
-    if (/html|svg|xml|javascript/.test(type)) {
-        out.set('Content-Disposition', 'attachment');
+    const type = (res.headers.get('Content-Type') ?? '').trim().toLowerCase();
+    // JavaScript・CSS の型は、画面の <script src="/h/…">・Worker・<link rel=stylesheet> に読ませない（#253。
+    // 画面の CSP の 'self' は /h/ の中継も含み、sandbox と attachment は文書として開いたときにしか効かない）。
+    // nosniff と合わせて、型を application/octet-stream にすればスクリプト・スタイルとしては読まれない
+    if (/javascript|ecmascript|css/.test(type)) {
+        out.set('Content-Type', 'application/octet-stream');
+    }
+    // 型がないものは、ブラウザが中身から HTML と推測して描くことがある（nosniff はスクリプトと CSS にしか効かない）。
+    // 本文のない 204・304 には付けない（304 はキャッシュの返事のヘッダーを上書きするため）
+    if ((type === '' || /html|svg|xml|javascript|ecmascript|css/.test(type)) && ![204, 304].includes(res.status)) {
+        out.set('Content-Disposition', attachmentDisposition(res.headers.get('Content-Disposition')));
     }
     return out;
+}
+
+// Content-Disposition の引数（filename・filename* など）を読む。値は引用符を外し、\ の逃がしを戻したもの
+function dispositionParams(value: string): Map<string, string> {
+    const params = new Map<string, string>();
+    const re = /;\s*([^\s=;]+)\s*=\s*(?:"((?:[^"\\]|\\.)*)"|([^;]*))/g;
+    for (let m = re.exec(value); m; m = re.exec(value)) {
+        const name = m[1].toLowerCase();
+        if (!params.has(name)) {
+            params.set(name, m[2] !== undefined ? m[2].replace(/\\(.)/g, '$1') : m[3].trim());
+        }
+    }
+    return params;
+}
+
+// 制御文字（C0・DEL・C1）と、向きの制御（invoice<U+202E>lmth.exe のような偽装に使える）・ゼロ幅のもの
+// oxlint-disable-next-line no-control-regex -- 制御文字を弾くための正規表現
+const CONTROL = /[\u0000-\u001f\u007f-\u009f؜​-‏‪-‮⁦-⁩﻿]/;
+const MAX_FILENAME = 255;
+
+// ダウンロードにする Content-Disposition。ホストの値の種類（inline など）は捨てて attachment にし、
+// ファイル名だけを作り直して残す。
+// - filename: 表示できる ASCII だけにし（ほかの文字・制御文字は _）、" と \ は逃がして引用符で囲む
+// - filename*: RFC 8187 の UTF-8''<%XX の並び> の形のものだけ。デコードして制御文字（CR・LF・C1・向きの制御など）が出るもの・
+//   デコードできないものは落とす
+// どちらも作れなければ、ただの attachment
+export function attachmentDisposition(hostValue: string | null): string {
+    if (!hostValue) {
+        return 'attachment';
+    }
+    const params = dispositionParams(hostValue);
+    const parts = ['attachment'];
+    const plain = params.get('filename');
+    if (plain) {
+        const safe = plain.replace(/[^ -~]/g, '_').slice(0, MAX_FILENAME);
+        if (safe.trim() !== '') {
+            parts.push(`filename="${safe.replace(/[\\"]/g, '\\$&')}"`);
+        }
+    }
+    const extended = params.get('filename*');
+    const m = extended ? /^utf-8''((?:[A-Za-z0-9!#$&+.^_`|~-]|%[0-9A-Fa-f]{2})+)$/i.exec(extended) : null;
+    if (m && m[1].length <= MAX_FILENAME * 3) {
+        try {
+            const decoded = decodeURIComponent(m[1]);
+            if (!CONTROL.test(decoded) && decoded.trim() !== '') {
+                parts.push(`filename*=UTF-8''${m[1]}`);
+            }
+        } catch {
+            // UTF-8 として読めない
+        }
+    }
+    return parts.join('; ');
 }

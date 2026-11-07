@@ -1,8 +1,9 @@
 // クラウド版の中間サーバー（Cloudflare Workers）。仕様書 spec/cloud.md 10 章
 //
 // 画面（web/dist）は静的アセットとして配る（wrangler.jsonc の assets）。ここに来るのは、
-// run_worker_first に書いたパス（/h/・/auth/・/me・/pair/・/healthz）だけ（登録の確認画面 /pair?code= は画面が出す）。
+// run_worker_first に書いたパス（/h/・/auth/・/me・/pair/・/healthz・/csp-report）だけ（登録の確認画面 /pair?code= は画面が出す）。
 import { handleAuth } from './auth';
+import { CSP_REPORT_PATH, handleCspReport } from './cspReport';
 import { handleMe } from './me';
 import { recordHttp } from './metrics';
 import { handlePairing } from './pairing';
@@ -29,6 +30,9 @@ export interface Env {
     TUNNEL_PREFIX?: string;
     // HTTP の計測（#163）。なければ書かない
     METRICS?: AnalyticsEngineDataset;
+    // CSP の違反の報告（/csp-report。#253）の、接続元ごとの回数の制限（wrangler.jsonc の
+    // ratelimits。上の段にもあるので wrangler dev でも効く）。束縛がないのは設定から外したときだけで、そのときは制限しない
+    CSP_REPORT_LIMITER?: RateLimit;
 }
 
 export default {
@@ -62,6 +66,9 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     }
     if (path.startsWith('/pair/')) {
         return handlePairing(request, env, path);
+    }
+    if (path === CSP_REPORT_PATH) {
+        return handleCspReport(request, env);
     }
     return new Response('Not found', { status: 404 });
 }

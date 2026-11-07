@@ -1,12 +1,17 @@
-# クラウド版の画面（静的アセット）に付けるヘッダー（#166）。Cloudflare Workers の assets が読む。
+# クラウド版の画面（静的アセット）に付けるヘッダー（#166・#253）。Cloudflare Workers の assets が読む。
 # ダイレクト版（ホストの FastAPI が配る）では使わない（ファイルとして配られるだけで、中身は秘密ではない）
-# - X-Frame-Options: iframe に入れて承認の画面（/pair?code=）などを押させる攻撃を防ぐ
-# - CSP はまず Report-Only（壊れないことを確かめてから強制に替える）。インラインのスクリプトは index.html の
-#   テーマの設定だけで、ハッシュで許す（LF と CRLF の両方。中身を変えたらハッシュも替える）。
-#   shiki（コードの色付け）の wasm のために 'wasm-unsafe-eval'
+# - X-Frame-Options と frame-ancestors 'none': iframe に入れて承認の画面（/pair?code=）などを押させる攻撃を防ぐ
+# - CSP は強制（#253。主な画面を Chromium と WebKit で回して違反がないことを確かめた: npm run check:csp）。
+#   インラインのスクリプトは index.html のテーマの設定だけで、ハッシュで許す（LF と CRLF の両方。中身を変えたら
+#   ハッシュも替える。src/headers.test.ts が確かめる）。shiki（コードの色付け）の wasm のために 'wasm-unsafe-eval'
+# - 違反は report-uri で /csp-report に送らせる。Worker が数だけを Analytics Engine に書く（docs/deploy.md の
+#   「CSP の違反を見る」）。report-to は付けない（付けると Chromium は report-uri を使わなくなるが、
+#   確かめた Chromium では report-to の報告が届かなかった。report-uri は Chromium・Safari・Firefox のどれでも届く）
+# - 新しいポリシーを試すときは、強制のものはそのままにして Content-Security-Policy-Report-Only の行を足す
+#   （同じ report-uri を付ければ、disposition が report の行として数えられる）
 /*
   X-Frame-Options: DENY
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: microphone=(self), camera=(), geolocation=(), payment=(), usb=()
-  Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' 'sha256-uDE03yObO2k1c821fxP6axMjx2kAZJnfqTWiHWH/fTc=' 'sha256-QTNQPwhCJfqRVfGuYieUgJmnt2oB2TJ/MmY4vdC44GQ=' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; worker-src 'self' blob:; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'sha256-uDE03yObO2k1c821fxP6axMjx2kAZJnfqTWiHWH/fTc=' 'sha256-QTNQPwhCJfqRVfGuYieUgJmnt2oB2TJ/MmY4vdC44GQ=' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; worker-src 'self' blob:; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; report-uri /csp-report

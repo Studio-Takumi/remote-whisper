@@ -67,6 +67,34 @@ Worker の中の回数の制限（申請・ポーリング・`/pair/tunnel`・�
 3. 回数: 同じ IP から 10 秒に 20 回（無料プランで選べる範囲）を超えたら、10 秒 Block
 4. 画面の静的アセットと `/h/`（中継）は対象にしない（録音中の API を止めないため）
 
+`/csp-report`（CSP の違反の報告。#253）は、Worker の Rate Limiting の束縛（`relay/wrangler.jsonc` の `ratelimits`。接続元ごとに 1 分に 20 回）で数える。これも PoP ごとの数なので、全体を絞りたくなったら上のルールの対象に `/csp-report` を足す。
+
+## CSP の違反を見る（#253）
+
+画面の CSP は強制（`web/public/_headers`）で、違反するとブラウザが `/csp-report` に報告を送る。Worker は数だけを Analytics Engine に書く（`blob1` が `csp_violation`。列は [spec/cloud.md](spec/cloud.md) 10.9 節の「CSP の違反の形」）。クエリ・スクリプトの抜粋・IP アドレスは残らない。
+
+1. Cloudflare → Workers & Pages → Analytics Engine → SQL（または SQL API）で、データセット `remote_whisper_staging`（本番は `remote_whisper`）に次を投げる
+
+    ```sql
+    SELECT blob2 AS directive, blob3 AS disposition, blob4 AS page, blob5 AS blocked, blob6 AS browser, blob7 AS os,
+           sum(_sample_interval * double1) AS n
+    FROM remote_whisper_staging
+    WHERE blob1 = 'csp_violation' AND timestamp > now() - INTERVAL '7' DAY
+    GROUP BY directive, disposition, page, blocked, browser, os ORDER BY n DESC LIMIT 50;
+    ```
+
+2. 読み方
+    - `disposition` が `enforce` の行は、ブラウザが止めたもの（画面の何かが動いていないかもしれない）。デプロイの直後に増えたら、まずその版を疑う（下の「戻し方」）
+    - `blocked` が `inline` で `directive` が `script-src-elem` なら、index.html のインラインのスクリプトのハッシュが合っていない（`web/src/headers.test.ts` が通っているかを見る）か、Cloudflare のゾーンの機能が HTML にインラインのスクリプトを差し込んでいる。Bot Fight Mode・JavaScript detections（`/cdn-cgi/challenge-platform/`）・Email Address Obfuscation・Rocket Loader・Web Analytics などで、どれも同じ行になる。ハッシュが合っていれば、`studio-takumi.dev` のゾーンの設定（Security・Scrape Shield・Speed）で、`rw-dev`・`rw` に効いている機能を見る
+    - `blocked` が `self:wss` で `directive` が `connect-src` なら、そのブラウザが `connect-src 'self'` を同じホストの `wss:` に当てていない（Safari の古い版など）。`_headers` の `connect-src` に `wss://<ホスト名>` を足すことを考える
+    - `blocked` が `https://static.cloudflareinsights.com/...` なら、Cloudflare の Web Analytics（RUM）が画面にスクリプトを自動で差し込んでいる。CSP は自分のオリジンのスクリプトしか許さないので、ブラウザが止める（画面の動きには関係ない）。使わないので、Cloudflare → Web Analytics（または `studio-takumi.dev` → Speed → Settings）で、`rw-dev.studio-takumi.dev`・`rw.studio-takumi.dev` の自動の差し込みを切る（#253 の時点で staging に入っていた）。使うことにするなら、`_headers` の `script-src` に `https://static.cloudflareinsights.com`、`connect-src` に `https://cloudflareinsights.com` を足す（仕様の 10.9 節の「数値だけ」とも照らす）
+    - `blocked` が `chrome-extension`・`moz-extension`・`safari-web-extension` などは、ユーザーの拡張機能が差し込んだもの。こちらでは直さない
+    - 1 人のブラウザが何度も送ることがあるので、件数は目安（接続元ごとに 1 分に 20 回までしか受けない）
+    - 報告はログインなしで誰でも送れるので、偽の報告で数を汚せる（好きなディレクティブ名・オリジンの行を作れる。害はそれだけ）。少しだけの見慣れない行は偽物のこともある
+3. 報告が来ているかだけを見るときは、HTTP の計測の行（`blob1` が `csp`・`blob3` が `/csp-report`）の件数を見る
+
+新しいポリシー（たとえば `style-src` から `'unsafe-inline'` を外す）を試すときは、`_headers` の強制の行はそのままにして、`Content-Security-Policy-Report-Only` の行を同じ `report-uri /csp-report` 付きで足す。報告は `disposition` が `report` の行として数えられるので、しばらく staging（と本番）で集めてから、強制の行に移す。ローカルでは、`cd web && npm run check:csp -- --headers <試す _headers>` で主な画面を Chromium と WebKit で回せる。
+
 ## 戻し方
 
 ### まずい版を出したとき

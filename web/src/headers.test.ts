@@ -20,4 +20,14 @@ describe('_headers の CSP', () => {
         expect(headers).toContain(`'${await hash(lf)}'`);
         expect(headers).toContain(`'${await hash(crlf)}'`);
     });
+
+    // #253: 強制にし、iframe に入れさせず、違反を /csp-report に送らせる
+    it('強制で、frame-ancestors と報告の送り先がある', () => {
+        const line = headers.split(/\r?\n/).find((l) => /^\s+Content-Security-Policy:/.test(l));
+        expect(line).toBeDefined();
+        expect(line).toContain("frame-ancestors 'none'");
+        expect(line).toContain('report-uri /csp-report');
+        // report-to を付けると Chromium は report-uri を使わなくなる（_headers の説明）
+        expect(line).not.toContain('report-to');
+    });
 });
