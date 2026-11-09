@@ -2,17 +2,7 @@
 
 [![CI](https://github.com/Studio-Takumi/remote-whisper/actions/workflows/ci.yml/badge.svg)](https://github.com/Studio-Takumi/remote-whisper/actions/workflows/ci.yml)
 
-**声を記録に。会話を知識に。**
-
-Remote Whisper は、ブラウザで録った声を手元の GPU マシンに送り、リアルタイムで文字起こしと要約をするオープンソースのツールです。
-
-![会議や講義の音声をスマホ・ノートPCで録り、自宅の GPU で文字起こしと要約をする](docs/images/readme/video-how-it-works.jpg)
-
-録るのは手元の端末で、処理は家の GPU がします。
-
-1. ノートPC・スマホ・タブレットのブラウザで、マイクを使って録ります。アプリのインストールは要りません。
-2. 家の GPU マシンで、Whisper が文字起こしをし、[Ollama](https://ollama.com/) が要約を作ります。重い処理はすべて GPU マシンで動きます。
-3. 話したそばから文字が流れ、数分おきに要約が更新されます。
+![Remote Whisper 声を記録に。会話を知識に。](docs/images/readme/video-title.jpg)
 
 **三行まとめ**
 
@@ -23,6 +13,10 @@ Remote Whisper は、ブラウザで録った声を手元の GPU マシンに送
 なら家のGPUを使ってAI要約しようぜってツール
 
 **以下AIによる解説↓**
+
+remote-whisper は、手元の端末に GPU がなくても、別のマシンの GPU を使って疑似リアルタイムで文字起こしと要約をするツールです。
+
+ブラウザでマイクの音声を取り、WebSocket で GPU マシンに送ります。GPU マシンでは [faster-whisper](https://github.com/SYSTRAN/faster-whisper) が文字起こしをして、結果をブラウザに返します。要約は同じマシンの [Ollama](https://ollama.com/) が作ります。ノートPCやタブレットからでも、GPU を積んだデスクトップや自宅サーバーで文字起こしと要約ができます。
 
 ## 機能
 
@@ -54,7 +48,7 @@ Remote Whisper は、ブラウザで録った声を手元の GPU マシンに送
 - **ダイレクト版**: Tailscale を通して、ブラウザがホストのサーバー（FastAPI）に直接つなぎます。手順は「[別の端末から使う（HTTPS）](#別の端末から使うhttps)」にあります。
 - **クラウド版**: Cloudflare Workers が画面の配信・ログイン・中継をし、Cloudflare Tunnel を通してホストにつなぎます。作っている途中です（[relay/README.md](relay/README.md)）。
 
-ブラウザはマイクの音声を 16kHz・モノラルの PCM にして、WebSocket で少しずつホストに送ります。ホストでは、Whisper（[faster-whisper](https://github.com/SYSTRAN/faster-whisper)）が文字起こしをし、WhisperX が単語ごとの時刻合わせと話者分けをし、Ollama が要約と用語リストを作ります。文字起こしにも要約にも外部の AI サービスは使わず、モデルはホストの中で動きます。録音・文字起こし・要約はホストの `~/.remote-whisper/` に保存します。
+ブラウザはマイクの音声を 16kHz・モノラルの PCM にして、少しずつホストに送ります。ホストでは、Whisper が文字起こしをし、WhisperX が単語ごとの時刻合わせと話者分けをし、Ollama が要約と用語リストを作ります。文字起こしにも要約にも外部の AI サービスは使わず、モデルはホストの中で動きます。録音・文字起こし・要約はホストの `~/.remote-whisper/` に保存します。
 
 ## 構成
 
@@ -176,33 +170,6 @@ uv run remote-whisper --mock --mock-live-summary-sec 10   # 途中の要約を 1
 - `POST /api/mock/status` … `{"whisper": "error"}` や `{"ollama": "error"}` で、サーバーの状態を変えて全員に `status` を送る
 - `POST /api/mock/context-set` … 参考資料セットの作成をまねて、`contextSet` を `generating` → `ready`（`{"result": "failed"}` なら `failed`）の順に送る
 - `POST /api/mock/disconnect` … WebSocket をすべて切る（再接続と録音の再開を確かめる用）
-
-### スクリーンショットを撮り直す
-
-`docs/images/` の画像はモックサーバーとダミーデータを使って Playwright で撮っています。画面の URL に `?demo` を付けると、サーバーのデータではなく `web/src/mock.ts` のダミーデータ（架空のプロジェクトとセッション）を表示するので、スクリプトはそれを使って撮ります。ダミーにない状態（再生できる録音・浄書済み文字起こし・GPU のジョブ・マイクの警告など）は、スクリプトが画面のストアに直接入れて作ります。
-
-```bash
-cd server && uv run remote-whisper --mock --mock-live-summary-sec 5   # ターミナル 1
-cd web && npm run dev                                                  # ターミナル 2
-cd web && npx playwright install chromium && npm run screenshots       # ターミナル 3
-```
-
-`npm run screenshots` は README に載せる画像だけを撮ります。公式 HP の「使い方」で使う場面（録音の流れ・設定の全ページ・うまく動かないときの表示・クラウド版の画面など、約 100 場面）も撮るときは `--all` を付けます。クラウド版の画面を撮るときは、スクリプトが `localhost` をクラウド用のドメインとして開発サーバーをもう 1 つ（5199 番）立てます。Worker の API には偽の返事を返し、ホスト宛ての通信はモックサーバーへ流します。
-
-```bash
-cd web && npm run screenshots -- --all --out ../../rw-hp/public/screenshots   # 全部の場面を HP 用のフォルダへ
-cd web && npm run screenshots -- --only playback,settings --layouts desktop-light   # 一部だけ撮り直す
-```
-
-画像の名前は `<desktop|mobile>-<light|dark>-<場面>.png` です。画面の URL は `SCREENSHOT_URL`（既定: `http://localhost:5173`）、モックサーバーの URL は `SCREENSHOT_SERVER`（既定: `http://localhost:8000`）、手元の Chromium を使うときは `CHROMIUM_PATH` で指定できます。`SCREENSHOT_DEBUG=1` を付けると、撮れなかった場面のそのときの画面を `_fail-…png` として残します。
-
-`docs/images/readme/` の画像は紹介動画の画面（`video-*.jpg`）と構成図（`architecture-*.png`）です。このリポジトリのスクリプトでは作りません。
-
-常駐アイコン（トレイ・メニューバー）の色ごとの画像は、アイコンを描く処理から書き出します。
-
-```bash
-cd server && uv run python tray_icons.py <保存先> 128
-```
 
 ## 別の端末から使う（HTTPS）
 
