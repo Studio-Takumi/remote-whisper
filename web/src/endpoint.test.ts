@@ -6,7 +6,7 @@ describe('モードの判定', () => {
     it('既定のクラウド用ドメインはクラウド版', () => {
         expect(detectMode('rw-dev.studio-takumi.dev', parseCloudHosts(undefined))).toBe('cloud');
     });
-    it('それ以外（localhost・LAN・Tailscale）はダイレクト版', () => {
+    it('それ以外（localhost・LAN・Tailscale）はセルフホスト版', () => {
         const hosts = parseCloudHosts(undefined);
         expect(detectMode('localhost', hosts)).toBe('direct');
         expect(detectMode('192.168.0.5', hosts)).toBe('direct');
@@ -23,7 +23,7 @@ describe('モードの判定', () => {
 });
 
 describe('URL の組み立て', () => {
-    it('ダイレクト版は今のまま', () => {
+    it('セルフホスト版は今のまま', () => {
         expect(apiUrl('/api/projects', 'direct', null)).toBe('/api/projects');
         expect(apiUrl('/api/projects', 'direct', 'h1')).toBe('/api/projects');
         expect(wsUrl({ protocol: 'http:', host: 'pc:8000' }, 'direct', null)).toBe('ws://pc:8000/ws');

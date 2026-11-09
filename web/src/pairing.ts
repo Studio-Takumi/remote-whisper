@@ -1,4 +1,4 @@
-// ホストの登録の確認（#157。spec/cloud.md 10.6）。トレイが開いた /pair?code=… の画面で使う。ダイレクト版では使わない
+// ホストの登録の確認（#157。spec/cloud.md 10.6）。トレイが開いた /pair?code=… の画面で使う。セルフホスト版では使わない
 import { request } from '@/account';
 import { pairUrl } from '@/endpoint';
 

@@ -1,4 +1,4 @@
-// クラウド版のアカウント（#155）。ログイン・ログイン手段・ログアウト・退会。ダイレクト版では使わない
+// クラウド版のアカウント（#155）。ログイン・ログイン手段・ログアウト・退会。セルフホスト版では使わない
 import { create } from 'zustand';
 
 import { authLoginUrl, authLogoutUrl, meUrl } from '@/endpoint';

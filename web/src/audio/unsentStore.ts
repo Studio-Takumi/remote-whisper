@@ -8,7 +8,7 @@ const CHUNKS = 'unsentChunks';
 // 置いておく量の上限（バイト）。16kHz・Int16 で約 60 分。超えた分は手元（メモリ）だけに持つ
 export const MAX_BYTES = 120 * 1024 * 1024;
 
-// host は録音していたホストの ID（クラウド版。#227）。ダイレクト版は null。
+// host は録音していたホストの ID（クラウド版。#227）。セルフホスト版は null。
 // #227 より前に置いた行には host がない（undefined）。扱いは splitByHost を見る。
 // キーや索引は変えないので、データベースの版は上げない
 type ChunkRow = { session: string; seq: number; project: string; host?: string | null; frame: ArrayBuffer };
@@ -28,10 +28,10 @@ export function unsentSeconds(frames: { frame: ArrayBuffer }[]) {
     return Math.round(samples / SAMPLE_RATE);
 }
 
-// 今つないでいるホスト（ダイレクト版は null）のものと、ほかのホストのものに分ける（#227）。
+// 今つないでいるホスト（セルフホスト版は null）のものと、ほかのホストのものに分ける（#227）。
 // 今のホストのものは、復旧できる最初の 1 つだけを返す（それまでと同じ）
-// - ダイレクト版（current が null）: ホスト ID のない古い行も null の行も、今のホストのもの
-//   （ダイレクト版はホストのアドレスで開くので、IndexedDB にはそのホストの行しかない）
+// - セルフホスト版（current が null）: ホスト ID のない古い行も null の行も、今のホストのもの
+//   （セルフホスト版はホストのアドレスで開くので、IndexedDB にはそのホストの行しかない）
 // - クラウド版: ホスト ID のない古い行と null の行は、どのホストのものか分からないので今のホストに送らない。
 //   host を null にして返し、捨てられるようにする（同じブラウザで別のアカウントがログインしたとき、
 //   前の人の録音を今の人のホストに送らないため。spec/cloud.md 10.6）
@@ -98,7 +98,7 @@ export function restoreSize(session: string, frames: { frame: ArrayBuffer }[]) {
 }
 
 // チャンク（先頭4バイトが連番の、送るときの形）を置く。上限を超えたら置かずに false
-// host は今つないでいるホスト（ダイレクト版は null。#227）
+// host は今つないでいるホスト（セルフホスト版は null。#227）
 export async function saveChunk(
     session: string,
     project: string,
@@ -182,7 +182,7 @@ export async function listUnsent(): Promise<UnsentSession[]> {
         // ホストはセッションの最初の行のものを使う。録音中はホストを切り替えられず（spec/cloud.md 10.6）、
         // 切り替えると読み込み直すので、同じセッションの行でホストが違うことは起きない前提。
         // 復旧はそのホストにつないでいるときだけなので、続きの行も同じホストになる
-        // （ダイレクト版で古い行を復旧すると null の行が続くが、ダイレクト版ではどちらも今のホストのもの）
+        // （セルフホスト版で古い行を復旧すると null の行が続くが、セルフホスト版ではどちらも今のホストのもの）
         const bySession = new Map<string, UnsentSession>();
         for (const row of rows) {
             const entry = bySession.get(row.session) ?? {

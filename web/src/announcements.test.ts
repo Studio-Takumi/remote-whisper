@@ -70,7 +70,7 @@ describe('読み込み', () => {
     });
 });
 
-describe('ダイレクト版は読みに行かない', () => {
+describe('セルフホスト版は読みに行かない', () => {
     it('クラウド版でなければ、fetch を呼ばない', async () => {
         const fetchFn = vi.fn();
         expect(await fetchAnnouncements(false, fetchFn as unknown as typeof fetch)).toEqual([]);
