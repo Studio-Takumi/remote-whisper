@@ -92,7 +92,7 @@ export function isBusy(status: SetupStatus): boolean {
     return status.ollama.pull?.state === 'running' || status.whisperx.install?.state === 'running';
 }
 
-// 初回に「はじめに」を自動で出すか。ダイレクト版で、足りないものがあり、この端末でまだ閉じていないとき
+// 初回に「はじめに」を自動で出すか。セルフホスト版で、足りないものがあり、この端末でまだ閉じていないとき
 export function shouldAutoOpen(
     status: SetupStatus,
     settings: WhisperFlags,

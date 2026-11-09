@@ -43,13 +43,13 @@ describe('splitByHost（#227）', () => {
         ]);
     });
 
-    it('ダイレクト版（ホストは null）は null の行を今のものとする', () => {
+    it('セルフホスト版（ホストは null）は null の行を今のものとする', () => {
         const { mine, elsewhere } = splitByHost([entry('s1', null)], null);
         expect(mine?.session).toBe('s1');
         expect(elsewhere).toEqual([]);
     });
 
-    it('ダイレクト版では、ホスト ID のない古い行も今のものとする', () => {
+    it('セルフホスト版では、ホスト ID のない古い行も今のものとする', () => {
         expect(splitByHost([entry('s1', undefined)], null).mine?.session).toBe('s1');
     });
 

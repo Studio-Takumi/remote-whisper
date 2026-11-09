@@ -1510,7 +1510,7 @@ export const useAppStore = create<AppState>()((set, get) => {
             if (!isDemo) {
                 void listUnsent().then((list) => {
                     // 復旧するのは、今つないでいるホストのものだけ。ほかのホストのものは知らせるだけにして、
-                    // そのホストにつないだときに復旧する（#227。ダイレクト版はすべて今のホストのもの）
+                    // そのホストにつないだときに復旧する（#227。セルフホスト版はすべて今のホストのもの）
                     const { mine: entry, elsewhere } = splitByHost(list, getHostId());
                     set({ unsentElsewhere: elsewhere });
                     if (!entry || get().recordingState !== 'idle') {

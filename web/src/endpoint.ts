@@ -1,5 +1,5 @@
 // API・WebSocket の URL を組み立てる、唯一の場所（#156。docs/spec/cloud.md 10.2・10.4 節）。
-// ダイレクト版は /api/...・/ws、クラウド版は /h/<hostId>/api/...・/h/<hostId>/ws。通信の中身は変えない。
+// セルフホスト版は /api/...・/ws、クラウド版は /h/<hostId>/api/...・/h/<hostId>/ws。通信の中身は変えない。
 // 画面のほかの場所では、/api や /ws の URL を自分で組み立てずに、ここを通す
 
 export type Mode = 'cloud' | 'direct';
@@ -58,7 +58,7 @@ export function wsUrl(
     return `${protocol}//${where.host}${hostPrefix(m, hostId)}/ws`;
 }
 
-// --- ホストに属さないパス（クラウド版の Worker が答える。ダイレクト版では使わない） ---
+// --- ホストに属さないパス（クラウド版の Worker が答える。セルフホスト版では使わない） ---
 
 export const authLoginUrl = (provider: string) => `/auth/login/${encodeURIComponent(provider)}`;
 export const authLogoutUrl = () => '/auth/logout';

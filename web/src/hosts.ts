@@ -1,4 +1,4 @@
-// クラウド版のホスト（文字起こしをする PC）の一覧・選択・管理（#161。spec/cloud.md 10.6）。ダイレクト版では使わない
+// クラウド版のホスト（文字起こしをする PC）の一覧・選択・管理（#161。spec/cloud.md 10.6）。セルフホスト版では使わない
 import { create } from 'zustand';
 
 import { request } from '@/account';

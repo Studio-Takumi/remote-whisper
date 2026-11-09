@@ -60,7 +60,7 @@
   - `ollama`: `running`（つながる）、`found`（この PC に入っていそうか。動いていないときに「起動して」と「入れて」を出し分ける）、`downloadUrl`（公式のダウンロードのページ）、`models`（おすすめのモデル。`name`・`sizeGb`・`installed`）、`pull`（取っている・取り終えたもの。なければ `null`。`state`（`running` / `done` / `failed` / `cancelled`）・`models`・`model`（取っているもの）・`index`・`completed`・`total`（バイト）・`error`）
   - `whisperx`: `installed`、`installable`（画面のボタンで入れられるか。同梱の Python と固定した依存の一覧の両方がある配布版だけ `true`）、`downloadGb`・`diskGb`・`minutes`（大きさと時間の目安）、`command`（開発の環境で入れるコマンド。ほかは `null`）、`install`（入れている・入れ終えたもの。なければ `null`。`state`（`running` / `done` / `failed` / `cancelled`）・`phase`（`preparing` / `downloading` / `installing` / `rollingBack`）・`package`（取っているパッケージ）・`collected`・`rolledBack`・`rollbackFailed`・`elapsedSec`）
   - `hfToken`: `source`（最終の文字起こしが使うトークンの出どころ。`env`（環境変数 `HF_TOKEN`）・`file`（画面から保存したもの）・`login`（`hf auth login` で保存したもの）・`null`（ない））。**トークンそのものはどの API も返さない**
-- **トンネル（クラウド版）から断るもの（#291）**: `/api/setup` の `GET` 以外（トークンの保存・消す、WhisperX を入れる・やめる、モデルを取る・やめる）は、トンネル（8001 番。`via_tunnel`）から来たら `403`。クラウドのログインを盗まれても、ホストに数 GB を落とさせたり、話者分けに使うトークンを差し替えさせたりしないように。ダイレクト版（8000 番）は Host・Origin の確認（7.5 節）の下で受け付ける
+- **トンネル（クラウド版）から断るもの（#291）**: `/api/setup` の `GET` 以外（トークンの保存・消す、WhisperX を入れる・やめる、モデルを取る・やめる）は、トンネル（8001 番。`via_tunnel`）から来たら `403`。クラウドのログインを盗まれても、ホストに数 GB を落とさせたり、話者分けに使うトークンを差し替えさせたりしないように。セルフホスト版（8000 番）は Host・Origin の確認（7.5 節）の下で受け付ける
 
 ## 7.2 WebSocket `/ws`
 

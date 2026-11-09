@@ -1,6 +1,6 @@
 // クラウド版の入口の状態（#156。docs/spec/cloud.md 10.2 節）。
 // ログイン → 同意 → ホストの選択 → つながった、の順に進む。中身の画面は #155・#162・#161 で作る。
-// ダイレクト版ではこの状態を使わない
+// セルフホスト版ではこの状態を使わない
 import { create } from 'zustand';
 
 import { setHostId } from '@/endpoint';

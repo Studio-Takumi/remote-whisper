@@ -15,7 +15,7 @@ import { useSetupStatus } from '@/hooks/useSetupStatus';
 import { dismissGuide, guideDismissed, hasMissing, shouldAutoOpen } from '@/setup';
 import { useAppStore } from '@/store';
 
-// 初めて開いたときの「はじめに」（#291。spec/ui.md 8）。ダイレクト版で、足りないものがあり、
+// 初めて開いたときの「はじめに」（#291。spec/ui.md 8）。セルフホスト版で、足りないものがあり、
 // この端末でまだ閉じていなければ自動で出す。中身は設定の「セットアップ」と同じ
 export function SetupDialog() {
     // クラウド版（ボタンを押せない）と、閉じたことのある端末では、状態も取りに行かない

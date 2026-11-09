@@ -148,7 +148,7 @@ describe('RecordingMetrics', () => {
 describe('送る', () => {
     const url = '/me/metrics/recording';
 
-    it('ダイレクト版では送らない（本文も作らない）', () => {
+    it('セルフホスト版では送らない（本文も作らない）', () => {
         const fetchFn = vi.fn();
         const sendBeacon = vi.fn();
         const m = new RecordingMetrics({ hostId: 'h' });

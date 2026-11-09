@@ -26,7 +26,7 @@ import { startRouter } from '@/router';
 import { useAppStore } from '@/store';
 
 // クラウド版は、ログイン・同意・ホストの選択（#156）がすんでホストにつながるまで、今のアプリを出さない。
-// ダイレクト版は常にそのまま出す。クラウド版の /pair?code=… は、ホストの登録の確認（#157）
+// セルフホスト版は常にそのまま出す。クラウド版の /pair?code=… は、ホストの登録の確認（#157）
 function App() {
     const ready = useCloudStore((s) => isReady(s.cloud));
     const code = isCloud ? pairingCode(location) : null;

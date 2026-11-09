@@ -1,5 +1,5 @@
 # クラウド版の画面（静的アセット）に付けるヘッダー（#166・#253）。Cloudflare Workers の assets が読む。
-# ダイレクト版（ホストの FastAPI が配る）では使わない（ファイルとして配られるだけで、中身は秘密ではない）
+# セルフホスト版（ホストの FastAPI が配る）では使わない（ファイルとして配られるだけで、中身は秘密ではない）
 # - X-Frame-Options と frame-ancestors 'none': iframe に入れて承認の画面（/pair?code=）などを押させる攻撃を防ぐ
 # - CSP は強制（#253。主な画面を Chromium と WebKit で回して違反がないことを確かめた: npm run check:csp）。
 #   インラインのスクリプトは index.html のテーマの設定だけで、ハッシュで許す（LF と CRLF の両方。中身を変えたら

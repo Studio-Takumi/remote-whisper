@@ -1,6 +1,6 @@
 # relay（クラウド版の中間サーバー）
 
-Cloudflare Workers で動く、クラウド版の中間サーバー。画面（`web/dist`）の配信・ログイン・ホストの登録・中継・計測をする。設計は [仕様書 10 章](../docs/spec/cloud.md)。ダイレクト版（LAN・Tailscale）では使わない。
+Cloudflare Workers で動く、クラウド版の中間サーバー。画面（`web/dist`）の配信・ログイン・ホストの登録・中継・計測をする。設計は [仕様書 10 章](../docs/spec/cloud.md)。セルフホスト版（LAN・Tailscale）では使わない。
 
 ## 構成
 

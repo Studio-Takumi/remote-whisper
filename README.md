@@ -42,12 +42,12 @@ remote-whisper は、手元の端末に GPU がなくても、別のマシンの
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/readme/architecture-dark.png">
-  <img alt="構成図: ブラウザから Tailscale（ダイレクト版）か Cloudflare（クラウド版）を通ってホストの FastAPI に届き、Whisper・WhisperX・Ollama で処理して保存する" src="docs/images/readme/architecture-light.png">
+  <img alt="構成図: ブラウザから Tailscale（セルフホスト版）か Cloudflare（クラウド版）を通ってホストの FastAPI に届き、Whisper・WhisperX・Ollama で処理して保存する" src="docs/images/readme/architecture-light.png">
 </picture>
 
 ブラウザから、GPU を積んだ自分の PC（以下、ホスト）へつなぐ道は 2 つあります。
 
-- **ダイレクト版**: Tailscale を通して、ブラウザがホストのサーバー（FastAPI）に直接つなぎます。手順は「[別の端末から使う（HTTPS）](#別の端末から使うhttps)」にあります。
+- **セルフホスト版**: Tailscale を通して、ブラウザがホストのサーバー（FastAPI）に直接つなぎます。手順は「[別の端末から使う（HTTPS）](#別の端末から使うhttps)」にあります。
 - **クラウド版**: Cloudflare Workers が画面の配信・ログイン・中継をし、Cloudflare Tunnel を通してホストにつなぎます。作っている途中です（[relay/README.md](relay/README.md)）。
 
 ブラウザはマイクの音声を 16kHz・モノラルの PCM にして、少しずつホストに送ります。ホストでは、Whisper が文字起こしをし、WhisperX が単語ごとの時刻合わせと話者分けをし、Ollama が要約と用語リストを作ります。文字起こしにも要約にも外部の AI サービスは使わず、モデルはホストの中で動きます。録音・文字起こし・要約はホストの `~/.remote-whisper/` に保存します。

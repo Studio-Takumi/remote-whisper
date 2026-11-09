@@ -1,5 +1,5 @@
 // 運営からのお知らせ（#164。docs/spec/cloud.md 10.12 節）。クラウド版の画面だけが読む。
-// ダイレクト版は、announcements.json へのリクエストを出さない（外に何も送らない）
+// セルフホスト版は、announcements.json へのリクエストを出さない（外に何も送らない）
 
 export type AnnouncementKind = 'tos' | 'release' | 'info';
 
@@ -110,7 +110,7 @@ export function saveSeen(seen: ReadonlySet<string>, storage: Pick<Storage, 'setI
     }
 }
 
-// クラウド版のときだけ読みに行く。ダイレクト版は fetch を呼ばない。失敗したら空
+// クラウド版のときだけ読みに行く。セルフホスト版は fetch を呼ばない。失敗したら空
 export async function fetchAnnouncements(
     cloud: boolean,
     fetchFn: typeof fetch = (...args) => fetch(...args),

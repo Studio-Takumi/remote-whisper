@@ -6,7 +6,7 @@ const ENABLED_KEY = 'rw.pushNotify';
 
 export type PushSupport =
     | 'ok'
-    // HTTPS（安全なコンテキスト）でない。ダイレクト版を http で開いているときなど
+    // HTTPS（安全なコンテキスト）でない。セルフホスト版を http で開いているときなど
     | 'insecure'
     // ブラウザが Web Push に対応していない（iPhone はホーム画面に追加した PWA だけ）
     | 'unsupported'

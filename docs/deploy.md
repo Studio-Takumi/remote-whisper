@@ -1,6 +1,6 @@
 # クラウド版のデプロイと環境
 
-クラウド版の中間サーバー（`relay/`。Cloudflare Workers）と画面（`web/`）の環境と、デプロイ・戻し方の手順。仕様は [spec/cloud.md](spec/cloud.md) の 10 章。ダイレクト版（自分の PC だけで使う形）には関係しない。
+クラウド版の中間サーバー（`relay/`。Cloudflare Workers）と画面（`web/`）の環境と、デプロイ・戻し方の手順。仕様は [spec/cloud.md](spec/cloud.md) の 10 章。セルフホスト版（自分の PC だけで使う形）には関係しない。
 
 ## 環境
 
