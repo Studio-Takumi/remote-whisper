@@ -2,7 +2,17 @@
 
 [![CI](https://github.com/Studio-Takumi/remote-whisper/actions/workflows/ci.yml/badge.svg)](https://github.com/Studio-Takumi/remote-whisper/actions/workflows/ci.yml)
 
+**声を記録に。会話を知識に。**
+
+Remote Whisper は、ブラウザで録った声を手元の GPU マシンに送り、リアルタイムで文字起こしと要約をするオープンソースのツールです。
+
 ![会議や講義の音声をスマホ・ノートPCで録り、自宅の GPU で文字起こしと要約をする](docs/images/readme/video-how-it-works.jpg)
+
+録るのは手元の端末で、処理は家の GPU がします。
+
+1. ノートPC・スマホ・タブレットのブラウザで、マイクを使って録ります。アプリのインストールは要りません。
+2. 家の GPU マシンで、Whisper が文字起こしをし、[Ollama](https://ollama.com/) が要約を作ります。重い処理はすべて GPU マシンで動きます。
+3. 話したそばから文字が流れ、数分おきに要約が更新されます。
 
 **三行まとめ**
 
@@ -13,13 +23,6 @@
 なら家のGPUを使ってAI要約しようぜってツール
 
 **以下AIによる解説↓**
-
-remote-whisper は、手元の端末に GPU がなくても、別のマシンの GPU を使って疑似リアルタイムで文字起こしと要約をするツールです。
-
-ブラウザでマイクの音声を取り、WebSocket で GPU マシンに送ります。GPU マシンでは [faster-whisper](https://github.com/SYSTRAN/faster-whisper) が文字起こしをして、結果をブラウザに返します。要約は同じマシンの [Ollama](https://ollama.com/) が作ります。ノートPCやタブレットからでも、GPU を積んだデスクトップや自宅サーバーで文字起こしと要約ができます。
-
-> [!NOTE]
-> 開発中です。録音・文字起こし・途中の要約・最終の要約・参考資料セット・保存期間の管理・障害からの復旧まで動きます。別の端末から使う手順は「[別の端末から使う（HTTPS）](#別の端末から使うhttps)」を見てください。
 
 ## 機能
 
@@ -32,20 +35,6 @@ remote-whisper は、手元の端末に GPU がなくても、別のマシンの
 - 録音だけでなく、音声ファイル（動画も可）からも文字起こしと要約を作れます。
 - ライト・ダークのテーマを選べます。
 - スマホからも録音できます。ホーム画面に追加すると、アプリのように開けます。
-
-## 画面
-
-![録音中の文字起こし](docs/images/desktop-light-recording.png)
-
-| 要約（Markdown・数式・コード） | 録音中の途中の要約（ダーク） |
-| --- | --- |
-| ![要約](docs/images/desktop-light-summary.png) | ![途中の要約](docs/images/desktop-dark-recording-summary.png) |
-
-| スマホ | 設定 | 参考資料の選択 |
-| --- | --- | --- |
-| ![スマホ](docs/images/mobile-light-recording.png) | ![設定](docs/images/desktop-light-settings.png) | ![参考資料](docs/images/desktop-light-materials.png) |
-
-ほかの画面（ライト・ダーク、デスクトップ・スマホ）は [docs/images/](docs/images/) にあります。画像の中のプロジェクトや会話はすべて架空のものです。
 
 ## 処理の速さ
 
@@ -65,13 +54,7 @@ remote-whisper は、手元の端末に GPU がなくても、別のマシンの
 - **ダイレクト版**: Tailscale を通して、ブラウザがホストのサーバー（FastAPI）に直接つなぎます。手順は「[別の端末から使う（HTTPS）](#別の端末から使うhttps)」にあります。
 - **クラウド版**: Cloudflare Workers が画面の配信・ログイン・中継をし、Cloudflare Tunnel を通してホストにつなぎます。作っている途中です（[relay/README.md](relay/README.md)）。
 
-ブラウザはマイクの音声を 16kHz・モノラルの PCM にして、少しずつホストに送ります。ホストでは、Whisper が文字起こしをし、WhisperX が単語ごとの時刻合わせと話者分けをし、Ollama が要約と用語リストを作ります。文字起こしにも要約にも外部の AI サービスは使わず、モデルはホストの中で動きます。録音・文字起こし・要約はホストの `~/.remote-whisper/` に保存します。
-
-## 今後の展開
-
-![今後の展開: より便利に、より使いやすく](docs/images/readme/video-future.jpg)
-
-専用の物理デバイスとの統合や、使う人の要望をもとに、より便利に、より使いやすく改善していきます。
+ブラウザはマイクの音声を 16kHz・モノラルの PCM にして、WebSocket で少しずつホストに送ります。ホストでは、Whisper（[faster-whisper](https://github.com/SYSTRAN/faster-whisper)）が文字起こしをし、WhisperX が単語ごとの時刻合わせと話者分けをし、Ollama が要約と用語リストを作ります。文字起こしにも要約にも外部の AI サービスは使わず、モデルはホストの中で動きます。録音・文字起こし・要約はホストの `~/.remote-whisper/` に保存します。
 
 ## 構成
 
