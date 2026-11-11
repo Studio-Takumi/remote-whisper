@@ -187,6 +187,8 @@ def create_app(
         if background:
             await asyncio.gather(*background, return_exceptions=True)
         if ctx.ollama is not None:
+            # 見張りを止める。LM Studio は自分が載せたモデルを下ろす（止めたあとはタイマーで
+            # 下ろせないため。#326）
             await ctx.ollama.close()
 
     app = FastAPI(title="remote-whisper", lifespan=lifespan)
@@ -224,8 +226,9 @@ def create_app(
             # 録音が始まったら、作っている途中の最終の文字起こしを止める（録音が終わったら作り直す）
             ctx.final_transcriber.recordings_changed(n)
         if n == 0 and ctx.ollama is not None:
-            # 録音中は下ろさないようにしていた Ollama のモデルを、keepAliveMin 分で下ろすように
-            # 戻す。録音中に使う LLM を変えていたら、ここで切り替える（#325）
+            # 録音中は下ろさないようにしていた LLM のモデルを、keepAliveMin 分で下ろすように
+            # 戻す（LM Studio はここからサーバーの中のタイマーで数える。#326）。
+            # 録音中に使う LLM を変えていたら、ここで切り替える（#325）
             task = asyncio.create_task(ctx.ollama.recording_ended())
             background.add(task)
             task.add_done_callback(background.discard)
