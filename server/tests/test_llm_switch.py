@@ -107,6 +107,11 @@ class FakeClient:
         # set されるまで生成を終えない（生成の途中に切り替えるため）
         self.release = asyncio.Event()
         self.release.set()
+        # 見張っているか。本物と同じく、見張っている間の start_monitor は何もしない
+        self.monitoring = False
+        # set されるまで close を終えない（見張りを止めている間に戻すため）
+        self.closing = asyncio.Event()
+        self.closing.set()
 
     async def chat_stream(self, model, messages, think=False, format=None, options=None):
         self.log.append((self.backend, "generate"))
@@ -120,9 +125,12 @@ class FakeClient:
 
     def start_monitor(self, interval=15.0):
         self.log.append((self.backend, "monitor"))
+        self.monitoring = True
 
     async def close(self):
         self.log.append((self.backend, "close"))
+        await self.closing.wait()
+        self.monitoring = False
 
     async def unload_all(self):
         self.log.append((self.backend, "unload"))
@@ -225,6 +233,34 @@ def test_quick_switch_back_keeps_the_models_in_use(switch):
     assert s.backend == "ollama"
     assert ("ollama", "unload") not in log
     assert ("lmstudio", "unload") in log
+
+
+@pytest.mark.parametrize("while_closing", [False, True])
+def test_quick_switch_back_keeps_monitoring_the_backend_in_use(switch, while_closing):
+    """A→B→A とすばやく変えても、今使っているほうの見張りは止まらない
+
+    while_closing: 前のほうの見張りを止めている途中（close の中）で戻す"""
+    s, log, _ = switch
+    s.start_monitor()
+
+    async def go():
+        ollama = s.client("ollama")
+        if while_closing:
+            ollama.closing.clear()
+        s.settings.update({"llm": {"backend": "lmstudio"}})
+        await s.sync()
+        if while_closing:
+            while ("ollama", "close") not in log:
+                await asyncio.sleep(0)
+        s.settings.update({"llm": {"backend": "ollama"}})
+        await s.sync()
+        ollama.closing.set()
+        await asyncio.gather(*s._tasks)
+        assert s.backend == "ollama"
+        assert ollama.monitoring
+        assert ("ollama", "unload") not in log
+
+    run(go())
 
 
 def test_concurrent_syncs_switch_once(switch):

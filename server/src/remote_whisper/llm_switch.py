@@ -102,10 +102,18 @@ class LlmSwitch:
             self.client().start_monitor(self._monitor_interval)
 
     async def _unload(self, name: str, client: Any) -> None:
-        """前のバックエンドの見張りを止め、モデルを下ろす。もう戻っていたら下ろさない"""
+        """前のバックエンドの見張りを止め、モデルを下ろす。もう戻っていたら、見張りも止めず下ろさない
+
+        見張りを止めている間に戻ったときは、見張りをかけ直す（戻したときの sync の
+        start_monitor は、まだ動いていた見張りを見て何もしないため）"""
+        if name == self.backend:
+            log.info("llm backend is %s again; keeping its models", name)
+            return
         await client.close()
         if name == self.backend:
             log.info("llm backend is %s again; keeping its models", name)
+            if self._monitor_interval is not None:
+                client.start_monitor(self._monitor_interval)
             return
         with contextlib.suppress(LlmUnavailable):
             await client.unload_all()
