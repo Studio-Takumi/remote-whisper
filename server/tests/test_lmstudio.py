@@ -186,10 +186,12 @@ def test_empty_reply_of_an_always_thinking_model_fails(lms, fake, caplog):
     assert lms.hub.status.lmstudio == "ready"
 
 
-def test_jit_load_time_is_logged(lms, fake, caplog):
+def test_load_time_is_logged(lms, fake, caplog):
     caplog.set_level(logging.INFO, logger="remote_whisper.lmstudio")
     stream(lms, GEMMA, MESSAGES)
     assert f"lmstudio loaded {GEMMA} in 9.5s" in caplog.text
+    # JIT に任せず、先に NUM_CTX で載せる（#326）
+    assert len(fake.bodies("/api/v1/models/load")) == 1
     assert fake.loaded == {GEMMA: [(GEMMA, NUM_CTX)]}
     # 2 回目は載っているものを使う（増えない）
     stream(lms, GEMMA, MESSAGES)
@@ -211,7 +213,8 @@ def test_smaller_instance_is_kept_and_logged(lms, fake, caplog):
     stream(lms, GEMMA, MESSAGES)
     stream(lms, GEMMA, MESSAGES)
     assert fake.loaded[GEMMA] == [(GEMMA, 8192), (f"{GEMMA}:2", NUM_CTX)]
-    assert [b["model"] for b in fake.bodies("/api/v1/chat")] == [GEMMA, f"{GEMMA}:2"]
+    assert [b["model"] for b in fake.bodies("/api/v1/chat")] == [f"{GEMMA}:2", f"{GEMMA}:2"]
+    assert fake.bodies("/api/v1/models/load") == [{"model": GEMMA, "context_length": NUM_CTX}]
     assert sum("smaller than" in r.message for r in caplog.records) == 1
 
 
@@ -295,7 +298,8 @@ def test_format_without_thinking_asks_the_schema_in_the_prompt(lms, fake):
     assert reply == '{"title": "リリース計画の確認"}'
     # /v1/chat/completions の reasoning_effort: "none" は当てにならないので、/api/v1/chat で頼む
     assert fake.bodies("/v1/chat/completions") == []
-    assert fake.bodies("/api/v1/models/load") == []
+    # JIT に任せず、先に NUM_CTX で載せる（#326）
+    assert fake.bodies("/api/v1/models/load") == [{"model": GEMMA, "context_length": NUM_CTX}]
     body = fake.bodies("/api/v1/chat")[0]
     assert body["reasoning"] == "off"
     assert body["context_length"] == NUM_CTX
@@ -506,7 +510,7 @@ def test_resolve_keeps_the_model_when_lmstudio_is_down(lms, fake):
 
 def test_unload_all_unloads_only_what_it_loaded(lms, fake):
     fake.load("acme/plain", 8192)  # 手で載せたもの
-    stream(lms, GEMMA, MESSAGES)  # JIT で載る
+    stream(lms, GEMMA, MESSAGES)  # 生成の前に NUM_CTX で載せる
     run(lms.unload_all())
     assert fake.bodies("/api/v1/models/unload") == [{"instance_id": GEMMA}]
     assert fake.loaded == {"acme/plain": [("acme/plain", 8192)], GEMMA: []}
@@ -582,9 +586,8 @@ class Broken(httpx.AsyncByteStream):
 CHAT_START = b'event: chat.start\ndata: {"type": "chat.start"}\n\n'
 
 
-def test_jit_instance_is_unloaded_even_if_the_stream_closes_early(lms, fake):
-    # 何も載っていないところで context を超えると、読み込んだあと chat.end なしで閉じる。
-    # 載ったインスタンスは unload_all で下ろす
+def test_loaded_instance_is_unloaded_even_if_the_stream_closes_early(lms, fake):
+    # context を超えると chat.end なしで閉じる。先に載せたインスタンスは unload_all で下ろす
     fake.context_exceeded = True
     with pytest.raises(LMStudioUnavailable, match="without chat.end"):
         stream(lms, GEMMA, MESSAGES)
@@ -702,3 +705,421 @@ def test_concurrent_format_calls_load_only_once(lms, fake):
     run(main())
     assert len(fake.bodies("/api/v1/models/load")) == 1
     assert fake.loaded == {GEMMA: [(GEMMA, NUM_CTX)]}
+
+
+# --- 載せ下ろし（#326）---
+
+PLAIN = "acme/plain"
+ALWAYS = "acme/always-think"
+
+
+class Clock:
+    """差し替える時計。sleep は advance されるまで待つ（実時間を待たない）"""
+
+    def __init__(self):
+        self.now = 1000.0
+        self.sleeps: list[float] = []
+        self._waiters: list[tuple[float, asyncio.Future]] = []
+
+    def __call__(self) -> float:
+        return self.now
+
+    async def sleep(self, sec: float) -> None:
+        self.sleeps.append(sec)
+        fut = asyncio.get_running_loop().create_future()
+        self._waiters.append((self.now + sec, fut))
+        await fut
+
+    async def advance(self, sec: float) -> None:
+        self.now += sec
+        for item in list(self._waiters):
+            if item[0] <= self.now and not item[1].done():
+                item[1].set_result(None)
+                self._waiters.remove(item)
+        await settle()
+
+
+async def settle() -> None:
+    """後ろのタスク（タイマー・下ろす頼み）を進める"""
+    for _ in range(50):
+        await asyncio.sleep(0)
+
+
+@pytest.fixture
+def state():
+    return {"recording": False}
+
+
+@pytest.fixture
+def clock():
+    return Clock()
+
+
+@pytest.fixture
+def timed(home, fake, state, clock):
+    """録音中かどうかと時計を差し替えた LMStudioClient"""
+    return LMStudioClient(
+        Hub(),
+        SettingsStore(home),
+        recording=lambda: state["recording"],
+        transport=fake.transport(),
+        clock=clock,
+        sleep=clock.sleep,
+    )
+
+
+def loaded_ids(fake):
+    return sorted(iid for instances in fake.loaded.values() for iid, _ in instances)
+
+
+def test_model_list_is_fetched_once_per_generation(lms, fake):
+    # 代わりのモデル選び（resolve）と載っているかの確認で、一覧を 2 回取らない（#324 のレビュー）
+    stream(lms, GEMMA, MESSAGES)
+    assert len(fake.bodies("/api/v1/models")) == 1
+    # 載せたものは覚えている一覧にも入るので、すぐ次の生成でも載せ直さない
+    run(lms.chat(GEMMA, MESSAGES, format=TITLE_FORMAT))
+    assert len(fake.bodies("/api/v1/models")) == 1
+    assert len(fake.bodies("/api/v1/models/load")) == 1
+
+
+def test_model_list_is_fetched_again_after_a_while(timed, fake, clock):
+    async def go():
+        await timed.chat(GEMMA, MESSAGES)
+        clock.now += 5
+        await timed.chat(GEMMA, MESSAGES)
+
+    run(go())
+    assert len(fake.bodies("/api/v1/models")) == 2
+
+
+def test_only_one_instance_is_loaded_while_recording(timed, fake, state):
+    # 録音中に別のモデルを使うときは、自分が載せたほかのインスタンスを先に下ろす（#178）
+    state["recording"] = True
+    run(timed.chat(GEMMA, MESSAGES))
+    run(timed.chat(GEMMA, MESSAGES))
+    assert fake.bodies("/api/v1/models/unload") == []
+    run(timed.chat(PLAIN, MESSAGES, format=TITLE_FORMAT))
+    assert fake.bodies("/api/v1/models/unload") == [{"instance_id": GEMMA}]
+    assert loaded_ids(fake) == [PLAIN]
+    order = [p for p, _ in fake.requests if p.startswith("/api/v1/models/")]
+    assert order == ["/api/v1/models/load", "/api/v1/models/unload", "/api/v1/models/load"]
+
+
+def test_an_instance_loaded_before_recording_is_unloaded(timed, fake, state):
+    # 録音の前に（参考資料などで）載せたものも、録音中に別のモデルを使う前に下ろす
+    run(timed.chat(GEMMA, MESSAGES))
+    state["recording"] = True
+    run(timed.chat(PLAIN, MESSAGES))
+    assert loaded_ids(fake) == [PLAIN]
+
+
+def test_instances_loaded_by_hand_are_not_unloaded_while_recording(timed, fake, state, caplog):
+    fake.load(ALWAYS, 8192)  # 手で載せたもの
+    state["recording"] = True
+    run(timed.chat(GEMMA, MESSAGES))
+    run(timed.chat(PLAIN, MESSAGES))
+    assert loaded_ids(fake) == [ALWAYS, PLAIN]
+    # VRAM を使っているかもしれないと書く（1 回だけ）
+    assert sum("loaded by hand" in r.message for r in caplog.records) == 1
+    assert ALWAYS in caplog.text
+
+
+def test_an_instance_loaded_by_hand_is_used_and_kept_while_recording(timed, fake, state):
+    # 使うモデルが手で NUM_CTX 以上で載っていれば、それを使う。下ろさない
+    fake.load(GEMMA, NUM_CTX)
+    state["recording"] = True
+    run(timed.chat(GEMMA, MESSAGES))
+    assert fake.bodies("/api/v1/models/load") == []
+    run(timed.chat(PLAIN, MESSAGES))
+    assert loaded_ids(fake) == sorted([GEMMA, PLAIN])
+    assert fake.bodies("/api/v1/models/unload") == []
+
+
+def test_unload_all_logs_instances_loaded_by_hand(lms, fake, caplog):
+    # 最終の文字起こしの前（#121）。自分が載せたものだけを下ろし、手で載せたものは書く
+    fake.load(PLAIN, 8192)
+    stream(lms, GEMMA, MESSAGES)
+    run(lms.unload_all())
+    assert loaded_ids(fake) == [PLAIN]
+    assert "still has acme/plain loaded by hand" in caplog.text
+
+
+def test_unload_all_logs_nothing_without_instances_loaded_by_hand(lms, fake, caplog):
+    stream(lms, GEMMA, MESSAGES)
+    run(lms.unload_all())
+    assert loaded_ids(fake) == []
+    assert "by hand" not in caplog.text
+
+
+def test_unload_all_stops_when_cancelled(lms, fake):
+    run(lms.chat(GEMMA, MESSAGES))
+    run(lms.chat(PLAIN, MESSAGES))
+    calls = []
+
+    def cancelled():
+        calls.append(1)
+        return len(calls) > 1  # 1 つ下ろしたところで戻された
+
+    run(lms.unload_all(cancelled=cancelled))
+    assert len(fake.bodies("/api/v1/models/unload")) == 1
+    assert len(loaded_ids(fake)) == 1
+
+
+def test_idle_instances_are_unloaded_after_keep_alive(timed, fake, clock):
+    async def go():
+        await timed.chat(GEMMA, MESSAGES)
+        await settle()
+        # 最後の生成から keepAliveMin（既定 10 分）
+        assert clock.sleeps == [600]
+        await clock.advance(599)
+        assert loaded_ids(fake) == [GEMMA]
+        await clock.advance(1)
+        assert loaded_ids(fake) == []
+
+    run(go())
+
+
+def test_using_again_restarts_the_count(timed, fake, clock):
+    async def go():
+        await timed.chat(GEMMA, MESSAGES)
+        await settle()
+        await clock.advance(300)
+        await timed.chat(GEMMA, MESSAGES)
+        await clock.advance(300)
+        # 2 回目の生成から 5 分しかたっていない
+        assert loaded_ids(fake) == [GEMMA]
+        await clock.advance(300)
+        assert loaded_ids(fake) == []
+
+    run(go())
+
+
+def test_keep_alive_setting_is_used(timed, fake, clock):
+    timed.settings.update({"ollama": {"keepAliveMin": 1}})
+
+    async def go():
+        await timed.chat(GEMMA, MESSAGES)
+        await settle()
+        assert clock.sleeps == [60]
+        await clock.advance(60)
+
+    run(go())
+    assert loaded_ids(fake) == []
+
+
+def test_timer_does_not_unload_while_recording(timed, fake, clock, state):
+    async def go():
+        await timed.chat(GEMMA, MESSAGES)
+        await settle()
+        state["recording"] = True
+        await timed.chat(GEMMA, MESSAGES)
+        await clock.advance(3600)
+        # 録音中は下ろさない
+        assert loaded_ids(fake) == [GEMMA]
+        # 録音が終わったら、そこから keepAliveMin 分を数え直す
+        state["recording"] = False
+        await timed.recording_ended()
+        await settle()
+        await clock.advance(599)
+        assert loaded_ids(fake) == [GEMMA]
+        await clock.advance(1)
+        assert loaded_ids(fake) == []
+
+    run(go())
+
+
+def test_timer_does_not_unload_instances_loaded_by_hand(timed, fake, clock):
+    fake.load(PLAIN, 8192)
+
+    async def go():
+        await timed.chat(GEMMA, MESSAGES)
+        await settle()
+        await clock.advance(600)
+
+    run(go())
+    assert loaded_ids(fake) == [PLAIN]
+
+
+def test_timer_waits_for_a_running_generation(timed, fake, clock):
+    async def go():
+        await timed.chat(GEMMA, MESSAGES)
+        await settle()
+        gen = timed.chat_stream(GEMMA, MESSAGES)
+        assert await gen.__anext__() == "要約"
+        # 生成の途中に時間がたっても下ろさない
+        await clock.advance(600)
+        assert loaded_ids(fake) == [GEMMA]
+        assert [p async for p in gen] == ["です"]
+        await settle()
+        await clock.advance(600)
+        assert loaded_ids(fake) == []
+
+    run(go())
+
+
+def test_shutdown_unloads_only_what_it_loaded(timed, fake, clock):
+    # 止めたあとはタイマーで下ろせないので、止めるときに自分が載せたものを下ろす
+    fake.load(PLAIN, 8192)
+
+    async def go():
+        await timed.chat(GEMMA, MESSAGES)
+        await settle()
+        await timed.shutdown()
+
+    run(go())
+    assert loaded_ids(fake) == [PLAIN]
+
+
+def test_shutdown_does_nothing_when_unreachable(timed, fake):
+    run(timed.chat(GEMMA, MESSAGES))
+    fake.up = False
+    run(timed.shutdown())
+    assert loaded_ids(fake) == [GEMMA]
+
+
+# --- レビューの指摘（PR #337）---
+
+
+def test_shutdown_gives_up_after_lmstudio_does_not_answer(timed, fake):
+    # 応答しない（タイムアウト）ときは、1 回失敗したら残りは諦める（止めるのを待たせない）
+    run(timed.chat(GEMMA, MESSAGES))
+    run(timed.chat(PLAIN, MESSAGES))
+    tries = []
+
+    def handle(request):
+        if request.url.path == "/api/v1/models/unload":
+            tries.append(1)
+            raise httpx.ReadTimeout("timed out", request=request)
+        return fake.handle(request)
+
+    timed._transport = httpx.MockTransport(handle)
+    run(timed.shutdown())
+    assert len(tries) == 1
+    assert loaded_ids(fake) == sorted([PLAIN, GEMMA])
+
+
+def test_reloaded_by_hand_with_the_same_id_is_not_unloaded(timed, fake, clock):
+    # 自分の <key> を手で下ろし、同じモデルを手で載せ直すと、同じ id になる。間に一覧を取って
+    # いれば、載っていないとわかった時点で忘れるので、手で載せ直したほうは下ろさない
+    run(timed.chat(GEMMA, MESSAGES))
+    fake.loaded[GEMMA].clear()  # 手で下ろした
+    clock.now += 5
+    run(timed.installed())  # 一覧を取った
+    assert timed._loaded == {}
+    fake.load(GEMMA, NUM_CTX)  # 手で載せ直した（同じ id）
+    run(timed.unload_all())
+    assert fake.bodies("/api/v1/models/unload") == []
+    assert loaded_ids(fake) == [GEMMA]
+
+
+def test_reloaded_by_hand_with_another_context_is_not_unloaded(timed, fake, clock, caplog):
+    # 間に一覧を取らなくても、下ろす前の一覧で context が食い違えば自分のものではないとみなす
+    run(timed.chat(GEMMA, MESSAGES))
+    fake.loaded[GEMMA].clear()
+    fake.load(GEMMA, 8192)
+    clock.now += 5
+    run(timed.unload_all())
+    assert fake.bodies("/api/v1/models/unload") == []
+    assert loaded_ids(fake) == [GEMMA]
+    assert "instead of 16384" in caplog.text
+
+
+def test_load_without_an_instance_id_remembers_the_new_instance(lms, fake):
+    # id が返らなければ、モデルの名前で代わりに覚えず（手で載せた <key> を下ろしてしまう）、
+    # 載せたあとの一覧で増えた id を覚える
+    fake.load(GEMMA, 8192)  # 手で載せたもの（id は <key>）
+
+    def respond(request):
+        fake.load(GEMMA, NUM_CTX)
+        return httpx.Response(200, json={"type": "llm", "load_time_seconds": 1.0})
+
+    with_handler(lms, fake, "/api/v1/models/load", respond)
+    stream(lms, GEMMA, MESSAGES)
+    assert lms._loaded == {f"{GEMMA}:2": NUM_CTX}
+    assert fake.bodies("/api/v1/chat")[-1]["model"] == f"{GEMMA}:2"
+    run(lms.unload_all())
+    assert fake.loaded[GEMMA] == [(GEMMA, 8192)]
+
+
+def test_load_without_an_instance_id_is_not_remembered_when_not_found(lms, fake, caplog):
+    fake.load(GEMMA, 8192)
+    respond = lambda r: httpx.Response(200, json={"type": "llm"})  # noqa: E731
+    with_handler(lms, fake, "/api/v1/models/load", respond)
+    run(lms._instance(GEMMA))
+    assert lms._loaded == {}
+    assert "did not tell its instance id" in caplog.text
+
+
+def test_jit_load_without_an_instance_id_is_not_remembered(lms, fake, caplog):
+    from fake_lmstudio import _sse
+
+    fake.load(GEMMA, NUM_CTX)  # 手で載せたもの。使ったあと、/api/v1/chat が読み込み直したまね
+    events = [
+        ("chat.start", {}),
+        ("model_load.start", {}),
+        ("model_load.end", {"load_time_seconds": 1.0}),
+        ("message.delta", {"content": "要約"}),
+        ("chat.end", {"result": {"stats": {}}}),
+    ]
+    respond = lambda r: httpx.Response(200, content=_sse(events))  # noqa: E731
+    with_handler(lms, fake, "/api/v1/chat", respond)
+    assert stream(lms, GEMMA, MESSAGES) == ["要約"]
+    assert lms._loaded == {}
+    assert "without telling its instance id" in caplog.text
+
+
+@pytest.mark.parametrize("how", ["unload_all", "timer", "recording", "shutdown"])
+def test_only_its_own_instance_is_unloaded_next_to_one_loaded_by_hand(
+    timed, fake, clock, state, how
+):
+    # 手で 8192 で載せた <key> と、自分が NUM_CTX で載せた <key>:2 が並ぶ。下ろすのは :2 だけ
+    fake.load(GEMMA, 8192)
+
+    async def go():
+        await timed.chat(GEMMA, MESSAGES)
+        await settle()
+        assert sorted(timed._loaded) == [f"{GEMMA}:2"]
+        if how == "unload_all":
+            await timed.unload_all()
+        elif how == "timer":
+            await clock.advance(600)
+        elif how == "recording":
+            state["recording"] = True
+            await timed.chat(PLAIN, MESSAGES)
+        else:
+            await timed.shutdown()
+
+    run(go())
+    assert fake.bodies("/api/v1/models/unload") == [{"instance_id": f"{GEMMA}:2"}]
+    assert (GEMMA, 8192) in fake.loaded[GEMMA]
+
+
+def test_generation_while_the_timer_is_unloading(timed, fake, clock):
+    # タイマーが下ろしている最中に生成が来たら、次のインスタンスの前で止まり、生成はロックを
+    # 待ってから載せ直す。生成が終わったら、そこから数え直して下ろす
+    gate = asyncio.Event()
+
+    async def handle(request):
+        if request.url.path == "/api/v1/models/unload":
+            await gate.wait()
+        return fake.handle(request)
+
+    async def go():
+        await timed.chat(GEMMA, MESSAGES)
+        await timed.chat(PLAIN, MESSAGES)
+        await settle()
+        timed._transport = httpx.MockTransport(handle)
+        await clock.advance(600)  # 名前の順で先の PLAIN を下ろしている途中で止まる
+        generation = asyncio.create_task(timed.chat(PLAIN, MESSAGES))
+        await settle()
+        assert not generation.done()
+        gate.set()
+        assert await generation == "要約です"
+        await settle()
+        # GEMMA は下ろさずに止まった。PLAIN は載せ直した
+        assert loaded_ids(fake) == sorted([GEMMA, PLAIN])
+        assert len(fake.bodies("/api/v1/models/unload")) == 1
+        await clock.advance(600)
+        assert loaded_ids(fake) == []
+
+    run(go())

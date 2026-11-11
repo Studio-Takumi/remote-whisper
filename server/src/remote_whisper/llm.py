@@ -10,7 +10,7 @@
 - モデルを取ってくる進み具合は `PullProgress`
 """
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from typing import Any, NotRequired, Protocol, TypedDict
 
 
@@ -62,8 +62,9 @@ class LlmClient(Protocol):
 
     async def supports_vision(self, model: str) -> bool: ...
 
-    async def unload_all(self) -> None:
-        """読み込まれているモデルをすべて下ろす。つながらなければ何もしない"""
+    async def unload_all(self, cancelled: Callable[[], bool] | None = None) -> None:
+        """読み込まれているモデルを下ろす（Ollama はすべて、LM Studio は自分が載せたものだけ）。
+        つながらなければ何もしない。cancelled() が True になったら、次のモデルからは下ろさない"""
         ...
 
     async def recording_ended(self) -> None:
@@ -78,7 +79,14 @@ class LlmClient(Protocol):
         """つながるかを定期的に確かめて status を更新する"""
         ...
 
-    async def close(self) -> None: ...
+    async def close(self) -> None:
+        """見張りを止める（バックエンドを切り替えたときにも呼ぶ）"""
+        ...
+
+    async def shutdown(self) -> None:
+        """サーバーを止めるとき。見張りを止め、バックエンドに応じて片付ける（LM Studio は
+        自分が載せたモデルを下ろす）"""
+        ...
 
 
 def backend_of(client: object) -> str | None:

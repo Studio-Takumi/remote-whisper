@@ -139,6 +139,11 @@ class OllamaClient:
                 await self._monitor
             self._monitor = None
 
+    async def shutdown(self) -> None:
+        """サーバーを止めるとき。見張りを止めるだけ（載っているモデルは Ollama が keep_alive で
+        下ろす。今までと同じ動き。#326）"""
+        await self.close()
+
     # --- モデル ---
 
     async def models(self) -> list[dict[str, Any]]:
@@ -330,14 +335,17 @@ class OllamaClient:
         """本文をまとめて返す"""
         return "".join([part async for part in self.chat_stream(model, messages, **kwargs)])
 
-    async def unload_all(self) -> None:
+    async def unload_all(self, cancelled: Callable[[], bool] | None = None) -> None:
         """読み込まれているモデルをすべて下ろして VRAM を空ける（最終の文字起こしの前。#121）
 
-        つながらなければ何もしない（下ろせなくても文字起こしは試す）
+        つながらなければ何もしない（下ろせなくても文字起こしは試す）。cancelled() が True に
+        なったら、次のモデルからは下ろさない（切り替えたバックエンドにすぐ戻したとき。LlmSwitch）
         """
         with contextlib.suppress(OllamaUnavailable):
             loaded = await self._request("GET", "/api/ps")
             for item in loaded.get("models") or []:
+                if cancelled is not None and cancelled():
+                    return
                 name = item.get("name") or item.get("model")
                 if name:
                     await self._request(

@@ -251,6 +251,28 @@ def test_models_are_not_unloaded_when_not_recording(ollama, fake):
     assert fake.loaded == ["gemma4:e4b", "llama3.2:latest"]
 
 
+def test_unload_all_unloads_everything(ollama, fake):
+    # Ollama は今までどおり、手で載せたものも含めて全部下ろす（#121。#326 で変えない）
+    run(ollama.chat("gemma4:e4b", []))
+    run(ollama.chat("llama3.2:latest", []))
+    run(ollama.unload_all())
+    assert fake.loaded == []
+
+
+def test_unload_all_stops_when_cancelled(ollama, fake):
+    # 切り替えたバックエンドにすぐ戻したら、次のモデルからは下ろさない（LlmSwitch。#326）
+    run(ollama.chat("gemma4:e4b", []))
+    run(ollama.chat("llama3.2:latest", []))
+    calls = []
+
+    def cancelled():
+        calls.append(1)
+        return len(calls) > 1
+
+    run(ollama.unload_all(cancelled=cancelled))
+    assert fake.loaded == ["llama3.2:latest"]
+
+
 def test_without_ps_only_the_models_pinned_while_recording_are_unloaded(ollama, fake, state):
     original = fake.handle
 

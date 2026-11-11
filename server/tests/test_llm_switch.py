@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 
+import httpx
 import pytest
 from fake_lmstudio import GEMMA, FakeLMStudio
 
@@ -14,6 +15,7 @@ from remote_whisper.hub import Hub
 from remote_whisper.llm_switch import LlmSwitch
 from remote_whisper.lmstudio import LMStudioClient
 from remote_whisper.settings import SettingsStore
+from remote_whisper.summary_parts import NUM_CTX
 
 TOKEN = "sk-lm-secret-token-325"
 
@@ -132,7 +134,10 @@ class FakeClient:
         await self.closing.wait()
         self.monitoring = False
 
-    async def unload_all(self):
+    async def shutdown(self):
+        self.log.append((self.backend, "shutdown"))
+
+    async def unload_all(self, cancelled=None):
         self.log.append((self.backend, "unload"))
 
     async def recording_ended(self):
@@ -309,3 +314,59 @@ def test_switch_while_recording_through_the_api(client):
     ctx.recordings = 0
     run(ctx.ollama.recording_ended())
     assert ctx.ollama.backend == "lmstudio"
+
+
+def test_switch_back_while_unloading_keeps_the_models_in_use(home):
+    """LM Studio → Ollama → LM Studio と、下ろしている途中（unload_all がネットワークを待って
+    いる間）に戻しても、次のインスタンスからは下ろさず、戻したほうの生成は下ろし終わるのを
+    待ってから始める（#326。#336 のレビューのメモ）"""
+    fake = FakeLMStudio()
+    gate = asyncio.Event()
+    unloading = asyncio.Event()
+
+    async def handle(request):
+        if request.url.path == "/api/v1/models/unload":
+            unloading.set()
+            await gate.wait()
+        return fake.handle(request)
+
+    log: list[tuple[str, str]] = []
+    s = LlmSwitch(
+        Hub(),
+        SettingsStore(home),
+        make_ollama=lambda *a, **k: FakeClient("ollama", log),
+        make_lmstudio=lambda *a, **k: LMStudioClient(
+            *a, transport=httpx.MockTransport(handle), **k
+        ),
+    )
+    messages = [{"role": "user", "content": "x"}]
+
+    async def go():
+        s.settings.update({"llm": {"backend": "lmstudio"}})
+        await s.sync()
+        await s.chat(GEMMA, messages)
+        await s.chat("acme/plain", messages)
+        assert sorted(fake.loaded) == ["acme/plain", GEMMA]
+        s.settings.update({"llm": {"backend": "ollama"}})
+        await s.sync()
+        await unloading.wait()
+        # 1 つ目を下ろしている途中に戻す
+        s.settings.update({"llm": {"backend": "lmstudio"}})
+        await s.sync()
+        generation = asyncio.create_task(s.chat("acme/plain", messages))
+        for _ in range(10):
+            await asyncio.sleep(0)
+        # 下ろし終わるまで、生成は始めない
+        assert not generation.done()
+        assert len(fake.bodies("/api/v1/chat")) == 2
+        gate.set()
+        assert await generation == "要約です"
+        await asyncio.gather(*s._tasks)
+
+    run(go())
+    # 下ろしたのは、戻す前に始めた 1 つ（名前の順で先の acme/plain）だけ。生成はそのあとで
+    # 載せ直して動いた。GEMMA は下ろしていない
+    assert fake.bodies("/api/v1/models/unload") == [{"instance_id": "acme/plain"}]
+    assert fake.loaded[GEMMA] == [(GEMMA, NUM_CTX)]
+    assert fake.loaded["acme/plain"] == [("acme/plain", NUM_CTX)]
+    assert len(fake.bodies("/api/v1/models/load")) == 3
