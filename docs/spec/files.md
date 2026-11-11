@@ -92,16 +92,16 @@
   "ollama": {
     "host": "http://localhost:11434",
     "models": {
-      "materialTerms": "qwen3.5:2b",
-      "context": "qwen3.5:4b",
-      "scope": "qwen3.5:4b",
-      "figures": "qwen3.5:4b",
+      "materialTerms": "gemma4:e4b",
+      "context": "gemma4:e4b",
+      "scope": "gemma4:e4b",
+      "figures": "gemma4:e4b",
       "transcriptTerms": "qwen3.5:2b",
       "liveSummary": "qwen3.5:2b",
       "liveTitle": "qwen3.5:2b",
-      "overview": "qwen3.5:4b",
-      "detail": "qwen3.5:4b",
-      "finalTitle": "qwen3.5:0.8b"
+      "overview": "gemma4:e4b",
+      "detail": "gemma4:e4b",
+      "finalTitle": "gemma4:e4b"
     },
     "liveSummaryIntervalMin": 5,
     "keepAliveMin": 10,
@@ -155,22 +155,23 @@
 - `recording.maxConcurrent` は、サーバー全体で同時に録音できるセッションの数。1つのクライアント（ブラウザのタブ）が同時に録音できるのは1つだけなので、2以上にするのは複数の端末から同時に録音する場合。
 - `recording.resumeTimeoutMin` は、クライアントとの接続が切れてから、つながり直すのを待つ時間（分、既定 10。0 より大きい数で、小数も書ける。設定画面からは 1 分以上）。過ぎたら `interrupted` にする（続きから録音できる。6.7 節）。
 - `recording.continueWindowMin` は、普通に録音を終えた（`done`）あと、同じセッションの続きを録音できる時間（分、既定 10。0 以上。0 なら続けられない。#174）。この間は録音を WAV のまま残し、過ぎてから mp3 に変換する（6.7 節）。
-- `ollama.models` は、Ollama を使う処理ごとのモデル（#178）。既定はおすすめのモデルで、軽い処理は小さいモデルにしている。おすすめはあくまで目安で、設定で自由に変えられる。
+- `ollama.models` は、Ollama を使う処理ごとのモデル（#178）。既定はおすすめのモデルで、録音のあとの処理は `gemma4:e4b`、録音中の処理は小さい `qwen3.5:2b` にしている（#328）。おすすめはあくまで目安で、設定で自由に変えられる。既定が変わっても、`setting.json` にすでに書かれている値は変えない（足りないキーだけ既定値で埋める）。
 
   | 大きな段階 | 処理 | キー | おすすめ（既定） |
   |---|---|---|---|
-  | 参考資料 | 用語リスト（資料抽出） | `materialTerms` | `qwen3.5:2b` |
-  | | コンテキスト | `context` | `qwen3.5:4b` |
-  | | 範囲の判断（#182） | `scope` | `qwen3.5:4b` |
-  | | 図の読み取り（#271。画像を読めるモデル） | `figures` | `qwen3.5:4b` |
+  | 参考資料 | 用語リスト（資料抽出） | `materialTerms` | `gemma4:e4b` |
+  | | コンテキスト | `context` | `gemma4:e4b` |
+  | | 範囲の判断（#182） | `scope` | `gemma4:e4b` |
+  | | 図の読み取り（#271。画像を読めるモデル） | `figures` | `gemma4:e4b` |
   | リアルタイム文字起こし | 用語リスト（文字起こし抽出） | `transcriptTerms` | `qwen3.5:2b` |
   | リアルタイム要約 | 要約 | `liveSummary` | `qwen3.5:2b` |
   | | タイトル | `liveTitle` | `qwen3.5:2b` |
-  | 最終要約 | 全体概要 | `overview` | `qwen3.5:4b` |
-  | | 要約詳細 | `detail` | `qwen3.5:4b` |
-  | | タイトル | `finalTitle` | `qwen3.5:0.8b` |
+  | 最終要約 | 全体概要 | `overview` | `gemma4:e4b` |
+  | | 要約詳細 | `detail` | `gemma4:e4b` |
+  | | タイトル | `finalTitle` | `gemma4:e4b` |
 
-  - 録音中に使う 3 つ（`transcriptTerms`・`liveSummary`・`liveTitle`）のおすすめは同じモデルにそろえている。録音中は Ollama のモデルを 1 つしか載せない（6.3 節）ので、別々だと区切りごとに読み込み直しになるため。`qwen3.5:0.8b` は、用語の抽出で語ではなく文をそのまま返すなど品質が足りなかった（#178 で比べた）。
+  - 録音中に使う 3 つ（`transcriptTerms`・`liveSummary`・`liveTitle`）のおすすめは同じモデルにそろえている。録音中は Ollama のモデルを 1 つしか載せない（6.3 節）ので、別々だと区切りごとに読み込み直しになるため。`qwen3.5:0.8b` は、用語の抽出で語ではなく文をそのまま返すなど品質が足りなかった（#178 で比べた）。`gemma4:e4b` は、Whisper（`large-v3-turbo`）と一緒だと VRAM 6GB の GPU に載りきらず（43 層のうち 38 層）、区間の要約が約 2.5 倍遅くなった。`gemma4:e2b` は、区間の要約で前の区間の要約をそのまま繰り返したので、録音中は `qwen3.5:2b` のままにしている（#328 で比べた）。
+  - 録音のあとの処理（参考資料・範囲の判断・最終要約）は、同じモデル（`gemma4:e4b`）にそろえて、処理の間の読み込み直しをなくしている。最終要約は 100 本のベンチで `qwen3.5:4b` より良く、速かった。参考資料の用語・コンテキストは、思考が短いので `qwen3.5` の約 3 分の 1 の時間で済み、数値の取り違えや中国語・英語の混入が少なかった。図の読み取りは 1 ページの時間が約 2 倍（10 秒ほど）になるが、表の数値まで正しく写した（#328）。
   - **入っていないモデル**: 選んだモデルが Ollama に入っていなければ、要約詳細のモデル → 全体概要のモデル → 入っているうち名前の順で最初のもの、の順に代わりを選んで動かす（動かなくならないように）。ログに残し（モデルごとに 1 回）、`/api/settings/options` の `ollama.missing` に入っていない処理のキーを返す（画面は「入っていません」と出す。#179）。フロントマターには、実際に使ったモデルを残す。
   - **前の設定からの移行**: #178 より前の `liveSummaryModel` は `liveSummary` に、`finalSummaryModel` は `overview`・`detail` に、`contextModel` は `context`・`materialTerms` に移す。新しい軽い処理（`scope`・`transcriptTerms`・`liveTitle`・`finalTitle`）は、おすすめのモデルが入っていればそれ、なければ移行元（`scope` は `contextModel`、`transcriptTerms`・`liveTitle` は `liveSummaryModel`、`finalTitle` は `finalSummaryModel`）と同じモデルにする。入っているかは、読み込んだときに Ollama に聞く（つながらなければ移行元と同じ）。古いキーは受け付けるが書き出さない（`PATCH` で送られても無視する）。
 - 思考モードは処理ごとに固定する。参考資料の作成と最終要約はオン、リアルタイム要約はオフ。思考モードに対応していないモデルが選ばれた場合は、オフで実行する（9.3 節）。
@@ -267,7 +268,7 @@
 id: 20261009-090501
 project: D:\work\meetings
 createdAt: 2026-10-09T09:05:01+09:00
-model: qwen3.5:4b
+model: gemma4:e4b
 think: true
 materials:
   - path: D:\work\meetings\weekly\agenda.md
@@ -355,8 +356,8 @@ project: D:\work\meetings
 title: 新機能のリリース計画
 startedAt: 2026-10-09T14:30:12+09:00
 endedAt: 2026-10-09T15:59:40+09:00
-model: qwen3.5:4b             # 要約詳細のモデル（6.5 節）
-overviewModel: qwen3.5:4b     # 全体概要のモデル（#178）。項目のない古いファイルは model と同じとみなす
+model: gemma4:e4b             # 要約詳細のモデル（6.5 節）
+overviewModel: gemma4:e4b     # 全体概要のモデル（#178）。項目のない古いファイルは model と同じとみなす
 think: true
 transcript: transcript-20261009-143012.md
 contextSet: 20261009-090501

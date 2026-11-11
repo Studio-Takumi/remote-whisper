@@ -38,7 +38,7 @@
 | POST | `/api/push/subscriptions` | 通知の購読を足す。本文はブラウザの `PushSubscription.toJSON()`（`endpoint`・`keys.p256dh`・`keys.auth`）。同じ `endpoint` は置き換える。push サービスの URL でない・鍵が読めなければ `422` |
 | DELETE | `/api/push/subscriptions?endpoint=…` | 通知の購読を消す（その端末の設定をオフにした）。なければ何もしない |
 | GET | `/api/setup` | 初回のセットアップの案内（#291。6.15 節）。足りないものと、取っている・入れている途中の進み具合（下の「セットアップの状態」）。トンネル（クラウド版）からも見られる |
-| POST | `/api/setup/ollama/pull` | Ollama のモデルを取ってくる（`/api/pull`）。本文は `{"models": ["qwen3.5:4b", …]}`（順に取る）。取ってよいのは、おすすめのモデルだけ（ほかは `400`。6.15 節）。録音中は `409`（「録音が終わってから」）、取っている途中なら `409`、Ollama のないサーバー（モック）は `409`・`503`。`202` でセットアップの状態を返す |
+| POST | `/api/setup/ollama/pull` | Ollama のモデルを取ってくる（`/api/pull`）。本文は `{"models": ["gemma4:e4b", …]}`（順に取る）。取ってよいのは、おすすめのモデルだけ（ほかは `400`。6.15 節）。録音中は `409`（「録音が終わってから」）、取っている途中なら `409`、Ollama のないサーバー（モック）は `409`・`503`。`202` でセットアップの状態を返す |
 | DELETE | `/api/setup/ollama/pull` | モデルを取るのをやめる。セットアップの状態を返す |
 | POST | `/api/setup/whisperx` | WhisperX を同梱の Python に入れる（配布版だけ。開発の環境・もう入っている・入れている途中・録音中は `409`）。`202` でセットアップの状態を返す |
 | DELETE | `/api/setup/whisperx` | 入れるのをやめて、元に戻す（戻すのは後ろで。進み具合は `GET /api/setup`）。戻している途中はやめられない |
