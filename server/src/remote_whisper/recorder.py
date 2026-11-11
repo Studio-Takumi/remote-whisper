@@ -27,7 +27,7 @@ from remote_whisper.gpu_queue import GpuQueue, Priority
 from remote_whisper.hub import Hub
 from remote_whisper.live_summary import LiveSummarizer, load_context
 from remote_whisper.live_transcriber import LiveTranscriber, load_hotwords
-from remote_whisper.ollama import OllamaClient
+from remote_whisper.llm import LlmClient
 from remote_whisper.projects import ProjectError, ProjectStore
 from remote_whisper.recording import RecordingError, check_continuable
 from remote_whisper.session_writer import SessionWriter
@@ -241,7 +241,7 @@ class RecordingSession:
             self.base_hotwords, picked, self.writer.meta.manual_terms
         )
 
-    def start_picking(self, ollama: OllamaClient, gpu: GpuQueue, settings: SettingsStore) -> None:
+    def start_picking(self, ollama: LlmClient, gpu: GpuQueue, settings: SettingsStore) -> None:
         """録音中に文字起こしから用語を拾い、用語リストに足す（#103）"""
         self.picker = TermPicker(
             ollama,
@@ -259,9 +259,7 @@ class RecordingSession:
                 self.picker.add_final(start, text)
             self.picker.restart_at(self.offset, len(lines))
 
-    def start_summarizing(
-        self, ollama: OllamaClient, gpu: GpuQueue, settings: SettingsStore
-    ) -> None:
+    def start_summarizing(self, ollama: LlmClient, gpu: GpuQueue, settings: SettingsStore) -> None:
         meta = self.writer.meta
         context = (
             load_context(self.writer.files.dir, meta.context_set)
@@ -574,7 +572,7 @@ class RecordingManager:
         resume_timeout: float | None = None,
         whisper: WhisperWorker | None = None,
         gpu: GpuQueue | None = None,
-        ollama: OllamaClient | None = None,
+        ollama: LlmClient | None = None,
     ):
         self.hub = hub
         self.projects = projects

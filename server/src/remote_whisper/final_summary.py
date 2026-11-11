@@ -23,8 +23,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from remote_whisper.live_summary import load_context
+from remote_whisper.llm import LlmClient, LlmUnavailable
 from remote_whisper.material_pages import Page, annotate_detail, load_pages
-from remote_whisper.ollama import OllamaClient, OllamaUnavailable, ollama_error
+from remote_whisper.ollama import ollama_error
 from remote_whisper.prompts import (
     DEFAULT_DENSITY,
     TITLE_MAX,
@@ -87,7 +88,7 @@ def fallback_title(summary: str) -> str | None:
 class FinalSummarizer:
     def __init__(
         self,
-        ollama: OllamaClient,
+        ollama: LlmClient,
         settings: SettingsStore,
         whisper: Any = None,
         recording: Callable[[], bool] = lambda: False,
@@ -211,8 +212,8 @@ class FinalSummarizer:
             think = await self.ollama.supports_thinking(model)
             text, gist = await self._summarize(models, lines, context, send, density, pages)
             if not gist:
-                raise OllamaUnavailable("要約が空でした")
-        except OllamaUnavailable as e:
+                raise LlmUnavailable("要約が空でした")
+        except LlmUnavailable as e:
             log.warning("final summary of %s failed: %s", writer.id, e)
             # 失敗したことを記録して、後で作り直せるようにする（spec/flows.md 6.7。UI は #17）
             _mark_failed(writer, True)
@@ -231,7 +232,7 @@ class FinalSummarizer:
             title = await make_title(self.ollama, models.title, gist)
             if title:
                 log.info("title of %s done in %.1fs", writer.id, time.monotonic() - clock)
-        except OllamaUnavailable as e:
+        except LlmUnavailable as e:
             log.warning("title of %s failed: %s", writer.id, e)
             title = None
         except Exception:

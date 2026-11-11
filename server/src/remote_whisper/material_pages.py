@@ -24,9 +24,9 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
 from remote_whisper.documents import ContextMeta, context_name, read_doc
+from remote_whisper.llm import LlmClient, LlmUnavailable
 from remote_whisper.material_toc import section_texts
 from remote_whisper.materials import ExtractError
-from remote_whisper.ollama import OllamaClient, OllamaUnavailable
 from remote_whisper.summary_parts import NUM_CTX
 
 log = logging.getLogger(__name__)
@@ -247,7 +247,7 @@ def apply_refs(detail: str, refs: dict[int, list[tuple[str, list[int]]]]) -> str
     return "\n".join(lines)
 
 
-async def annotate_detail(ollama: OllamaClient, model: str, detail: str, pages: list[Page]) -> str:
+async def annotate_detail(ollama: LlmClient, model: str, detail: str, pages: list[Page]) -> str:
     """詳細の項目に資料の場所を付けたものを返す。付けられなければ detail のまま"""
     items = items_of(detail)
     if not items or not pages:
@@ -283,7 +283,7 @@ async def annotate_detail(ollama: OllamaClient, model: str, detail: str, pages: 
                 format=REFS_FORMAT,
                 options={"num_ctx": NUM_CTX},
             )
-        except OllamaUnavailable as e:
+        except LlmUnavailable as e:
             log.warning("could not find the page references: %s", e)
             # それまでの回で付けられた分は残す
             break

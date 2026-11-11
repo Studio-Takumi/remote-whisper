@@ -32,10 +32,10 @@ from remote_whisper.documents import (
 from remote_whisper.fsaccess import is_within_roots, real_path
 from remote_whisper.gpu_queue import GpuQueue, Priority
 from remote_whisper.hub import Hub
+from remote_whisper.llm import LlmClient, LlmUnavailable
 from remote_whisper.material_figures import FigureReader, Run, pdf_texts, with_figures
 from remote_whisper.material_toc import LARGE_CHARS, MaterialToc, build_toc
 from remote_whisper.materials import ExtractError, extract_text
-from remote_whisper.ollama import OllamaClient, OllamaUnavailable
 from remote_whisper.projects import ContextSetEntry, ProjectError, ProjectFile, ProjectStore
 from remote_whisper.prompts import context_messages, hotwords_messages, material_notes_messages
 from remote_whisper.settings import SettingsStore
@@ -111,7 +111,7 @@ def limit_hotwords(words: list[str], max_chars: int = HOTWORDS_MAX_CHARS) -> lis
 
 
 class OllamaGenerator:
-    def __init__(self, ollama: OllamaClient, settings: SettingsStore):
+    def __init__(self, ollama: LlmClient, settings: SettingsStore):
         self.ollama = ollama
         self.settings = settings
         self._used: tuple[str, bool] = (self.settings.get().ollama.models.context, True)
@@ -441,7 +441,7 @@ class ContextSetService:
         words, context = await self.generator.generate(join_materials(texts), self._run)
         words = limit_hotwords(words)
         if not words and not context:
-            raise OllamaUnavailable("用語リストもコンテキストも空でした")
+            raise LlmUnavailable("用語リストもコンテキストも空でした")
         model, think = self.generator.describe()
         project = self._load(pid)
         meta = ContextSetMeta(

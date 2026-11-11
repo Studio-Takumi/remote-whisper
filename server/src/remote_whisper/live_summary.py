@@ -25,7 +25,8 @@ from typing import Any
 
 from remote_whisper.documents import context_name, parse
 from remote_whisper.gpu_queue import GpuQueue, Priority
-from remote_whisper.ollama import OllamaClient, OllamaUnavailable, ollama_error
+from remote_whisper.llm import LlmClient, LlmUnavailable
+from remote_whisper.ollama import ollama_error
 from remote_whisper.prompts import live_overview_messages, live_section_messages, make_title
 from remote_whisper.session_writer import SessionWriter, fmt_clock
 from remote_whisper.settings import SettingsStore
@@ -72,7 +73,7 @@ def load_context(project_dir: Path, set_id: str | None) -> str | None:
 class LiveSummarizer:
     def __init__(
         self,
-        ollama: OllamaClient,
+        ollama: LlmClient,
         gpu: GpuQueue,
         settings: SettingsStore,
         writer: SessionWriter,
@@ -181,7 +182,7 @@ class LiveSummarizer:
                     )
                     text = max(text, await self._chat(model, messages), key=len)
                 if not text:
-                    raise OllamaUnavailable("区間の要約が空でした")
+                    raise LlmUnavailable("区間の要約が空でした")
                 end = line_time(chunks[i + 1][0])
                 self.sections.append(Section(line_time(chunk[0]), end, text))
                 self._base += len(chunk)
@@ -195,7 +196,7 @@ class LiveSummarizer:
                 line_time(current_lines[0]),
             )
             if not current:
-                raise OllamaUnavailable("要約が空でした")
+                raise LlmUnavailable("要約が空でした")
             self._ongoing = (self._base, current)
             overview = None
             if self.sections:
@@ -205,7 +206,7 @@ class LiveSummarizer:
                         [s.text for s in self.sections] + [current], self.context
                     ),
                 )
-        except OllamaUnavailable as e:
+        except LlmUnavailable as e:
             log.warning("live summary of %s failed: %s", self.writer.id, e)
             await self.send(ollama_error("リアルタイム要約"))
             return
@@ -230,7 +231,7 @@ class LiveSummarizer:
         try:
             # 区間が分かれていれば、ここまでの概要から作る
             title = await make_title(self.ollama, models.live_title, overview or current)
-        except OllamaUnavailable as e:
+        except LlmUnavailable as e:
             # 仮のタイトルは次の回に作り直す（要約はできているので、エラーは送らない）
             log.warning("provisional title of %s failed: %s", self.writer.id, e)
             return
