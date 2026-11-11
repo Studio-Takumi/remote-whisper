@@ -46,6 +46,11 @@ def _to_ollama_message(message: dict[str, Any]) -> dict[str, Any]:
     return {**rest, "images": [message["image"]]}
 
 
+def _same_model(a: str, b: str) -> bool:
+    """同じモデルか。タグを省いた名前は :latest とみなす（/api/ps は :latest を付けて返す）"""
+    return has_model({a}, b) or has_model({b}, a)
+
+
 class OllamaClient:
     """`llm.LlmClient` の Ollama での実装"""
 
@@ -211,7 +216,7 @@ class OllamaClient:
         モデルが入っていなければ、代わりのモデルで動かす（resolve。#178）"""
         model = await self.resolve(model)
         if self.recording():
-            await self._unload_other_pinned(model)
+            await self._unload_others(model)
         messages = [_to_ollama_message(m) for m in messages]
         body: dict[str, Any] = {
             "model": model,
@@ -258,15 +263,24 @@ class OllamaClient:
         except (httpx.HTTPError, httpx.InvalidURL, ValueError) as e:
             raise await self._failed(e) from e
 
-    async def _unload_other_pinned(self, model: str) -> None:
+    async def _unload_others(self, model: str) -> None:
         """録音中は、Ollama のモデルを 1 つだけ載せておく（#178）
 
         処理ごとにモデルを分けると、録音中に途中の要約・タイトル・用語の抽出で別々のモデルを使う。
         どれも keep_alive: -1 で載せたままにすると、Whisper と合わせて VRAM（6GB）が溢れ、
-        読み込みに 1 分以上かかって文字起こしも止まった。別のモデルを使う前に、録音中に載せた
-        ほかのモデルを下ろす（下ろせなくても生成は試す）
+        読み込みに 1 分以上かかって文字起こしも止まった。生成の前に、使うモデル以外を下ろす。
+        録音の前に載せたモデル（参考資料を作った gemma4:e4b が keepAliveMin のあいだ残っている
+        など。#328）も下ろすため、載っているモデルを /api/ps で調べる。調べられなければ、録音中に
+        載せたモデルだけを下ろす（下ろせなくても生成は試す）
         """
-        for other in sorted(self._pinned - {model}):
+        others = set(self._pinned)
+        with contextlib.suppress(OllamaUnavailable):
+            loaded = await self._request("GET", "/api/ps")
+            for item in loaded.get("models") or []:
+                name = item.get("name") or item.get("model")
+                if name:
+                    others.add(name)
+        for other in sorted(o for o in others if not _same_model(o, model)):
             with contextlib.suppress(OllamaUnavailable):
                 await self._request("POST", "/api/generate", json={"model": other, "keep_alive": 0})
                 log.info("ollama unloaded %s to load %s while recording", other, model)
