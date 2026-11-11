@@ -16,9 +16,20 @@ router = APIRouter(prefix="/api/settings")
 _PATH_LIKE = re.compile(r"^(?:[A-Za-z]:|[\\/])|\\")
 
 
+def _validation_errors(e: ValidationError) -> list[dict[str, Any]]:
+    """422 で返す検証のエラー。LM Studio の項目は、送られた値（input）を返さない
+    （トークンを打ち間違えた形で送ったときに、そのまま返さないように。#325）"""
+    errors = e.errors(include_url=False, include_context=False)
+    for error in errors:
+        if error.get("loc") and error["loc"][0] == "lmstudio":
+            error.pop("input", None)
+    return errors
+
+
 @router.get("")
 def get_settings(ctx: Annotated[AppContext, Depends(get_ctx)]) -> dict[str, Any]:
-    return ctx.settings.get().to_json()
+    # LM Studio のトークンは返さない（設定済みかどうかだけ。#325）
+    return ctx.settings.get().public_json()
 
 
 @router.patch("")
@@ -62,10 +73,11 @@ async def patch_settings(
             status_code=409, detail=f"録音中は変えられない項目です: {', '.join(e.fields)}"
         ) from e
     except ValidationError as e:
-        raise HTTPException(
-            status_code=422, detail=e.errors(include_url=False, include_context=False)
-        ) from e
+        raise HTTPException(status_code=422, detail=_validation_errors(e)) from None
     # プロジェクトの並びが変わったら、ほかの端末にも知らせる（#173）
     if settings.to_json()["projectOrder"] != before:
         await ctx.hub.broadcast({"type": "projectOrder"})
-    return settings.to_json()
+    # 使う LLM を変えたら切り替える（録音中なら、録音がすべて終わってから。#325）
+    if ctx.ollama is not None and hasattr(ctx.ollama, "sync"):
+        await ctx.ollama.sync()
+    return settings.public_json()

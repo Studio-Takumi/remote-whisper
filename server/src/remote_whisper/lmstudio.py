@@ -17,8 +17,10 @@
 - つながらなければ status の lmstudio を error にする。つながれば ready に戻す
 - API トークン（任意）は `Authorization: Bearer` で送る（ログには出さない）
 
-TODO(#325): 接続先・トークン・処理ごとのモデルを設定から読む。今はコンストラクタの引数
-TODO(#326): 載せ下ろし（保持の時間・録音中は 1 つだけ・タイマー）。今は自分で載せたものを下ろすだけ
+- 接続先・トークン・処理ごとのモデルは設定の `lmstudio` から読む（#325）
+
+TODO(#326): 載せ下ろし（保持の時間・録音中は 1 つだけ・タイマー）。今は自分で載せたものを下ろす
+  だけ。保持の時間は Ollama と共通の `ollama.keepAliveMin` を読む（#325 で決めた）
 TODO(#327): モデルのダウンロード（pull）。今は LMStudioUnavailable にする
 """
 
@@ -37,8 +39,6 @@ from remote_whisper.settings import SettingsStore
 from remote_whisper.summary_parts import NUM_CTX
 
 log = logging.getLogger(__name__)
-
-DEFAULT_HOST = "http://localhost:1234"
 
 # 一覧やモデルの情報を取るときの待ち時間（秒）。生成は長くかかるので、読み取りの待ち時間は設けない
 REQUEST_TIMEOUT = 10.0
@@ -215,19 +215,23 @@ def _instances(entry: dict[str, Any]) -> list[tuple[str, int]]:
 class LMStudioClient:
     """`llm.LlmClient` の LM Studio での実装"""
 
+    # 処理ごとのモデルを読む設定（Settings.llm_models）
+    backend = "lmstudio"
+
     def __init__(
         self,
         hub: Hub,
         settings: SettingsStore,
-        host: str = DEFAULT_HOST,
+        host: str | None = None,
         token: str | None = None,
         recording: Callable[[], bool] = lambda: False,
         transport: httpx.AsyncBaseTransport | None = None,
     ):
+        """host・token を省くと、設定（lmstudio.host・lmstudio.token）を使うたびに読む"""
         self.hub = hub
         self.settings = settings
-        self.host = host.rstrip("/")
-        self._token = token or None
+        self._host = host
+        self._token_arg = token
         # 録音中かどうか（#326 で載せ下ろしに使う）
         self.recording = recording
         self._transport = transport
@@ -241,6 +245,17 @@ class LMStudioClient:
         # モデル → 載せるときのロック（同時に load して 2 つ載らないように）
         self._load_locks: dict[str, asyncio.Lock] = {}
         self._monitor: asyncio.Task | None = None
+
+    @property
+    def host(self) -> str:
+        return (self._host or self.settings.get().lmstudio.host).rstrip("/")
+
+    @property
+    def _token(self) -> str | None:
+        """API トークン。空なら送らない。秘密の値なので、ログ・例外の文には入れない"""
+        if self._token_arg is not None:
+            return self._token_arg or None
+        return self.settings.get().lmstudio.token or None
 
     def _client(self, timeout: httpx.Timeout | float = REQUEST_TIMEOUT) -> httpx.AsyncClient:
         headers = {"Authorization": f"Bearer {self._token}"} if self._token else None
@@ -337,8 +352,8 @@ class LMStudioClient:
         """動かすモデル。入っていなければ、要約詳細のモデル → 全体概要のモデル →
         入っているうち最初のもの、の順に代わりを選ぶ（#178。Ollama と同じ考え方）
 
-        一覧を取れない・何も入っていないときは、そのまま返す（呼んだ先で失敗する）
-        TODO(#325): 処理ごとのモデルを lmstudio の設定から読む。今は ollama.models を見る
+        一覧を取れない・何も入っていないときは、そのまま返す（呼んだ先で失敗する）。
+        要約詳細・全体概要のモデルは lmstudio.models から読む（#325）
         """
         try:
             installed = await self.installed()
@@ -346,7 +361,7 @@ class LMStudioClient:
             return model
         if not installed or model in installed:
             return model
-        models = self.settings.get().ollama.models
+        models = self.settings.get().lmstudio.models
         alternative = next(
             m for m in (models.detail, models.overview, *sorted(installed)) if m in installed
         )

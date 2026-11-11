@@ -474,18 +474,29 @@ def test_format_context_exceeded_keeps_status_ready(lms, fake):
 
 
 def test_missing_model_falls_back(lms, fake, caplog):
-    # 入っていないモデルは、入っているうち最初のもので代わりに動かす（#178）
+    # 入っていないモデルは、lmstudio.models の要約詳細のモデルで代わりに動かす（#178・#325）。
+    # 既定は google/gemma-4-e4b
     with caplog.at_level(logging.WARNING):
         stream(lms, "qwen3.5:4b", MESSAGES)
         stream(lms, "qwen3.5:4b", MESSAGES)
-    assert [b["model"] for b in fake.bodies("/api/v1/chat")] == ["acme/always-think"] * 2
+    assert [b["model"] for b in fake.bodies("/api/v1/chat")] == [GEMMA] * 2
     assert sum("qwen3.5:4b is not installed" in r.message for r in caplog.records) == 1
 
 
+def test_missing_model_falls_back_to_the_first_installed(lms, fake):
+    # 要約詳細・全体概要のモデルも入っていなければ、入っているうち最初のもの
+    lms.settings.update({"lmstudio": {"models": {"detail": "x/a", "overview": "x/b"}}})
+    assert run(lms.resolve("nope")) == "acme/always-think"
+
+
 def test_fallback_prefers_the_detail_model(lms, fake):
-    lms.settings.update({"ollama": {"models": {"detail": GEMMA}}})
+    # 代わりのモデルは lmstudio.models から選ぶ。ollama.models は見ない（#325）
+    lms.settings.update({"ollama": {"models": {"detail": "acme/plain"}}})
+    lms.settings.update({"lmstudio": {"models": {"detail": GEMMA}}})
     assert run(lms.resolve("nope")) == GEMMA
     assert run(lms.resolve("acme/plain")) == "acme/plain"
+    lms.settings.update({"lmstudio": {"models": {"detail": "acme/plain"}}})
+    assert run(lms.resolve("nope")) == "acme/plain"
 
 
 def test_resolve_keeps_the_model_when_lmstudio_is_down(lms, fake):

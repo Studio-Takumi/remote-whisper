@@ -57,6 +57,11 @@ TUNNEL_LOCKED: tuple[tuple[str, str], ...] = (
     ("materials", "roots"),
     ("materials", "extensions"),
     ("ollama", "host"),
+    # LM Studio の接続先とトークン（#325）。Ollama の接続先と同じ理由。トークンは秘密の値
+    ("lmstudio", "host"),
+    ("lmstudio", "token"),
+    # 使う LLM（#325）。切り替えると要約などを送る先が変わるので、接続先と同じに扱う
+    ("llm", "backend"),
     # 8000 番を開ける名前（#249）。広げると、ほかのサイトから 8000 番を使われうる
     ("network", "allowedHosts"),
 )
@@ -151,6 +156,32 @@ class OllamaModels(_Model):
         return FinalModels(self.overview, self.detail, self.final_title)
 
 
+# LM Studio のおすすめのモデル（#325）。Ollama のおすすめと同じモデルの、LM Studio のカタログの ID
+# （`lms get <ID>`・`GET /api/v1/models` の key）。Ollama とは名前の付け方が違うので別に持つ
+LMSTUDIO_MODEL_IDS = {
+    "gemma4:e4b": "google/gemma-4-e4b",
+    "qwen3.5:2b": "qwen/qwen3.5-2b",
+}
+LMSTUDIO_RECOMMENDED_MODELS = {
+    task: LMSTUDIO_MODEL_IDS[model] for task, model in RECOMMENDED_MODELS.items()
+}
+
+
+class LMStudioModels(OllamaModels):
+    """LM Studio を使う処理ごとのモデル（#325）。形は OllamaModels と同じで、初期値だけが違う"""
+
+    material_terms: str = LMSTUDIO_RECOMMENDED_MODELS["materialTerms"]
+    context: str = LMSTUDIO_RECOMMENDED_MODELS["context"]
+    scope: str = LMSTUDIO_RECOMMENDED_MODELS["scope"]
+    figures: str = LMSTUDIO_RECOMMENDED_MODELS["figures"]
+    transcript_terms: str = LMSTUDIO_RECOMMENDED_MODELS["transcriptTerms"]
+    live_summary: str = LMSTUDIO_RECOMMENDED_MODELS["liveSummary"]
+    live_title: str = LMSTUDIO_RECOMMENDED_MODELS["liveTitle"]
+    overview: str = LMSTUDIO_RECOMMENDED_MODELS["overview"]
+    detail: str = LMSTUDIO_RECOMMENDED_MODELS["detail"]
+    final_title: str = LMSTUDIO_RECOMMENDED_MODELS["finalTitle"]
+
+
 @dataclass(frozen=True)
 class FinalModels:
     """最終の要約で使うモデル。作り直しは、頼んだ時点のものを渡す"""
@@ -237,6 +268,28 @@ class OllamaSettings(_Model):
     # 最終要約の詳細の項目に、参考資料の場所（PDF のページ）を付けるか（#237）。既定はオフ。
     # オンにしたあとで作った要約と、作り直した要約に付く
     detail_material_pages: bool = False
+
+
+LlmBackend = Literal["ollama", "lmstudio"]
+
+
+class LlmSettings(_Model):
+    """使う LLM（#325。spec/files.md 5.3）。要約などの処理ごとの設定（間隔・要約度・keepAliveMin
+    など）は、どちらのバックエンドでも ollama の下のものを使う"""
+
+    # 録音中に変えたときは、保存はするが、切り替えるのは録音がすべて終わってから
+    # （llm_switch.LlmSwitch。spec/files.md 5.3）
+    backend: LlmBackend = "ollama"
+
+
+class LMStudioSettings(_Model):
+    """LM Studio（#325。spec/files.md 5.3）"""
+
+    host: str = "http://localhost:1234"
+    # API トークン（LM Studio で「認証を求める」にしたとき）。空なら送らない。
+    # 秘密の値なので、API（GET /api/settings）・ログ・WebSocket には出さない（public_json）
+    token: str = Field(default="", min_length=0)
+    models: LMStudioModels = Field(default_factory=LMStudioModels)
 
 
 class RecordingSettings(_Model):
@@ -404,6 +457,8 @@ class Settings(_Model):
     version: int = SETTINGS_VERSION
     whisper: WhisperSettings = Field(default_factory=WhisperSettings)
     ollama: OllamaSettings = Field(default_factory=OllamaSettings)
+    llm: LlmSettings = Field(default_factory=LlmSettings)
+    lmstudio: LMStudioSettings = Field(default_factory=LMStudioSettings)
     recording: RecordingSettings = Field(default_factory=RecordingSettings)
     retention_days: RetentionDays = Field(default_factory=RetentionDays)
     materials: MaterialsSettings = Field(default_factory=MaterialsSettings)
@@ -422,7 +477,41 @@ class Settings(_Model):
         return list(dict.fromkeys(value))
 
     def to_json(self) -> dict[str, Any]:
+        """setting.json に書く形（秘密の値も含む）。API で返すときは public_json"""
         return self.model_dump(by_alias=True)
+
+    def public_json(self) -> dict[str, Any]:
+        """API で返す形。LM Studio のトークンは返さず、設定済みかどうか（tokenSet）だけにする"""
+        data = self.to_json()
+        lmstudio = data["lmstudio"]
+        lmstudio["tokenSet"] = bool(lmstudio.pop("token"))
+        return data
+
+    def llm_models(self, backend: str | None = None) -> OllamaModels:
+        """バックエンド（省略すると設定で選んでいるもの）の処理ごとのモデル"""
+        if (backend or self.llm.backend) == "lmstudio":
+            return self.lmstudio.models
+        return self.ollama.models
+
+
+def prepare_patch(patch: dict[str, Any]) -> dict[str, Any]:
+    """API から来た部分更新を、保存する形に直す（#325）
+
+    LM Studio のトークンは GET で返さないので、画面は設定をまるごと送っても token を持たない。
+    - `tokenSet`（GET で返した、設定済みかどうか）は捨てる
+    - token がない・空のときは、保存済みのものをそのまま残す
+    - token が null のときは消す（空にする）
+    """
+    lmstudio = patch.get("lmstudio")
+    if not isinstance(lmstudio, dict):
+        return patch
+    lmstudio = {k: v for k, v in lmstudio.items() if k != "tokenSet"}
+    if "token" in lmstudio:
+        if lmstudio["token"] is None:
+            lmstudio["token"] = ""
+        elif lmstudio["token"] == "":
+            del lmstudio["token"]
+    return {**patch, "lmstudio": lmstudio}
 
 
 def deep_merge(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
@@ -490,11 +579,12 @@ class SettingsStore:
         """部分更新。検証に通らなければ pydantic.ValidationError を投げ、ファイルは変えない
 
         locked の項目（録音中は RECORDING_LOCKED）の値が変わるなら SettingsLockedError を投げる。
-        同じ値を送るのはかまわない（画面は設定をまるごと送るため）
+        同じ値を送るのはかまわない（画面は設定をまるごと送るため）。
+        LM Studio のトークンの扱いは prepare_patch
         """
         with self._lock:
             before = self._settings.to_json()
-            merged = deep_merge(before, patch)
+            merged = deep_merge(before, prepare_patch(patch))
             merged["version"] = SETTINGS_VERSION
             settings = Settings.model_validate(merged)
             after = settings.to_json()

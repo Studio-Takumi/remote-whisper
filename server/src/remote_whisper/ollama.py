@@ -54,6 +54,9 @@ def _same_model(a: str, b: str) -> bool:
 class OllamaClient:
     """`llm.LlmClient` の Ollama での実装"""
 
+    # 処理ごとのモデルを読む設定（Settings.llm_models）
+    backend = "ollama"
+
     def __init__(
         self,
         hub: Hub,
