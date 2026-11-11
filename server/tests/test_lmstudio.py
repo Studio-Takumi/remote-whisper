@@ -510,7 +510,7 @@ def test_resolve_keeps_the_model_when_lmstudio_is_down(lms, fake):
 
 def test_unload_all_unloads_only_what_it_loaded(lms, fake):
     fake.load("acme/plain", 8192)  # 手で載せたもの
-    stream(lms, GEMMA, MESSAGES)  # JIT で載る
+    stream(lms, GEMMA, MESSAGES)  # 生成の前に NUM_CTX で載せる
     run(lms.unload_all())
     assert fake.bodies("/api/v1/models/unload") == [{"instance_id": GEMMA}]
     assert fake.loaded == {"acme/plain": [("acme/plain", 8192)], GEMMA: []}
@@ -586,9 +586,8 @@ class Broken(httpx.AsyncByteStream):
 CHAT_START = b'event: chat.start\ndata: {"type": "chat.start"}\n\n'
 
 
-def test_jit_instance_is_unloaded_even_if_the_stream_closes_early(lms, fake):
-    # 何も載っていないところで context を超えると、読み込んだあと chat.end なしで閉じる。
-    # 載ったインスタンスは unload_all で下ろす
+def test_loaded_instance_is_unloaded_even_if_the_stream_closes_early(lms, fake):
+    # context を超えると chat.end なしで閉じる。先に載せたインスタンスは unload_all で下ろす
     fake.context_exceeded = True
     with pytest.raises(LMStudioUnavailable, match="without chat.end"):
         stream(lms, GEMMA, MESSAGES)
@@ -976,3 +975,151 @@ def test_shutdown_does_nothing_when_unreachable(timed, fake):
     fake.up = False
     run(timed.shutdown())
     assert loaded_ids(fake) == [GEMMA]
+
+
+# --- レビューの指摘（PR #337）---
+
+
+def test_shutdown_gives_up_after_lmstudio_does_not_answer(timed, fake):
+    # 応答しない（タイムアウト）ときは、1 回失敗したら残りは諦める（止めるのを待たせない）
+    run(timed.chat(GEMMA, MESSAGES))
+    run(timed.chat(PLAIN, MESSAGES))
+    tries = []
+
+    def handle(request):
+        if request.url.path == "/api/v1/models/unload":
+            tries.append(1)
+            raise httpx.ReadTimeout("timed out", request=request)
+        return fake.handle(request)
+
+    timed._transport = httpx.MockTransport(handle)
+    run(timed.shutdown())
+    assert len(tries) == 1
+    assert loaded_ids(fake) == sorted([PLAIN, GEMMA])
+
+
+def test_reloaded_by_hand_with_the_same_id_is_not_unloaded(timed, fake, clock):
+    # 自分の <key> を手で下ろし、同じモデルを手で載せ直すと、同じ id になる。間に一覧を取って
+    # いれば、載っていないとわかった時点で忘れるので、手で載せ直したほうは下ろさない
+    run(timed.chat(GEMMA, MESSAGES))
+    fake.loaded[GEMMA].clear()  # 手で下ろした
+    clock.now += 5
+    run(timed.installed())  # 一覧を取った
+    assert timed._loaded == {}
+    fake.load(GEMMA, NUM_CTX)  # 手で載せ直した（同じ id）
+    run(timed.unload_all())
+    assert fake.bodies("/api/v1/models/unload") == []
+    assert loaded_ids(fake) == [GEMMA]
+
+
+def test_reloaded_by_hand_with_another_context_is_not_unloaded(timed, fake, clock, caplog):
+    # 間に一覧を取らなくても、下ろす前の一覧で context が食い違えば自分のものではないとみなす
+    run(timed.chat(GEMMA, MESSAGES))
+    fake.loaded[GEMMA].clear()
+    fake.load(GEMMA, 8192)
+    clock.now += 5
+    run(timed.unload_all())
+    assert fake.bodies("/api/v1/models/unload") == []
+    assert loaded_ids(fake) == [GEMMA]
+    assert "instead of 16384" in caplog.text
+
+
+def test_load_without_an_instance_id_remembers_the_new_instance(lms, fake):
+    # id が返らなければ、モデルの名前で代わりに覚えず（手で載せた <key> を下ろしてしまう）、
+    # 載せたあとの一覧で増えた id を覚える
+    fake.load(GEMMA, 8192)  # 手で載せたもの（id は <key>）
+
+    def respond(request):
+        fake.load(GEMMA, NUM_CTX)
+        return httpx.Response(200, json={"type": "llm", "load_time_seconds": 1.0})
+
+    with_handler(lms, fake, "/api/v1/models/load", respond)
+    stream(lms, GEMMA, MESSAGES)
+    assert lms._loaded == {f"{GEMMA}:2": NUM_CTX}
+    assert fake.bodies("/api/v1/chat")[-1]["model"] == f"{GEMMA}:2"
+    run(lms.unload_all())
+    assert fake.loaded[GEMMA] == [(GEMMA, 8192)]
+
+
+def test_load_without_an_instance_id_is_not_remembered_when_not_found(lms, fake, caplog):
+    fake.load(GEMMA, 8192)
+    respond = lambda r: httpx.Response(200, json={"type": "llm"})  # noqa: E731
+    with_handler(lms, fake, "/api/v1/models/load", respond)
+    run(lms._instance(GEMMA))
+    assert lms._loaded == {}
+    assert "did not tell its instance id" in caplog.text
+
+
+def test_jit_load_without_an_instance_id_is_not_remembered(lms, fake, caplog):
+    from fake_lmstudio import _sse
+
+    fake.load(GEMMA, NUM_CTX)  # 手で載せたもの。使ったあと、/api/v1/chat が読み込み直したまね
+    events = [
+        ("chat.start", {}),
+        ("model_load.start", {}),
+        ("model_load.end", {"load_time_seconds": 1.0}),
+        ("message.delta", {"content": "要約"}),
+        ("chat.end", {"result": {"stats": {}}}),
+    ]
+    respond = lambda r: httpx.Response(200, content=_sse(events))  # noqa: E731
+    with_handler(lms, fake, "/api/v1/chat", respond)
+    assert stream(lms, GEMMA, MESSAGES) == ["要約"]
+    assert lms._loaded == {}
+    assert "without telling its instance id" in caplog.text
+
+
+@pytest.mark.parametrize("how", ["unload_all", "timer", "recording", "shutdown"])
+def test_only_its_own_instance_is_unloaded_next_to_one_loaded_by_hand(
+    timed, fake, clock, state, how
+):
+    # 手で 8192 で載せた <key> と、自分が NUM_CTX で載せた <key>:2 が並ぶ。下ろすのは :2 だけ
+    fake.load(GEMMA, 8192)
+
+    async def go():
+        await timed.chat(GEMMA, MESSAGES)
+        await settle()
+        assert sorted(timed._loaded) == [f"{GEMMA}:2"]
+        if how == "unload_all":
+            await timed.unload_all()
+        elif how == "timer":
+            await clock.advance(600)
+        elif how == "recording":
+            state["recording"] = True
+            await timed.chat(PLAIN, MESSAGES)
+        else:
+            await timed.shutdown()
+
+    run(go())
+    assert fake.bodies("/api/v1/models/unload") == [{"instance_id": f"{GEMMA}:2"}]
+    assert (GEMMA, 8192) in fake.loaded[GEMMA]
+
+
+def test_generation_while_the_timer_is_unloading(timed, fake, clock):
+    # タイマーが下ろしている最中に生成が来たら、次のインスタンスの前で止まり、生成はロックを
+    # 待ってから載せ直す。生成が終わったら、そこから数え直して下ろす
+    gate = asyncio.Event()
+
+    async def handle(request):
+        if request.url.path == "/api/v1/models/unload":
+            await gate.wait()
+        return fake.handle(request)
+
+    async def go():
+        await timed.chat(GEMMA, MESSAGES)
+        await timed.chat(PLAIN, MESSAGES)
+        await settle()
+        timed._transport = httpx.MockTransport(handle)
+        await clock.advance(600)  # 名前の順で先の PLAIN を下ろしている途中で止まる
+        generation = asyncio.create_task(timed.chat(PLAIN, MESSAGES))
+        await settle()
+        assert not generation.done()
+        gate.set()
+        assert await generation == "要約です"
+        await settle()
+        # GEMMA は下ろさずに止まった。PLAIN は載せ直した
+        assert loaded_ids(fake) == sorted([GEMMA, PLAIN])
+        assert len(fake.bodies("/api/v1/models/unload")) == 1
+        await clock.advance(600)
+        assert loaded_ids(fake) == []
+
+    run(go())

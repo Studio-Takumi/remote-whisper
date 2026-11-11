@@ -268,8 +268,10 @@ class LMStudioClient:
         self._sleep = sleep
         # モデル名 → capabilities。入れ直すことはまれなので覚えておく
         self._capabilities: dict[str, dict[str, Any]] = {}
-        # このクライアントが載せたインスタンス（これだけを下ろす）。手で載せたものは下ろさない
-        self._loaded: set[str] = set()
+        # このクライアントが載せたインスタンス → 載せたときの context_length（これだけを下ろす）。
+        # 手で載せたものは下ろさない。一覧に載っていない・context が食い違うものは、手で
+        # 下ろされた（同じ id で手で載せ直されたかもしれない）とみなして忘れる（_forget_gone）
+        self._loaded: dict[str, int] = {}
         # 入っていなかったモデル・context の小さいインスタンス・手で載せたインスタンス
         # （ログに書いたもの。何度も書かない）
         self._missing: set[str] = set()
@@ -405,8 +407,32 @@ class LMStudioClient:
         for key, m in llms.items():
             self._capabilities[key] = dict(m.get("capabilities") or {})
         if version == self._list_version:
+            # 取っている間に載せ下ろししていなければ、一覧は今の状態を表している
             self._list, self._list_at = llms, self._clock()
+            self._forget_gone(llms)
         return llms
+
+    def _forget_gone(self, llms: dict[str, dict[str, Any]]) -> None:
+        """自分が載せた記録のうち、一覧に載っていないもの・context が食い違うものを忘れる
+
+        自分の `<key>` を手で下ろしたあと、同じモデルを手で載せ直すと、新しいインスタンスも
+        同じ `<key>` になる。記録を残したままだと、手で載せたほうを下ろしてしまうため。
+        同じ context で載せ直されて、その間に一覧を取らなかったときは見分けられない"""
+        listed = {iid: ctx for entry in llms.values() for iid, ctx in _instances(entry)}
+        for iid, ctx in list(self._loaded.items()):
+            if iid not in listed:
+                log.info("lmstudio %s is no longer loaded; forgetting it", iid)
+            elif listed[iid] != ctx:
+                log.warning(
+                    "lmstudio %s is now loaded with context %d instead of %d (by hand?); "
+                    "not unloading it",
+                    iid,
+                    listed[iid],
+                    ctx,
+                )
+            else:
+                continue
+            del self._loaded[iid]
 
     def _listed_loaded(self, model: str, iid: str, ctx: int) -> None:
         """自分で載せたインスタンスを、覚えている一覧にも足す"""
@@ -522,12 +548,36 @@ class LMStudioClient:
                 timeout=LOAD_TIMEOUT,
                 json={"model": model, "context_length": NUM_CTX},
             )
-            iid = str(data.get("instance_id") or model)
-            self._loaded.add(iid)
-            self._listed_loaded(model, iid, NUM_CTX)
             sec = float(data.get("load_time_seconds") or 0)
+            if data.get("instance_id"):
+                iid = str(data["instance_id"])
+                self._loaded[iid] = NUM_CTX
+                self._listed_loaded(model, iid, NUM_CTX)
+            else:
+                # id が返らなかった（#322 では返る）。モデルの名前で代わりに覚えると、手で
+                # 載せた `<key>` を自分のものとみなしてしまうので、一覧で増えた id を探す
+                iid = await self._find_loaded(model, {i for i, _ in instances})
             log.info("lmstudio loaded %s in %.1fs", iid, sec)
             return iid, NUM_CTX
+
+    async def _find_loaded(self, model: str, before: set[str]) -> str:
+        """載せたのに id が返らなかったとき、載せる前になかった NUM_CTX のインスタンスを一覧から
+        探して覚える。見つからなければ覚えずにログに書き、モデルの名前で生成する"""
+        with contextlib.suppress(LMStudioUnavailable):
+            entry = (await self._llms(fresh=True)).get(model)
+            new = [
+                iid
+                for iid, ctx in (_instances(entry) if entry else [])
+                if iid not in before and ctx == NUM_CTX
+            ]
+            if len(new) == 1:
+                self._loaded[new[0]] = NUM_CTX
+                return new[0]
+        log.warning(
+            "lmstudio loaded %s but did not tell its instance id; it will not be unloaded", model
+        )
+        self._forget_list()
+        return model
 
     async def _unload_others(self, llms: dict[str, dict[str, Any]], keep: str | None) -> None:
         """録音中は、LM Studio のモデルを 1 つだけ載せておく（#178。Ollama の同名のものと同じ）
@@ -535,8 +585,9 @@ class LMStudioClient:
         自分が載せたインスタンスのうち、これから使う keep 以外を下ろす（録音の前に参考資料などで
         載せたものも）。手で載せたものは下ろさず、VRAM を使っているかもしれないとログに書く
         （インスタンスごとに 1 回）。下ろせなくても生成は試す。載せ下ろしのロックの中で呼ぶ"""
-        for iid in sorted(self._loaded - {keep}):
-            await self._unload(iid, "to load another model while recording")
+        for iid in sorted(set(self._loaded) - {keep}):
+            if not await self._unload(iid, "to load another model while recording"):
+                break
         manual = sorted(
             iid
             for entry in llms.values()
@@ -563,19 +614,30 @@ class LMStudioClient:
         except LMStudioUnavailable:
             if self.hub.status.lmstudio == "error":
                 return False
-        self._loaded.discard(iid)
+        self._loaded.pop(iid, None)
         self._listed_unloaded(iid)
         return True
 
     async def _unload_mine(self, why: str, stop: Callable[[], bool] = lambda: False) -> bool:
-        """自分が載せたインスタンスをすべて下ろす（つながらないものは残す）
+        """自分が載せたインスタンスをすべて下ろす
 
-        stop() が True になったら、そこでやめて False を返す。インスタンスごとに確かめる"""
+        先に一覧で、もう載っていないもの・手で載せ直されたものを忘れる（_forget_gone）。
+        つながらなければ、残りも諦める（記録は残し、次に下ろす。止めるときに LM Studio が
+        応答しないと、インスタンスごとに待たされるため）。stop() が True になったら、そこで
+        やめて False を返す。インスタンスごとに確かめる"""
         async with self._vram:
+            if not self._loaded:
+                return True
+            try:
+                await self._llms()
+            except LMStudioUnavailable:
+                if self.hub.status.lmstudio == "error":
+                    return True
             for iid in sorted(self._loaded):
                 if stop():
                     return False
-                await self._unload(iid, why)
+                if not await self._unload(iid, why):
+                    break
         return True
 
     # --- 保持の時間（keepAliveMin）---
@@ -743,8 +805,18 @@ class LMStudioClient:
                     elif kind in ("model_load.start", "model_load.end"):
                         # 先に載せたのに、/api/v1/chat が読み込んだ（JIT。載せた直後に手で
                         # 下ろされたなど）。chat.end まで届かずに閉じても下ろせるように、
-                        # この時点で自分が載せたものに数える。覚えている一覧は捨てる
-                        self._loaded.add(str(data.get("model_instance_id") or body["model"]))
+                        # この時点で自分が載せたものに数える。覚えている一覧は捨てる。
+                        # id が来なければ覚えない（名前で代わりに覚えると、手で載せた `<key>`
+                        # を自分のものとみなしてしまう）
+                        jit = data.get("model_instance_id")
+                        if jit:
+                            self._loaded[str(jit)] = int(body["context_length"])
+                        elif kind == "model_load.start":
+                            log.warning(
+                                "lmstudio loaded %s without telling its instance id; it will "
+                                "not be unloaded",
+                                model,
+                            )
                         self._forget_list()
                     if kind == "model_load.end":
                         sec = float(data.get("load_time_seconds") or 0)
