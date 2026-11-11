@@ -409,3 +409,153 @@ def test_status_message_has_lmstudio_only_after_it_is_used(lms):
     assert "lmstudio" not in lms.hub.status.message()
     run(lms.models())
     assert lms.hub.status.message()["lmstudio"] == "ready"
+
+
+# --- レビューの指摘（PR #334）---
+
+
+def with_handler(lms, fake, path, respond):
+    """path への頼みだけを respond に答えさせる"""
+    original = fake.handle
+
+    def handle(request):
+        if request.url.path == path:
+            fake.requests.append((path, {}))
+            return respond(request)
+        return original(request)
+
+    lms._transport = httpx.MockTransport(handle)
+
+
+class Broken(httpx.AsyncByteStream):
+    """先頭を送ったあとに接続が切れるストリーム"""
+
+    def __init__(self, head: bytes):
+        self.head = head
+
+    async def __aiter__(self):
+        if self.head:
+            yield self.head
+        raise httpx.RemoteProtocolError("peer closed connection")
+
+
+CHAT_START = b'event: chat.start\ndata: {"type": "chat.start"}\n\n'
+
+
+def test_jit_instance_is_unloaded_even_if_the_stream_closes_early(lms, fake):
+    # 何も載っていないところで context を超えると、読み込んだあと chat.end なしで閉じる。
+    # 載ったインスタンスは unload_all で下ろす
+    fake.context_exceeded = True
+    with pytest.raises(LMStudioUnavailable, match="without chat.end"):
+        stream(lms, GEMMA, MESSAGES)
+    assert fake.loaded == {GEMMA: [(GEMMA, NUM_CTX)]}
+    run(lms.unload_all())
+    assert fake.loaded == {GEMMA: []}
+
+
+def test_broken_stream_after_chat_start_keeps_status_ready(lms, fake):
+    respond = lambda r: httpx.Response(200, stream=Broken(CHAT_START))  # noqa: E731
+    with_handler(lms, fake, "/api/v1/chat", respond)
+    with pytest.raises(LMStudioUnavailable, match="without chat.end"):
+        stream(lms, GEMMA, MESSAGES)
+    assert lms.hub.status.lmstudio == "ready"
+
+
+def test_broken_stream_before_chat_start_sets_status_error(lms, fake):
+    with_handler(lms, fake, "/api/v1/chat", lambda r: httpx.Response(200, stream=Broken(b"")))
+    with pytest.raises(LMStudioUnavailable):
+        stream(lms, GEMMA, MESSAGES)
+    assert lms.hub.status.lmstudio == "error"
+
+
+def test_completions_closed_without_done_fails(lms, fake):
+    chunk = b'data: {"choices": [{"delta": {"content": "{"}}]}\n\n'
+    with_handler(lms, fake, "/v1/chat/completions", lambda r: httpx.Response(200, content=chunk))
+    with pytest.raises(LMStudioUnavailable, match="without \\[DONE\\]"):
+        run(lms.chat(GEMMA, MESSAGES, format=TITLE_FORMAT))
+    assert lms.hub.status.lmstudio == "ready"
+
+
+def test_completions_error_chunk_fails(lms, fake):
+    chunk = b'data: {"error": {"message": "boom"}}\n\n'
+    with_handler(lms, fake, "/v1/chat/completions", lambda r: httpx.Response(200, content=chunk))
+    with pytest.raises(LMStudioUnavailable, match="boom"):
+        run(lms.chat(GEMMA, MESSAGES, format=TITLE_FORMAT))
+
+
+def test_empty_reply_of_an_always_thinking_model_with_format_fails(lms, fake):
+    fake.empty_when_thinking = True
+    with pytest.raises(LMStudioUnavailable, match="no reply"):
+        run(lms.chat("acme/always-think", MESSAGES, format=TITLE_FORMAT))
+    # いつも思考するモデルには reasoning_effort を送らない
+    assert "reasoning_effort" not in fake.bodies("/v1/chat/completions")[0]
+
+
+def test_messages_other_than_system_and_user_go_to_completions(lms, fake):
+    messages = [*MESSAGES, {"role": "assistant", "content": "前の答え"}, MESSAGES[1]]
+    assert run(lms.chat(GEMMA, messages)) == "要約です"
+    assert fake.bodies("/api/v1/chat") == []
+    body = fake.bodies("/v1/chat/completions")[0]
+    assert body["messages"] == messages
+    assert "response_format" not in body
+    # system と user だけなら /api/v1/chat
+    run(lms.chat(GEMMA, MESSAGES))
+    assert len(fake.bodies("/api/v1/chat")) == 1
+
+
+TOKEN = "sk-lm-secret-token"
+
+
+@pytest.mark.parametrize(
+    "case", ["unreachable", "rejected", "server_error", "closed", "broken", "invalid_host"]
+)
+def test_token_is_never_logged_or_exposed(home, fake, caplog, case):
+    caplog.set_level(logging.DEBUG)
+    lms = LMStudioClient(Hub(), SettingsStore(home), token=TOKEN, transport=fake.transport())
+    if case == "invalid_host":
+        # URL として読めない接続先。つなぎに行く前に失敗するので、本物の通信は起きない
+        lms = LMStudioClient(Hub(), SettingsStore(home), host="http://[bad", token=TOKEN)
+    if case == "unreachable":
+        fake.up = False
+    elif case == "rejected":
+        with_handler(lms, fake, "/api/v1/chat", lambda r: httpx.Response(400, text="bad"))
+    elif case == "server_error":
+        with_handler(lms, fake, "/api/v1/chat", lambda r: httpx.Response(500, text="boom"))
+    elif case == "closed":
+        fake.context_exceeded = True
+    elif case == "broken":
+        respond = lambda r: httpx.Response(200, stream=Broken(CHAT_START))  # noqa: E731
+        with_handler(lms, fake, "/api/v1/chat", respond)
+    with pytest.raises(LMStudioUnavailable) as e:
+        stream(lms, GEMMA, MESSAGES)
+    assert TOKEN not in str(e.value)
+    assert TOKEN not in caplog.text
+    assert TOKEN not in str(lms.hub.status.message())
+
+
+def test_unload_all_keeps_instances_it_could_not_reach(lms, fake):
+    run(lms.chat(GEMMA, MESSAGES, format=TITLE_FORMAT))
+    fake.up = False
+    run(lms.unload_all())
+    assert fake.loaded == {GEMMA: [(GEMMA, NUM_CTX)]}
+    # つながるようになったら、次に下ろす
+    fake.up = True
+    run(lms.unload_all())
+    assert fake.loaded == {GEMMA: []}
+
+
+def test_unload_all_forgets_instances_that_are_already_gone(lms, fake):
+    run(lms.chat(GEMMA, MESSAGES, format=TITLE_FORMAT))
+    fake.loaded[GEMMA].clear()  # 手で下ろされた
+    run(lms.unload_all())
+    run(lms.unload_all())
+    assert len(fake.bodies("/api/v1/models/unload")) == 1
+
+
+def test_concurrent_format_calls_load_only_once(lms, fake):
+    async def main():
+        await asyncio.gather(*(lms.chat(GEMMA, MESSAGES, format=TITLE_FORMAT) for _ in range(3)))
+
+    run(main())
+    assert len(fake.bodies("/api/v1/models/load")) == 1
+    assert fake.loaded == {GEMMA: [(GEMMA, NUM_CTX)]}

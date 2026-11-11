@@ -146,6 +146,8 @@ class LMStudioClient:
         # 入っていなかったモデル・context の小さいインスタンス（ログに書いたもの）
         self._missing: set[str] = set()
         self._small: set[str] = set()
+        # モデル → 載せるときのロック（同時に load して 2 つ載らないように）
+        self._load_locks: dict[str, asyncio.Lock] = {}
         self._monitor: asyncio.Task | None = None
 
     def _client(self, timeout: httpx.Timeout | float = REQUEST_TIMEOUT) -> httpx.AsyncClient:
@@ -298,7 +300,16 @@ class LMStudioClient:
           VRAM が溢れるかもしれないのでログに書く（#322）
 
         context_length は必ず NUM_CTX にそろえる。違う値を送ると、2 つ目のインスタンスが載る
+
+        同時に呼ばれても 2 つ載せないよう、載せるときはモデルごとに 1 つずつにする
         """
+        if not load:
+            return await self._find_instance(model, load=False)
+        lock = self._load_locks.setdefault(model, asyncio.Lock())
+        async with lock:
+            return await self._find_instance(model, load=True)
+
+    async def _find_instance(self, model: str, load: bool) -> tuple[str, int] | None:
         entry = (await self._llms()).get(model)
         instances = _instances(entry) if entry else []
         usable = sorted(
@@ -394,19 +405,22 @@ class LMStudioClient:
             body["temperature"] = options["temperature"]
         if max_tokens is not None:
             body["max_output_tokens"] = max_tokens
-        load_logged = jit = False
+        load_logged = started = False
         try:
             async with self._stream("/api/v1/chat", body) as res:
                 async for event, raw in _sse(res):
                     data = json.loads(raw)
                     kind = event or str(data.get("type") or "")
-                    if kind == "message.delta":
+                    if kind == "chat.start":
+                        started = True
+                    elif kind == "message.delta":
                         if data.get("content"):
                             yield str(data["content"])
-                    elif kind == "model_load.start":
-                        # /api/v1/chat が読み込んだ（JIT）。unload_all で下ろす対象にする
-                        jit = True
-                    elif kind == "model_load.end":
+                    elif kind in ("model_load.start", "model_load.end"):
+                        # /api/v1/chat が読み込んだ（JIT）。chat.end まで届かずに閉じても
+                        # 下ろせるように、この時点で unload_all の対象にする
+                        self._loaded.add(str(data.get("model_instance_id") or body["model"]))
+                    if kind == "model_load.end":
                         sec = float(data.get("load_time_seconds") or 0)
                         log.info("lmstudio loaded %s in %.1fs", model, sec)
                         load_logged = True
@@ -415,10 +429,7 @@ class LMStudioClient:
                         log.warning("lmstudio returned an error: %s", error)
                         raise LMStudioUnavailable(str(error))
                     elif kind == "chat.end":
-                        result = data.get("result") or {}
-                        if jit:
-                            self._loaded.add(str(result.get("model_instance_id") or body["model"]))
-                        stats = result.get("stats") or {}
+                        stats = (data.get("result") or {}).get("stats") or {}
                         sec = float(stats.get("model_load_time_seconds") or 0)
                         if sec and not load_logged:
                             log.info("lmstudio loaded %s in %.1fs", model, sec)
@@ -428,6 +439,12 @@ class LMStudioClient:
                         if cut and total >= max_tokens:
                             log.warning("the reply of %s was cut off at max_output_tokens", model)
                         return
+        except httpx.TransportError as e:
+            # chat.start のあとに切れたのは、LM Studio が生成を打ち切ったもの（context 超えなど）。
+            # 接続できなかったのとは違うので、下の「chat.end なしで閉じた」と同じに扱う
+            if not started:
+                raise await self._failed(e) from e
+            log.debug("lmstudio stream of %s broke: %s", model, str(e) or type(e).__name__)
         except (httpx.HTTPError, httpx.InvalidURL, ValueError) as e:
             raise await self._failed(e) from e
         # context を超えた入力は、chat.start だけで何も言わずに閉じる（#322）
@@ -513,13 +530,17 @@ class LMStudioClient:
     async def unload_all(self) -> None:
         """このクライアントが載せたインスタンスを下ろして VRAM を空ける（最終の文字起こしの前）
 
-        手で載せたものは下ろさない。つながらなければ何もしない
+        手で載せたものは下ろさない。つながらなければ何もしない（記録は残し、次に下ろす）。
+        断られた（4xx。もう載っていないなど）ものは記録から消す
         TODO(#326): 載っているものを一覧から確かめる・保持の時間・録音中は 1 つだけ
         """
         for iid in sorted(self._loaded):
-            with contextlib.suppress(LMStudioUnavailable):
+            try:
                 await self._request("POST", "/api/v1/models/unload", json={"instance_id": iid})
                 log.info("lmstudio unloaded %s", iid)
+            except LMStudioUnavailable:
+                if self.hub.status.lmstudio == "error":
+                    continue
             self._loaded.discard(iid)
 
     async def recording_ended(self) -> None:

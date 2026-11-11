@@ -203,9 +203,6 @@ class FakeLMStudio:
         if key is None:
             return _error(404, "model_not_found", f"Model {body['model']} not found")
         events: list[tuple[str, dict[str, Any]]] = [("chat.start", {"model_instance_id": ""})]
-        if self.context_exceeded:
-            # context を超えると、chat.start だけで何も言わずに閉じる
-            return httpx.Response(200, content=_sse(events))
         ctx = int(body.get("context_length") or 4096)
         found = self._find(body["model"])
         load_sec = 0.0
@@ -220,6 +217,9 @@ class FakeLMStudio:
             ]
         else:
             iid = found[0]
+        if self.context_exceeded:
+            # context を超えると、（載っていなければ読み込んだあと）何も言わずに閉じる
+            return httpx.Response(200, content=_sse(events))
         events += [("prompt_processing.start", {}), ("prompt_processing.end", {})]
         thinks = self._thinks(key, body.get("reasoning", "on") != "off")
         output = []
