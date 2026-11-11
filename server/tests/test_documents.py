@@ -62,7 +62,7 @@ def test_roundtrip_keeps_values(tmp_path):
         title="新機能のリリース計画",
         started_at="2026-10-09T14:30:12+09:00",
         ended_at="2026-10-09T15:59:40+09:00",
-        model="qwen3.5:4b",
+        model="gemma4:e4b",
         think=True,
         transcript="transcript-20261009-143012.md",
         context_set=None,
@@ -88,7 +88,7 @@ def test_context_set_meta_roundtrip(tmp_path):
         id="20261009-090501",
         project="D:\\work\\meetings",
         created_at="2026-10-09T09:05:01+09:00",
-        model="qwen3.5:4b",
+        model="gemma4:e4b",
         think=True,
         materials=[MaterialRef(path="D:\\work\\meetings\\weekly\\agenda.md", sha1="3f2a")],
     )

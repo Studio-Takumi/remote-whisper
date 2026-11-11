@@ -158,7 +158,7 @@ export const demoProjects: Project[] = seedProjects.map((p) => ({
     sessions: p.sessions.map(({ summary, ...s }) => ({
         ...s,
         loaded: true,
-        summaries: [{ generationId: s.id, model: 'qwen3.5:4b', generatedAt: s.startedAt, text: summary }],
+        summaries: [{ generationId: s.id, model: 'gemma4:e4b', generatedAt: s.startedAt, text: summary }],
     })),
 }));
 
@@ -173,6 +173,7 @@ export const fallbackOptions: SettingsOptions = {
             { name: 'qwen3.5:0.8b', thinking: true },
             { name: 'qwen3.5:2b', thinking: true },
             { name: 'qwen3.5:4b', thinking: true },
+            { name: 'gemma4:e4b', thinking: true },
             { name: 'gemma3:4b', thinking: false },
             { name: 'llama3.2:3b', thinking: false },
         ],

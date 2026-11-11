@@ -85,7 +85,7 @@ def test_create_a_context_set(client, project, root, fake_ollama):
     # 資料は絶対パスとハッシュで記録する。思考モードはオン
     assert [m.path for m in meta.materials] == materials(root)
     assert all(len(m.sha1) == 40 for m in meta.materials)
-    assert (meta.model, meta.think, meta.project) == ("qwen3.5:4b", True, str(root / "meetings"))
+    assert (meta.model, meta.think, meta.project) == ("gemma4:e4b", True, str(root / "meetings"))
     # 資料ごとの目次をコンテキストに残す（用語リストには残さない）
     ctx_meta, _ = read_doc(d / context_name(sid), ContextMeta)
     assert ctx_meta.toc is not None
@@ -155,7 +155,7 @@ def test_figures_in_a_pdf_are_added_to_the_materials(client, project, root, fake
 
     pid, d = project
     pdf = slides(root / "docs")
-    fake_ollama.models["qwen3.5:4b"] = ["completion", "thinking", "vision"]
+    fake_ollama.models["gemma4:e4b"] = ["completion", "thinking", "vision"]
     fake_ollama.reply_for = lambda body: (
         "- 開発 → ステージング → 本番" if "images" in body["messages"][-1] else None
     )

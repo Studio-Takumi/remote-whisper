@@ -41,7 +41,7 @@ log = logging.getLogger(__name__)
 
 OLLAMA_DOWNLOAD_URL = "https://ollama.com/download"
 # おすすめのモデルの大きさ（GB。`ollama list` の値）。外に取りに行かずに出すため、ここに持つ
-MODEL_SIZES_GB = {"qwen3.5:0.8b": 1.2, "qwen3.5:2b": 3.1, "qwen3.5:4b": 4.0}
+MODEL_SIZES_GB = {"gemma4:e4b": 6.6, "qwen3.5:2b": 2.7}
 
 # WhisperX（最終の文字起こし）の大きさと時間の目安（Windows の配布版。CUDA 版の torch を含む）。
 # 2026-11 に Windows の配布版で測った値: ダウンロード 3.56GB、python フォルダが 2.05GB → 9.86GB、

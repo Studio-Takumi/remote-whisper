@@ -50,6 +50,56 @@ def test_reads_existing_file_and_fills_missing_keys(home):
     assert data["ollama"]["host"] == "http://localhost:11434"
 
 
+def test_default_models(home):
+    # 録音のあとの処理は gemma4:e4b、録音中の 3 つは qwen3.5:2b（#328）
+    models = SettingsStore(home).get().ollama.models
+    after = (models.material_terms, models.context, models.scope, models.figures)
+    assert after == ("gemma4:e4b",) * 4
+    assert (models.overview, models.detail, models.final_title) == ("gemma4:e4b",) * 3
+    assert (models.live_summary, models.live_title, models.transcript_terms) == ("qwen3.5:2b",) * 3
+
+
+def test_existing_models_are_kept(home):
+    # 前の既定値（qwen3.5）で書かれた setting.json は、既定値が変わってもそのまま（#328）
+    old = {
+        "materialTerms": "qwen3.5:2b",
+        "context": "qwen3.5:4b",
+        "scope": "qwen3.5:4b",
+        "figures": "qwen3.5:4b",
+        "transcriptTerms": "qwen3.5:2b",
+        "liveSummary": "qwen3.5:2b",
+        "liveTitle": "qwen3.5:2b",
+        "overview": "qwen3.5:4b",
+        "detail": "qwen3.5:4b",
+        "finalTitle": "qwen3.5:0.8b",
+    }
+    home.mkdir()
+    data = Settings().to_json()
+    data["ollama"]["models"] = old
+    text = json.dumps(data, ensure_ascii=False, indent=2)
+    (home / "setting.json").write_text(text, encoding="utf-8")
+    store = SettingsStore(home)
+    assert store.get().ollama.models.model_dump(by_alias=True) == old
+    # 書き戻していない
+    assert (home / "setting.json").read_text(encoding="utf-8") == text
+
+
+def test_missing_models_get_the_new_defaults(home):
+    # models が一部だけ（#271 より前のファイルは figures がないなど）なら、書かれた項目はそのまま、
+    # ない項目だけ新しい既定値で埋めて書き戻す（#328）
+    home.mkdir()
+    data = Settings().to_json()
+    data["ollama"]["models"] = {"overview": "qwen3.5:4b", "liveSummary": "qwen3.5:4b"}
+    (home / "setting.json").write_text(json.dumps(data), encoding="utf-8")
+    models = SettingsStore(home).get().ollama.models
+    assert (models.overview, models.live_summary) == ("qwen3.5:4b", "qwen3.5:4b")
+    assert (models.detail, models.figures, models.final_title) == ("gemma4:e4b",) * 3
+    assert models.live_title == "qwen3.5:2b"
+    written = json.loads((home / "setting.json").read_text(encoding="utf-8"))
+    assert written["ollama"]["models"]["overview"] == "qwen3.5:4b"
+    assert written["ollama"]["models"]["figures"] == "gemma4:e4b"
+
+
 def test_broken_file_raises_with_path(home):
     home.mkdir()
     (home / "setting.json").write_text("{not json", encoding="utf-8")
@@ -68,7 +118,7 @@ def test_update_is_partial_and_persisted(home):
     store = SettingsStore(home)
     store.update({"ollama": {"models": {"detail": "gemma3:4b"}}})
     assert store.get().ollama.models.detail == "gemma3:4b"
-    assert store.get().ollama.models.overview == "qwen3.5:4b"
+    assert store.get().ollama.models.overview == "gemma4:e4b"
     assert SettingsStore(home).get().ollama.models.detail == "gemma3:4b"
 
 
@@ -336,10 +386,10 @@ def test_old_keys_are_moved_to_the_models(home):
 
 def test_light_tasks_use_the_recommended_models_if_installed(home):
     _old_settings(home, liveSummaryModel="qwen3.5:4b", finalSummaryModel="qwen3.5:4b")
-    installed = {"qwen3.5:4b", "qwen3.5:0.8b", "qwen3.5:2b"}
+    installed = {"qwen3.5:4b", "qwen3.5:2b", "gemma4:e4b"}
     models = SettingsStore(home, installed_models=lambda host: installed).get().ollama.models
     assert (models.live_title, models.transcript_terms) == ("qwen3.5:2b", "qwen3.5:2b")
-    assert (models.final_title, models.scope) == ("qwen3.5:0.8b", "qwen3.5:4b")
+    assert (models.final_title, models.scope) == ("gemma4:e4b", "gemma4:e4b")
     # 重い処理は、今使っているモデルのまま
     assert (models.live_summary, models.detail) == ("qwen3.5:4b", "qwen3.5:4b")
 
@@ -349,7 +399,7 @@ def test_migration_without_ollama_keeps_the_old_models(home):
     models = SettingsStore(home, installed_models=lambda host: None).get().ollama.models
     assert (models.live_summary, models.live_title) == ("qwen3.5:4b", "qwen3.5:4b")
     # 古い設定になかった処理は、おすすめ（入っていなければ、動かすときに代わりを使う）
-    assert models.detail == "qwen3.5:4b"
+    assert models.detail == "gemma4:e4b"
 
 
 def test_old_keys_in_a_patch_are_accepted_and_ignored(client):
@@ -357,7 +407,7 @@ def test_old_keys_in_a_patch_are_accepted_and_ignored(client):
     res = client.patch("/api/settings", json={"ollama": {"finalSummaryModel": "gemma3:4b"}})
     assert res.status_code == 200
     assert "finalSummaryModel" not in res.json()["ollama"]
-    assert res.json()["ollama"]["models"]["detail"] == "qwen3.5:4b"
+    assert res.json()["ollama"]["models"]["detail"] == "gemma4:e4b"
 
 
 # --- プロジェクトの並び順（#173） ---

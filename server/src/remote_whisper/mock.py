@@ -348,6 +348,7 @@ MOCK_OLLAMA_MODELS = [
     {"name": "qwen3.5:0.8b", "thinking": True},
     {"name": "qwen3.5:2b", "thinking": True},
     {"name": "qwen3.5:4b", "thinking": True},
+    {"name": "gemma4:e4b", "thinking": True},
     {"name": "gemma3:4b", "thinking": False},
     {"name": "llama3.2:3b", "thinking": False},
 ]

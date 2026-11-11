@@ -114,7 +114,7 @@ def test_descriptions_follow_their_pages():
 
 def vision_fake():
     fake = FakeOllama()
-    fake.models = {"qwen3.5:4b": ["completion", "vision", "thinking"], "text:1b": ["completion"]}
+    fake.models = {"gemma4:e4b": ["completion", "vision", "thinking"], "text:1b": ["completion"]}
     fake.reply_for = lambda body: "- A → B → C" if "images" in body["messages"][-1] else None
     return fake
 
@@ -136,7 +136,7 @@ def test_figures_are_read_once_and_cached(home, tmp_path):
     figures, _ = reader(home, fake)
 
     model = asyncio.run(figures.model())
-    assert model == "qwen3.5:4b"
+    assert model == "gemma4:e4b"
     got = asyncio.run(figures.read(path, "abc", texts, model, direct))
     assert got == {1: "- A → B → C", 2: "- A → B → C", 4: "- A → B → C"}
     chats = fake.bodies("/api/chat")
@@ -148,7 +148,7 @@ def test_figures_are_read_once_and_cached(home, tmp_path):
     # 同じ資料（同じハッシュ）なら読み直さない
     again = asyncio.run(figures.read(path, "abc", texts, model, direct))
     assert again == got and len(fake.bodies("/api/chat")) == 3
-    cache = json.loads((home / "cache" / "figures" / "abc-qwen3.5_4b.json").read_text("utf-8"))
+    cache = json.loads((home / "cache" / "figures" / "abc-gemma4_e4b.json").read_text("utf-8"))
     assert cache["pages"] == {"1": "- A → B → C", "2": "- A → B → C", "4": "- A → B → C"}
 
 
@@ -174,13 +174,13 @@ def test_reading_stops_when_ollama_is_down_and_skips_failed_pages(home, tmp_path
         fake.up = False  # 2 ページ目を読んだら Ollama が止まる
         return result
 
-    got = asyncio.run(figures.read(path, "abc", texts, "qwen3.5:4b", failing))
+    got = asyncio.run(figures.read(path, "abc", texts, "gemma4:e4b", failing))
     # 1 ページ目（p.2）は飛ばし、2 ページ目（p.3）は読み、3 ページ目（p.5）で止まる
     assert got == {2: "- A → B → C"}
     assert len(calls) == 3
     # 読めなかったページは覚えないので、次に作るとき読み直す
     fake.up = True
-    again = asyncio.run(figures.read(path, "abc", texts, "qwen3.5:4b", direct))
+    again = asyncio.run(figures.read(path, "abc", texts, "gemma4:e4b", direct))
     assert again == {1: "- A → B → C", 2: "- A → B → C", 4: "- A → B → C"}
 
 
@@ -188,7 +188,7 @@ def test_broken_pdf_reads_no_figures(home, tmp_path):
     path = tmp_path / "broken.pdf"
     path.write_bytes(b"%PDF-1.4\nbroken")
     figures, _ = reader(home, vision_fake())
-    assert asyncio.run(figures.read(path, "abc", ["text"], "qwen3.5:4b", direct)) == {}
+    assert asyncio.run(figures.read(path, "abc", ["text"], "gemma4:e4b", direct)) == {}
 
 
 def test_long_lines_are_split_by_length():
@@ -226,7 +226,7 @@ def test_figures_are_not_read_without_a_vision_model_or_when_off(home):
     settings.update({"ollama": {"models": {"figures": "text:1b"}}})
     assert asyncio.run(figures.model()) is None
     settings.update(
-        {"ollama": {"models": {"figures": "qwen3.5:4b"}}, "materials": {"readFigures": False}}
+        {"ollama": {"models": {"figures": "gemma4:e4b"}}, "materials": {"readFigures": False}}
     )
     assert asyncio.run(figures.model()) is None
 

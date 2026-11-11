@@ -22,7 +22,7 @@ from remote_whisper.ollama import OllamaClient
 from remote_whisper.session_writer import safe_filename
 from remote_whisper.settings import FinalModels, SettingsStore
 
-FOUR_B = FinalModels("qwen3.5:4b", "qwen3.5:4b", "qwen3.5:4b")
+GEMMA = FinalModels("gemma4:e4b", "gemma4:e4b", "gemma4:e4b")
 
 
 @pytest.fixture
@@ -77,7 +77,7 @@ def test_final_summary_is_streamed_saved_and_copied(client, project, fake_ollama
     [summary_file] = list(d.glob(f"summary-{sid}-*.md"))
     meta, body = read_doc(summary_file, SummaryMeta)
     assert body.strip() == "要約です"
-    assert (meta.model, meta.think, meta.title) == ("qwen3.5:4b", True, "リリース計画の確認")
+    assert (meta.model, meta.think, meta.title) == ("gemma4:e4b", True, "リリース計画の確認")
     transcript, _ = read_doc(d / f"transcript-{sid}.md", TranscriptMeta)
     assert transcript.title == "リリース計画の確認"
     assert not (d / ".tmp" / sid).exists()
@@ -163,7 +163,7 @@ def test_long_transcript_is_summarized_in_parts(home, fake, monkeypatch):
         sent.append(m)
 
     lines = [f"[00:00:{i:02d}] 二十文字ほどの長さの発言です。{i}" for i in range(6)]
-    text, gist = asyncio.run(summarizer._summarize(FOUR_B, lines, None, send))
+    text, gist = asyncio.run(summarizer._summarize(GEMMA, lines, None, send))
     chats = fake.bodies("/api/chat")
     # 部分ごとが 6 回（1行ずつ）、部分の要約（各4文字）は合わせて 30 文字を超えないので、
     # 概要が 1 回
@@ -208,7 +208,7 @@ def test_long_transcript_fails_when_the_overview_is_empty(home, fake, monkeypatc
         sent.append(m)
 
     lines = [f"[00:00:{i:02d}] 二十文字ほどの長さの発言です。{i}" for i in range(3)]
-    assert asyncio.run(summarizer._summarize(FOUR_B, lines, None, send)) == ("", "")
+    assert asyncio.run(summarizer._summarize(GEMMA, lines, None, send)) == ("", "")
     # 概要が空なら、見出しだけを送ったりしない
     assert sent == []
 
@@ -234,7 +234,7 @@ def summarize(home, fake, lines):
     async def send(m):
         sent.append(m)
 
-    return asyncio.run(summarizer._summarize(FOUR_B, lines, None, send)), sent
+    return asyncio.run(summarizer._summarize(GEMMA, lines, None, send)), sent
 
 
 def test_empty_part_is_marked_instead_of_dropped(home, fake, monkeypatch, caplog):
@@ -391,7 +391,7 @@ def test_regenerate_with_another_model(client, project, fake_ollama, tmp_path):
     # 上書きせず、別のファイルとして増える。思考モードに対応していないモデルはオフ
     summaries = client.get(f"/api/projects/{pid}/sessions/{sid}/summaries").json()
     assert [(s["model"], s["think"]) for s in summaries] == [
-        ("qwen3.5:4b", True),
+        ("gemma4:e4b", True),
         ("llama3.2:latest", False),
     ]
     latest = client.get(f"/api/projects/{pid}/sessions/{sid}/summaries/latest").json()
@@ -527,7 +527,7 @@ def test_summary_is_made_even_if_unloading_or_copying_fails(home, fake, tmp_path
     gid, writer, sent = run_summary(home, fake, tmp_path, StubWhisper(fail=True), recording=False)
     assert gid == "20261010-100100"
     model, think, text, generated = writer.saved
-    assert (model, think, text) == ("qwen3.5:4b", True, "要約です")
+    assert (model, think, text) == ("gemma4:e4b", True, "要約です")
     # 生成 ID は、生成を始めた時刻（spec/files.md 5.2）
     assert before <= generated <= final_summary.now()
     # 選んだディレクトリにコピーできなくても、タイトルは送る

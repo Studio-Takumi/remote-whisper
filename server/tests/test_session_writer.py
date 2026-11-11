@@ -59,7 +59,7 @@ def test_full_session(project):
     w.set_title("仮のタイトル")
     w.finish(5368, ended=STARTED + timedelta(seconds=5368))
     w.set_title("リリース計画")
-    gid = w.save_final_summary("qwen3.5:4b", True, "## 要約\n")
+    gid = w.save_final_summary("gemma4:e4b", True, "## 要約\n")
 
     meta, body = read_doc(w.files.transcript, TranscriptMeta)
     assert meta.status == "done"
@@ -69,7 +69,7 @@ def test_full_session(project):
     assert body == "[00:00:03] 今日はリリース計画について\n[00:00:15] ステージング環境\n"
 
     summary, text = read_doc(w.files.summary(gid), SummaryMeta)
-    assert (summary.title, summary.model, summary.think) == ("リリース計画", "qwen3.5:4b", True)
+    assert (summary.title, summary.model, summary.think) == ("リリース計画", "gemma4:e4b", True)
     assert summary.transcript == f"transcript-{SID}.md"
     assert text == "## 要約\n"
     # 最終の要約を保存できたら、途中の要約は消す（spec/flows.md 6.4）
@@ -82,7 +82,7 @@ def test_full_session(project):
     # 要約度を指定しなければ残さない（#100）。指定すればフロントマターに書いて読み戻せる
     assert (summary.overview_density, summary.detail_density) == (None, None)
     gid2 = w.save_final_summary(
-        "qwen3.5:4b", True, "## 要約\n", overview_density=2, detail_density=4
+        "gemma4:e4b", True, "## 要約\n", overview_density=2, detail_density=4
     )
     raw = w.files.summary(gid2).read_text(encoding="utf-8")
     assert "overviewDensity: 2" in raw and "detailDensity: 4" in raw
@@ -99,7 +99,7 @@ def test_summaries_in_the_same_second_get_different_ids(project):
     w = SessionWriter(store, pid, SID, STARTED, settings.get())
     w.start()
     w.finish(10)
-    a = w.save_final_summary("qwen3.5:4b", True, "a")
+    a = w.save_final_summary("gemma4:e4b", True, "a")
     b = w.save_final_summary("gemma3:4b", False, "b")
     assert a != b
     assert w.files.summary(a).is_file() and w.files.summary(b).is_file()

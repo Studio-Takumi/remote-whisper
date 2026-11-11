@@ -342,7 +342,7 @@ def test_recording_into_a_registered_project_is_saved(mock_client, tmp_path):
         receive_until(ws, of_type("title", provisional=False, session=sid))
     summaries = mock_client.get(f"{base}/{sid}/summaries").json()
     assert [(s["model"], s["think"]) for s in summaries] == [
-        ("qwen3.5:4b", True),
+        ("gemma4:e4b", True),
         ("gemma3:4b", False),
     ]
 
@@ -407,8 +407,8 @@ def test_options(mock_client, client):
     assert "large-v3-turbo" in body["whisper"]["models"]
     # モックでなければ、Ollama（テストでは偽物）のモデルの一覧
     assert body["ollama"]["models"] == [
+        {"name": "gemma4:e4b", "thinking": True},
         {"name": "llama3.2:latest", "thinking": False},
-        {"name": "qwen3.5:4b", "thinking": True},
     ]
 
 
