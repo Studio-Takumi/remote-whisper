@@ -6,8 +6,15 @@
 - 設定で `llm.backend` を変えたら `sync` で切り替える。録音中なら切り替えず、録音がすべて
   終わったとき（`recording_ended`）に切り替える。録音中の生成は、録音を始めたときのバックエンドの
   まま（モデルの名前もそのバックエンドの models から読む。`backend`）
+- 今のバックエンドで生成している途中（`chat_stream`・`chat` の中）なら切り替えず、生成がすべて
+  終わったときに切り替える。生成の途中で、そのバックエンドのモデルを下ろさないように
+  （録音の終わりは、キューの中で最後の区間要約・用語の抽出がまだ動いていることがある）
+- 切り替えは呼び出しの単位。何回も LLM を呼ぶジョブ（参考資料セットの作成・最終要約など）の
+  途中で切り替わると、それより後の呼び出しは新しいバックエンドで動く（モデルは新しいほうの models
+  から代わりを選ぶ。spec/files.md 5.3）
 - 見張る（status を更新する）のは、使っているほうだけ。切り替えたら、前のほうの見張りを止め、
-  前のほうに載っているモデルを下ろす（VRAM を空ける。下ろせなくても切り替えは止めない）
+  前のほうに載っているモデルを下ろす（VRAM を空ける。下ろせなくても切り替えは止めない）。
+  下ろすときに、そのバックエンドにもう戻っていたら下ろさない（すばやく行き来したとき）
 - クライアントは、初めて使うときに作る
 """
 
@@ -43,9 +50,11 @@ class LlmSwitch:
         self._makers = {"ollama": make_ollama, "lmstudio": make_lmstudio}
         self._clients: dict[str, Any] = {}
         self._monitor_interval: float | None = None
-        # 前のバックエンドのモデルを下ろしているタスク（途中で回収されないように持つ）
-        self._unloading: set[asyncio.Task] = set()
-        # 今使っているバックエンド。設定と違うのは、録音中に設定を変えたときだけ
+        # バックエンド → 生成している途中の数（chat_stream・chat の中にいる数）
+        self._busy: dict[str, int] = {}
+        # 後ろで動かすタスク（切り替え・前のバックエンドのモデルを下ろす）。回収されないように持つ
+        self._tasks: set[asyncio.Task] = set()
+        # 今使っているバックエンド。設定と違うのは、録音中か生成の途中に設定を変えたときだけ
         self.backend: LlmBackend = settings.get().llm.backend
 
     def client(self, backend: str | None = None) -> Any:
@@ -57,24 +66,34 @@ class LlmSwitch:
             )
         return self._clients[name]
 
+    def _later(self, coro: Any) -> None:
+        task = asyncio.create_task(coro)
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
     # --- 切り替え ---
 
     async def sync(self) -> None:
-        """設定のバックエンドに切り替える。録音中は何もしない（recording_ended で切り替える）"""
+        """設定のバックエンドに切り替える
+
+        録音中は何もしない（recording_ended で切り替える）。今のバックエンドで生成している途中なら
+        何もしない（生成がすべて終わったときに切り替える）"""
         wanted = self.settings.get().llm.backend
-        if wanted == self.backend or self.recording():
-            if wanted != self.backend:
-                log.info("llm backend will change to %s after the recording", wanted)
+        if wanted == self.backend:
+            return
+        if self.recording():
+            log.info("llm backend will change to %s after the recording", wanted)
+            return
+        if self._busy.get(self.backend):
+            log.info("llm backend will change to %s after the running generation", wanted)
             return
         old_name, old = self.backend, self._clients.get(self.backend)
         self.backend = wanted
         log.info("llm backend changed from %s to %s", old_name, wanted)
         if old is not None:
-            await old.close()
-            task = asyncio.create_task(self._unload(old_name, old))
-            self._unloading.add(task)
-            task.add_done_callback(self._unloading.discard)
-        # 見張らなくなったほうの状態は、古いままにしない（error のまま残さない）
+            self._later(self._unload(old_name, old))
+        # 見張らなくなったほうの状態は、古いままにしない（error のまま残さない）。
+        # 画面は llm.backend を見て、使っていないほうの状態を出さない（#327）
         if old_name == "lmstudio":
             await self.hub.set_status(lmstudio=None)
         else:
@@ -83,9 +102,25 @@ class LlmSwitch:
             self.client().start_monitor(self._monitor_interval)
 
     async def _unload(self, name: str, client: Any) -> None:
+        """前のバックエンドの見張りを止め、モデルを下ろす。もう戻っていたら下ろさない"""
+        await client.close()
+        if name == self.backend:
+            log.info("llm backend is %s again; keeping its models", name)
+            return
         with contextlib.suppress(LlmUnavailable):
             await client.unload_all()
         log.info("unloaded the models of %s", name)
+
+    @contextlib.asynccontextmanager
+    async def _generating(self, name: str) -> AsyncIterator[None]:
+        """生成している途中の数を数える。0 になったら、待たせていた切り替えをする"""
+        self._busy[name] = self._busy.get(name, 0) + 1
+        try:
+            yield
+        finally:
+            self._busy[name] -= 1
+            if not self._busy[name] and self.settings.get().llm.backend != self.backend:
+                self._later(self.sync())
 
     # --- 見張り ---
 
@@ -95,14 +130,14 @@ class LlmSwitch:
         self.client().start_monitor(interval)
 
     async def close(self) -> None:
+        if self._tasks:
+            await asyncio.gather(*self._tasks, return_exceptions=True)
         for client in self._clients.values():
             await client.close()
-        if self._unloading:
-            await asyncio.gather(*self._unloading, return_exceptions=True)
 
     # --- LlmClient ---
 
-    def chat_stream(
+    async def chat_stream(
         self,
         model: str,
         messages: list[dict[str, Any]],
@@ -110,10 +145,17 @@ class LlmSwitch:
         format: dict[str, Any] | None = None,
         options: dict[str, Any] | None = None,
     ) -> AsyncIterator[str]:
-        return self.client().chat_stream(model, messages, think, format, options)
+        name = self.backend
+        async with self._generating(name):
+            async for part in self.client(name).chat_stream(
+                model, messages, think, format, options
+            ):
+                yield part
 
     async def chat(self, model: str, messages: list[dict[str, Any]], **kwargs: Any) -> str:
-        return await self.client().chat(model, messages, **kwargs)
+        name = self.backend
+        async with self._generating(name):
+            return await self.client(name).chat(model, messages, **kwargs)
 
     async def resolve(self, model: str) -> str:
         return await self.client().resolve(model)

@@ -104,6 +104,19 @@ class FakeClient:
     def __init__(self, name, log):
         self.backend = name
         self.log = log
+        # set されるまで生成を終えない（生成の途中に切り替えるため）
+        self.release = asyncio.Event()
+        self.release.set()
+
+    async def chat_stream(self, model, messages, think=False, format=None, options=None):
+        self.log.append((self.backend, "generate"))
+        yield "a"
+        await self.release.wait()
+        yield "b"
+        self.log.append((self.backend, "generated"))
+
+    async def chat(self, model, messages, **kwargs):
+        return "".join([p async for p in self.chat_stream(model, messages)])
 
     def start_monitor(self, interval=15.0):
         self.log.append((self.backend, "monitor"))
@@ -146,10 +159,87 @@ def test_only_the_backend_in_use_is_monitored(switch):
         await s.close()
 
     run(go())
-    # 前のほうの見張りを止めてから、新しいほうを見張る。前のほうに載っているモデルは下ろす
-    assert log[:3] == [("ollama", "monitor"), ("ollama", "close"), ("lmstudio", "monitor")]
-    assert ("ollama", "unload") in log
+    # 新しいほうを見張り、前のほうの見張りを止めて、前のほうに載っているモデルを下ろす
+    assert log[:4] == [
+        ("ollama", "monitor"),
+        ("lmstudio", "monitor"),
+        ("ollama", "close"),
+        ("ollama", "unload"),
+    ]
     assert ("lmstudio", "unload") not in log
+
+
+@pytest.mark.parametrize("call", ["chat_stream", "chat"])
+def test_switch_waits_until_the_generation_ends(switch, call):
+    """生成の途中で切り替えても、前のほうのモデルは生成が終わるまで下ろさない"""
+    s, log, _ = switch
+    s.start_monitor()
+
+    async def go():
+        ollama = s.client("ollama")
+        ollama.release.clear()
+
+        async def generate():
+            if call == "chat":
+                return await s.chat("m", [])
+            return "".join([p async for p in s.chat_stream("m", [])])
+
+        task = asyncio.create_task(generate())
+        while ("ollama", "generate") not in log:
+            await asyncio.sleep(0)
+        s.settings.update({"llm": {"backend": "lmstudio"}})
+        await s.sync()
+        for _ in range(5):
+            await asyncio.sleep(0)
+        # 生成の途中は前のまま。下ろさない
+        assert s.backend == "ollama"
+        assert ("ollama", "unload") not in log
+        ollama.release.set()
+        assert await task == "ab"
+        # 生成が終わったら切り替えて、そのあとで下ろす
+        for _ in range(10):
+            await asyncio.sleep(0)
+        assert s.backend == "lmstudio"
+        await s.close()
+        assert log.index(("ollama", "generated")) < log.index(("ollama", "unload"))
+        # 新しい生成は新しいほうで
+        assert await s.chat("m", []) == "ab"
+        assert log[-1] == ("lmstudio", "generated")
+
+    run(go())
+
+
+def test_quick_switch_back_keeps_the_models_in_use(switch):
+    """A→B→A とすばやく変えても、今使っているほうのモデルは下ろさない"""
+    s, log, _ = switch
+    s.start_monitor()
+
+    async def go():
+        s.settings.update({"llm": {"backend": "lmstudio"}})
+        await s.sync()
+        s.settings.update({"llm": {"backend": "ollama"}})
+        await s.sync()
+        await s.close()
+
+    run(go())
+    assert s.backend == "ollama"
+    assert ("ollama", "unload") not in log
+    assert ("lmstudio", "unload") in log
+
+
+def test_concurrent_syncs_switch_once(switch):
+    s, log, _ = switch
+    s.start_monitor()
+
+    async def go():
+        s.settings.update({"llm": {"backend": "lmstudio"}})
+        await asyncio.gather(s.sync(), s.sync())
+        await s.close()
+
+    run(go())
+    assert s.backend == "lmstudio"
+    assert log.count(("lmstudio", "monitor")) == 1
+    assert log.count(("ollama", "unload")) == 1
 
 
 def test_switch_waits_until_the_recording_ends(switch):
