@@ -513,10 +513,13 @@ class LMStudioClient:
             yield parse_structured(reply, format)
             return
         except SchemaMismatch as e:
+            # 返事の頭も書く（どんな形で外れたかを後で見られるように）
             log.warning(
-                "the reply of %s did not match the schema (%s); asking again with response_format",
+                "the reply of %s did not match the schema (%s): %r; asking again with "
+                "response_format",
                 model,
                 e,
+                reply[:200],
             )
         async for part in self._openai_stream(
             model, messages, False, switchable, format, options, max_tokens
