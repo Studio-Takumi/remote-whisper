@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from remote_whisper.live_summary import load_context
-from remote_whisper.llm import LlmClient, LlmUnavailable
+from remote_whisper.llm import LlmClient, LlmUnavailable, backend_of
 from remote_whisper.material_pages import Page, annotate_detail, load_pages
 from remote_whisper.ollama import ollama_error
 from remote_whisper.prompts import (
@@ -179,7 +179,7 @@ class FinalSummarizer:
                 }
             )
             return None
-        models = models or self.settings.get().ollama.models.final()
+        models = models or self.settings.get().llm_models(backend_of(self.ollama)).final()
         # 入っていないモデルは代わりのもので作り、フロントマターには実際に使ったモデルを残す（#178）
         models = FinalModels(
             overview=await self.ollama.resolve(models.overview),

@@ -19,7 +19,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from remote_whisper.gpu_queue import GpuQueue, Priority
-from remote_whisper.llm import LlmClient, LlmUnavailable
+from remote_whisper.llm import LlmClient, LlmUnavailable, backend_of
 from remote_whisper.prompts import TERMS_FORMAT, TERMS_MAX, parse_terms, terms_messages
 from remote_whisper.session_writer import SessionWriter, fmt_clock
 from remote_whisper.settings import SettingsStore
@@ -166,7 +166,7 @@ class TermPicker:
         # 長すぎるときは新しい方を渡す（拾った語は、文字起こし全体で数え直す）
         while len(lines) > 1 and sum(len(x) for x in lines) > CHUNK_CHARS:
             lines.pop(0)
-        model = self.settings.get().ollama.models.transcript_terms
+        model = self.settings.get().llm_models(backend_of(self.ollama)).transcript_terms
         started = time.monotonic()
         log.info("terms of %s started with %s (%d lines)", self.writer.id, model, len(lines))
         try:

@@ -30,7 +30,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeVar
 
-from remote_whisper.llm import LlmClient, LlmUnavailable
+from remote_whisper.llm import LlmClient, LlmUnavailable, backend_of
 from remote_whisper.materials import pdf_pages, tidy
 from remote_whisper.prompts import figure_messages
 from remote_whisper.settings import SettingsStore
@@ -206,7 +206,7 @@ class FigureReader:
         settings = self.settings.get()
         if not settings.materials.read_figures:
             return None
-        model = await self.ollama.resolve(settings.ollama.models.figures)
+        model = await self.ollama.resolve(settings.llm_models(backend_of(self.ollama)).figures)
         if not await self.ollama.supports_vision(model):
             log.info("ollama model %s cannot read images; reading only the text", model)
             return None

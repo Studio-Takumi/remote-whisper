@@ -23,6 +23,8 @@ from remote_whisper.final_transcriber import FinalTranscriber, installed
 from remote_whisper.gpu_stats import GpuStats
 from remote_whisper.host_check import HostCheckMiddleware
 from remote_whisper.janitor import Janitor
+from remote_whisper.llm_switch import LlmSwitch
+from remote_whisper.lmstudio import LMStudioClient
 from remote_whisper.logs import traffic
 from remote_whisper.material_figures import FigureReader
 from remote_whisper.material_range import RangeService
@@ -108,7 +110,8 @@ def create_app(
             # Whisper の子プロセスが落ちていないか、使わなくなっていないかを見張る
             ctx.whisper.start_watchdog()
         if ctx.ollama is not None:
-            # Ollama につながるかを見張る（status の ollama）
+            # 使っている LLM（Ollama か LM Studio）につながるかを見張る
+            # （status の ollama・lmstudio）
             ctx.ollama.start_monitor()
         if ctx.context_sets is not None:
             # 前に動いていたときに作っている途中だった参考資料セットを failed に直す
@@ -205,7 +208,15 @@ def create_app(
         # 指定がなければ、Apple Silicon の Mac は mlx、ほかは faster-whisper（#276）
         backend = os.environ.get("REMOTE_WHISPER_WHISPER_BACKEND") or default_backend()
         ctx.whisper = WhisperWorker(ctx.hub, ctx.settings, backend=backend)
-        ctx.ollama = OllamaClient(ctx.hub, ctx.settings, recording=lambda: ctx.is_recording)
+        # 名前は ctx.ollama のままだが、中身は設定（llm.backend）で選んだ Ollama か LM Studio の
+        # クライアント（#325）。切り替えは録音がすべて終わってから（LlmSwitch）
+        ctx.ollama = LlmSwitch(
+            ctx.hub,
+            ctx.settings,
+            recording=lambda: ctx.is_recording,
+            make_ollama=OllamaClient,
+            make_lmstudio=LMStudioClient,
+        )
 
     def on_count(n: int) -> None:
         ctx.recordings = n
@@ -213,7 +224,8 @@ def create_app(
             # 録音が始まったら、作っている途中の最終の文字起こしを止める（録音が終わったら作り直す）
             ctx.final_transcriber.recordings_changed(n)
         if n == 0 and ctx.ollama is not None:
-            # 録音中は下ろさないようにしていた Ollama のモデルを、keepAliveMin 分で下ろすように戻す
+            # 録音中は下ろさないようにしていた Ollama のモデルを、keepAliveMin 分で下ろすように
+            # 戻す。録音中に使う LLM を変えていたら、ここで切り替える（#325）
             task = asyncio.create_task(ctx.ollama.recording_ended())
             background.add(task)
             task.add_done_callback(background.discard)

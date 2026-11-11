@@ -25,7 +25,7 @@ from typing import Any
 
 from remote_whisper.documents import context_name, parse
 from remote_whisper.gpu_queue import GpuQueue, Priority
-from remote_whisper.llm import LlmClient, LlmUnavailable
+from remote_whisper.llm import LlmClient, LlmUnavailable, backend_of
 from remote_whisper.ollama import ollama_error
 from remote_whisper.prompts import live_overview_messages, live_section_messages, make_title
 from remote_whisper.session_writer import SessionWriter, fmt_clock
@@ -152,7 +152,7 @@ class LiveSummarizer:
             return
         lines = [f"[{fmt_clock(start)}] {text}" for start, text in self.finals[self._base : upto]]
         chunks = split_lines(lines, CHUNK_CHARS)
-        models = self.settings.get().ollama.models
+        models = self.settings.get().llm_models(backend_of(self.ollama))
         model = models.live_summary
         # 要約度は区間ごとの要約に効かせる（概要は短いまま。#100）
         density = self.settings.get().ollama.live_summary_density

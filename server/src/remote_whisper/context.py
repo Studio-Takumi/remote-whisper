@@ -26,7 +26,8 @@ class AppContext:
     recordings: int = 0
     # Whisper の子プロセス（WhisperWorker）。モックではない
     whisper: Any = None
-    # Ollama とのやりとり（OllamaClient）。モックではない
+    # LLM とのやりとり（llm_switch.LlmSwitch）。モックではない。名前は ollama のままだが、
+    # 中身は設定（llm.backend）で選んだ Ollama か LM Studio のクライアント（#325）
     ollama: Any = None
     # 最終の要約を作るもの（FinalSummarizer。モックでは MockFinalSummarizer）。作り直しに使う
     summarizer: Any = None
