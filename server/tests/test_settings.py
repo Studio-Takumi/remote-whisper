@@ -84,6 +84,22 @@ def test_existing_models_are_kept(home):
     assert (home / "setting.json").read_text(encoding="utf-8") == text
 
 
+def test_missing_models_get_the_new_defaults(home):
+    # models が一部だけ（#271 より前のファイルは figures がないなど）なら、書かれた項目はそのまま、
+    # ない項目だけ新しい既定値で埋めて書き戻す（#328）
+    home.mkdir()
+    data = Settings().to_json()
+    data["ollama"]["models"] = {"overview": "qwen3.5:4b", "liveSummary": "qwen3.5:4b"}
+    (home / "setting.json").write_text(json.dumps(data), encoding="utf-8")
+    models = SettingsStore(home).get().ollama.models
+    assert (models.overview, models.live_summary) == ("qwen3.5:4b", "qwen3.5:4b")
+    assert (models.detail, models.figures, models.final_title) == ("gemma4:e4b",) * 3
+    assert models.live_title == "qwen3.5:2b"
+    written = json.loads((home / "setting.json").read_text(encoding="utf-8"))
+    assert written["ollama"]["models"]["overview"] == "qwen3.5:4b"
+    assert written["ollama"]["models"]["figures"] == "gemma4:e4b"
+
+
 def test_broken_file_raises_with_path(home):
     home.mkdir()
     (home / "setting.json").write_text("{not json", encoding="utf-8")

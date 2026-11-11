@@ -70,10 +70,12 @@ def test_status_lists_what_is_missing(client):
     assert ollama["running"] is True
     assert ollama["downloadUrl"] == "https://ollama.com/download"
     models = {m["name"]: m for m in ollama["models"]}
-    # 偽の Ollama には gemma4:e4b だけが入っている
+    # おすすめは gemma4:e4b と qwen3.5:2b の 2 つ（#328）。偽の Ollama には gemma4:e4b だけ
+    assert set(models) == {"gemma4:e4b", "qwen3.5:2b"}
     assert models["gemma4:e4b"]["installed"] is True
+    assert models["gemma4:e4b"]["sizeGb"] == 6.6
     assert models["qwen3.5:2b"]["installed"] is False
-    assert models["qwen3.5:2b"]["sizeGb"] > 0
+    assert models["qwen3.5:2b"]["sizeGb"] == 2.7
     assert ollama["pull"] is None
     whisperx = data["whisperx"]
     assert whisperx["installed"] is False

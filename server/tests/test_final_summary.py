@@ -22,7 +22,7 @@ from remote_whisper.ollama import OllamaClient
 from remote_whisper.session_writer import safe_filename
 from remote_whisper.settings import FinalModels, SettingsStore
 
-FOUR_B = FinalModels("gemma4:e4b", "gemma4:e4b", "gemma4:e4b")
+GEMMA = FinalModels("gemma4:e4b", "gemma4:e4b", "gemma4:e4b")
 
 
 @pytest.fixture
@@ -163,7 +163,7 @@ def test_long_transcript_is_summarized_in_parts(home, fake, monkeypatch):
         sent.append(m)
 
     lines = [f"[00:00:{i:02d}] 二十文字ほどの長さの発言です。{i}" for i in range(6)]
-    text, gist = asyncio.run(summarizer._summarize(FOUR_B, lines, None, send))
+    text, gist = asyncio.run(summarizer._summarize(GEMMA, lines, None, send))
     chats = fake.bodies("/api/chat")
     # 部分ごとが 6 回（1行ずつ）、部分の要約（各4文字）は合わせて 30 文字を超えないので、
     # 概要が 1 回
@@ -208,7 +208,7 @@ def test_long_transcript_fails_when_the_overview_is_empty(home, fake, monkeypatc
         sent.append(m)
 
     lines = [f"[00:00:{i:02d}] 二十文字ほどの長さの発言です。{i}" for i in range(3)]
-    assert asyncio.run(summarizer._summarize(FOUR_B, lines, None, send)) == ("", "")
+    assert asyncio.run(summarizer._summarize(GEMMA, lines, None, send)) == ("", "")
     # 概要が空なら、見出しだけを送ったりしない
     assert sent == []
 
@@ -234,7 +234,7 @@ def summarize(home, fake, lines):
     async def send(m):
         sent.append(m)
 
-    return asyncio.run(summarizer._summarize(FOUR_B, lines, None, send)), sent
+    return asyncio.run(summarizer._summarize(GEMMA, lines, None, send)), sent
 
 
 def test_empty_part_is_marked_instead_of_dropped(home, fake, monkeypatch, caplog):
