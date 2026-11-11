@@ -111,6 +111,25 @@
     "pickTerms": false,
     "detailMaterialPages": false
   },
+  "llm": {
+    "backend": "ollama"
+  },
+  "lmstudio": {
+    "host": "http://localhost:1234",
+    "token": "",
+    "models": {
+      "materialTerms": "google/gemma-4-e4b",
+      "context": "google/gemma-4-e4b",
+      "scope": "google/gemma-4-e4b",
+      "figures": "google/gemma-4-e4b",
+      "transcriptTerms": "qwen/qwen3.5-2b",
+      "liveSummary": "qwen/qwen3.5-2b",
+      "liveTitle": "qwen/qwen3.5-2b",
+      "overview": "google/gemma-4-e4b",
+      "detail": "google/gemma-4-e4b",
+      "finalTitle": "google/gemma-4-e4b"
+    }
+  },
   "recording": {
     "maxConcurrent": 1,
     "resumeTimeoutMin": 10,
@@ -172,8 +191,17 @@
 
   - 録音中に使う 3 つ（`transcriptTerms`・`liveSummary`・`liveTitle`）のおすすめは同じモデルにそろえている。録音中は Ollama のモデルを 1 つしか載せない（6.3 節）ので、別々だと区切りごとに読み込み直しになるため。`qwen3.5:0.8b` は、用語の抽出で語ではなく文をそのまま返すなど品質が足りなかった（#178 で比べた）。`gemma4:e4b` は、Whisper（`large-v3-turbo`）と一緒だと VRAM 6GB の GPU に載りきらず（43 層のうち 38 層）、区間の要約が約 2.5 倍遅くなった。`gemma4:e2b` は、区間の要約で前の区間の要約をそのまま繰り返したので、録音中は `qwen3.5:2b` のままにしている（#328 で比べた）。
   - 録音のあとの処理（参考資料・範囲の判断・最終要約）は、同じモデル（`gemma4:e4b`）にそろえて、処理の間の読み込み直しをなくしている。最終要約は 100 本のベンチで `qwen3.5:4b` より良く、速かった。参考資料の用語・コンテキストは、思考が短いので `qwen3.5` の約 3 分の 1 の時間で済み、数値の取り違えや中国語・英語の混入が少なかった。図の読み取りは 1 ページの時間が約 2 倍（10 秒ほど）になるが、表の数値まで正しく写した（#328）。
-  - **入っていないモデル**: 選んだモデルが Ollama に入っていなければ、要約詳細のモデル → 全体概要のモデル → 入っているうち名前の順で最初のもの、の順に代わりを選んで動かす（動かなくならないように）。ログに残し（モデルごとに 1 回）、`/api/settings/options` の `ollama.missing` に入っていない処理のキーを返す（画面は「入っていません」と出す。#179）。フロントマターには、実際に使ったモデルを残す。
+  - **入っていないモデル**: 選んだモデルが Ollama に入っていなければ、要約詳細のモデル → 全体概要のモデル → 入っているうち名前の順で最初のもの、の順に代わりを選んで動かす（動かなくならないように）。ログに残し（モデルごとに 1 回）、`/api/settings/options` の `llm.missing`（`ollama.missing` も同じ）に入っていない処理のキーを返す（画面は「入っていません」と出す。#179）。フロントマターには、実際に使ったモデルを残す。
   - **前の設定からの移行**: #178 より前の `liveSummaryModel` は `liveSummary` に、`finalSummaryModel` は `overview`・`detail` に、`contextModel` は `context`・`materialTerms` に移す。新しい軽い処理（`scope`・`transcriptTerms`・`liveTitle`・`finalTitle`）は、おすすめのモデルが入っていればそれ、なければ移行元（`scope` は `contextModel`、`transcriptTerms`・`liveTitle` は `liveSummaryModel`、`finalTitle` は `finalSummaryModel`）と同じモデルにする。入っているかは、読み込んだときに Ollama に聞く（つながらなければ移行元と同じ）。古いキーは受け付けるが書き出さない（`PATCH` で送られても無視する）。
+- `llm.backend` は、要約・用語・資料などに使う LLM（#325）。`ollama`（既定）か `lmstudio`。#325 より前の `setting.json`（`llm` も `lmstudio` もない）は、足りないキーを既定値で埋めるだけで、そのまま Ollama で動く（移行の処理はない）。
+  - **処理ごとの設定は共通**: 使うモデル（`models`）だけはバックエンドごとに持つ（`ollama.models`・`lmstudio.models`。名前の付け方が違うため）。要約の間隔・要約度・`keepAliveMin`・`pickTerms`・`detailMaterialPages` は、LM Studio を使うときも `ollama` の下の値を使う（置き場所は変えない）。
+  - **見張るのは使っているほうだけ**: `status` の `ollama`・`lmstudio`（7.2 節）は、使っているほうだけを更新する。切り替えたら、前のほうの見張りを止め、前のほうに載っているモデルを下ろす（VRAM を空ける。下ろせなくても切り替える）。LM Studio から Ollama に戻したら `status.lmstudio` は出さない。
+  - **録音中に変えたとき**: 保存はするが（`409` にしない）、切り替えるのは録音がすべて終わってから（`recordings` が 0 になったとき）。録音中の要約・タイトル・用語の抽出は、録音を始めたときのバックエンドとその `models` のまま。録音を終えたあとの処理（最終要約など）が切り替えより後に始まれば、新しいバックエンドで動く（入っていないモデルは、新しいほうの `models` から代わりを選ぶ）。
+  - **クラウド版（トンネル）からは変えられない**（`403`）。要約に文字起こしを送る先が変わるので、接続先（`ollama.host`・`lmstudio.host`）と同じに扱う。
+- `lmstudio` は LM Studio の設定（#325）。
+  - `host` は LM Studio のサーバー（既定 `http://localhost:1234`）。**クラウド版（トンネル）からは変えられない**（`403`。`ollama.host` と同じ）。
+  - `token` は LM Studio の API トークン（LM Studio で認証を求める設定にしたとき。空なら送らない）。`Authorization: Bearer` で送る。**秘密の値なので、`GET /api/settings`・`PATCH` の返事・ログ・WebSocket には出さない**。返事では `token` の代わりに、設定済みかどうか（`tokenSet`）だけを返す。`PATCH` では、`token` を送らない・空文字を送ったときは保存済みのものを残し、`null` を送ったときは消す（画面は設定をまるごと送り返すので、`tokenSet` は受け取って捨てる）。`lmstudio` の項目の検証のエラー（`422`）では、送られた値を返さない。クラウド版（トンネル）からは変えられない（`403`。空・送らないのはかまわない）。
+  - `models` は `ollama.models` と同じ形の、処理ごとのモデル（LM Studio のモデルの ID。`lms ls`・`GET /api/v1/models` の `key`）。おすすめ（既定）は `ollama.models` と同じモデルの LM Studio のカタログの ID（`gemma4:e4b` は `google/gemma-4-e4b`、`qwen3.5:2b` は `qwen/qwen3.5-2b`）。入っていないモデルは、`lmstudio.models` の要約詳細 → 全体概要 → 入っているうち名前の順で最初のもの、の順に代わりを選ぶ（Ollama と同じ）。
 - 思考モードは処理ごとに固定する。参考資料の作成と最終要約はオン、リアルタイム要約はオフ。思考モードに対応していないモデルが選ばれた場合は、オフで実行する（9.3 節）。
 - `whisper.speechThreshold` は、話しているかの判定のしかた（6.2 節）。`auto`（既定）は、音の大きさをそろえてから Silero VAD で声らしさを判定する。`manual` は `whisper.speechDbfs`（dBFS、-70〜-10）より大きい音を話し声とみなす。自動の結果が悪いときのために手動を残している。
 - `whisper.finalTranscript` は、録音を終えたら浄書するか（6.9 節、既定はオン）。サーバーに WhisperX が入っていないとき（`uv sync --extra final` していないとき）は、オンでも作らない。`whisper.diarize` は、浄書済み文字起こしで話者を分けるか（既定はオン）。話者分けのモデルを使えない（HuggingFace のトークンがない・利用条件に同意していない）ときは、分けずに作る。どちらも作り始める時点の値を使う。

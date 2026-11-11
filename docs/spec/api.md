@@ -6,9 +6,9 @@
 
 | メソッド | パス | 内容 |
 |---|---|---|
-| GET | `/api/settings` | 全体設定を返す |
-| PATCH | `/api/settings` | 全体設定を部分的に更新する。録音中に、録音中は変えられない項目（5.3 節）の値を変えようとすると `409` |
-| GET | `/api/settings/options` | 選べる値を返す（Whisper のモデル、Ollama のモデルと、それぞれが思考モードに対応しているか。処理ごとのモデルのうち Ollama に入っていないもののキー `ollama.missing`。5.3 節） |
+| GET | `/api/settings` | 全体設定を返す。LM Studio の API トークン（`lmstudio.token`）は返さず、設定済みかどうか（`lmstudio.tokenSet`）だけを返す（#325。5.3 節） |
+| PATCH | `/api/settings` | 全体設定を部分的に更新する。録音中に、録音中は変えられない項目（5.3 節）の値を変えようとすると `409`。クラウド版（トンネル）から接続先など（`cloud.relayUrl`・`cloud.cloudflaredPath`・`materials.roots`・`materials.extensions`・`ollama.host`・`llm.backend`・`lmstudio.host`・`lmstudio.token`・`network.allowedHosts`）の値を変えようとすると `403`。`lmstudio.token` は、送らない・空なら保存済みのまま、`null` なら消す。返事は GET と同じ形（トークンは返さない）。`llm.backend` を変えたら、録音がすべて終わってから切り替える（5.3 節） |
+| GET | `/api/settings/options` | 選べる値を返す（Whisper のモデル、使っている LLM（`llm.backend`。#325）のモデルと、それぞれが思考モードに対応しているか。5.3 節）。LLM は `llm: {backend, models, missing}`（`missing` は処理ごとのモデルのうち、そのバックエンドに入っていないもののキー。`lmstudio` なら `lmstudio.models` で見る）。`ollama: {models, missing}` は同じ中身の古い名前（画面が `llm` を読むようになるまで残す。#327）。録音中に `llm.backend` を変えたときは、切り替わるまで前のバックエンドのもの |
 | GET | `/api/projects` | プロジェクトの一覧。全体設定の `projectOrder` の順（5.3 節。ないものは先頭） |
 | POST | `/api/projects` | ディレクトリをプロジェクトとして登録する（すでにあればそれを返す） |
 | GET | `/api/sessions/{uuid}` | セッションの UUID から、セッションのメタ情報と `projectId`・`projectUuid` を返す（#177）。なければ `404` |
