@@ -79,3 +79,11 @@ class LlmClient(Protocol):
         ...
 
     async def close(self) -> None: ...
+
+
+def backend_of(client: object) -> str | None:
+    """クライアントのバックエンド（"ollama"・"lmstudio"）。処理ごとのモデルをどちらの設定から
+    読むかに使う（`Settings.llm_models`）。分からない（テストの偽物など）ときは None で、
+    設定で選んでいるものになる（#325）"""
+    backend = getattr(client, "backend", None)
+    return backend if isinstance(backend, str) else None

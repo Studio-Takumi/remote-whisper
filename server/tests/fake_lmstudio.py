@@ -4,7 +4,9 @@
 - `GET /api/v1/models`: `type`・`key`・`loaded_instances[].config.context_length`・`capabilities`
 - `POST /api/v1/chat`: SSE（`chat.start` → `model_load.*` → `prompt_processing.*` →
   `reasoning.*` → `message.*` → `chat.end`）。未知のキーは 400。`context_length` が載っている
-  インスタンスと違えば、もう 1 つ載せる（`<key>:2`）。context を超えると `chat.start` だけで閉じる
+  インスタンスと違えば、もう 1 つ載せる（`<key>:2`）。context を超えると `chat.start` だけで閉じる。
+  入力に「JSON Schema」の指示があれば、タイトルを JSON で返す（`fenced` なら ```json で囲む。
+  実機でもそうなることがある）
 - `POST /v1/chat/completions`: OpenAI 互換の SSE。`response_format: json_schema` を受け付ける。
   思考は `reasoning_effort: "none"` のときだけ止まり、`reasoning_content` に分かれて出る
 """
@@ -82,6 +84,8 @@ class FakeLMStudio:
         self.reply = ["要約", "です"]
         # response_format 付きの /v1/chat/completions には、このタイトルを JSON で返す
         self.title = "リリース計画の確認"
+        # True なら、/api/v1/chat で JSON を頼まれたとき ```json で囲んで返す
+        self.fenced = False
         # 思考の出力
         self.thinking = ["考え", "中"]
         # True なら、思考しているときは本文を返さない（思考が長すぎて本文まで届かなかったまね）
@@ -228,7 +232,10 @@ class FakeLMStudio:
             events += [("reasoning.delta", {"content": t}) for t in self.thinking]
             events.append(("reasoning.end", {}))
             output.append({"type": "reasoning", "content": "".join(self.thinking)})
-        reply = self._reply(body, thinks, structured=False)
+        asked_json = any("JSON Schema" in str(i.get("content")) for i in body.get("input") or [])
+        reply = self._reply(body, thinks, structured=asked_json)
+        if asked_json and self.fenced and reply:
+            reply = ["```json\n", *reply, "\n```"]
         max_tokens = body.get("max_output_tokens")
         if max_tokens is not None:
             reply = reply[:max_tokens]

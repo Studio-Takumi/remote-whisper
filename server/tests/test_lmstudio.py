@@ -1,5 +1,6 @@
 import asyncio
 import inspect
+import json
 import logging
 
 import httpx
@@ -8,7 +9,14 @@ from fake_lmstudio import GEMMA, FakeLMStudio
 
 from remote_whisper.hub import Hub
 from remote_whisper.llm import LlmClient, LlmUnavailable
-from remote_whisper.lmstudio import LMStudioClient, LMStudioUnavailable, lmstudio_error
+from remote_whisper.lmstudio import (
+    LMStudioClient,
+    LMStudioUnavailable,
+    SchemaMismatch,
+    conform,
+    lmstudio_error,
+    parse_structured,
+)
 from remote_whisper.prompts import TITLE_FORMAT
 from remote_whisper.settings import SettingsStore
 from remote_whisper.summary_parts import NUM_CTX
@@ -282,8 +290,133 @@ def test_image_is_sent_as_a_data_url(lms, fake):
     ]
 
 
-def test_format_uses_chat_completions_after_loading(lms, fake):
+def test_format_without_thinking_asks_the_schema_in_the_prompt(lms, fake):
     reply = run(lms.chat(GEMMA, MESSAGES, format=TITLE_FORMAT))
+    assert reply == '{"title": "リリース計画の確認"}'
+    # /v1/chat/completions の reasoning_effort: "none" は当てにならないので、/api/v1/chat で頼む
+    assert fake.bodies("/v1/chat/completions") == []
+    assert fake.bodies("/api/v1/models/load") == []
+    body = fake.bodies("/api/v1/chat")[0]
+    assert body["reasoning"] == "off"
+    assert body["context_length"] == NUM_CTX
+    assert body["system_prompt"] == "係です"
+    assert body["input"][0] == {"type": "text", "content": "本文"}
+    # スキーマはプロンプトの最後
+    last = body["input"][-1]["content"]
+    assert "JSON Schema" in last
+    assert json.dumps(TITLE_FORMAT, ensure_ascii=False) in last
+
+
+def test_format_reply_in_a_code_block_is_unwrapped(lms, fake):
+    fake.fenced = True
+    assert run(lms.chat(GEMMA, MESSAGES, format=TITLE_FORMAT)) == '{"title": "リリース計画の確認"}'
+    assert fake.bodies("/v1/chat/completions") == []
+
+
+def test_format_long_string_is_cut_to_max_length(lms, fake):
+    fake.title = "あ" * 100
+    reply = json.loads(run(lms.chat(GEMMA, MESSAGES, format=TITLE_FORMAT)))
+    assert reply["title"] == "あ" * TITLE_FORMAT["properties"]["title"]["maxLength"]
+    assert fake.bodies("/v1/chat/completions") == []
+
+
+@pytest.mark.parametrize(
+    "native", ['{"title": 3}', '{"name": "x"}', "リリース計画", '["リリース計画"]', ""]
+)
+def test_format_mismatch_asks_again_with_response_format(lms, fake, caplog, native):
+    fake.reply_for = lambda body: native if "input" in body else None
+    reply = run(lms.chat(GEMMA, MESSAGES, format=TITLE_FORMAT))
+    assert reply == '{"title": "リリース計画の確認"}'
+    assert len(fake.bodies("/api/v1/chat")) == 1
+    # もう一度だけ、構造化出力で（思考オフ）。スキーマの指示はプロンプトに足さない
+    body = fake.bodies("/v1/chat/completions")[0]
+    assert len(fake.bodies("/v1/chat/completions")) == 1
+    assert body["messages"] == MESSAGES
+    assert body["response_format"]["json_schema"]["schema"] == TITLE_FORMAT
+    assert body["reasoning_effort"] == "none"
+    assert "did not match the schema" in caplog.text
+
+
+def test_format_fails_when_asking_again_also_fails(lms, fake):
+    fake.reply_for = lambda body: "だめ" if "input" in body else None
+    chunk = b'data: {"error": {"message": "boom"}}\n\n'
+    with_handler(lms, fake, "/v1/chat/completions", lambda r: httpx.Response(200, content=chunk))
+    with pytest.raises(LMStudioUnavailable, match="boom"):
+        run(lms.chat(GEMMA, MESSAGES, format=TITLE_FORMAT))
+    assert len(fake.bodies("/api/v1/chat")) == 1
+
+
+def test_format_with_assistant_messages_goes_to_completions(lms, fake):
+    messages = [*MESSAGES, {"role": "assistant", "content": "前の答え"}, MESSAGES[1]]
+    run(lms.chat(GEMMA, messages, format=TITLE_FORMAT))
+    assert fake.bodies("/api/v1/chat") == []
+    assert fake.bodies("/v1/chat/completions")[0]["reasoning_effort"] == "none"
+
+
+INTS = {"type": "array", "items": {"type": "integer"}}
+
+
+@pytest.mark.parametrize(
+    ("value", "schema", "expected"),
+    [
+        (
+            {"a": [1, 2, 3]},
+            {"type": "object", "properties": {"a": {"type": "array", "maxItems": 2}}},
+            {"a": [1, 2]},
+        ),
+        # properties にないキーは残す
+        (
+            {"a": 1, "x": "y"},
+            {"type": "object", "properties": {"a": {"type": "integer"}}},
+            {"a": 1, "x": "y"},
+        ),
+        (
+            [{"p": [1]}],
+            {
+                "type": "array",
+                "items": {"type": "object", "properties": {"p": INTS}, "required": ["p"]},
+            },
+            [{"p": [1]}],
+        ),
+        (1.5, {"type": "number"}, 1.5),
+        (True, {"type": "boolean"}, True),
+        ("x", {}, "x"),
+    ],
+)
+def test_conform_accepts(value, schema, expected):
+    assert conform(value, schema) == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "schema"),
+    [
+        ({}, {"type": "object", "required": ["a"]}),
+        ([], {"type": "object"}),
+        ({"a": "1"}, {"type": "object", "properties": {"a": {"type": "integer"}}}),
+        (True, {"type": "integer"}),
+        (1.5, {"type": "integer"}),
+        ("1", {"type": "number"}),
+        ({"a": 1}, {"type": "array"}),
+        ([1, "2"], {"type": "array", "items": {"type": "integer"}}),
+        (1, {"type": "string"}),
+        (0, {"type": "boolean"}),
+    ],
+)
+def test_conform_rejects(value, schema):
+    with pytest.raises(SchemaMismatch):
+        conform(value, schema)
+
+
+@pytest.mark.parametrize(
+    "text",
+    ['{"a": 1}', '```json\n{"a": 1}\n```', '```\n{"a": 1}\n```', '```{"a": 1}```', ' {"a": 1}\n'],
+)
+def test_parse_structured_unwraps_code_blocks(text):
+    assert parse_structured(text, {"type": "object"}) == '{"a": 1}'
+
+
+def test_format_with_thinking_uses_chat_completions_after_loading(lms, fake):
+    reply = run(lms.chat(GEMMA, MESSAGES, think=True, format=TITLE_FORMAT))
     assert reply == '{"title": "リリース計画の確認"}'
     # /v1/chat/completions は context_length を渡せないので、先に NUM_CTX で載せる
     assert fake.bodies("/api/v1/models/load") == [{"model": GEMMA, "context_length": NUM_CTX}]
@@ -295,29 +428,25 @@ def test_format_uses_chat_completions_after_loading(lms, fake):
         "type": "json_schema",
         "json_schema": {"name": "reply", "schema": TITLE_FORMAT, "strict": True},
     }
-    # 思考のオフは reasoning_effort: "none"
-    assert body["reasoning_effort"] == "none"
+    # 思考オンでは reasoning_effort を付けない。思考（reasoning_content）は捨てる
+    assert "reasoning_effort" not in body
     # 2 回目は載っているものを使う
-    run(lms.chat(GEMMA, MESSAGES, format=TITLE_FORMAT))
+    run(lms.chat(GEMMA, MESSAGES, think=True, format=TITLE_FORMAT))
     assert len(fake.bodies("/api/v1/models/load")) == 1
     assert fake.loaded == {GEMMA: [(GEMMA, NUM_CTX)]}
 
 
-def test_format_with_thinking_drops_the_reasoning_content(lms, fake):
-    reply = run(lms.chat(GEMMA, MESSAGES, think=True, format=TITLE_FORMAT))
-    assert reply == '{"title": "リリース計画の確認"}'
-    assert "reasoning_effort" not in fake.bodies("/v1/chat/completions")[0]
-
-
 def test_format_uses_a_larger_instance_without_loading(lms, fake):
     fake.load(GEMMA, 32768)
+    run(lms.chat(GEMMA, MESSAGES, think=True, format=TITLE_FORMAT))
     run(lms.chat(GEMMA, MESSAGES, format=TITLE_FORMAT))
     assert fake.bodies("/api/v1/models/load") == []
+    assert fake.bodies("/api/v1/chat")[0]["context_length"] == 32768
 
 
 def test_format_with_an_image_uses_image_url(lms, fake):
     messages = [{"role": "user", "content": "図", "image": "iVBORw0K"}]
-    run(lms.chat(GEMMA, messages, format={"type": "object"}))
+    run(lms.chat(GEMMA, messages, think=True, format={"type": "object"}))
     assert fake.bodies("/v1/chat/completions")[0]["messages"] == [
         {
             "role": "user",
@@ -345,18 +474,29 @@ def test_format_context_exceeded_keeps_status_ready(lms, fake):
 
 
 def test_missing_model_falls_back(lms, fake, caplog):
-    # 入っていないモデルは、入っているうち最初のもので代わりに動かす（#178）
+    # 入っていないモデルは、lmstudio.models の要約詳細のモデルで代わりに動かす（#178・#325）。
+    # 既定は google/gemma-4-e4b
     with caplog.at_level(logging.WARNING):
         stream(lms, "qwen3.5:4b", MESSAGES)
         stream(lms, "qwen3.5:4b", MESSAGES)
-    assert [b["model"] for b in fake.bodies("/api/v1/chat")] == ["acme/always-think"] * 2
+    assert [b["model"] for b in fake.bodies("/api/v1/chat")] == [GEMMA] * 2
     assert sum("qwen3.5:4b is not installed" in r.message for r in caplog.records) == 1
 
 
+def test_missing_model_falls_back_to_the_first_installed(lms, fake):
+    # 要約詳細・全体概要のモデルも入っていなければ、入っているうち最初のもの
+    lms.settings.update({"lmstudio": {"models": {"detail": "x/a", "overview": "x/b"}}})
+    assert run(lms.resolve("nope")) == "acme/always-think"
+
+
 def test_fallback_prefers_the_detail_model(lms, fake):
-    lms.settings.update({"ollama": {"models": {"detail": GEMMA}}})
+    # 代わりのモデルは lmstudio.models から選ぶ。ollama.models は見ない（#325）
+    lms.settings.update({"ollama": {"models": {"detail": "acme/plain"}}})
+    lms.settings.update({"lmstudio": {"models": {"detail": GEMMA}}})
     assert run(lms.resolve("nope")) == GEMMA
     assert run(lms.resolve("acme/plain")) == "acme/plain"
+    lms.settings.update({"lmstudio": {"models": {"detail": "acme/plain"}}})
+    assert run(lms.resolve("nope")) == "acme/plain"
 
 
 def test_resolve_keeps_the_model_when_lmstudio_is_down(lms, fake):
@@ -472,7 +612,7 @@ def test_completions_closed_without_done_fails(lms, fake):
     chunk = b'data: {"choices": [{"delta": {"content": "{"}}]}\n\n'
     with_handler(lms, fake, "/v1/chat/completions", lambda r: httpx.Response(200, content=chunk))
     with pytest.raises(LMStudioUnavailable, match="without \\[DONE\\]"):
-        run(lms.chat(GEMMA, MESSAGES, format=TITLE_FORMAT))
+        run(lms.chat(GEMMA, MESSAGES, think=True, format=TITLE_FORMAT))
     assert lms.hub.status.lmstudio == "ready"
 
 
@@ -480,14 +620,15 @@ def test_completions_error_chunk_fails(lms, fake):
     chunk = b'data: {"error": {"message": "boom"}}\n\n'
     with_handler(lms, fake, "/v1/chat/completions", lambda r: httpx.Response(200, content=chunk))
     with pytest.raises(LMStudioUnavailable, match="boom"):
-        run(lms.chat(GEMMA, MESSAGES, format=TITLE_FORMAT))
+        run(lms.chat(GEMMA, MESSAGES, think=True, format=TITLE_FORMAT))
 
 
 def test_empty_reply_of_an_always_thinking_model_with_format_fails(lms, fake):
     fake.empty_when_thinking = True
     with pytest.raises(LMStudioUnavailable, match="no reply"):
         run(lms.chat("acme/always-think", MESSAGES, format=TITLE_FORMAT))
-    # いつも思考するモデルには reasoning_effort を送らない
+    # いつも思考するモデルには reasoning / reasoning_effort を送らない
+    assert "reasoning" not in fake.bodies("/api/v1/chat")[0]
     assert "reasoning_effort" not in fake.bodies("/v1/chat/completions")[0]
 
 
@@ -554,7 +695,9 @@ def test_unload_all_forgets_instances_that_are_already_gone(lms, fake):
 
 def test_concurrent_format_calls_load_only_once(lms, fake):
     async def main():
-        await asyncio.gather(*(lms.chat(GEMMA, MESSAGES, format=TITLE_FORMAT) for _ in range(3)))
+        await asyncio.gather(
+            *(lms.chat(GEMMA, MESSAGES, think=True, format=TITLE_FORMAT) for _ in range(3))
+        )
 
     run(main())
     assert len(fake.bodies("/api/v1/models/load")) == 1

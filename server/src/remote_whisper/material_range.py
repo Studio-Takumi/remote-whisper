@@ -32,7 +32,7 @@ from remote_whisper.documents import (
     write_doc,
 )
 from remote_whisper.gpu_queue import GpuQueue, Priority
-from remote_whisper.llm import LlmClient, LlmUnavailable
+from remote_whisper.llm import LlmClient, LlmUnavailable, backend_of
 from remote_whisper.material_toc import MaterialRange, MaterialToc, range_text
 from remote_whisper.materials import ExtractError, extract_text
 from remote_whisper.projects import ContextSetEntry, ProjectFile, ProjectStore
@@ -217,7 +217,7 @@ class RangeService:
         return RangePlan(writer.pid, base, tocs, ranges)
 
     async def _judge(self, text: str, large: list[MaterialToc]) -> list[MaterialRange] | None:
-        model = self.settings.get().ollama.models.scope
+        model = self.settings.get().llm_models(backend_of(self.ollama)).scope
         tocs = [(Path(t.path).name, t.kind, [e.title for e in t.entries]) for t in large]
         reply = await self.ollama.chat(
             model,

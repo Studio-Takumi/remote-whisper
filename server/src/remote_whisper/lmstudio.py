@@ -5,15 +5,22 @@
 - 生成
   - `format` なし: `POST /api/v1/chat`（SSE）。`context_length` はいつも `NUM_CTX`。思考の出力
     （`reasoning.*`）は捨て、本文（`message.delta`）だけを返す
-  - `format` あり: `POST /v1/chat/completions`（OpenAI 互換）の `response_format: json_schema`。
-    `/api/v1/chat` は未知のキー（`response_format` など）を 400 で断るため。こちらは
-    `context_length` を渡せないので、呼ぶ前にモデルを `NUM_CTX` で載せておく。
-    思考のオフは `reasoning_effort: "none"`
+  - `format` あり・思考オフ: `POST /api/v1/chat`（`reasoning: "off"`）に、スキーマを付けて
+    「この JSON Schema に従う JSON だけを返す」とプロンプトの最後に足す。返事はコードブロックを
+    外して読み、スキーマ（使っている範囲）で確かめる。合わなければ、下の `/v1/chat/completions`
+    でもう一度だけ作る。`/v1/chat/completions` の `reasoning_effort: "none"` はプロンプトに
+    よって効かない（用語の抽出で 1 分近く思考した）ため（#322 の追記）
+  - `format` あり・思考オン（と、上で合わなかったとき）: `POST /v1/chat/completions`（OpenAI
+    互換）の `response_format: json_schema`。`/api/v1/chat` は未知のキー（`response_format`
+    など）を 400 で断るため。こちらは `context_length` を渡せないので、呼ぶ前にモデルを
+    `NUM_CTX` で載せておく。思考のオフは `reasoning_effort: "none"`
 - つながらなければ status の lmstudio を error にする。つながれば ready に戻す
 - API トークン（任意）は `Authorization: Bearer` で送る（ログには出さない）
 
-TODO(#325): 接続先・トークン・処理ごとのモデルを設定から読む。今はコンストラクタの引数
-TODO(#326): 載せ下ろし（保持の時間・録音中は 1 つだけ・タイマー）。今は自分で載せたものを下ろすだけ
+- 接続先・トークン・処理ごとのモデルは設定の `lmstudio` から読む（#325）
+
+TODO(#326): 載せ下ろし（保持の時間・録音中は 1 つだけ・タイマー）。今は自分で載せたものを下ろす
+  だけ。保持の時間は Ollama と共通の `ollama.keepAliveMin` を読む（#325 で決めた）
 TODO(#327): モデルのダウンロード（pull）。今は LMStudioUnavailable にする
 """
 
@@ -32,8 +39,6 @@ from remote_whisper.settings import SettingsStore
 from remote_whisper.summary_parts import NUM_CTX
 
 log = logging.getLogger(__name__)
-
-DEFAULT_HOST = "http://localhost:1234"
 
 # 一覧やモデルの情報を取るときの待ち時間（秒）。生成は長くかかるので、読み取りの待ち時間は設けない
 REQUEST_TIMEOUT = 10.0
@@ -109,6 +114,93 @@ async def _sse(res: httpx.Response) -> AsyncIterator[tuple[str, str]]:
         yield event, "\n".join(data)
 
 
+class SchemaMismatch(ValueError):
+    """返事が JSON Schema に合わない"""
+
+
+def _schema_prompt(schema: dict[str, Any]) -> str:
+    """`/api/v1/chat` で構造化出力の代わりにプロンプトの最後に足す指示"""
+    text = json.dumps(schema, ensure_ascii=False)
+    return (
+        "次の JSON Schema に従う JSON だけを返してください。説明やコードブロックは付けないで"
+        f"ください。\n{text}"
+    )
+
+
+def _strip_code_block(text: str) -> str:
+    """```json ... ``` で囲まれていれば中身だけにする"""
+    text = text.strip()
+    if text.startswith("```"):
+        text = text[3:]
+        # 1 行目の言語名（json など）は捨てる
+        first, sep, rest = text.partition("\n")
+        if sep and (not first.strip() or first.strip().isalpha()):
+            text = rest
+        text = text.rstrip().removesuffix("```").strip()
+    return text
+
+
+def conform(value: Any, schema: dict[str, Any], path: str = "$") -> Any:
+    """value が JSON Schema に合うか確かめる。合わなければ SchemaMismatch
+
+    使っているキーワード（type・properties・required・items・maxItems・maxLength）だけを見る。
+    maxLength を超えた文字列と maxItems を超えた配列は、切り詰めて返す（作り直さない）。
+    `/v1/chat/completions` の構造化出力も、上限で切れた文字列を返すので、それに合わせる（#322）。
+    properties にないキーは、そのまま残す（呼ぶ側は使わない）
+    """
+    kind = schema.get("type")
+    if kind == "object":
+        if not isinstance(value, dict):
+            raise SchemaMismatch(f"{path} is not an object")
+        for key in schema.get("required") or []:
+            if key not in value:
+                raise SchemaMismatch(f"{path}.{key} is missing")
+        props = schema.get("properties") or {}
+        return {
+            k: conform(v, props[k], f"{path}.{k}") if k in props else v for k, v in value.items()
+        }
+    if kind == "array":
+        if not isinstance(value, list):
+            raise SchemaMismatch(f"{path} is not an array")
+        limit = schema.get("maxItems")
+        if isinstance(limit, int):
+            value = value[:limit]
+        items = schema.get("items")
+        if isinstance(items, dict):
+            return [conform(v, items, f"{path}[{i}]") for i, v in enumerate(value)]
+        return value
+    if kind == "string":
+        if not isinstance(value, str):
+            raise SchemaMismatch(f"{path} is not a string")
+        limit = schema.get("maxLength")
+        return value[:limit] if isinstance(limit, int) else value
+    if kind == "integer":
+        # bool は int の子だが、JSON では整数ではない
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise SchemaMismatch(f"{path} is not an integer")
+        return value
+    if kind == "number":
+        if not isinstance(value, int | float) or isinstance(value, bool):
+            raise SchemaMismatch(f"{path} is not a number")
+        return value
+    if kind == "boolean":
+        if not isinstance(value, bool):
+            raise SchemaMismatch(f"{path} is not a boolean")
+        return value
+    return value
+
+
+def parse_structured(text: str, schema: dict[str, Any]) -> str:
+    """プロンプトでスキーマを頼んだ返事を、スキーマに合った JSON の文字列にする
+
+    コードブロックを外して読む。読めない・合わなければ SchemaMismatch"""
+    try:
+        value = json.loads(_strip_code_block(text))
+    except ValueError as e:
+        raise SchemaMismatch(f"not JSON: {e}") from e
+    return json.dumps(conform(value, schema), ensure_ascii=False)
+
+
 def _instances(entry: dict[str, Any]) -> list[tuple[str, int]]:
     """載っているインスタンスの（id, context_length）"""
     result = []
@@ -123,19 +215,23 @@ def _instances(entry: dict[str, Any]) -> list[tuple[str, int]]:
 class LMStudioClient:
     """`llm.LlmClient` の LM Studio での実装"""
 
+    # 処理ごとのモデルを読む設定（Settings.llm_models）
+    backend = "lmstudio"
+
     def __init__(
         self,
         hub: Hub,
         settings: SettingsStore,
-        host: str = DEFAULT_HOST,
+        host: str | None = None,
         token: str | None = None,
         recording: Callable[[], bool] = lambda: False,
         transport: httpx.AsyncBaseTransport | None = None,
     ):
+        """host・token を省くと、設定（lmstudio.host・lmstudio.token）を使うたびに読む"""
         self.hub = hub
         self.settings = settings
-        self.host = host.rstrip("/")
-        self._token = token or None
+        self._host = host
+        self._token_arg = token
         # 録音中かどうか（#326 で載せ下ろしに使う）
         self.recording = recording
         self._transport = transport
@@ -149,6 +245,17 @@ class LMStudioClient:
         # モデル → 載せるときのロック（同時に load して 2 つ載らないように）
         self._load_locks: dict[str, asyncio.Lock] = {}
         self._monitor: asyncio.Task | None = None
+
+    @property
+    def host(self) -> str:
+        return (self._host or self.settings.get().lmstudio.host).rstrip("/")
+
+    @property
+    def _token(self) -> str | None:
+        """API トークン。空なら送らない。秘密の値なので、ログ・例外の文には入れない"""
+        if self._token_arg is not None:
+            return self._token_arg or None
+        return self.settings.get().lmstudio.token or None
 
     def _client(self, timeout: httpx.Timeout | float = REQUEST_TIMEOUT) -> httpx.AsyncClient:
         headers = {"Authorization": f"Bearer {self._token}"} if self._token else None
@@ -245,8 +352,8 @@ class LMStudioClient:
         """動かすモデル。入っていなければ、要約詳細のモデル → 全体概要のモデル →
         入っているうち最初のもの、の順に代わりを選ぶ（#178。Ollama と同じ考え方）
 
-        一覧を取れない・何も入っていないときは、そのまま返す（呼んだ先で失敗する）
-        TODO(#325): 処理ごとのモデルを lmstudio の設定から読む。今は ollama.models を見る
+        一覧を取れない・何も入っていないときは、そのまま返す（呼んだ先で失敗する）。
+        要約詳細・全体概要のモデルは lmstudio.models から読む（#325）
         """
         try:
             installed = await self.installed()
@@ -254,7 +361,7 @@ class LMStudioClient:
             return model
         if not installed or model in installed:
             return model
-        models = self.settings.get().ollama.models
+        models = self.settings.get().lmstudio.models
         alternative = next(
             m for m in (models.detail, models.overview, *sorted(installed)) if m in installed
         )
@@ -363,9 +470,11 @@ class LMStudioClient:
         max_tokens = options.get("num_predict")
         if not isinstance(max_tokens, int) or max_tokens <= 0:
             max_tokens = None
-        native = format is None and all(m["role"] in ("system", "user") for m in messages)
-        if native:
+        plain = all(m["role"] in ("system", "user") for m in messages)
+        if format is None and plain:
             parts = self._native_stream(model, messages, think, switchable, options, max_tokens)
+        elif format is not None and plain and not think:
+            parts = self._structured(model, messages, switchable, format, options, max_tokens)
         else:
             parts = self._openai_stream(
                 model, messages, think, switchable, format, options, max_tokens
@@ -377,6 +486,45 @@ class LMStudioClient:
         if empty and always_thinks:
             log.warning("lmstudio model %s returned only its thinking", model)
             raise LMStudioUnavailable(f"{model} returned no reply")
+
+    async def _structured(
+        self,
+        model: str,
+        messages: list[dict[str, Any]],
+        switchable: bool,
+        format: dict[str, Any],
+        options: dict[str, Any],
+        max_tokens: int | None,
+    ) -> AsyncIterator[str]:
+        """format あり・思考オフ（#322 の追記）
+
+        `/api/v1/chat`（思考オフ）にスキーマをプロンプトで頼み、合えばその JSON を返す。
+        合わなければ `/v1/chat/completions` の構造化出力でもう一度だけ作る（遅いが必ず合う）"""
+        asked = [*messages, {"role": "user", "content": _schema_prompt(format)}]
+        reply = "".join(
+            [
+                part
+                async for part in self._native_stream(
+                    model, asked, False, switchable, options, max_tokens
+                )
+            ]
+        )
+        try:
+            yield parse_structured(reply, format)
+            return
+        except SchemaMismatch as e:
+            # 返事の頭も書く（どんな形で外れたかを後で見られるように）
+            log.warning(
+                "the reply of %s did not match the schema (%s): %r; asking again with "
+                "response_format",
+                model,
+                e,
+                reply[:200],
+            )
+        async for part in self._openai_stream(
+            model, messages, False, switchable, format, options, max_tokens
+        ):
+            yield part
 
     async def _native_stream(
         self,

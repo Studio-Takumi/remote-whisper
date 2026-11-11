@@ -380,7 +380,7 @@ class MockContextGenerator:
         self.timing = timing or MockTiming()
 
     def describe(self) -> tuple[str, bool]:
-        model = self.settings.get().ollama.models.context
+        model = self.settings.get().llm_models().context
         return model, mock_thinking(model)
 
     async def _wait(self) -> None:
@@ -409,7 +409,7 @@ class MockFinalSummarizer:
             writer.set_summary_failed(True)
             await send(ollama_error("最終要約"))
             return None
-        models = models or self.settings.get().ollama.models.final()
+        models = models or self.settings.get().llm_models().final()
         for i in range(0, len(FINAL_SUMMARY), 6):
             await send({"type": "summary.delta", "kind": "final", "text": FINAL_SUMMARY[i : i + 6]})
             await asyncio.sleep(self.timing.stream)
@@ -447,7 +447,7 @@ class MockRecorder:
         self.on_summary = None
 
     def final_models(self) -> FinalModels:
-        return (self.settings.get().ollama.models if self.settings else OllamaModels()).final()
+        return (self.settings.get().llm_models() if self.settings else OllamaModels()).final()
 
     def _writer(self, project: str, sid: str) -> SessionWriter | None:
         """登録されたプロジェクトなら、ファイルを書く SessionWriter を作る。知らなければ None"""

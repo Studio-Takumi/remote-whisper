@@ -32,13 +32,13 @@ from remote_whisper.documents import (
 from remote_whisper.fsaccess import is_within_roots, real_path
 from remote_whisper.gpu_queue import GpuQueue, Priority
 from remote_whisper.hub import Hub
-from remote_whisper.llm import LlmClient, LlmUnavailable
+from remote_whisper.llm import LlmClient, LlmUnavailable, backend_of
 from remote_whisper.material_figures import FigureReader, Run, pdf_texts, with_figures
 from remote_whisper.material_toc import LARGE_CHARS, MaterialToc, build_toc
 from remote_whisper.materials import ExtractError, extract_text
 from remote_whisper.projects import ContextSetEntry, ProjectError, ProjectFile, ProjectStore
 from remote_whisper.prompts import context_messages, hotwords_messages, material_notes_messages
-from remote_whisper.settings import SettingsStore
+from remote_whisper.settings import OllamaModels, SettingsStore
 from remote_whisper.summary_parts import NUM_CTX as SUMMARY_NUM_CTX
 from remote_whisper.timeutil import iso, make_id, now
 
@@ -114,7 +114,11 @@ class OllamaGenerator:
     def __init__(self, ollama: LlmClient, settings: SettingsStore):
         self.ollama = ollama
         self.settings = settings
-        self._used: tuple[str, bool] = (self.settings.get().ollama.models.context, True)
+        self._used: tuple[str, bool] = (self._models().context, True)
+
+    def _models(self) -> OllamaModels:
+        """使っている LLM（Ollama か LM Studio。#325）の処理ごとのモデル"""
+        return self.settings.get().llm_models(backend_of(self.ollama))
 
     def describe(self) -> tuple[str, bool]:
         """フロントマターに残すモデル（コンテキストのモデル）と思考モード"""
@@ -130,7 +134,7 @@ class OllamaGenerator:
         """用語リスト（資料抽出）。範囲で作り直すとき（#182）は、これだけを浄書の前に作る
 
         長い資料は部分に分けて部分ごとに拾い、多くの部分に出てきた語を前にする（#271）"""
-        model = await self.ollama.resolve(self.settings.get().ollama.models.material_terms)
+        model = await self.ollama.resolve(self._models().material_terms)
         counts: Counter[str] = Counter()
         order: dict[str, int] = {}
         for part in split_materials(materials):
@@ -144,7 +148,7 @@ class OllamaGenerator:
         """コンテキスト。範囲で作り直すとき（#182）は、これだけを浄書の後に作る
 
         長い資料は部分ごとにメモを作り、メモをまとめてコンテキストにする（#271）"""
-        model = await self.ollama.resolve(self.settings.get().ollama.models.context)
+        model = await self.ollama.resolve(self._models().context)
         think = await self.ollama.supports_thinking(model)
         self._used = (model, think)
         parts = split_materials(materials)
