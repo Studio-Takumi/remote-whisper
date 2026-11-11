@@ -214,3 +214,44 @@ def test_only_one_model_stays_loaded_while_recording(ollama, fake, state):
     run(ollama.recording_ended())
     assert fake.bodies("/api/generate")[-1] == {"model": "llama3.2:latest", "keep_alive": "600s"}
     assert len(fake.bodies("/api/generate")) == 2
+
+
+def test_ollama_client_fits_the_llm_protocol(ollama):
+    import inspect
+
+    from remote_whisper.llm import LlmClient
+
+    # 型チェッカーが、OllamaClient を LlmClient として使えるかを見る
+    client: LlmClient = ollama
+    # chat_stream・pull は async ジェネレータ（呼ぶと反復子が返る。コルーチンではない）
+    assert inspect.isasyncgenfunction(client.chat_stream)
+    assert inspect.isasyncgenfunction(client.pull)
+
+
+def test_pull_yields_only_the_progress_keys(ollama, fake):
+    fake.pull_lines = [
+        {"status": "pulling manifest", "extra": 1},
+        {"status": "pulling a", "digest": "a", "total": 100, "completed": 50, "x": "y"},
+        {"status": "pulling b", "digest": "b"},
+        {"status": "pulling c", "digest": "c", "total": 10},
+    ]
+
+    async def go():
+        return [p async for p in ollama.pull("m")]
+
+    assert run(go()) == [
+        {"status": "pulling manifest"},
+        {"status": "pulling a", "digest": "a", "total": 100, "completed": 50},
+        {"status": "pulling b"},
+        {"status": "pulling c", "digest": "c", "total": 10, "completed": 0},
+    ]
+
+
+def test_pull_with_a_non_numeric_total_is_unavailable(ollama, fake):
+    fake.pull_lines = [{"status": "x", "digest": "a", "total": "many"}]
+
+    async def go():
+        return [p async for p in ollama.pull("m")]
+
+    with pytest.raises(OllamaUnavailable):
+        run(go())

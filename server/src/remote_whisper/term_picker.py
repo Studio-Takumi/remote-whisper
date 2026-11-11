@@ -19,7 +19,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from remote_whisper.gpu_queue import GpuQueue, Priority
-from remote_whisper.ollama import OllamaClient, OllamaUnavailable
+from remote_whisper.llm import LlmClient, LlmUnavailable
 from remote_whisper.prompts import TERMS_FORMAT, TERMS_MAX, parse_terms, terms_messages
 from remote_whisper.session_writer import SessionWriter, fmt_clock
 from remote_whisper.settings import SettingsStore
@@ -95,7 +95,7 @@ def manual_terms_fit(manual: list[str]) -> bool:
 class TermPicker:
     def __init__(
         self,
-        ollama: OllamaClient,
+        ollama: LlmClient,
         gpu: GpuQueue,
         settings: SettingsStore,
         writer: SessionWriter,
@@ -177,7 +177,7 @@ class TermPicker:
                 format=TERMS_FORMAT,
                 options={"num_ctx": NUM_CTX},
             )
-        except OllamaUnavailable as e:
+        except LlmUnavailable as e:
             # 次の回に、同じ範囲をもう一度拾う
             log.warning("terms of %s failed: %s", self.writer.id, e)
             return

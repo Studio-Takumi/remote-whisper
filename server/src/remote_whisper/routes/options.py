@@ -5,8 +5,8 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends
 
 from remote_whisper.context import AppContext, get_ctx
+from remote_whisper.llm import LlmUnavailable
 from remote_whisper.mock import MOCK_OLLAMA_MODELS
-from remote_whisper.ollama import OllamaUnavailable
 from remote_whisper.settings import has_model
 
 router = APIRouter(prefix="/api/settings")
@@ -26,7 +26,7 @@ async def get_options(ctx: Annotated[AppContext, Depends(get_ctx)]) -> dict[str,
     else:
         try:
             ollama = await ctx.ollama.models()
-        except OllamaUnavailable:
+        except LlmUnavailable:
             ollama = []
     # 処理ごとのモデル（#178）のうち、Ollama に入っていないもの（setting.json の models のキー）。
     # 動かすときは代わりのモデルを使う。一覧を取れない（つながらない）ときは空

@@ -16,6 +16,7 @@ from typing import Any
 import httpx
 
 from remote_whisper.hub import Hub
+from remote_whisper.llm import LlmUnavailable, PullProgress
 from remote_whisper.settings import SettingsStore, has_model
 
 log = logging.getLogger(__name__)
@@ -24,7 +25,7 @@ log = logging.getLogger(__name__)
 REQUEST_TIMEOUT = 10.0
 
 
-class OllamaUnavailable(Exception):
+class OllamaUnavailable(LlmUnavailable):
     """Ollama につながらない・エラーを返した"""
 
 
@@ -37,7 +38,17 @@ def ollama_error(what: str) -> dict[str, Any]:
     }
 
 
+def _to_ollama_message(message: dict[str, Any]) -> dict[str, Any]:
+    """共通の形の画像（"image"）を、Ollama の "images" に直す"""
+    if "image" not in message:
+        return message
+    rest = {k: v for k, v in message.items() if k != "image"}
+    return {**rest, "images": [message["image"]]}
+
+
 class OllamaClient:
+    """`llm.LlmClient` の Ollama での実装"""
+
     def __init__(
         self,
         hub: Hub,
@@ -201,6 +212,7 @@ class OllamaClient:
         model = await self.resolve(model)
         if self.recording():
             await self._unload_other_pinned(model)
+        messages = [_to_ollama_message(m) for m in messages]
         body: dict[str, Any] = {
             "model": model,
             "messages": messages,
@@ -260,7 +272,7 @@ class OllamaClient:
                 log.info("ollama unloaded %s to load %s while recording", other, model)
             self._pinned.discard(other)
 
-    async def pull(self, model: str) -> AsyncIterator[dict[str, Any]]:
+    async def pull(self, model: str) -> AsyncIterator[PullProgress]:
         """モデルを取ってくる（`/api/pull`。初回のセットアップ。#291）。進み具合を 1 行ずつ返す
 
         GPU は使わないので GPU キューには積まない。止めるときは、呼んだ側がタスクを cancel する
@@ -285,7 +297,12 @@ class OllamaClient:
                     chunk = json.loads(line)
                     if chunk.get("error"):
                         raise OllamaUnavailable(str(chunk["error"]))
-                    yield chunk
+                    progress: PullProgress = {"status": str(chunk.get("status") or "")}
+                    if chunk.get("digest") and chunk.get("total"):
+                        progress["digest"] = str(chunk["digest"])
+                        progress["total"] = int(chunk["total"])
+                        progress["completed"] = int(chunk.get("completed") or 0)
+                    yield progress
         except (httpx.HTTPError, httpx.InvalidURL, ValueError) as e:
             raise await self._failed(e) from e
         # 入っているモデルが変わったので、覚えている能力と「入っていない」を消す

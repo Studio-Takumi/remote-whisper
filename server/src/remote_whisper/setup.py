@@ -34,7 +34,7 @@ from typing import Any
 from remote_whisper import bundle
 from remote_whisper.cloud import OwnerOnlyError, write_owner_only
 from remote_whisper.fsutil import atomic_write_json, atomic_write_text
-from remote_whisper.ollama import OllamaUnavailable
+from remote_whisper.llm import LlmUnavailable
 from remote_whisper.settings import RECOMMENDED_MODELS, SettingsStore, has_model
 
 log = logging.getLogger(__name__)
@@ -621,7 +621,7 @@ class SetupService:
             try:
                 installed = await self.ollama.installed() if self.ollama else set()
                 running = self.ollama is not None
-            except OllamaUnavailable:
+            except LlmUnavailable:
                 running, installed = False, set()
         whisperx = self.mock or self.whisperx_installed()
         runtime = self._runtime()
@@ -688,16 +688,16 @@ class SetupService:
                 job.index, job.totals, job.done = i, {}, {}
                 log.info("pulling ollama model %s", model)
                 async for chunk in self.ollama.pull(model):
-                    digest = chunk.get("digest")
-                    if digest and chunk.get("total"):
-                        job.totals[digest] = int(chunk["total"])
-                        job.done[digest] = int(chunk.get("completed") or 0)
+                    part = chunk.get("digest")
+                    if part and chunk.get("total"):
+                        job.totals[part] = chunk["total"]
+                        job.done[part] = chunk.get("completed", 0)
                 log.info("pulled ollama model %s", model)
             job.state = "done"
         except asyncio.CancelledError:
             log.info("pulling ollama models was cancelled")
             job.state = "cancelled"
-        except OllamaUnavailable as e:
+        except LlmUnavailable as e:
             log.warning("pulling ollama model %s failed: %s", job.models[job.index], e)
             job.state = "failed"
             job.error = "Ollama から取得できませんでした"
