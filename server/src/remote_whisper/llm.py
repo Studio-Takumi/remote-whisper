@@ -31,7 +31,7 @@ class PullProgress(TypedDict):
 
 
 class LlmClient(Protocol):
-    async def chat_stream(
+    def chat_stream(
         self,
         model: str,
         messages: list[dict[str, Any]],
