@@ -30,8 +30,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeVar
 
+from remote_whisper.llm import LlmClient, LlmUnavailable
 from remote_whisper.materials import pdf_pages, tidy
-from remote_whisper.ollama import OllamaClient, OllamaUnavailable
 from remote_whisper.prompts import figure_messages
 from remote_whisper.settings import SettingsStore
 
@@ -196,7 +196,7 @@ def with_figures(texts: list[str], figures: dict[int, str]) -> str:
 class FigureReader:
     """PDF の図を、画像を読めるモデルで説明にする。説明はキャッシュする"""
 
-    def __init__(self, ollama: OllamaClient, settings: SettingsStore, cache_dir: Path):
+    def __init__(self, ollama: LlmClient, settings: SettingsStore, cache_dir: Path):
         self.ollama = ollama
         self.settings = settings
         self.cache_dir = cache_dir
@@ -230,7 +230,7 @@ class FigureReader:
                 continue
             try:
                 reply = await run(lambda index=index: self._describe(path, index, texts, model))
-            except OllamaUnavailable as e:
+            except LlmUnavailable as e:
                 # Ollama が止まったら、そこまでの説明で作る（残りのページはテキストだけ）
                 log.warning("stopped reading the figures of %s: %s", path.name, e)
                 break

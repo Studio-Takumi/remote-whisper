@@ -32,9 +32,9 @@ from remote_whisper.documents import (
     write_doc,
 )
 from remote_whisper.gpu_queue import GpuQueue, Priority
+from remote_whisper.llm import LlmClient, LlmUnavailable
 from remote_whisper.material_toc import MaterialRange, MaterialToc, range_text
 from remote_whisper.materials import ExtractError, extract_text
-from remote_whisper.ollama import OllamaClient, OllamaUnavailable
 from remote_whisper.projects import ContextSetEntry, ProjectFile, ProjectStore
 from remote_whisper.prompts import SCOPE_FORMAT, parse_scope, scope_messages
 from remote_whisper.session_writer import SessionWriter
@@ -157,7 +157,7 @@ class RangeService:
         self,
         projects: ProjectStore,
         settings: SettingsStore,
-        ollama: OllamaClient,
+        ollama: LlmClient,
         gpu: GpuQueue,
         context_sets: ContextSetService,
         generator: OllamaGenerator,
@@ -203,7 +203,7 @@ class RangeService:
                 kind="materialRange",
                 session=writer.id,
             )
-        except OllamaUnavailable as e:
+        except LlmUnavailable as e:
             log.warning("could not judge the material range of %s: %s", writer.id, e)
             return None
         if ranges is None:
@@ -229,7 +229,7 @@ class RangeService:
         )
         raw = parse_scope(reply)
         if raw is None:
-            raise OllamaUnavailable("範囲の答えの形が合いませんでした")
+            raise LlmUnavailable("範囲の答えの形が合いませんでした")
         # 作り直すかは、範囲が資料のほぼ全体かどうかで決める（モデルには聞かない）
         return normalize_ranges(raw, large)
 
@@ -253,7 +253,7 @@ class RangeService:
                 words = limit_hotwords(words)
                 if words:
                     words_body = "\n".join(words) + "\n"
-            except OllamaUnavailable as e:
+            except LlmUnavailable as e:
                 log.warning("could not make the terms of the range of %s: %s", writer.id, e)
         set_id = self._new_set(plan, writer.id, [m.path for m in base_meta.materials])
         meta = ContextSetMeta(
@@ -305,7 +305,7 @@ class RangeService:
         )
         try:
             context = await self.generator.context(text, self._run(writer.id))
-        except OllamaUnavailable as e:
+        except LlmUnavailable as e:
             log.warning("could not make the context of the range of %s: %s", writer.id, e)
             return
         if not context:

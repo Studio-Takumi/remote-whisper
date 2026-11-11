@@ -7,7 +7,7 @@ import json
 import logging
 from typing import Any
 
-from remote_whisper.ollama import OllamaClient
+from remote_whisper.llm import LlmClient
 from remote_whisper.summary_parts import NUM_CTX
 
 log = logging.getLogger(__name__)
@@ -254,7 +254,7 @@ def figure_messages(page_text: str, image: str) -> list[dict[str, object]]:
     )
     return [
         {"role": "system", "content": FIGURE_SYSTEM},
-        {"role": "user", "content": user, "images": [image]},
+        {"role": "user", "content": user, "image": image},
     ]
 
 
@@ -279,7 +279,7 @@ def parse_title(reply: str) -> str | None:
 
 
 async def make_title(
-    ollama: OllamaClient, model: str, summary: str, think: bool = False
+    ollama: LlmClient, model: str, summary: str, think: bool = False
 ) -> str | None:
     """要約からタイトルを作る（JSON Schema で15文字以内に制限する）。作れなければ None
 
