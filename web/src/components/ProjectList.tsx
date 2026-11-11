@@ -29,7 +29,9 @@ import { FileAudioIcon, GripVerticalIcon, PlusIcon } from 'lucide-react';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { connectedHostId } from '@/hosts';
 import { moveTarget } from '@/move';
+import { closedIds, loadClosed, openIds, saveClosed } from '@/projectFold';
 import { projectIdOf, reorderedIds, sortableId } from '@/projectOrder';
 import { formatElapsed, formatShortDateTime, sessionDuration } from '@/time';
 import type { Project, Session } from '@/types';
@@ -69,7 +71,7 @@ function pointerOnly(listeners: Record<string, unknown> | undefined) {
     return rest;
 }
 
-// サイドバーのプロジェクト一覧。基本は全部開いておく。閉じることもできる。
+// サイドバーのプロジェクト一覧。基本は全部開いておく。閉じることもでき、閉じたものはこの端末に覚える（#318）。
 // セッションをほかのプロジェクト（見出しか一覧の中）へドラッグすると移せる（#172）。
 // プロジェクトの見出しをドラッグすると並び替えられる（#173。セッションは並び替えられない）。
 // マウスは少し動かしたら、指は長押ししてからドラッグが始まる（押すだけ・スクロールは今までどおり）。
@@ -102,6 +104,25 @@ export function ProjectList({
     const [dragging, setDragging] = useState<Dragging | null>(null);
     // 並び替えのためにドラッグしているプロジェクトがあるか
     const [reordering, setReordering] = useState(false);
+    // 閉じているプロジェクト（#318）。端末ごと・ホストごとに覚える。クラウド版では、ホストにつなぐ前に
+    // 作られることがあるので、つないだホストが変わったら読み直す（ホストを替えるとページごと読み込み直す）
+    // 閉じているプロジェクトのセッションを開いたら（URL・通知・ジョブの一覧から）、そのプロジェクトを開く。
+    // 開いているセッションが変わったときだけ見る（開いたまま見出しを閉じるのは止めない）
+    const hostId = connectedHostId();
+    const selected = activeProject !== null && activeSession !== null ? `${activeProject}\n${activeSession}` : null;
+    const [fold, setFold] = useState(() => ({ hostId, closed: loadClosed(hostId), selected: null as string | null }));
+    if (fold.hostId !== hostId || fold.selected !== selected) {
+        const closed = fold.hostId === hostId ? fold.closed : loadClosed(hostId);
+        setFold({
+            hostId,
+            closed: selected === null ? closed : closed.filter((id) => id !== activeProject),
+            selected,
+        });
+    }
+    const setClosed = (closed: string[]) => {
+        setFold({ hostId, closed, selected });
+        saveClosed(hostId, closed);
+    };
     const sensors = useSensors(
         useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
         useSensor(TouchSensor, { activationConstraint: { delay: 400, tolerance: 8 } }),
@@ -178,7 +199,21 @@ export function ProjectList({
             accessibility={{ announcements, screenReaderInstructions }}
         >
             <SortableContext items={projects.map((p) => sortableId(p.id))} strategy={verticalListSortingStrategy}>
-                <Accordion type='multiple' defaultValue={projects.map((p) => p.id)}>
+                <Accordion
+                    type='multiple'
+                    value={openIds(
+                        projects.map((p) => p.id),
+                        fold.closed,
+                    )}
+                    onValueChange={(open) =>
+                        setClosed(
+                            closedIds(
+                                projects.map((p) => p.id),
+                                open,
+                            ),
+                        )
+                    }
+                >
                     {projects.map((project) => (
                         <ProjectGroup
                             key={project.id}
