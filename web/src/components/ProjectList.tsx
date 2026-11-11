@@ -107,10 +107,11 @@ export function ProjectList({
     // 閉じているプロジェクト（#318）。端末ごと・ホストごとに覚える。クラウド版では、ホストにつなぐ前に
     // 作られることがあるので、つないだホストが変わったら読み直す（ホストを替えるとページごと読み込み直す）
     // 閉じているプロジェクトのセッションを開いたら（URL・通知・ジョブの一覧から）、そのプロジェクトを開く。
-    // 開いているセッションが変わったときだけ見る（開いたまま見出しを閉じるのは止めない）
+    // 開いているセッションが変わったときだけ見る（開いたまま見出しを閉じるのは止めない）。作り直したとき
+    // （スマホでシートを開き直す・読み込み直す）は、変わったとはみなさない（閉じたものを開き直さない）
     const hostId = connectedHostId();
     const selected = activeProject !== null && activeSession !== null ? `${activeProject}\n${activeSession}` : null;
-    const [fold, setFold] = useState(() => ({ hostId, closed: loadClosed(hostId), selected: null as string | null }));
+    const [fold, setFold] = useState(() => ({ hostId, closed: loadClosed(hostId), selected }));
     if (fold.hostId !== hostId || fold.selected !== selected) {
         const closed = fold.hostId === hostId ? fold.closed : loadClosed(hostId);
         setFold({

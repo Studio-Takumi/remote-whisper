@@ -131,5 +131,9 @@ describe('ProjectList の開閉', () => {
         // 開いたまま見出しを閉じるのは止めない
         toggle('B');
         expect(expanded()).toEqual({ A: true, B: false });
+        // 作り直しても（スマホでシートを開き直す）、開いているセッションが同じなら閉じたまま
+        remount();
+        draw([project('A'), project('B')], { project: 'B', session: 'B-s1' });
+        expect(expanded()).toEqual({ A: true, B: false });
     });
 });
