@@ -112,7 +112,7 @@ PAGES = [
 def run_annotate(fake, detail, pages, reply):
     fake.reply_for = lambda body: reply if body.get("format") else None
     ollama = OllamaClient(Hub(), SettingsStore_dummy(), transport=fake.transport())
-    return asyncio.run(annotate_detail(ollama, "qwen3.5:4b", detail, pages))
+    return asyncio.run(annotate_detail(ollama, "gemma4:e4b", detail, pages))
 
 
 class SettingsStore_dummy:
@@ -163,7 +163,7 @@ def write_set(project_dir, set_id, paths, material_range=None):
     meta = ContextMeta(
         id=set_id,
         created_at="2026-10-22T10:00:00+09:00",
-        model="qwen3.5:4b",
+        model="gemma4:e4b",
         think=True,
         materials=[MaterialRef(path=str(p), sha1="0") for p in paths],
         material_range=material_range,

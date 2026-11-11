@@ -34,8 +34,8 @@ def run(coro):
 def test_models_and_thinking(ollama, fake):
     models = run(ollama.models())
     assert models == [
+        {"name": "gemma4:e4b", "thinking": True},
         {"name": "llama3.2:latest", "thinking": False},
-        {"name": "qwen3.5:4b", "thinking": True},
     ]
     # 思考モードへの対応は覚えておく（2回目は /api/show を呼ばない）
     run(ollama.models())
@@ -91,7 +91,7 @@ def test_monitor_updates_the_status(ollama, fake):
 
 def test_chat_streams_the_reply(ollama, fake):
     async def main():
-        return [part async for part in ollama.chat_stream("qwen3.5:4b", [], think=True)]
+        return [part async for part in ollama.chat_stream("gemma4:e4b", [], think=True)]
 
     assert run(main()) == ["要約", "です"]
     body = fake.bodies("/api/chat")[0]
@@ -101,11 +101,11 @@ def test_chat_streams_the_reply(ollama, fake):
 
 
 def test_reply_cut_off_at_num_ctx_is_logged(ollama, fake, caplog):
-    assert run(ollama.chat("qwen3.5:4b", [])) == "要約です"
+    assert run(ollama.chat("gemma4:e4b", [])) == "要約です"
     assert "cut off" not in caplog.text
     fake.done_reason = "length"
     # 切れたところまでは返す
-    assert run(ollama.chat("qwen3.5:4b", [])) == "要約です"
+    assert run(ollama.chat("gemma4:e4b", [])) == "要約です"
     assert "cut off at num_ctx" in caplog.text
 
 
@@ -116,7 +116,7 @@ def test_thinking_is_off_for_models_without_it(ollama, fake):
 
 def test_format_and_options_are_passed(ollama, fake):
     schema = {"type": "object"}
-    run(ollama.chat("qwen3.5:4b", [], format=schema, options={"num_ctx": 8192}))
+    run(ollama.chat("gemma4:e4b", [], format=schema, options={"num_ctx": 8192}))
     body = fake.bodies("/api/chat")[0]
     assert (body["format"], body["options"]) == (schema, {"num_ctx": 8192})
 
@@ -138,11 +138,11 @@ def test_chat_with_unknown_model_fails(ollama, fake):
 
 
 def test_missing_model_falls_back_to_the_detail_model(ollama, fake, caplog):
-    # 入っていないモデルは、要約詳細のモデル（既定は qwen3.5:4b）で代わりに動かす（#178）
+    # 入っていないモデルは、要約詳細のモデル（既定は gemma4:e4b）で代わりに動かす（#178）
     with caplog.at_level(logging.WARNING):
         assert run(ollama.chat("qwen3.5:0.8b", [])) == "要約です"
         run(ollama.chat("qwen3.5:0.8b", []))
-    assert [b["model"] for b in fake.bodies("/api/chat")] == ["qwen3.5:4b", "qwen3.5:4b"]
+    assert [b["model"] for b in fake.bodies("/api/chat")] == ["gemma4:e4b", "gemma4:e4b"]
     # ログはモデルごとに 1 回だけ
     assert sum("qwen3.5:0.8b is not installed" in r.message for r in caplog.records) == 1
 
@@ -153,7 +153,7 @@ def test_fallback_order_is_detail_overview_then_the_first_installed(ollama, fake
     )
     assert run(ollama.resolve("nope")) == "llama3.2:latest"
     ollama.settings.update({"ollama": {"models": {"overview": "big:70b"}}})
-    assert run(ollama.resolve("nope")) == "llama3.2:latest"  # 名前の順で最初のもの
+    assert run(ollama.resolve("nope")) == "gemma4:e4b"  # 名前の順で最初のもの
     fake.models = {"zeta:1b": [], "alpha:1b": []}
     assert run(ollama.resolve("nope")) == "alpha:1b"
     # 入っていれば、そのまま。タグを省いた名前は :latest とみなす
@@ -185,7 +185,7 @@ def test_invalid_host_is_unavailable(home):
 
 def test_keep_alive_while_recording(ollama, fake, state):
     state["recording"] = True
-    run(ollama.chat("qwen3.5:4b", []))
+    run(ollama.chat("gemma4:e4b", []))
     assert fake.bodies("/api/chat")[0]["keep_alive"] == -1
     # 録音中は戻さない
     run(ollama.recording_ended())
@@ -194,7 +194,7 @@ def test_keep_alive_while_recording(ollama, fake, state):
     state["recording"] = False
     ollama.settings.update({"ollama": {"keepAliveMin": 5}})
     run(ollama.recording_ended())
-    assert fake.bodies("/api/generate") == [{"model": "qwen3.5:4b", "keep_alive": "300s"}]
+    assert fake.bodies("/api/generate") == [{"model": "gemma4:e4b", "keep_alive": "300s"}]
     run(ollama.recording_ended())
     assert len(fake.bodies("/api/generate")) == 1
 
@@ -202,11 +202,11 @@ def test_keep_alive_while_recording(ollama, fake, state):
 def test_only_one_model_stays_loaded_while_recording(ollama, fake, state):
     # 録音中に別のモデルを使うときは、録音中に載せたほかのモデルを先に下ろす（#178。VRAM のため）
     state["recording"] = True
-    run(ollama.chat("qwen3.5:4b", []))
-    run(ollama.chat("qwen3.5:4b", []))
+    run(ollama.chat("gemma4:e4b", []))
+    run(ollama.chat("gemma4:e4b", []))
     assert fake.bodies("/api/generate") == []
     run(ollama.chat("llama3.2:latest", []))
-    assert fake.bodies("/api/generate") == [{"model": "qwen3.5:4b", "keep_alive": 0}]
+    assert fake.bodies("/api/generate") == [{"model": "gemma4:e4b", "keep_alive": 0}]
     order = [path for path, _ in fake.requests if path in ("/api/generate", "/api/chat")]
     assert order == ["/api/chat", "/api/chat", "/api/generate", "/api/chat"]
     # 録音が終わったら、最後に載せたものだけを keepAliveMin 分に戻す

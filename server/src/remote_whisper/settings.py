@@ -99,22 +99,33 @@ class WhisperSettings(_Model):
 # 動かすときに入っているモデルで代わりに動かす（OllamaClient.resolve）。
 # 録音中の 3 つ（要約・タイトル・用語）は同じモデルにそろえる。録音中は Ollama のモデルを 1 つしか
 # 載せないので、別々だと区切りごとに読み込み直しになる。0.8b は用語の抽出で文をそのまま返すなど
-# 品質が足りなかったので、録音中は 2b にした
+# 品質が足りなかったので、録音中は 2b にした。録音のあとの処理は gemma4:e4b を前提にする（#328）
 RECOMMENDED_MODELS = {
-    "materialTerms": "qwen3.5:2b",
-    "context": "qwen3.5:4b",
+    # 参考資料の 3 つ（用語・コンテキスト・図）は同じモデルにして、読み込み直しをなくす。
+    # gemma4:e4b は思考が短く、決算資料（4 部分）で qwen3.5:4b の約 3 分の 1 の時間（5 分）で済み、
+    # qwen3.5 のような数値の取り違え・中国語や英語の混入もなかった（#328）
+    "materialTerms": "gemma4:e4b",
+    "context": "gemma4:e4b",
     # 範囲の判断（#182）は、2b だと答えが回ごとにばらつき、温度 0 では目次を全部写すだけだった。
-    # 4b は毎回同じ答えになった。浄書の後は VRAM が空いていて、続くコンテキスト・要約も 4b
-    "scope": "qwen3.5:4b",
+    # qwen3.5:4b も目次を 1 行ずつ写して上限（10 個）で切れることがあった。gemma4:e4b は話題ごとに
+    # 範囲を答えた（#328）。浄書の後は VRAM が空いていて、続くコンテキスト・要約も同じモデル
+    "scope": "gemma4:e4b",
     # 図の読み取り（#271）は画像を読めるモデル（Ollama の capabilities に vision があるもの）。
-    # qwen3.5 は画像も読める。4b で講演のスライドの構成図・グラフの数値まで読めた
-    "figures": "qwen3.5:4b",
+    # gemma4:e4b は、決算資料の表を Markdown の表にして数値まで正しく写した。qwen3.5:4b は表の数値を
+    # 読まなかったり、増減を取り違えたりした（#328）。1 ページ 10 秒ほどで qwen3.5:4b の約 2 倍
+    "figures": "gemma4:e4b",
+    # 録音中の 3 つは qwen3.5:2b のまま（#328）。gemma4:e4b は Whisper と一緒だと GPU に載りきらず
+    # （43 層のうち 38 層）、区間の要約が約 2.5 倍遅くなった。gemma4:e2b は、区間の要約で前の区間の
+    # 要約をそのまま繰り返した
     "transcriptTerms": "qwen3.5:2b",
     "liveSummary": "qwen3.5:2b",
     "liveTitle": "qwen3.5:2b",
-    "overview": "qwen3.5:4b",
-    "detail": "qwen3.5:4b",
-    "finalTitle": "qwen3.5:0.8b",
+    # 最終の要約は gemma4:e4b（100 本のベンチで qwen3.5:4b より良く、速かった。#328）
+    "overview": "gemma4:e4b",
+    "detail": "gemma4:e4b",
+    # タイトルも要約と同じモデルにして、読み込み直しをなくす。qwen3.5:0.8b は「中間配当 1,3」の
+    # ように途中で切れたタイトルを返した（#328）
+    "finalTitle": "gemma4:e4b",
 }
 
 

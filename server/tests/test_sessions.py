@@ -22,30 +22,30 @@ def summary(gid: str, model: str, **kw) -> SummaryMeta:
 
 def test_pick_latest_prefers_the_current_model():
     items = [
-        summary("20261009-160000", "qwen3.5:4b"),
-        summary("20261009-170000", "qwen3.5:4b"),
+        summary("20261009-160000", "gemma4:e4b"),
+        summary("20261009-170000", "gemma4:e4b"),
         summary("20261009-180000", "gemma3:4b"),
     ]
-    assert pick_latest(items, "qwen3.5:4b", "qwen3.5:4b").generation_id == "20261009-170000"
+    assert pick_latest(items, "gemma4:e4b", "gemma4:e4b").generation_id == "20261009-170000"
     assert pick_latest(items, "gemma3:4b", "gemma3:4b").generation_id == "20261009-180000"
     # そのモデルの要約がなければ、モデルを問わずいちばん新しいもの
     assert pick_latest(items, "llama3.2:3b", "llama3.2:3b").generation_id == "20261009-180000"
-    assert pick_latest([], "qwen3.5:4b", "qwen3.5:4b") is None
+    assert pick_latest([], "gemma4:e4b", "gemma4:e4b") is None
 
 
 def test_pick_latest_matches_the_pair_of_overview_and_detail_models():
     # 全体概要と要約詳細のモデルの組で選ぶ（#178）。記録する前の要約は、両方とも model とみなす
     items = [
-        summary("20261009-160000", "qwen3.5:4b"),
-        summary("20261009-170000", "qwen3.5:4b").model_copy(
+        summary("20261009-160000", "gemma4:e4b"),
+        summary("20261009-170000", "gemma4:e4b").model_copy(
             update={"overview_model": "qwen3.5:2b"}
         ),
         summary("20261009-180000", "gemma3:4b"),
     ]
-    assert pick_latest(items, "qwen3.5:2b", "qwen3.5:4b").generation_id == "20261009-170000"
-    assert pick_latest(items, "qwen3.5:4b", "qwen3.5:4b").generation_id == "20261009-160000"
+    assert pick_latest(items, "qwen3.5:2b", "gemma4:e4b").generation_id == "20261009-170000"
+    assert pick_latest(items, "gemma4:e4b", "gemma4:e4b").generation_id == "20261009-160000"
     # 詳細だけ合っても組が違えば、いちばん新しいもの
-    assert pick_latest(items, "gemma3:4b", "qwen3.5:4b").generation_id == "20261009-180000"
+    assert pick_latest(items, "gemma3:4b", "gemma4:e4b").generation_id == "20261009-180000"
 
 
 def test_parse_transcript_lines():
@@ -101,7 +101,7 @@ def project(tmp_path, client, app):
         "[00:00:03] 今日はリリース計画について\n[00:00:15] ステージング環境\n",
     )
     (d / f"recording-{SID}.mp3").write_bytes(b"\0")
-    for gid, model in [("20261009-160203", "qwen3.5:4b"), ("20261009-170000", "gemma3:4b")]:
+    for gid, model in [("20261009-160203", "gemma4:e4b"), ("20261009-170000", "gemma3:4b")]:
         meta = summary(gid, model)
         meta.project = created["path"]
         write_doc(d / f"summary-{SID}-{gid}.md", meta, f"## {model} の要約\n")
@@ -158,7 +158,7 @@ def test_list_summaries(client, project):
     pid, _ = project
     body = client.get(f"{base(pid)}/{SID}/summaries").json()
     assert [(s["generationId"], s["model"]) for s in body] == [
-        ("20261009-160203", "qwen3.5:4b"),
+        ("20261009-160203", "gemma4:e4b"),
         ("20261009-170000", "gemma3:4b"),
     ]
     assert body[0]["generatedAt"] == TS("16:00:00")
@@ -167,10 +167,10 @@ def test_list_summaries(client, project):
 def test_latest_summary_follows_the_final_summary_model(client, project):
     pid, _ = project
     url = f"{base(pid)}/{SID}/summaries/latest"
-    # 既定の全体概要・要約詳細は qwen3.5:4b。gemma3:4b のほうが新しくても qwen を返す
+    # 既定の全体概要・要約詳細は gemma4:e4b。gemma3:4b のほうが新しくても gemma4:e4b を返す
     body = client.get(url).json()
     assert (body["kind"], body["generationId"]) == ("final", "20261009-160203")
-    assert body["text"] == "## qwen3.5:4b の要約\n"
+    assert body["text"] == "## gemma4:e4b の要約\n"
 
     def use(model):
         models = {"overview": model, "detail": model}
@@ -207,7 +207,7 @@ def test_broken_yaml_does_not_break_the_list(client, project):
 
 def test_file_name_wins_over_frontmatter_ids(client, project):
     pid, d = project
-    meta = summary("20261009-000000", "qwen3.5:4b")  # フロントマターの ID がファイル名と違う
+    meta = summary("20261009-000000", "gemma4:e4b")  # フロントマターの ID がファイル名と違う
     write_doc(d / f"summary-{SID}-20261009-200000.md", meta, "新しい要約\n")
     ids = [s["generationId"] for s in client.get(f"{base(pid)}/{SID}/summaries").json()]
     assert ids[-1] == "20261009-200000"

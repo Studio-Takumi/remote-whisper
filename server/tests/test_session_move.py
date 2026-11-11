@@ -55,7 +55,7 @@ def _add_set(d, path, set_id, session=None):
         "id": set_id,
         "project": path,
         "created_at": "2026-10-19T09:00:00+09:00",
-        "model": "qwen3.5:4b",
+        "model": "gemma4:e4b",
         "think": False,
         "session": session,
     }
@@ -102,7 +102,7 @@ def _full_session(client, pid, d, path):
                 id=sid,
                 generation_id=gid,
                 project=path,
-                model="qwen3.5:4b",
+                model="gemma4:e4b",
                 think=True,
                 started_at=meta.started_at,
                 generated_at="2026-10-19T10:00:00+09:00",

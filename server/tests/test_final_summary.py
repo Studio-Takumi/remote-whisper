@@ -22,7 +22,7 @@ from remote_whisper.ollama import OllamaClient
 from remote_whisper.session_writer import safe_filename
 from remote_whisper.settings import FinalModels, SettingsStore
 
-FOUR_B = FinalModels("qwen3.5:4b", "qwen3.5:4b", "qwen3.5:4b")
+FOUR_B = FinalModels("gemma4:e4b", "gemma4:e4b", "gemma4:e4b")
 
 
 @pytest.fixture
@@ -77,7 +77,7 @@ def test_final_summary_is_streamed_saved_and_copied(client, project, fake_ollama
     [summary_file] = list(d.glob(f"summary-{sid}-*.md"))
     meta, body = read_doc(summary_file, SummaryMeta)
     assert body.strip() == "要約です"
-    assert (meta.model, meta.think, meta.title) == ("qwen3.5:4b", True, "リリース計画の確認")
+    assert (meta.model, meta.think, meta.title) == ("gemma4:e4b", True, "リリース計画の確認")
     transcript, _ = read_doc(d / f"transcript-{sid}.md", TranscriptMeta)
     assert transcript.title == "リリース計画の確認"
     assert not (d / ".tmp" / sid).exists()
@@ -391,7 +391,7 @@ def test_regenerate_with_another_model(client, project, fake_ollama, tmp_path):
     # 上書きせず、別のファイルとして増える。思考モードに対応していないモデルはオフ
     summaries = client.get(f"/api/projects/{pid}/sessions/{sid}/summaries").json()
     assert [(s["model"], s["think"]) for s in summaries] == [
-        ("qwen3.5:4b", True),
+        ("gemma4:e4b", True),
         ("llama3.2:latest", False),
     ]
     latest = client.get(f"/api/projects/{pid}/sessions/{sid}/summaries/latest").json()
@@ -527,7 +527,7 @@ def test_summary_is_made_even_if_unloading_or_copying_fails(home, fake, tmp_path
     gid, writer, sent = run_summary(home, fake, tmp_path, StubWhisper(fail=True), recording=False)
     assert gid == "20261010-100100"
     model, think, text, generated = writer.saved
-    assert (model, think, text) == ("qwen3.5:4b", True, "要約です")
+    assert (model, think, text) == ("gemma4:e4b", True, "要約です")
     # 生成 ID は、生成を始めた時刻（spec/files.md 5.2）
     assert before <= generated <= final_summary.now()
     # 選んだディレクトリにコピーできなくても、タイトルは送る

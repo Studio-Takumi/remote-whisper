@@ -122,7 +122,7 @@ def test_summarizes_new_finals_after_the_interval(home, fake):
     summaries = [b for b in fake.bodies("/api/chat") if "format" not in b]
     assert len(summaries) == 2
     # 思考モードはオフ、モデルは liveSummaryModel。num_ctx は最終の要約と同じ
-    assert all(b["think"] is False and b["model"] == "qwen3.5:4b" for b in summaries)
+    assert all(b["think"] is False and b["model"] == "gemma4:e4b" for b in summaries)
     assert all(b["options"]["num_ctx"] == 16384 for b in summaries)
     # 区間が1つのうちは、その区間の文字起こし全体から作り直す（会話履歴には足さない）
     assert "[00:00:00] 今日はリリース計画を決めます。" in user_prompt(summaries[0])

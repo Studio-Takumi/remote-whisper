@@ -9,8 +9,9 @@ class FakeOllama:
     def __init__(self):
         self.up = True
         # モデル名 → capabilities
+        # gemma4:e4b は録音のあとの処理の既定（#328）。録音中の既定（qwen3.5:2b）は入れていない
         self.models: dict[str, list[str]] = {
-            "qwen3.5:4b": ["completion", "thinking"],
+            "gemma4:e4b": ["completion", "thinking"],
             "llama3.2:latest": ["completion"],
         }
         # /api/chat が返す本文（少しずつ返す）

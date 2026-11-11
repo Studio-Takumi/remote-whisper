@@ -70,8 +70,8 @@ def test_status_lists_what_is_missing(client):
     assert ollama["running"] is True
     assert ollama["downloadUrl"] == "https://ollama.com/download"
     models = {m["name"]: m for m in ollama["models"]}
-    # 偽の Ollama には qwen3.5:4b だけが入っている
-    assert models["qwen3.5:4b"]["installed"] is True
+    # 偽の Ollama には gemma4:e4b だけが入っている
+    assert models["gemma4:e4b"]["installed"] is True
     assert models["qwen3.5:2b"]["installed"] is False
     assert models["qwen3.5:2b"]["sizeGb"] > 0
     assert ollama["pull"] is None
@@ -239,8 +239,9 @@ def test_tunnel_cannot_touch_the_token_install_or_pull(app, home, fake_ollama):
 
 
 def test_pull_models_one_by_one(app, fake_ollama):
+    del fake_ollama.models["gemma4:e4b"]
     with TestClient(app) as c:
-        res = c.post("/api/setup/ollama/pull", json={"models": ["qwen3.5:2b", "qwen3.5:0.8b"]})
+        res = c.post("/api/setup/ollama/pull", json={"models": ["qwen3.5:2b", "gemma4:e4b"]})
         assert res.status_code == 202
         pull = wait_for(
             lambda: c.get("/api/setup").json()["ollama"]["pull"],
@@ -250,10 +251,11 @@ def test_pull_models_one_by_one(app, fake_ollama):
         assert pull["completed"] == pull["total"] == 100
         assert [b["model"] for b in fake_ollama.bodies("/api/pull")] == [
             "qwen3.5:2b",
-            "qwen3.5:0.8b",
+            "gemma4:e4b",
         ]
         models = {m["name"]: m for m in c.get("/api/setup").json()["ollama"]["models"]}
         assert models["qwen3.5:2b"]["installed"] is True
+        assert models["gemma4:e4b"]["installed"] is True
 
 
 def test_pull_failure_is_reported(app, fake_ollama):

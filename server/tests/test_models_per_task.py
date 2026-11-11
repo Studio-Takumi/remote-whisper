@@ -85,7 +85,7 @@ def test_final_summary_uses_the_overview_detail_and_title_models(home, tmp_path,
 def test_final_summary_is_made_even_if_the_models_are_not_installed(home, tmp_path, monkeypatch):
     # 選んだモデルが入っていなくても、入っているモデルで代わりに作る（#178）
     monkeypatch.setattr(final_summary, "CHUNK_CHARS", 30)
-    fake = FakeOllama()  # qwen3.5:4b と llama3.2:latest だけ
+    fake = FakeOllama()  # gemma4:e4b と llama3.2:latest だけ
     settings = SettingsStore(home)
     settings.update(
         {
@@ -103,8 +103,8 @@ def test_final_summary_is_made_even_if_the_models_are_not_installed(home, tmp_pa
 
     assert gid is not None
     # 全体概要・要約詳細とも入っていないので、入っているうち名前の順で最初のもの
-    assert set(chat_models(fake)) == {"llama3.2:latest"}
-    assert writer.saved[0] == "llama3.2:latest"
+    assert set(chat_models(fake)) == {"gemma4:e4b"}
+    assert writer.saved[0] == "gemma4:e4b"
     assert writer.meta.title == "リリース計画の確認"
 
 
