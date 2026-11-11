@@ -11,6 +11,11 @@ Silero が反応しなくなる）。FALLBACK_AFTER_SEC のあいだ VAD が一�
 声くらいの音（周りの音より LOUD_MARGIN_DB 以上大きい音）が FALLBACK_LOUD_RATIO 以上あったら、
 音量で区切る（フォールバック）。VAD が RECOVER_WINDOWS 続けて反応したら戻す。
 話していない区間から出た文は、ハルシネーションの判定で落とす。
+
+Silero は内部の状態（LSTM の h・c）を窓から窓へ引き継ぐ。数分黙っていると状態が
+「話していない」側に張り付き、声が戻っても 1〜6 分反応しないことがあった（#319。
+録音を止めて続きを録音すると、作り直されて直っていた）。
+話していない間が RESET_IDLE_SEC 続くたびに、状態を 0 に戻す。
 """
 
 import logging
@@ -64,6 +69,12 @@ FLOOR_WINDOW_SEC = 30.0
 FLOOR_QUANTILE = 0.1
 RECOVER_WINDOWS = 3
 
+# 話していない間がこれだけ続くたびに、Silero の状態を 0 に戻す（#319）。
+# 講義の録音（約 36 分）で試すと、戻さないと声の 20 秒の塊 73 個のうち 5 個で反応せず、
+# 2・5・10 秒ごとに戻すとどれも 0 個だった。短いほど 1 秒未満の短い区間が増える
+# （戻さない・10・5・2 秒で 4・13・20・22 個）ので 10 秒
+RESET_IDLE_SEC = 10.0
+
 log = logging.getLogger(__name__)
 
 # 窓を並べた (n, CONTEXT + WINDOW) の配列を受け取り、それぞれの話している確率を返す
@@ -88,6 +99,11 @@ class SileroVad:
         )
         return probs
 
+    def reset(self) -> None:
+        """状態を 0 に戻す（作り直したときと同じ）"""
+        self._h = np.zeros_like(self._h)
+        self._c = np.zeros_like(self._c)
+
 
 _session_lock = threading.Lock()
 _cached_session = None
@@ -109,6 +125,7 @@ class VadSegmenter:
 
     無音が silence_ms 続くか、区間が max_segment_sec を超えたら区切る。話していない部分は捨てる。
     区間の PCM は、持ち上げた音にしてから返す。
+    probabilities が reset() を持っていれば、話していない間が RESET_IDLE_SEC 続くたびに呼ぶ。
     """
 
     def __init__(
@@ -155,6 +172,10 @@ class VadSegmenter:
         self._quiet: deque[bool] = deque(maxlen=int(FALLBACK_AFTER_SEC / WINDOW_SEC))
         self._quiet_loud = 0
         self._recover = 0
+        # 話していない間、Silero の状態を戻す（#319）
+        self._reset_windows = max(1, round(RESET_IDLE_SEC / WINDOW_SEC))
+        self._idle = 0  # 話していない窓が続いている数（最後に戻してから）
+        self.reset_count = 0  # 状態を戻した回数
 
     @property
     def in_speech(self) -> bool:
@@ -200,6 +221,12 @@ class VadSegmenter:
 
     def flush(self) -> Segment | None:
         """録音を終えた。話している途中の区間があれば、そこまでで区切る"""
+        if self.reset_count:
+            log.info(
+                "reset the VAD state %d times while not speaking (every %.0fs)",
+                self.reset_count,
+                RESET_IDLE_SEC,
+            )
         rest, self._rest = self._rest, b""
         if self._current is None:
             return None
@@ -269,7 +296,11 @@ class VadSegmenter:
         if self._current is None:
             if prob < self.threshold:
                 self._recent.append((window, gain))
+                self._idle += 1
+                if self._idle >= self._reset_windows:
+                    self._reset_vad()
                 return None
+            self._idle = 0
             # 話し始め。直前の窓を前の余白として足す
             # （区間を閉じたときに空にするので、前の区間とは重ならない）
             before = list(self._recent)
@@ -294,6 +325,17 @@ class VadSegmenter:
                 self._trim_silence()
                 return self._close()
         return self._check_length()
+
+    def _reset_vad(self) -> None:
+        """Silero の状態を 0 に戻す（#319）。feed() はチャンクの確率を先にまとめて出すので、
+        効くのは次の feed() から（ライブのチャンクは 0.5 秒なので、遅れはそれ以内）"""
+        self._idle = 0
+        reset = getattr(self._probabilities, "reset", None)
+        if reset is None:
+            return
+        reset()
+        self.reset_count += 1
+        log.debug("reset the VAD state at %.1fs", self._samples / SAMPLE_RATE)
 
     def _check_length(self) -> Segment | None:
         if self._current is not None and len(self._current) // 2 >= self.max_samples:
