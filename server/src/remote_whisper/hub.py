@@ -15,12 +15,16 @@ log = logging.getLogger(__name__)
 
 WhisperState = Literal["unloaded", "loading", "ready", "error"]
 OllamaState = Literal["ready", "error"]
+LmStudioState = Literal["ready", "error"]
 
 
 @dataclass
 class ServerStatus:
     whisper: WhisperState = "unloaded"
     ollama: OllamaState = "ready"
+    # LM Studio（#324）。つながらない・タイムアウト・5xx のときだけ error。
+    # LM Studio を使っていない（まだ一度も呼んでいない）あいだは None で、status に出さない
+    lmstudio: LmStudioState | None = None
     recordings: int = 0
     queue: int = 0
     # GPU キューの実行中のジョブと待っているジョブ（GpuQueue.snapshot）。spec/flows.md 6.3
@@ -34,7 +38,10 @@ class ServerStatus:
     transcribing: list[str] = field(default_factory=list)
 
     def message(self) -> dict[str, Any]:
-        return {"type": "status", **asdict(self)}
+        status = asdict(self)
+        if status["lmstudio"] is None:
+            del status["lmstudio"]
+        return {"type": "status", **status}
 
 
 Tracked = Literal["summarizing", "transcribing"]
