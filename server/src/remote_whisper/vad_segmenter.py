@@ -327,7 +327,8 @@ class VadSegmenter:
         return self._check_length()
 
     def _reset_vad(self) -> None:
-        """Silero の状態を 0 に戻す（#319）。次に判定する窓から効く"""
+        """Silero の状態を 0 に戻す（#319）。feed() はチャンクの確率を先にまとめて出すので、
+        効くのは次の feed() から（ライブのチャンクは 0.5 秒なので、遅れはそれ以内）"""
         self._idle = 0
         reset = getattr(self._probabilities, "reset", None)
         if reset is None:
