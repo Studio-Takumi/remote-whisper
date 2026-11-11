@@ -229,3 +229,68 @@ def test_silero_carries_its_state_across_calls():
     vad = SileroVad()
     pieces = np.concatenate([vad(windows[i : i + 3]) for i in range(0, 20, 3)])
     assert np.allclose(whole, pieces)
+
+
+def test_silero_reset_matches_a_new_one():
+    rng = np.random.default_rng(1)
+    windows = (rng.standard_normal((10, CONTEXT + WINDOW)) * 0.1).astype(np.float32)
+    vad = SileroVad()
+    vad(windows)
+    vad.reset()
+    assert np.allclose(vad(windows), SileroVad()(windows))
+
+
+class StickyVad:
+    """偽の VAD: 黙っている窓が STUCK_AFTER 続くと、reset() されるまで何を流しても
+    話していないと答える（Silero の状態が「話していない」に張り付くのを真似る。#319）"""
+
+    STUCK_AFTER = 500  # 16 秒
+
+    def __init__(self):
+        self.quiet = 0
+        self.resets = 0
+
+    def __call__(self, windows: np.ndarray) -> np.ndarray:
+        out = []
+        for p in loud_is_speech(windows):
+            if self.quiet >= self.STUCK_AFTER:
+                out.append(0.0)
+                continue
+            self.quiet = 0 if p else self.quiet + 1
+            out.append(p)
+        return np.array(out, dtype=np.float32)
+
+    def reset(self) -> None:
+        self.quiet = 0
+        self.resets += 1
+
+
+def test_vad_state_is_reset_while_not_speaking():
+    vad = StickyVad()
+    seg = VadSegmenter(silence_ms=600, max_segment_sec=25, probabilities=vad)
+    # 2 分黙ってから話す（完全な無音。小さい雑音だと持ち上げで声になる）。
+    # 10 秒（RESET_IDLE_SEC）ごとに戻すので、張り付かずに声を拾う
+    seg.feed(level(3750, -100))
+    assert seg.reset_count == vad.resets == 12
+    closed = seg.feed(level(LONG, -20) + level(40, -100))
+    assert len(closed) == 1
+
+
+def test_vad_state_is_not_reset_while_speaking():
+    vad = StickyVad()
+    seg = VadSegmenter(silence_ms=600, max_segment_sec=25, probabilities=vad)
+    # 話している間（区間の中の短い間も含む）は戻さない
+    seg.feed(talk(10))
+    assert vad.resets == 0
+    # 区間が閉じてから数え始める（10 秒は 312 窓）
+    assert not seg.in_speech
+    seg.feed(level(250, -100))
+    assert vad.resets == 0
+    seg.feed(level(80, -100))
+    assert vad.resets == 1
+
+
+def test_a_vad_without_reset_is_left_as_it_is():
+    seg = segmenter()
+    seg.feed(level(1000, -60))
+    assert seg.reset_count == 0
