@@ -94,7 +94,7 @@
 | `watching` | `watch` の返事（#238）。`state`（`recording` / `paused` / `disconnected` / `idle`）。`idle` は録音中ではない（自分で録音しているセッションも `idle`）ので見ない。そうでなければ、そこまでの `transcript`（`[{time, text}]`）・`liveSummary`・`title` が付く |
 | `recordingState` | 見ているセッションの録音の状態が変わった（#238）。`state`（`recording` / `paused` / `disconnected` / `stopped`）。見ているクライアントにだけ送る |
 | `finalTranscript` | `generationId`。浄書済み文字起こしができた（6.9 節）。全員に送る |
-| `status` | `whisper`（`unloaded` / `loading` / `ready` / `error`）、`ollama`（`ready` / `error`）、`recordings`（録音中のセッションの数）、`queue`（待っている・実行中のジョブの数）、`jobs`、`gpu`、`summarizing`、`transcribing` |
+| `status` | `whisper`（`unloaded` / `loading` / `ready` / `error`）、`ollama`（`ready` / `error`）、`lmstudio`（`ready` / `error`。LM Studio を一度も呼んでいなければ項目ごと出さない。#324）、`recordings`（録音中のセッションの数）、`queue`（待っている・実行中のジョブの数）、`jobs`、`gpu`、`summarizing`、`transcribing` |
 | `error` | `code`、`message` |
 
 - `start`・`continue` の `project` と、`continue`・`resume` の `session` には、ID の代わりに UUID（5.2 節）も使える（#177）。
