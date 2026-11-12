@@ -103,6 +103,10 @@ class FakeLMStudio:
         self.step = 400
         # True なら、取得のジョブを failed にする
         self.download_fails = False
+        # 取り終えたモデルが一覧に出るまでの、一覧の取得の回数
+        # （実機では completed の直後には出ない）
+        self.list_lag = 0
+        self._pending: dict[str, int] = {}
         # 認証を求める（トークンが違えば 401。#327）。None なら求めない
         self.require_token: str | None = None
 
@@ -237,8 +241,8 @@ class FakeLMStudio:
         done = min(total, done + self.step)
         job[1] = done
         status = "completed" if done >= total else "downloading"
-        if status == "completed":
-            self.models[model] = {"type": "llm", "capabilities": {"vision": False}}
+        if status == "completed" and model not in self.models:
+            self._pending.setdefault(model, self.list_lag)
         return httpx.Response(
             200,
             json={
@@ -251,6 +255,12 @@ class FakeLMStudio:
         )
 
     def _list(self) -> list[dict[str, Any]]:
+        for model, lag in list(self._pending.items()):
+            if lag <= 0:
+                del self._pending[model]
+                self.models[model] = {"type": "llm", "capabilities": {"vision": False}}
+            else:
+                self._pending[model] = lag - 1
         result = []
         for key, info in self.models.items():
             item: dict[str, Any] = {

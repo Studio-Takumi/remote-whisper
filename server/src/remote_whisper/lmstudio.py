@@ -71,6 +71,8 @@ CONTEXT_EXCEEDED = "exceed_context_size_error"
 
 # モデルを取っている間、進み具合を見に行く間隔（秒）
 DOWNLOAD_POLL_SEC = 1.0
+# 取り終えたモデルが一覧に出るまで見に行く回数（DOWNLOAD_POLL_SEC ごと）
+DOWNLOAD_LIST_TRIES = 15
 
 
 class LMStudioUnavailable(LlmUnavailable):
@@ -973,6 +975,17 @@ class LMStudioClient:
         if not self.recording():
             self._touch()
 
+    async def _wait_listed(self, model: str) -> None:
+        """取り終えたモデルが一覧（GET /api/v1/models）に出るまで、少し待つ
+
+        0.4.28 では、completed になった直後の一覧にはまだ出なかった（数秒後には出る）。
+        出ないまま終えると、画面が「入っていません」のままになるため。出なければ諦める"""
+        for _ in range(DOWNLOAD_LIST_TRIES):
+            if model in await self._llms(fresh=True):
+                return
+            await self._sleep(DOWNLOAD_POLL_SEC)
+        log.warning("lmstudio downloaded %s but does not list it yet", model)
+
     async def pull(self, model: str) -> AsyncIterator[PullProgress]:
         """モデルを取ってくる（#327）。進み具合を、ジョブを 1 つの部分（digest は job_id）として返す
 
@@ -994,7 +1007,6 @@ class LMStudioClient:
                 total = int(data.get("total_size_bytes") or 0)
                 done = int(data.get("downloaded_bytes") or 0)
                 if state == "completed":
-                    self._forget_list()
                     if total:
                         yield {
                             "status": state,
@@ -1002,6 +1014,7 @@ class LMStudioClient:
                             "total": total,
                             "completed": total,
                         }
+                    await self._wait_listed(model)
                     yield {"status": "success"}
                     return
                 if state == "failed":

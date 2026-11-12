@@ -553,6 +553,14 @@ def test_pull_reports_progress_until_done(quick, fake):
     assert "qwen/qwen3.5-2b" in run(quick.installed())
 
 
+def test_pull_waits_until_the_model_is_listed(quick, fake):
+    """実機では completed の直後の一覧にはまだ出ない。出るまで待ってから終える"""
+    fake.list_lag = 3
+    assert pull(quick, "qwen/qwen3.5-2b")[-1] == {"status": "success"}
+    assert "qwen/qwen3.5-2b" in fake.models
+    assert len(fake.bodies("/api/v1/models")) == 4
+
+
 def test_pull_of_an_installed_model_returns_at_once(quick, fake):
     assert pull(quick, GEMMA) == [{"status": "success"}]
     assert fake.bodies("/api/v1/models/download") == [{"model": GEMMA}]
