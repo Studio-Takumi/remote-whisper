@@ -525,12 +525,78 @@ def test_unload_all_does_nothing_when_unreachable(lms, fake):
     run(lms.unload_all())
 
 
-def test_pull_is_not_supported_yet(lms):
+def pull(lms, model):
     async def go():
-        return [p async for p in lms.pull(GEMMA)]
+        return [p async for p in lms.pull(model)]
 
+    return run(go())
+
+
+@pytest.fixture
+def quick(home, fake):
+    """進み具合を待たずに見に行くクライアント"""
+
+    async def no_sleep(sec):
+        await asyncio.sleep(0)
+
+    return LMStudioClient(Hub(), SettingsStore(home), transport=fake.transport(), sleep=no_sleep)
+
+
+def test_pull_reports_progress_until_done(quick, fake):
+    progress = pull(quick, "qwen/qwen3.5-2b")
+    assert progress[-1] == {"status": "success"}
+    parts = [p for p in progress if "digest" in p]
+    # ジョブを 1 つの部分として、取った量を返す
+    assert {p["digest"] for p in parts} == set(fake.jobs)
+    assert [p["completed"] for p in parts] == [400, 800, 1000]
+    assert all(p["total"] == 1000 for p in parts)
+    assert "qwen/qwen3.5-2b" in run(quick.installed())
+
+
+def test_pull_of_an_installed_model_returns_at_once(quick, fake):
+    assert pull(quick, GEMMA) == [{"status": "success"}]
+    assert fake.bodies("/api/v1/models/download") == [{"model": GEMMA}]
+    assert fake.jobs == {}
+
+
+def test_pull_failures(quick, fake):
     with pytest.raises(LlmUnavailable):
-        run(go())
+        pull(quick, "nope/unknown")
+    fake.download_fails = True
+    with pytest.raises(LlmUnavailable):
+        pull(quick, "qwen/qwen3.5-2b")
+    # カタログにない（404）・LM Studio が failed を返したのは、LM Studio は動いている
+    assert quick.hub.status.lmstudio == "ready"
+
+
+def test_cancelled_pull_stops_watching_only(home, fake, caplog):
+    """止める API がないので、やめたら見に行くのをやめるだけ（LM Studio は取り続ける）"""
+    fake.step = 1
+    client = LMStudioClient(Hub(), SettingsStore(home), transport=fake.transport())
+
+    async def go():
+        async def consume():
+            async for _ in client.pull("qwen/qwen3.5-2b"):
+                pass
+
+        task = asyncio.create_task(consume())
+        await asyncio.sleep(0.05)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    caplog.set_level(logging.INFO)
+    run(go())
+    assert "keeps downloading" in caplog.text
+    # 止める要求は送っていない（download と status のほかには何も送らない）
+    assert all(p.startswith("/api/v1/models/download") for p, _ in fake.requests)
+
+
+def test_unauthorized_is_told_apart(lms, fake):
+    fake.require_token = "sk-right"
+    with pytest.raises(LMStudioUnavailable) as e:
+        run(lms.installed())
+    assert e.value.status == 401
 
 
 def test_error_message():

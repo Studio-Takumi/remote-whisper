@@ -96,6 +96,15 @@ class FakeLMStudio:
         self.reply_for = None
         self.requests: list[tuple[str, dict]] = []
         self.headers: list[httpx.Headers] = []
+        # 取得（POST /api/v1/models/download）できるモデル → 大きさ（バイト）。ここにないものは 404
+        self.catalog: dict[str, int] = {"qwen/qwen3.5-2b": 1_000, GEMMA: 6_000}
+        # 取得のジョブ: job_id → [モデル, 取った量]。状態を 1 回見るたびに step バイト進む
+        self.jobs: dict[str, list[Any]] = {}
+        self.step = 400
+        # True なら、取得のジョブを failed にする
+        self.download_fails = False
+        # 認証を求める（トークンが違えば 401。#327）。None なら求めない
+        self.require_token: str | None = None
 
     def transport(self) -> httpx.MockTransport:
         return httpx.MockTransport(self.handle)
@@ -150,6 +159,15 @@ class FakeLMStudio:
         body = json.loads(request.content) if request.content else {}
         self.requests.append((path, body))
         self.headers.append(request.headers)
+        if (
+            self.require_token is not None
+            and request.headers.get("authorization") != f"Bearer {self.require_token}"
+        ):
+            return _error(401, "invalid_api_key", "Invalid API token")
+        if path == "/api/v1/models/download":
+            return self._download(body)
+        if path.startswith("/api/v1/models/download/status/"):
+            return self._download_status(path.rsplit("/", 1)[-1])
         if path == "/api/v1/models" and request.method == "GET":
             return httpx.Response(200, json={"models": self._list()})
         if path == "/api/v1/models/load":
@@ -177,6 +195,60 @@ class FakeLMStudio:
         if path == "/v1/chat/completions":
             return self._completions(body)
         return httpx.Response(404)
+
+    def _download(self, body: dict) -> httpx.Response:
+        """実機（0.4.28。#327）の形: 入っていれば `already_downloaded` だけ、取り始めれば
+        job_id。同じモデルをもう一度頼むと、同じ job_id が返る。止める API はない"""
+        model = body.get("model")
+        if model not in self.catalog:
+            return _error(
+                404,
+                "model_not_found",
+                f"{model} not found - it either does not exist or you do not have permission "
+                "to read it",
+            )
+        if model in self.models:
+            return httpx.Response(200, json={"status": "already_downloaded"})
+        job_id = f"job_{len(self.jobs):010x}"
+        for jid, (m, _) in self.jobs.items():
+            if m == model:
+                job_id = jid
+        self.jobs.setdefault(job_id, [model, 0])
+        return httpx.Response(
+            200,
+            json={
+                "job_id": job_id,
+                "status": "downloading",
+                "total_size_bytes": self.catalog[model],
+                "started_at": "2026-11-12T00:00:15.154Z",
+            },
+        )
+
+    def _download_status(self, job_id: str) -> httpx.Response:
+        job = self.jobs.get(job_id)
+        if job is None:
+            return _error(404, "job_not_found", f"Download job with id '{job_id}' not found")
+        model, done = job
+        total = self.catalog[model]
+        if self.download_fails:
+            return httpx.Response(
+                200, json={"job_id": job_id, "status": "failed", "total_size_bytes": total}
+            )
+        done = min(total, done + self.step)
+        job[1] = done
+        status = "completed" if done >= total else "downloading"
+        if status == "completed":
+            self.models[model] = {"type": "llm", "capabilities": {"vision": False}}
+        return httpx.Response(
+            200,
+            json={
+                "job_id": job_id,
+                "downloaded_bytes": done,
+                "total_size_bytes": total,
+                "started_at": "2026-11-12T00:00:15.154Z",
+                "status": status,
+            },
+        )
 
     def _list(self) -> list[dict[str, Any]]:
         result = []

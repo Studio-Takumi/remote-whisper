@@ -4,7 +4,9 @@
 ボタンで入れられるものは入れる。どれも入れなくても、リアルタイムの文字起こしは今までどおり動く。
 
 - 外に何かを取りに行くのは、画面のボタンを押したとき（API を呼ばれたとき）だけ
-- Ollama のモデルの取得（`/api/pull`）は GPU を使わないので GPU キューには積まない。録音中は始めない
+- 案内する LLM は、使っているバックエンド（`llm.backend`。Ollama か LM Studio。#327）
+- モデルの取得（Ollama の `/api/pull`、LM Studio の `/api/v1/models/download`）は GPU を使わないので
+  GPU キューには積まない。録音中は始めない。LM Studio は止める API がないので、やめても取り続ける
 - WhisperX は配布版だけ、同梱の Python に、同梱の固定した依存の一覧（版とハッシュ）で pip で入れる。
   入れる前の site-packages の一覧を控え、
   失敗した・やめた・途中でサーバーが止まったときは、その一覧に戻す（足したものを消し、版が変わった
@@ -34,14 +36,24 @@ from typing import Any
 from remote_whisper import bundle
 from remote_whisper.cloud import OwnerOnlyError, write_owner_only
 from remote_whisper.fsutil import atomic_write_json, atomic_write_text
-from remote_whisper.llm import LlmUnavailable
-from remote_whisper.settings import RECOMMENDED_MODELS, SettingsStore, has_model
+from remote_whisper.llm import LlmUnavailable, backend_of
+from remote_whisper.settings import (
+    LMSTUDIO_RECOMMENDED_MODELS,
+    RECOMMENDED_MODELS,
+    SettingsStore,
+    has_model,
+)
 
 log = logging.getLogger(__name__)
 
 OLLAMA_DOWNLOAD_URL = "https://ollama.com/download"
 # おすすめのモデルの大きさ（GB。`ollama list` の値）。外に取りに行かずに出すため、ここに持つ
 MODEL_SIZES_GB = {"gemma4:e4b": 6.6, "qwen3.5:2b": 2.7}
+
+LMSTUDIO_DOWNLOAD_URL = "https://lmstudio.ai/download"
+# LM Studio のおすすめのモデルの大きさ（GB）。gemma-4-e4b は Windows の GGUF 版（Q4_K_M と画像を
+# 読む部分。#322 で取ったもの）。Mac の MLX 版は大きさが違い、qwen3.5-2b は測っていないので出さない
+LMSTUDIO_MODEL_SIZES_GB = {"google/gemma-4-e4b": 6.3}
 
 # WhisperX（最終の文字起こし）の大きさと時間の目安（Windows の配布版。CUDA 版の torch を含む）。
 # 2026-11 に Windows の配布版で測った値: ダウンロード 3.56GB、python フォルダが 2.05GB → 9.86GB、
@@ -184,17 +196,35 @@ def ollama_found() -> bool:
     return any(p.exists() for p in candidates)
 
 
-def recommended_models() -> list[str]:
-    """おすすめのモデル（重ならないように、出てきた順）"""
-    return list(dict.fromkeys(RECOMMENDED_MODELS.values()))
+def lmstudio_found() -> bool:
+    """LM Studio がこの PC に入っていそうか（#327。サーバーが動いていないときに「起動して」と
+    「入れて」を出し分ける）。`lms` のコマンド（PATH か、LM Studio が置く ~/.lmstudio/bin）、
+    Mac の /Applications/LM Studio.app、Windows の既定の入れ場所"""
+    if shutil.which("lms"):
+        return True
+    lms = "lms.exe" if sys.platform == "win32" else "lms"
+    candidates: list[Path] = [Path.home() / ".lmstudio" / "bin" / lms]
+    if sys.platform == "win32" and os.environ.get("LOCALAPPDATA"):
+        candidates.append(Path(os.environ["LOCALAPPDATA"]) / "Programs" / "LM Studio")
+    if sys.platform == "darwin":
+        candidates.append(Path("/Applications/LM Studio.app"))
+    return any(p.exists() for p in candidates)
 
 
-# --- Ollama のモデルの取得 ---
+def recommended_models(backend: str = "ollama") -> list[str]:
+    """おすすめのモデル（重ならないように、出てきた順）。LM Studio はカタログの ID（#327）"""
+    table = LMSTUDIO_RECOMMENDED_MODELS if backend == "lmstudio" else RECOMMENDED_MODELS
+    return list(dict.fromkeys(table.values()))
+
+
+# --- LLM のモデルの取得 ---
 
 
 @dataclass
 class PullJob:
     models: list[str]
+    # 取っている先（ollama / lmstudio）。LM Studio は止める API がないので、やめても取り続ける
+    backend: str = "ollama"
     # running / done / failed / cancelled
     state: str = "running"
     # 取っているモデル（models の何番目か）
@@ -207,6 +237,7 @@ class PullJob:
     def to_json(self) -> dict[str, Any]:
         return {
             "state": self.state,
+            "backend": self.backend,
             "models": self.models,
             "model": self.models[min(self.index, len(self.models) - 1)],
             "index": self.index,
@@ -612,17 +643,51 @@ class SetupService:
             self._gpu_kind = self._gpu()
         return self._gpu_kind
 
-    async def status(self, remote: bool) -> dict[str, Any]:
-        """足りないものの一覧。トークンそのものは返さない（あるか・どこからかだけ）"""
+    def backend(self) -> str:
+        """案内する LLM のバックエンド（#327）。使っているもの（LlmSwitch.backend）。録音中に設定を
+        変えたときは、切り替わるまで前のもの。分からなければ設定の llm.backend"""
+        return backend_of(self.ollama) or self.settings.get().llm.backend
+
+    async def _llm_status(self) -> dict[str, Any]:
+        """使っている LLM のバックエンドが動いているか・おすすめのモデルが入っているか"""
+        backend = self.backend()
+        unauthorized = False
         if self.mock:
-            # モックでは Ollama も WhisperX もそろっていることにする（案内を出さない）
-            running, installed = True, set(recommended_models())
+            # モックでは LLM も WhisperX もそろっていることにする（案内を出さない）
+            running, installed = True, set(recommended_models(backend))
         else:
             try:
                 installed = await self.ollama.installed() if self.ollama else set()
                 running = self.ollama is not None
-            except LlmUnavailable:
+            except LlmUnavailable as e:
                 running, installed = False, set()
+                # LM Studio が動いていて、トークンが違う・ない（401・403）
+                unauthorized = getattr(e, "status", None) in (401, 403)
+        lmstudio = backend == "lmstudio"
+        sizes = LMSTUDIO_MODEL_SIZES_GB if lmstudio else MODEL_SIZES_GB
+        found = running or unauthorized or (lmstudio_found() if lmstudio else ollama_found())
+        pull = self.pull_job if self.pull_job and self.pull_job.backend == backend else None
+        return {
+            "backend": backend,
+            "running": running,
+            "found": found,
+            "unauthorized": unauthorized,
+            "downloadUrl": LMSTUDIO_DOWNLOAD_URL if lmstudio else OLLAMA_DOWNLOAD_URL,
+            "models": [
+                {
+                    "name": name,
+                    "sizeGb": sizes.get(name),
+                    "installed": has_model(installed, name),
+                }
+                for name in recommended_models(backend)
+            ],
+            "pull": pull.to_json() if pull else None,
+            # 取得をやめると、取っている先も止まるか（LM Studio には止める API がない）
+            "pullCancellable": not lmstudio,
+        }
+
+    async def status(self, remote: bool) -> dict[str, Any]:
+        """足りないものの一覧。トークンそのものは返さない（あるか・どこからかだけ）"""
         whisperx = self.mock or self.whisperx_installed()
         runtime = self._runtime()
         return {
@@ -630,20 +695,8 @@ class SetupService:
             "remote": remote,
             "recording": self.recording(),
             "gpu": "nvidia" if self.mock else self.gpu(),
-            "ollama": {
-                "running": running,
-                "found": running or ollama_found(),
-                "downloadUrl": OLLAMA_DOWNLOAD_URL,
-                "models": [
-                    {
-                        "name": name,
-                        "sizeGb": MODEL_SIZES_GB.get(name),
-                        "installed": has_model(installed, name),
-                    }
-                    for name in recommended_models()
-                ],
-                "pull": self.pull_job.to_json() if self.pull_job else None,
-            },
+            # 使っている LLM（Ollama か LM Studio。#327）
+            "llm": await self._llm_status(),
             "whisperx": {
                 "installed": whisperx,
                 "installable": self.installer.installable and not self.mock,
@@ -662,47 +715,53 @@ class SetupService:
         if self.recording():
             raise SetupError(409, "録音中は始められません。録音が終わってから始めてください")
 
-    # --- Ollama のモデル ---
+    # --- LLM のモデル ---
 
-    def pullable(self) -> set[str]:
+    def pullable(self, backend: str = "ollama") -> set[str]:
         """取ってよいモデル（おすすめのものだけ）
 
-        設定で選んでいるモデル（ollama.models）は入れない。トンネル（クラウド版）からも変えられる
-        ので、それを足すと、トンネルから任意のモデルを取らせる抜け道になる"""
-        return set(recommended_models())
+        設定で選んでいるモデル（ollama.models・lmstudio.models）は入れない。トンネル（クラウド版）
+        からも変えられるので、それを足すと、トンネルから任意のモデルを取らせる抜け道になる"""
+        return set(recommended_models(backend))
 
     def start_pull(self, models: list[str]) -> None:
+        """使っているバックエンド（Ollama か LM Studio）にモデルを取らせる"""
         self._ensure_idle()
+        backend = self.backend()
         if self.ollama is None:
-            raise SetupError(503, "Ollama を使えないサーバーです")
-        if not models or any(m not in self.pullable() for m in models):
+            raise SetupError(503, "要約のアプリを使えないサーバーです")
+        if not models or any(m not in self.pullable(backend) for m in models):
             raise SetupError(400, "取得できないモデルです")
         if self._pull_task is not None and not self._pull_task.done():
             raise SetupError(409, "取得している途中です")
-        self.pull_job = PullJob(list(dict.fromkeys(models)))
+        self.pull_job = PullJob(list(dict.fromkeys(models)), backend=backend)
         self._pull_task = asyncio.create_task(self._pull(self.pull_job))
 
     async def _pull(self, job: PullJob) -> None:
+        name = "LM Studio" if job.backend == "lmstudio" else "Ollama"
+        # 途中でバックエンドを切り替えても、始めたほうから取り続ける（LlmSwitch.client）
+        pick = getattr(self.ollama, "client", None)
+        client = pick(job.backend) if callable(pick) else self.ollama
         try:
             for i, model in enumerate(job.models):
                 job.index, job.totals, job.done = i, {}, {}
-                log.info("pulling ollama model %s", model)
-                async for chunk in self.ollama.pull(model):
+                log.info("pulling %s model %s", job.backend, model)
+                async for chunk in client.pull(model):
                     part = chunk.get("digest")
                     if part and chunk.get("total"):
                         job.totals[part] = chunk["total"]
                         job.done[part] = chunk.get("completed", 0)
-                log.info("pulled ollama model %s", model)
+                log.info("pulled %s model %s", job.backend, model)
             job.state = "done"
         except asyncio.CancelledError:
-            log.info("pulling ollama models was cancelled")
+            log.info("pulling %s models was cancelled", job.backend)
             job.state = "cancelled"
         except LlmUnavailable as e:
-            log.warning("pulling ollama model %s failed: %s", job.models[job.index], e)
+            log.warning("pulling %s model %s failed: %s", job.backend, job.models[job.index], e)
             job.state = "failed"
-            job.error = "Ollama から取得できませんでした"
+            job.error = f"{name} から取得できませんでした"
         except Exception:  # noqa: BLE001 思わぬ返事など。取っている途中のまま残さない
-            log.exception("pulling ollama model %s failed", job.models[job.index])
+            log.exception("pulling %s model %s failed", job.backend, job.models[job.index])
             job.state = "failed"
             job.error = "取得できませんでした"
 
