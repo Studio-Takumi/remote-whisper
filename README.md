@@ -16,7 +16,7 @@
 
 remote-whisper は、手元の端末に GPU がなくても、別のマシンの GPU を使って疑似リアルタイムで文字起こしと要約をするツールです。
 
-ブラウザでマイクの音声を取り、WebSocket で GPU マシンに送ります。GPU マシンでは [faster-whisper](https://github.com/SYSTRAN/faster-whisper) が文字起こしをして、結果をブラウザに返します。要約は同じマシンの [Ollama](https://ollama.com/) が作ります。ノートPCやタブレットからでも、GPU を積んだデスクトップや自宅サーバーで文字起こしと要約ができます。
+ブラウザでマイクの音声を取り、WebSocket で GPU マシンに送ります。GPU マシンでは [faster-whisper](https://github.com/SYSTRAN/faster-whisper) が文字起こしをして、結果をブラウザに返します。要約は同じマシンの [Ollama](https://ollama.com/)（か [LM Studio](https://lmstudio.ai/)）が作ります。ノートPCやタブレットからでも、GPU を積んだデスクトップや自宅サーバーで文字起こしと要約ができます。
 
 ## 機能
 
@@ -67,7 +67,7 @@ Windows で Python や uv を入れずに使いたいときは、インストー
 ### 必要なもの
 - NVIDIA GPU と、それに対応したドライバ
 - Python 3.11 と [uv](https://docs.astral.sh/uv/)
-- [Ollama](https://ollama.com/)（要約と用語リストの生成に使う）
+- [Ollama](https://ollama.com/)（要約と用語リストの生成に使う）か [LM Studio](https://lmstudio.ai/)（どちらか一方。下の「LM Studio を使う場合」）
 
 ### インストール
 
@@ -97,7 +97,7 @@ uv run remote-whisper --host 0.0.0.0 --port 8000   # LAN からも見える（�
 
 ポート番号は 8000 番のままです。8000 番が使われていても別の番号には切り替えず、起動に失敗します（`tailscale serve` や Vite の転送先が 8000 番のため）。空いている番号を自動で探す `--auto-port` は、Windows のインストーラのショートカットと Mac のアプリ用です（[docs/install-windows.md](docs/install-windows.md)・[docs/install-mac.md](docs/install-mac.md)）。`--open-browser` を付けると、起動したときに画面をブラウザで開きます（Mac のアプリを開いたときに使います）。同じデータのフォルダでもう 1 つ起動しようとすると、新しく起動せずに、動いている方の画面を開いて終わります（トレイを出せるとき。理由は標準エラーに出します）。
 
-Windows では、タスクトレイ（右下）にアイコンが出ます。アイコンの「>」の右にあるカーソル（縦の棒）の色で、状態を表します（灰: 待機中 / 青: GPU で処理中 / 赤: 録音中 / 橙: Whisper か Ollama が使えない）。左クリックで画面を開き、右クリックのメニューからログのフォルダを開いたり、サーバーを止めたりできます。コンソールを出さずに常駐させるときは、`.venv\Scripts\remote-whisper-gui.exe --port 8000` で起動します（ログはファイルに残ります）。トレイが要らなければ `--no-tray` を付けます。Mac では、同じアイコンがメニューバーに出ます（クリックで開くメニューの一番上に状態が出ます）。
+Windows では、タスクトレイ（右下）にアイコンが出ます。アイコンの「>」の右にあるカーソル（縦の棒）の色で、状態を表します（灰: 待機中 / 青: GPU で処理中 / 赤: 録音中 / 橙: Whisper か、要約に使うアプリ（Ollama か LM Studio）が使えない）。左クリックで画面を開き、右クリックのメニューからログのフォルダを開いたり、サーバーを止めたりできます。コンソールを出さずに常駐させるときは、`.venv\Scripts\remote-whisper-gui.exe --port 8000` で起動します（ログはファイルに残ります）。トレイが要らなければ `--no-tray` を付けます。Mac では、同じアイコンがメニューバーに出ます（クリックで開くメニューの一番上に状態が出ます）。
 
 ほかの端末から使うときは、`--host 0.0.0.0` にするより、後の「別の端末から使う（HTTPS）」の手順をおすすめします（マイクは HTTPS でないと使えないため）。
 
@@ -138,6 +138,16 @@ ollama pull qwen3.5:2b
 - 小さいモデルは入れなくても動きます。選んだモデルが入っていなければ、入っているモデル（最終の要約のモデルなど）で代わりに動かします。ただし VRAM の少ない GPU では、録音中も `gemma4:e4b` で動くと文字起こしと要約が遅くなるので、`qwen3.5:2b` も入れることをおすすめします。
 - 思考モード（`think`）に対応したモデルを推奨します。録音後の要約と用語リストの生成で思考モードを使うと、精度が上がるためです。対応していないモデルを選んだ場合は、思考モードなしで動きます。
 - サーバーは `http://localhost:11434` の Ollama に接続します。
+
+### LM Studio を使う場合
+
+Ollama の代わりに [LM Studio](https://lmstudio.ai/) でも要約と用語リストを作れます。
+
+1. LM Studio を入れ、サーバーを起動します（LM Studio の「Developer」でサーバーをオンにするか、`lms server start`。既定は `http://localhost:1234`）。
+2. 画面の設定の「要約」で「要約に使うアプリ」を「LM Studio」にして保存します（全体設定の `llm.backend: "lmstudio"`）。LM Studio で認証を求める設定にしたときは、「LM Studio のトークン」も入れます（画面・API・ログには出しません）。
+3. モデルは、設定の「セットアップ」の「取得」か、LM Studio の画面・`lms get` で入れます。おすすめは `google/gemma-4-e4b` と、録音中の処理に使う `qwen/qwen3.5-2b`（Ollama と同じモデルの LM Studio の ID。全体設定の `lmstudio.models`）。
+
+LM Studio を選んでいる間は、トレイのアイコンと画面は LM Studio の状態だけを見ます。remote-whisper が載せたモデルだけを下ろし、LM Studio の画面で手で載せたモデルには触りません。
 
 ## フロントエンドの開発
 
