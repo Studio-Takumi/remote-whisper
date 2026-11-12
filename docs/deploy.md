@@ -13,6 +13,8 @@
 | Analytics Engine       | 書かない                               | `remote_whisper_staging`                                                            | `remote_whisper`                                                       |
 | デプロイ               | —                                      | 手で（Actions の Deploy を `staging` で動かす）。本番を用意するまでは main の自動も | main に入って CI が通ったら自動（`PRODUCTION_READY` が `true` のとき） |
 
+本番は普段使う場所で、main に入ったものがそのまま出る。staging は main にマージする前の確認用で、ローカル（`wrangler dev`）では試せないもの（OAuth のコールバック・トンネルと DNS・本物の D1 でのマイグレーション・ゾーンの機能と CSP）を触る PR のときに、そのブランチを Actions の Deploy（行き先 `staging`）で出して確かめる。staging と本番の D1 は別なので、アカウントとホストの登録は環境ごとにやり直す。
+
 設定は `relay/wrangler.jsonc`（`env.staging`・`env.production`）。秘密でない値（ドメイン・接頭辞）は `vars`、秘密の値は `wrangler secret`。
 
 ## 秘密情報の一覧
