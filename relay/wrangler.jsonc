@@ -53,8 +53,7 @@
       // アカウントで Analytics Engine が有効でないと、束縛を付けたデプロイは断られる（code 10089）
       "analytics_engine_datasets": [{ "binding": "METRICS", "dataset": "remote_whisper_staging" }],
     },
-    // 本番（#167）。用意する手順は docs/deploy.md。D1 の ID は仮（本番を用意するときに `wrangler d1 create` の ID に替える）。
-    // 仮のままだと、自動デプロイは本番に出さずに止まる（.github/workflows/deploy.yml の Check production config）
+    // 本番（#167）。用意する手順は docs/deploy.md
     "production": {
       "name": "remote-whisper",
       "workers_dev": false,
@@ -64,14 +63,13 @@
         {
           "binding": "DB",
           "database_name": "remote-whisper",
-          "database_id": "00000000-0000-0000-0000-000000000001",
+          "database_id": "b5999d3c-e1b6-42e9-b72e-98b15957be60",
           "migrations_dir": "migrations",
         },
       ],
       "vars": { "CLOUD_ENV": "production", "TUNNEL_DOMAIN": "studio-takumi.dev", "TUNNEL_PREFIX": "rwt-" },
       "ratelimits": [{ "name": "CSP_REPORT_LIMITER", "namespace_id": "2533", "simple": { "limit": 20, "period": 60 } }],
-      // Analytics Engine を有効にしたら（CLOUD_TODO の 14）戻す
-      // "analytics_engine_datasets": [{ "binding": "METRICS", "dataset": "remote_whisper" }],
+      "analytics_engine_datasets": [{ "binding": "METRICS", "dataset": "remote_whisper" }],
     },
   },
 }
