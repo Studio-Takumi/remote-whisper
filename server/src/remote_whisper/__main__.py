@@ -179,6 +179,8 @@ def main(argv: list[str] | None = None) -> None:
         runner.on_notice = lambda message: cloud_host.on_notice(message)
         icon = tray.Tray(
             status=lambda: app.state.ctx.hub.status,
+            # 選んでいる LLM（#327）。その状態だけを出す
+            backend=lambda: app.state.ctx.settings.get().llm.backend,
             url=ports.browser_url(args.host, port),
             log_dir=path.parent,
             # 止めるとき（lifespan の後片付け）を経てから止まる
