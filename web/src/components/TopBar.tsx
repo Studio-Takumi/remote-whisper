@@ -9,12 +9,13 @@ import { RecordingLock } from '@/components/RecordingLock';
 import { SidebarTrigger } from '@/components/ui/sidebar';
 import { isCloud } from '@/endpoint';
 import { recordingLocks } from '@/recording';
+import { llmModels } from '@/settings';
 import { useAppStore } from '@/store';
 
 // メイン画面の右上の簡易設定。全体設定をそのまま書き換える
 export function TopBar() {
     const recording = useAppStore((s) => s.recordingState !== 'idle');
-    const detailModel = useAppStore((s) => s.settings.ollama.models.detail);
+    const detailModel = useAppStore((s) => llmModels(s.settings).detail);
     // 設定モーダルの「モデル」ページを開く（URL は /settings/models。戻るで閉じる）
     const openModels = () => {
         useAppStore.setState({ settingsPage: 'models', settingsOpen: true });

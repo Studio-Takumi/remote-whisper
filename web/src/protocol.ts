@@ -1,4 +1,5 @@
 // WebSocket /ws でやりとりするメッセージ（docs/spec/api.md 7.2 節）。サーバーの server/src/remote_whisper/routes/ws.py と合わせる
+import type { LlmBackend } from '@/settings';
 
 // ブラウザ → サーバー（制御）。音声はバイナリで、先頭4バイトが連番（uint32 LE）、続きが 16kHz・モノラル・Int16 の PCM
 export type ClientMessage =
@@ -96,6 +97,8 @@ export type ServerMessage =
           type: 'status';
           whisper: WhisperState;
           ollama: OllamaState;
+          // LM Studio（#324）。一度も使っていなければ来ない
+          lmstudio?: OllamaState;
           recordings: number;
           queue: number;
           // 古いサーバーにはない
@@ -120,6 +123,8 @@ export type ErrorCode =
     | 'project_not_found'
     | 'write_failed'
     | 'ollama_unavailable'
+    // LM Studio につながらない（#324）。扱いは ollama_unavailable と同じ
+    | 'lmstudio_unavailable'
     | 'summary_skipped'
     // 最終の要約を作る途中で、思わぬエラーになった
     | 'summary_failed'
@@ -130,6 +135,7 @@ export type ErrorCode =
 export type SettingsOptions = {
     // finalTranscript は、最終の文字起こし（WhisperX）を作れるサーバーか（#124。古いサーバーにはない）
     whisper: { models: string[]; computeTypes: string[]; finalTranscript?: boolean };
-    // missing は、処理ごとのモデル（#178）のうち Ollama に入っていないもの（ollama.models のキー）
-    ollama: { models: { name: string; thinking: boolean }[]; missing?: string[] };
+    // 使っている LLM（Ollama か LM Studio。#325・#327）のモデル。録音中に llm.backend を変えたときは、
+    // 切り替わるまで前のもの。missing は、処理ごとのモデル（#178）のうち、そのバックエンドに入っていないもののキー
+    llm: { backend: LlmBackend; models: { name: string; thinking: boolean }[]; missing?: string[] };
 };

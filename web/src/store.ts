@@ -37,12 +37,15 @@ import { type RecordingState, recordingLocks } from '@/recording';
 import { RecordingMetrics, metricsSettings, recordedSeconds, sendRecordingMetrics } from '@/recordingMetrics';
 import { replaceUrlNext } from '@/router';
 import {
+    LLM_NAMES,
     type OllamaModels,
     SETTINGS_PAGES,
     type Settings,
     defaultSettings,
     finalModelLabel,
     isCurrentFinalSummary,
+    llmBackend,
+    llmModels,
 } from '@/settings';
 import { type ServerStatus, initialServerStatus } from '@/status';
 import { formatClock, formatDateTime, newId } from '@/time';
@@ -50,6 +53,11 @@ import type { ContextSelection, ContextSet, Generating, Project, Session } from 
 import { uploadAudio } from '@/upload';
 import type { VersionJson } from '@/version';
 import { type Watching, watchTarget } from '@/watch';
+
+// LLM（Ollama か LM Studio）につながらず、要約を作れなかった（#327）
+function llmFailed(code: string) {
+    return code === 'ollama_unavailable' || code === 'lmstudio_unavailable';
+}
 
 // 画面の状態をまとめて持つストア。プロジェクト・セッション・設定はサーバーの API から取る（spec/api.md 7.1）
 
@@ -1007,7 +1015,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                     set((s) => ({
                         generating: {
                             sessionId: created.id,
-                            model: finalModelLabel(s.settings.ollama.models),
+                            model: finalModelLabel(llmModels(s.settings)),
                             text: '',
                         },
                     }));
@@ -1475,7 +1483,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                     : s.projects,
                 // 最終の要約はサーバーが作り、summary.delta（final）で届く。届くまでは「作成中」と出す
                 generating: sessionId
-                    ? { sessionId, model: finalModelLabel(s.settings.ollama.models), text: '' }
+                    ? { sessionId, model: finalModelLabel(llmModels(s.settings)), text: '' }
                     : s.generating,
             }));
         },
@@ -1589,7 +1597,10 @@ export const useAppStore = create<AppState>()((set, get) => {
                 receiveWatched(m);
                 if (m.type === 'status') {
                     // recordings と queue は画面に出さない（GPU キューは jobs で出す）
-                    const ollamaBack = m.ollama === 'ready' && get().server.ollama !== 'ready';
+                    // LLM（Ollama か LM Studio。#327）につながるようになった
+                    const llmBack =
+                        (m.ollama === 'ready' && get().server.ollama !== 'ready') ||
+                        (m.lmstudio === 'ready' && get().server.lmstudio !== 'ready');
                     // status は GPU の使用率が変わるたびにも届くが、jobs の秒数はキューが変わったときのまま。
                     // jobs が変わったときだけ受け取った時刻を記録し直す（経過時間が戻らないように）
                     const jobsChanged = !!m.jobs && JSON.stringify(m.jobs) !== JSON.stringify(get().server.jobs);
@@ -1598,6 +1609,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                             ...s.server,
                             whisper: m.whisper,
                             ollama: m.ollama,
+                            lmstudio: m.lmstudio,
                             jobs: jobsChanged && m.jobs ? m.jobs : s.server.jobs,
                             jobsAt: jobsChanged ? Date.now() : s.server.jobsAt,
                             gpu: m.gpu ?? null,
@@ -1612,8 +1624,8 @@ export const useAppStore = create<AppState>()((set, get) => {
                                     : (m.summarizing ?? []),
                         },
                     }));
-                    // Ollama につながるようになったら、モデルの一覧を取り直す（つながらない間は空になっている）
-                    if (ollamaBack) {
+                    // LLM につながるようになったら、モデルの一覧を取り直す（つながらない間は空になっている）
+                    if (llmBack) {
                         void get().loadOptions();
                     }
                     // 録音中のセッションの数が変わったら（ほかの端末で始めた・終えたなど）、一覧を取り直す
@@ -1633,7 +1645,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                             model:
                                 s.generating?.sessionId === m.session
                                     ? s.generating.model
-                                    : finalModelLabel(s.settings.ollama.models),
+                                    : finalModelLabel(llmModels(s.settings)),
                             text: (s.generating?.sessionId === m.session ? s.generating.text : '') + m.text,
                         },
                     }));
@@ -1683,7 +1695,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                 if (
                     m.type === 'error' &&
                     m.session &&
-                    (m.code === 'ollama_unavailable' || m.code === 'summary_skipped' || m.code === 'summary_failed')
+                    (llmFailed(m.code) || m.code === 'summary_skipped' || m.code === 'summary_failed')
                 ) {
                     // 最終の要約を待っていた録音は、失敗として数字を送る（#206）
                     finishMetrics(m.session, false);
@@ -1691,7 +1703,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                 if (
                     m.type === 'error' &&
                     m.session &&
-                    (m.code === 'ollama_unavailable' ||
+                    (llmFailed(m.code) ||
                         m.code === 'summary_skipped' ||
                         m.code === 'summary_failed' ||
                         m.code === 'write_failed')
@@ -1701,10 +1713,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                     // 音声の write_failed では捨てない）
                     set((s) => ({
                         generating: s.generating?.sessionId === m.session ? null : s.generating,
-                        liveDraft:
-                            m.code === 'ollama_unavailable' && s.liveDraft?.sessionId === m.session
-                                ? null
-                                : s.liveDraft,
+                        liveDraft: llmFailed(m.code) && s.liveDraft?.sessionId === m.session ? null : s.liveDraft,
                     }));
                     // 最終の要約の失敗はサーバーが記録している（spec/flows.md 6.7）。手元で決めつけず、取り直して記録に合わせる
                     // （録音を終えた直後の途中の要約や音声の失敗を、要約の失敗と取り違えないように）
@@ -1733,7 +1742,9 @@ export const useAppStore = create<AppState>()((set, get) => {
                     if (known.status === 'generating' && m.status === 'ready') {
                         toast.success('参考資料ができました');
                     } else if (known.status === 'generating' && m.status === 'failed') {
-                        toast.error('参考資料を作れませんでした（資料を読めないか、Ollama に接続できません）');
+                        toast.error(
+                            `参考資料を作れませんでした（資料を読めないか、${LLM_NAMES[llmBackend(get().settings)]} に接続できません）`,
+                        );
                     }
                 }
                 if (m.type === 'error' && !starting && !resuming) {
@@ -1750,16 +1761,24 @@ export const useAppStore = create<AppState>()((set, get) => {
                 set({ settings: next });
                 return true;
             }
-            const before = finalModelLabel(get().settings.ollama.models);
+            const before = finalModelLabel(llmModels(get().settings));
+            const backendBefore = llmBackend(get().settings);
             try {
                 // 並び順（#173）は並び替えのときだけ送る。古い設定で、ほかの端末の並び替えを上書きしないように
                 const { projectOrder: _order, ...patch } = next;
                 set({ settings: await api.patch<Settings>('/api/settings', patch) });
+                // LLM（Ollama か LM Studio）を切り替えたら、選べるモデルの一覧を取り直す（#327）
+                const switched = llmBackend(get().settings) !== backendBefore;
+                if (switched) {
+                    void get().loadOptions();
+                }
                 // 最終の要約のモデル（全体概要か要約詳細。#178）を変えたら、開いているセッションにその組の要約が
-                // なければ作り直す（spec/flows.md 6.5）。録音中は作り直さない（録音中の文字起こしが止まるため。#133）
-                const models = get().settings.ollama.models;
+                // なければ作り直す（spec/flows.md 6.5）。録音中は作り直さない（録音中の文字起こしが止まるため。#133）。
+                // LLM を切り替えただけ（モデルの名前の付け方が変わるだけ）では作り直さない
+                const models = llmModels(get().settings);
                 const session = currentSession(get());
                 if (
+                    !switched &&
                     finalModelLabel(models) !== before &&
                     session &&
                     needsSummaryFor(session, models) &&
@@ -1844,7 +1863,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                 );
                 // 全体概要と要約詳細のモデル（#178。古いサーバーは model だけ）
                 const model = finalModelLabel({
-                    ...get().settings.ollama.models,
+                    ...llmModels(get().settings),
                     detail: reply.model,
                     overview: reply.overviewModel ?? reply.model,
                 });

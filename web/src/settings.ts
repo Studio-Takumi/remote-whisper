@@ -20,6 +20,21 @@ export function isCurrentFinalSummary(summary: { model: string; overviewModel?: 
     return summary.model === models.detail && (summary.overviewModel ?? summary.model) === models.overview;
 }
 
+// 要約などに使う LLM（#325・#327。spec/files.md 5.3）
+export type LlmBackend = 'ollama' | 'lmstudio';
+
+export const LLM_NAMES: Record<LlmBackend, string> = { ollama: 'Ollama', lmstudio: 'LM Studio' };
+
+// 設定で選んでいる LLM。古いサーバー（llm がない）は Ollama
+export function llmBackend(settings: Pick<Settings, 'llm'>): LlmBackend {
+    return settings.llm?.backend ?? 'ollama';
+}
+
+// 選んでいる LLM の処理ごとのモデル（Ollama なら ollama.models、LM Studio なら lmstudio.models）
+export function llmModels(settings: Pick<Settings, 'llm' | 'ollama' | 'lmstudio'>): OllamaModels {
+    return llmBackend(settings) === 'lmstudio' && settings.lmstudio ? settings.lmstudio.models : settings.ollama.models;
+}
+
 // 画面に出す最終の要約のモデル。全体概要と要約詳細が同じなら 1 つだけ
 export function finalModelLabel(models: OllamaModels) {
     return models.overview === models.detail ? models.detail : `${models.overview} / ${models.detail}`;
@@ -57,6 +72,19 @@ export type Settings = {
         pickTerms: boolean;
         // 最終要約の詳細の項目に、参考資料の場所（PDF のページ）を付けるか（#237。既定はオフ）。古いサーバーにはない
         detailMaterialPages?: boolean;
+    };
+    // 使う LLM（#325）。要約の間隔・要約度などは、どちらでも ollama の下のものを使う。古いサーバーにはない
+    llm?: {
+        backend: LlmBackend;
+    };
+    // LM Studio（#325）。古いサーバーにはない
+    lmstudio?: {
+        host: string;
+        // API トークンは返ってこない。設定済みかどうかだけ
+        tokenSet?: boolean;
+        // 送るときだけ使う。入れたら新しいトークン、null なら消す、送らなければそのまま（空も同じ）
+        token?: string | null;
+        models: OllamaModels;
     };
     recording: {
         maxConcurrent: number;
@@ -143,6 +171,25 @@ export const defaultSettings: Settings = {
         pickTerms: false,
         detailMaterialPages: false,
     },
+    llm: {
+        backend: 'ollama',
+    },
+    lmstudio: {
+        host: 'http://localhost:1234',
+        tokenSet: false,
+        models: {
+            materialTerms: 'google/gemma-4-e4b',
+            context: 'google/gemma-4-e4b',
+            scope: 'google/gemma-4-e4b',
+            figures: 'google/gemma-4-e4b',
+            transcriptTerms: 'qwen/qwen3.5-2b',
+            liveSummary: 'qwen/qwen3.5-2b',
+            liveTitle: 'qwen/qwen3.5-2b',
+            overview: 'google/gemma-4-e4b',
+            detail: 'google/gemma-4-e4b',
+            finalTitle: 'google/gemma-4-e4b',
+        },
+    },
     recording: {
         maxConcurrent: 1,
         resumeTimeoutMin: 10,
@@ -184,4 +231,10 @@ export const SETTINGS_PAGES = ['models', 'materials', 'recording', 'whisper', 'o
 
 // おすすめのモデル（#179。「おすすめに戻す」と、モデルの横の表示）。サーバーの既定値と同じ
 export const recommendedModels: OllamaModels = defaultSettings.ollama.models;
+// LM Studio のおすすめ（#325。同じモデルの LM Studio のカタログの ID）
+export const recommendedLmStudioModels: OllamaModels = defaultSettings.lmstudio!.models;
+
+export function recommendedModelsFor(backend: LlmBackend): OllamaModels {
+    return backend === 'lmstudio' ? recommendedLmStudioModels : recommendedModels;
+}
 export const recommendedWhisperModel = defaultSettings.whisper.model;

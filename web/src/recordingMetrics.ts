@@ -2,7 +2,7 @@
 // 送るのは数字と、決まった値（モデル名・error の code）だけ。音声、文字起こし・要約・タイトル・用語の本文、
 // プロジェクト名・ファイル名、error の文面、セッション ID は集めない（このファイルに持たない）
 import type { ServerMessage } from '@/protocol';
-import type { Settings } from '@/settings';
+import { type Settings, llmModels } from '@/settings';
 
 // 小さい順に並べた値の、p 番目（0〜1）。最も近い順位の方法。空なら undefined
 export function percentile(values: number[], p: number): number | undefined {
@@ -237,11 +237,13 @@ export class RecordingMetrics {
         if (m.whisper === 'error' && !this.whisperError) {
             this.whisperDown += 1;
         }
-        if (m.ollama === 'error' && !this.ollamaError) {
+        // LLM は Ollama か LM Studio（#327）。見張っているのは使っているほうだけなので、どちらかが error なら数える
+        const llmError = m.ollama === 'error' || m.lmstudio === 'error';
+        if (llmError && !this.ollamaError) {
             this.ollamaDown += 1;
         }
         this.whisperError = m.whisper === 'error';
-        this.ollamaError = m.ollama === 'error';
+        this.ollamaError = llmError;
     }
 
     // サーバーからのメッセージのうち、数えるものを数える。session は今の録音のセッション（違うセッションのものは数えない）
@@ -382,8 +384,8 @@ export function sendRecordingMetrics(
 export function metricsSettings(settings: Settings, upload = false): MetricsSettings {
     const models = {
         whisperModel: settings.whisper.model,
-        summaryModel: settings.ollama.models.detail,
-        overviewModel: settings.ollama.models.overview,
+        summaryModel: llmModels(settings).detail,
+        overviewModel: llmModels(settings).overview,
     };
     if (upload) {
         return models;
