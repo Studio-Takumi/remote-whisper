@@ -188,9 +188,7 @@ function LlmStep({ status, ok, onRefresh }: { status: SetupStatus; ok: boolean; 
                 <Note>{lmstudio ? 'サーバーが動いています' : '動いています'}</Note>
             ) : llm.unauthorized ? (
                 <>
-                    <Note warn>
-                        トークンが違うため接続できません。設定の「要約」で LM Studio のトークンを確かめてください
-                    </Note>
+                    <Note warn>LM Studio のトークンが違うため接続できません。設定の「要約」で確かめてください</Note>
                     <div className='flex flex-wrap gap-2'>{recheck}</div>
                 </>
             ) : llm.found ? (
@@ -275,12 +273,14 @@ function ModelsStep({
             {pulling && pull ? (
                 <div className='flex flex-col gap-1'>
                     <Note>
+                        {pull.backend !== llm.backend && `${LLM_NAMES[pull.backend]} で `}
                         {pull.model} を取得中（{pull.index + 1}/{pull.models.length}）
                         {pull.total > 0 &&
                             `・${pullPercent(pull)}%（${formatGb(pull.completed)} / ${formatGb(pull.total)}）`}
                     </Note>
                     <ProgressBar percent={pullPercent(pull)} label={`${pull.model} の取得`} />
-                    {llm.pullCancellable ? (
+                    {/* 取っている途中に切り替えたときも、始めたほうで決める（LM Studio は止められない） */}
+                    {pull.backend !== 'lmstudio' ? (
                         <div>
                             <Button
                                 variant='outline'
@@ -293,7 +293,7 @@ function ModelsStep({
                         </div>
                     ) : (
                         // LM Studio には取得を止める API がない（#327）
-                        <Note>止めるときは {name} の画面から止めてください</Note>
+                        <Note>止めるときは LM Studio の画面から止めてください</Note>
                     )}
                 </div>
             ) : (

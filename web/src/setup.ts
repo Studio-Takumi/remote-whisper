@@ -67,6 +67,25 @@ export type SetupStatus = {
 export const DIARIZATION_MODEL_URL = 'https://huggingface.co/pyannote/speaker-diarization-community-1';
 export const HF_TOKENS_URL = 'https://huggingface.co/settings/tokens';
 
+// 古いホスト（#327 より前）は llm がなく、同じ中身を ollama で返す（クラウド版では web のほうが新しいことがある）。
+// llm に読み替え、足りない項目は Ollama のときの値で埋める
+export function normalizeSetup(raw: SetupStatus): SetupStatus {
+    const old = (raw as { ollama?: Omit<SetupStatus['llm'], 'backend' | 'unauthorized' | 'pullCancellable'> }).ollama;
+    if (raw.llm || !old) {
+        return raw;
+    }
+    return {
+        ...raw,
+        llm: {
+            backend: 'ollama',
+            unauthorized: false,
+            pullCancellable: true,
+            ...old,
+            pull: old.pull ? { ...old.pull, backend: old.pull.backend ?? 'ollama' } : null,
+        },
+    };
+}
+
 export function missingModels(status: SetupStatus) {
     return status.llm.models.filter((m) => !m.installed);
 }

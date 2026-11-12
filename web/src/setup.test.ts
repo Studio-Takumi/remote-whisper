@@ -8,6 +8,7 @@ import {
     isBusy,
     missingSizeGb,
     missingSteps,
+    normalizeSetup,
     pullPercent,
     shouldAutoOpen,
 } from '@/setup';
@@ -152,6 +153,33 @@ describe('progress', () => {
                 error: null,
             }),
         ).toBe(0);
+    });
+});
+
+describe('normalizeSetup', () => {
+    it('reads the old shape (ollama instead of llm) from older hosts', () => {
+        const { llm, ...rest } = status();
+        const { backend: _b, unauthorized: _u, pullCancellable: _p, ...ollama } = llm;
+        const pull = {
+            state: 'running',
+            models: ['qwen3.5:2b'],
+            model: 'qwen3.5:2b',
+            index: 0,
+            completed: 1,
+            total: 4,
+            error: null,
+        };
+        const old = { ...rest, ollama: { ...ollama, running: false, pull } } as unknown as SetupStatus;
+        const s = normalizeSetup(old);
+        expect(s.llm).toMatchObject({ backend: 'ollama', running: false, unauthorized: false, pullCancellable: true });
+        expect(s.llm.pull?.backend).toBe('ollama');
+        expect(missingSteps(s, on)).toMatchObject({ llm: true, models: true });
+        expect(isBusy(s)).toBe(true);
+    });
+
+    it('leaves the new shape as it is', () => {
+        const s = status();
+        expect(normalizeSetup(s)).toBe(s);
     });
 });
 

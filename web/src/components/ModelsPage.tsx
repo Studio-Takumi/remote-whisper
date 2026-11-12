@@ -66,6 +66,8 @@ export function ModelsPage({
                 value={models[key]}
                 options={ollamaOptions(models[key])}
                 onChange={(model) => onChangeModels(backend, { ...models, [key]: model })}
+                // LM Studio の ID（google/gemma-4-e4b など）は長いので広げる
+                className='w-56'
             />
         </Row>
     );
