@@ -1,8 +1,9 @@
 """初回のセットアップの案内の API（#291）。spec/api.md 7.1・spec/flows.md 6.15
 
 見るだけ（GET）はトンネル（クラウド版）からもできる。トークンの保存・消す、WhisperX を入れる、
-Ollama のモデルを取るのは、トンネルからは断る（403）。クラウドのログインを盗まれても、
-ホストに数 GB を落とさせたり、話者分けに使うトークンを差し替えさせたりしないように
+LLM（Ollama か LM Studio）のモデルを取るのは、トンネルからは断る（403）。
+クラウドのログインを盗まれても、ホストに数 GB を落とさせたり、
+話者分けに使うトークンを差し替えさせたりしないように
 """
 
 from typing import Annotated, Any
@@ -46,13 +47,17 @@ async def _accepted(request: Request, ctx: AppContext) -> JSONResponse:
     return JSONResponse(await ctx.setup.status(remote=via_tunnel(request)), status_code=202)
 
 
-@host.post("/ollama/pull")
+# /ollama/pull は #327 より前の名前。PWA に古い画面が残っている間のための別名（消す時期は
+# spec/api.md 7.1）。どちらもトンネルからは断る（host）
+@host.post("/llm/pull")
+@host.post("/ollama/pull", include_in_schema=False)
 async def pull_models(
     request: Request,
     models: Annotated[list[str], Body(embed=True)],
     ctx: Annotated[AppContext, Depends(get_ctx)],
 ) -> JSONResponse:
-    """Ollama のモデルを取ってくる（順に）。進み具合は GET /api/setup の ollama.pull"""
+    """使っている LLM（Ollama か LM Studio。#327）のモデルを取ってくる（順に）。
+    進み具合は GET /api/setup の llm.pull"""
     try:
         ctx.setup.start_pull(models)
     except SetupError as e:
@@ -60,10 +65,12 @@ async def pull_models(
     return await _accepted(request, ctx)
 
 
-@host.delete("/ollama/pull")
+@host.delete("/llm/pull")
+@host.delete("/ollama/pull", include_in_schema=False)
 async def cancel_pull(
     request: Request, ctx: Annotated[AppContext, Depends(get_ctx)]
 ) -> dict[str, Any]:
+    """取得をやめる。LM Studio は止める API がないので、見に行くのをやめるだけ（取り続ける）"""
     await ctx.setup.cancel_pull()
     return await ctx.setup.status(remote=False)
 

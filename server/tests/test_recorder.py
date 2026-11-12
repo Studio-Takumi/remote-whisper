@@ -441,7 +441,7 @@ def test_recording_continues_without_ollama(client, project, fake_ollama):
     pid, d = project
     fake_ollama.up = False
     body = client.get("/api/settings/options").json()
-    assert body["ollama"]["models"] == []
+    assert body["llm"]["models"] == []
     assert client.app.state.ctx.hub.status.ollama == "error"
     with client.websocket_connect("/ws") as ws:
         assert ws.receive_json()["ollama"] == "error"

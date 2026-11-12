@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends
 
 from remote_whisper.context import AppContext, get_ctx
 from remote_whisper.llm import LlmUnavailable, backend_of
-from remote_whisper.mock import MOCK_OLLAMA_MODELS
+from remote_whisper.mock import MOCK_LMSTUDIO_MODELS, MOCK_OLLAMA_MODELS
 from remote_whisper.settings import has_model
 
 router = APIRouter(prefix="/api/settings")
@@ -21,12 +21,12 @@ async def get_options(ctx: Annotated[AppContext, Depends(get_ctx)]) -> dict[str,
     思考モードに対応しているか
 
     つながらなければ、LLM のモデルは空の一覧にする（status の ollama・lmstudio が error になる）。
-    LLM のモデルは `llm` に入れる。`ollama` は同じ中身の古い名前（画面が `llm` を読むようになる
-    まで残す。#327）
+    LLM のモデルは `llm` に入れる。`ollama` は同じ中身の古い名前（#327 で画面は `llm` を読むように
+    したが、PWA に古い画面が残っている間のために残す。消す時期は spec/api.md 7.1）
     """
     if ctx.mock:
         backend = ctx.settings.get().llm.backend
-        llm_models = MOCK_OLLAMA_MODELS
+        llm_models = MOCK_LMSTUDIO_MODELS if backend == "lmstudio" else MOCK_OLLAMA_MODELS
     else:
         backend = backend_of(ctx.ollama) or ctx.settings.get().llm.backend
         try:

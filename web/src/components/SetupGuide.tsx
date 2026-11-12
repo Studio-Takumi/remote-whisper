@@ -14,6 +14,7 @@ import { toast } from 'sonner';
 import { api } from '@/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { LLM_NAMES, recommendedLmStudioModels } from '@/settings';
 import {
     DIARIZATION_MODEL_URL,
     HF_TOKENS_URL,
@@ -65,7 +66,7 @@ export function SetupGuide({
                 </p>
             )}
             {status.gpu === 'none' && <GpuStep />}
-            <OllamaStep status={status} ok={!missing.ollama} onRefresh={onRefresh} />
+            <LlmStep status={status} ok={!missing.llm} onRefresh={onRefresh} />
             <ModelsStep status={status} ok={!missing.models} locked={locked} act={act} />
             <WhisperXStep status={status} ok={!missing.whisperx} locked={locked} act={act} onRefresh={onRefresh} />
             <TokenStep status={status} ok={status.hfToken.source !== null} locked={locked} act={act} />
@@ -159,7 +160,11 @@ function GpuStep() {
     );
 }
 
-function OllamaStep({ status, ok, onRefresh }: { status: SetupStatus; ok: boolean; onRefresh: () => Promise<void> }) {
+// 要約に使うアプリ（Ollama か LM Studio。設定で選んでいるほうだけ。#327）
+function LlmStep({ status, ok, onRefresh }: { status: SetupStatus; ok: boolean; onRefresh: () => Promise<void> }) {
+    const llm = status.llm;
+    const lmstudio = llm.backend === 'lmstudio';
+    const name = LLM_NAMES[llm.backend];
     const [checking, setChecking] = useState(false);
 
     async function check() {
@@ -178,19 +183,31 @@ function OllamaStep({ status, ok, onRefresh }: { status: SetupStatus; ok: boolea
         </Button>
     );
     return (
-        <Step title='Ollama' purpose='要約と用語リストを作るアプリ' ok={ok}>
+        <Step title={name} purpose='要約と用語リストを作るアプリ' ok={ok}>
             {ok ? (
-                <Note>動いています</Note>
-            ) : status.ollama.found ? (
+                <Note>{lmstudio ? 'サーバーが動いています' : '動いています'}</Note>
+            ) : llm.unauthorized ? (
                 <>
-                    <Note warn>Ollama が起動していません。起動してから確かめてください</Note>
+                    <Note warn>LM Studio のトークンが違うため接続できません。設定の「要約」で確かめてください</Note>
+                    <div className='flex flex-wrap gap-2'>{recheck}</div>
+                </>
+            ) : llm.found ? (
+                <>
+                    {lmstudio ? (
+                        <Note warn>
+                            LM Studio のサーバーを起動してください。LM Studio の「Developer」でサーバーをオンにするか、
+                            <code className='font-mono'>lms server start</code> を実行します
+                        </Note>
+                    ) : (
+                        <Note warn>Ollama が起動していません。起動してから確かめてください</Note>
+                    )}
                     <div className='flex flex-wrap gap-2'>{recheck}</div>
                 </>
             ) : (
                 <>
                     <Note warn>入っていないため、要約と用語リストは作られません</Note>
                     <div className='flex flex-wrap gap-2'>
-                        <LinkButton href={status.ollama.downloadUrl}>ダウンロードのページを開く</LinkButton>
+                        <LinkButton href={llm.downloadUrl}>ダウンロードのページを開く</LinkButton>
                         {recheck}
                     </div>
                 </>
@@ -210,20 +227,32 @@ function ModelsStep({
     locked: boolean;
     act: (call: () => Promise<SetupStatus>) => Promise<void>;
 }) {
-    const pull = status.ollama.pull;
+    const llm = status.llm;
+    const name = LLM_NAMES[llm.backend];
+    const pull = llm.pull;
     const pulling = pull?.state === 'running';
     const missing = missingModels(status);
+    const sizeGb = missingSizeGb(status);
+    // 大きさが分からないもの（LM Studio の一部）があれば「以上」を付ける
+    const sizeUnknown = missing.some((m) => m.sizeGb === null);
     // 押せない理由
-    const reason = !status.ollama.running
-        ? 'Ollama が動いてから取得できます'
+    const reason = !llm.running
+        ? `${name} が動いてから取得できます`
         : status.recording
           ? '録音が終わってから取得できます'
           : null;
 
     return (
-        <Step title='要約のモデル' purpose='要約などに使う Ollama のモデル' ok={ok}>
+        <Step title='要約のモデル' purpose={`要約などに使う ${name} のモデル`} ok={ok}>
+            {llm.backend === 'lmstudio' && (
+                <Note>
+                    録音中は {recommendedLmStudioModels.liveSummary}{' '}
+                    を使います。入っていないと大きいモデルで代わりに動くため、VRAM が 6GB ほどの GPU
+                    では文字起こしが遅くなります
+                </Note>
+            )}
             <ul className='flex flex-col gap-1'>
-                {status.ollama.models.map((m) => (
+                {llm.models.map((m) => (
                     <li key={m.name} className='flex items-center justify-between gap-2 text-xs'>
                         <span className='font-mono'>{m.name}</span>
                         <span className='flex shrink-0 items-center gap-3 whitespace-nowrap text-muted-foreground'>
@@ -244,21 +273,28 @@ function ModelsStep({
             {pulling && pull ? (
                 <div className='flex flex-col gap-1'>
                     <Note>
+                        {pull.backend !== llm.backend && `${LLM_NAMES[pull.backend]} で `}
                         {pull.model} を取得中（{pull.index + 1}/{pull.models.length}）
                         {pull.total > 0 &&
                             `・${pullPercent(pull)}%（${formatGb(pull.completed)} / ${formatGb(pull.total)}）`}
                     </Note>
                     <ProgressBar percent={pullPercent(pull)} label={`${pull.model} の取得`} />
-                    <div>
-                        <Button
-                            variant='outline'
-                            size='sm'
-                            disabled={locked}
-                            onClick={() => void act(() => api.delete<SetupStatus>('/api/setup/ollama/pull'))}
-                        >
-                            やめる
-                        </Button>
-                    </div>
+                    {/* 取っている途中に切り替えたときも、始めたほうで決める（LM Studio は止められない） */}
+                    {pull.backend !== 'lmstudio' ? (
+                        <div>
+                            <Button
+                                variant='outline'
+                                size='sm'
+                                disabled={locked}
+                                onClick={() => void act(() => api.delete<SetupStatus>('/api/setup/llm/pull'))}
+                            >
+                                やめる
+                            </Button>
+                        </div>
+                    ) : (
+                        // LM Studio には取得を止める API がない（#327）
+                        <Note>止めるときは LM Studio の画面から止めてください</Note>
+                    )}
                 </div>
             ) : (
                 <>
@@ -271,14 +307,14 @@ function ModelsStep({
                                 disabled={locked || reason !== null}
                                 onClick={() =>
                                     void act(() =>
-                                        api.post<SetupStatus>('/api/setup/ollama/pull', {
+                                        api.post<SetupStatus>('/api/setup/llm/pull', {
                                             models: missing.map((m) => m.name),
                                         }),
                                     )
                                 }
                             >
                                 <DownloadIcon />
-                                取得（約 {missingSizeGb(status)} GB）
+                                {sizeGb > 0 ? `取得（約 ${sizeGb} GB${sizeUnknown ? ' 以上' : ''}）` : '取得'}
                             </Button>
                             {reason && <Note warn>{reason}</Note>}
                         </div>

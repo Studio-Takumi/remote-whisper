@@ -352,6 +352,13 @@ MOCK_OLLAMA_MODELS = [
     {"name": "gemma3:4b", "thinking": False},
     {"name": "llama3.2:3b", "thinking": False},
 ]
+# 設定で LM Studio を選んだときに返すモデル（#327。LM Studio のカタログの ID）
+MOCK_LMSTUDIO_MODELS = [
+    {"name": "google/gemma-4-e4b", "thinking": True},
+    {"name": "qwen/qwen3.5-2b", "thinking": True},
+    {"name": "qwen/qwen3.5-4b", "thinking": True},
+    {"name": "google/gemma-3-4b", "thinking": False},
+]
 
 
 def mock_script_lines(duration_sec: float) -> list[tuple[float, str]]:
@@ -361,7 +368,9 @@ def mock_script_lines(duration_sec: float) -> list[tuple[float, str]]:
 
 
 def mock_thinking(model: str) -> bool:
-    return any(m["name"] == model and m["thinking"] for m in MOCK_OLLAMA_MODELS)
+    return any(
+        m["name"] == model and m["thinking"] for m in MOCK_OLLAMA_MODELS + MOCK_LMSTUDIO_MODELS
+    )
 
 
 MOCK_HOTWORDS = ["リリース計画", "ステージング環境", "負荷試験", "リリースノート"]

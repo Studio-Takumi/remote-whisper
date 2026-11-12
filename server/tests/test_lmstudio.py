@@ -10,6 +10,7 @@ from fake_lmstudio import GEMMA, FakeLMStudio
 from remote_whisper.hub import Hub
 from remote_whisper.llm import LlmClient, LlmUnavailable
 from remote_whisper.lmstudio import (
+    DOWNLOAD_STALL_SEC,
     LMStudioClient,
     LMStudioUnavailable,
     SchemaMismatch,
@@ -525,12 +526,151 @@ def test_unload_all_does_nothing_when_unreachable(lms, fake):
     run(lms.unload_all())
 
 
-def test_pull_is_not_supported_yet(lms):
+def pull(lms, model):
     async def go():
-        return [p async for p in lms.pull(GEMMA)]
+        return [p async for p in lms.pull(model)]
 
+    return run(go())
+
+
+@pytest.fixture
+def quick(home, fake):
+    """進み具合を待たずに見に行くクライアント"""
+
+    async def no_sleep(sec):
+        await asyncio.sleep(0)
+
+    return LMStudioClient(Hub(), SettingsStore(home), transport=fake.transport(), sleep=no_sleep)
+
+
+def test_pull_reports_progress_until_done(quick, fake):
+    progress = pull(quick, "qwen/qwen3.5-2b")
+    assert progress[-1] == {"status": "success"}
+    parts = [p for p in progress if "digest" in p]
+    # ジョブを 1 つの部分として、取った量を返す
+    assert {p["digest"] for p in parts} == set(fake.jobs)
+    assert [p["completed"] for p in parts] == [400, 800, 1000]
+    assert all(p["total"] == 1000 for p in parts)
+    assert "qwen/qwen3.5-2b" in run(quick.installed())
+
+
+def test_pull_waits_until_the_model_is_listed(quick, fake):
+    """実機では completed の直後の一覧にはまだ出ない。出るまで待ってから終える"""
+    fake.list_lag = 3
+    assert pull(quick, "qwen/qwen3.5-2b")[-1] == {"status": "success"}
+    assert "qwen/qwen3.5-2b" in fake.models
+    assert len(fake.bodies("/api/v1/models")) == 4
+
+
+def test_pull_of_an_installed_model_returns_at_once(quick, fake):
+    assert pull(quick, GEMMA) == [{"status": "success"}]
+    assert fake.bodies("/api/v1/models/download") == [{"model": GEMMA}]
+    assert fake.jobs == {}
+
+
+def test_pull_failures(quick, fake):
     with pytest.raises(LlmUnavailable):
-        run(go())
+        pull(quick, "nope/unknown")
+    fake.download_fails = True
+    with pytest.raises(LlmUnavailable):
+        pull(quick, "qwen/qwen3.5-2b")
+    # カタログにない（404）・LM Studio が failed を返したのは、LM Studio は動いている
+    assert quick.hub.status.lmstudio == "ready"
+
+
+def test_cancelled_pull_stops_watching_only(home, fake, caplog):
+    """止める API がないので、やめたら見に行くのをやめるだけ（LM Studio は取り続ける）"""
+    fake.step = 1
+    client = LMStudioClient(Hub(), SettingsStore(home), transport=fake.transport())
+
+    async def go():
+        async def consume():
+            async for _ in client.pull("qwen/qwen3.5-2b"):
+                pass
+
+        task = asyncio.create_task(consume())
+        await asyncio.sleep(0.05)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    caplog.set_level(logging.INFO)
+    run(go())
+    assert "keeps downloading" in caplog.text
+    # 止める要求は送っていない（download と status のほかには何も送らない）
+    assert all(p.startswith("/api/v1/models/download") for p, _ in fake.requests)
+
+
+def test_unauthorized_is_told_apart(lms, fake):
+    fake.require_token = "sk-right"
+    with pytest.raises(LMStudioUnavailable) as e:
+        run(lms.installed())
+    assert e.value.status == 401
+    # どの頼みも通らないので、トレイ・画面で気づけるように error にする（#327）
+    assert lms.hub.status.lmstudio == "error"
+    # トークンを直せば ready に戻る
+    client = LMStudioClient(lms.hub, lms.settings, token="sk-right", transport=fake.transport())
+    run(client.installed())
+    assert lms.hub.status.lmstudio == "ready"
+
+
+@pytest.mark.parametrize(
+    ("state", "detail"),
+    [
+        ("paused", "一時停止"),
+        ("cancelled", "取得が止まりました"),
+        ("mystery", "取得が止まりました"),
+    ],
+)
+def test_pull_stops_watching_when_lmstudio_stops(quick, fake, state, detail):
+    """paused・知らない status のまま見続けない（ほかの取得を始められなくなるため）"""
+    fake.download_status = state
+    with pytest.raises(LMStudioUnavailable) as e:
+        pull(quick, "qwen/qwen3.5-2b")
+    assert detail in e.value.detail
+
+
+def test_pull_gives_up_when_it_makes_no_progress(home, fake):
+    """取った量が増えないまま DOWNLOAD_STALL_SEC たったら諦める（時計を差し替える）"""
+    now = [0.0]
+
+    async def sleep(sec):
+        now[0] += sec
+        await asyncio.sleep(0)
+
+    client = LMStudioClient(
+        Hub(),
+        SettingsStore(home),
+        transport=fake.transport(),
+        clock=lambda: now[0],
+        sleep=sleep,
+    )
+    fake.step = 0
+    with pytest.raises(LMStudioUnavailable) as e:
+        pull(client, "qwen/qwen3.5-2b")
+    assert "進まない" in e.value.detail
+    # 10 分（DOWNLOAD_STALL_SEC）ほどで諦める。それより前には諦めない
+    assert DOWNLOAD_STALL_SEC <= now[0] <= DOWNLOAD_STALL_SEC + 2
+
+
+def test_pull_keeps_watching_while_it_moves(home, fake):
+    """遅くても進んでいれば、DOWNLOAD_STALL_SEC を超えても見続ける"""
+    now = [0.0]
+
+    async def sleep(sec):
+        now[0] += 60
+        await asyncio.sleep(0)
+
+    client = LMStudioClient(
+        Hub(),
+        SettingsStore(home),
+        transport=fake.transport(),
+        clock=lambda: now[0],
+        sleep=sleep,
+    )
+    fake.step = 50
+    assert pull(client, "qwen/qwen3.5-2b")[-1] == {"status": "success"}
+    assert now[0] > DOWNLOAD_STALL_SEC
 
 
 def test_error_message():

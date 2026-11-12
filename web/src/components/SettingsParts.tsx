@@ -61,15 +61,19 @@ export function OptionSelect({
     value,
     options,
     onChange,
+    className = 'w-44',
 }: {
     id: string;
     value: string;
     options: string[];
     onChange: (value: string) => void;
+    // 幅（LM Studio のモデルの ID のように長い値のときは広げる。#327）
+    className?: string;
 }) {
     return (
         <Select value={value} onValueChange={onChange}>
-            <SelectTrigger id={id} className='w-44'>
+            {/* 幅に収まらない値でも、全体を title で見られるように */}
+            <SelectTrigger id={id} className={className} title={value}>
                 <SelectValue />
             </SelectTrigger>
             <SelectContent>

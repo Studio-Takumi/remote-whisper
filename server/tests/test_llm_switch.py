@@ -77,6 +77,7 @@ def test_switching_changes_models_and_status(client, fake_ollama, fake_lmstudio)
     assert body["llm"]["backend"] == "lmstudio"
     names = [m["name"] for m in body["llm"]["models"]]
     assert names == ["acme/always-think", "acme/plain", GEMMA]
+    # 古い名前の ollama も同じ中身（PWA に古い画面が残っている間のため。#327）
     assert body["ollama"] == {"models": body["llm"]["models"], "missing": body["llm"]["missing"]}
     # 入っていないのは qwen/qwen3.5-2b の 3 つ（lmstudio.models で見る）
     assert sorted(body["llm"]["missing"]) == ["liveSummary", "liveTitle", "transcriptTerms"]

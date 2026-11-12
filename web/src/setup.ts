@@ -1,4 +1,5 @@
 // 初回のセットアップの案内（#291。docs/spec/flows.md 6.15・ui.md 8・api.md 7.1）
+import type { LlmBackend } from '@/settings';
 
 // 全体設定のうち、案内が見るもの（浄書と話者分けのオン・オフ）
 export type WhisperFlags = { whisper: { finalTranscript?: boolean; diarize?: boolean } };
@@ -7,6 +8,8 @@ export type JobState = 'running' | 'done' | 'failed' | 'cancelled';
 
 export type PullJob = {
     state: JobState;
+    // 取っている先（#327）
+    backend: LlmBackend;
     models: string[];
     // 取っているモデル（models の index 番目）
     model: string;
@@ -33,12 +36,19 @@ export type SetupStatus = {
     remote: boolean;
     recording: boolean;
     gpu: 'nvidia' | 'mac' | 'none';
-    ollama: {
+    // 使っている LLM（Ollama か LM Studio。#327）
+    llm: {
+        backend: LlmBackend;
         running: boolean;
+        // 入っていそうか（動いていないときに「起動して」と「入れて」を出し分ける）
         found: boolean;
+        // 動いているが、トークンが違う・ない（LM Studio で認証を求める設定のとき）
+        unauthorized: boolean;
         downloadUrl: string;
         models: { name: string; sizeGb: number | null; installed: boolean }[];
         pull: PullJob | null;
+        // 取得をやめると、取っている先も止まるか（LM Studio は止める API がないので止まらない）
+        pullCancellable: boolean;
     };
     whisperx: {
         installed: boolean;
@@ -57,8 +67,27 @@ export type SetupStatus = {
 export const DIARIZATION_MODEL_URL = 'https://huggingface.co/pyannote/speaker-diarization-community-1';
 export const HF_TOKENS_URL = 'https://huggingface.co/settings/tokens';
 
+// 古いホスト（#327 より前）は llm がなく、同じ中身を ollama で返す（クラウド版では web のほうが新しいことがある）。
+// llm に読み替え、足りない項目は Ollama のときの値で埋める
+export function normalizeSetup(raw: SetupStatus): SetupStatus {
+    const old = (raw as { ollama?: Omit<SetupStatus['llm'], 'backend' | 'unauthorized' | 'pullCancellable'> }).ollama;
+    if (raw.llm || !old) {
+        return raw;
+    }
+    return {
+        ...raw,
+        llm: {
+            backend: 'ollama',
+            unauthorized: false,
+            pullCancellable: true,
+            ...old,
+            pull: old.pull ? { ...old.pull, backend: old.pull.backend ?? 'ollama' } : null,
+        },
+    };
+}
+
 export function missingModels(status: SetupStatus) {
-    return status.ollama.models.filter((m) => !m.installed);
+    return status.llm.models.filter((m) => !m.installed);
 }
 
 // 取っていないモデルの合計（GB。大きさが分からないものは数えない）
@@ -76,8 +105,8 @@ export function needsToken(settings: WhisperFlags): boolean {
 export function missingSteps(status: SetupStatus, settings: WhisperFlags) {
     const finalOn = settings.whisper.finalTranscript ?? true;
     return {
-        ollama: !status.ollama.running,
-        models: !status.ollama.running || missingModels(status).length > 0,
+        llm: !status.llm.running,
+        models: !status.llm.running || missingModels(status).length > 0,
         whisperx: finalOn && !status.whisperx.installed,
         token: status.whisperx.installed && needsToken(settings) && status.hfToken.source === null,
     };
@@ -89,7 +118,7 @@ export function hasMissing(status: SetupStatus, settings: WhisperFlags): boolean
 
 // 取っている・入れている途中か（その間は状態を取り直し続ける）
 export function isBusy(status: SetupStatus): boolean {
-    return status.ollama.pull?.state === 'running' || status.whisperx.install?.state === 'running';
+    return status.llm.pull?.state === 'running' || status.whisperx.install?.state === 'running';
 }
 
 // 初回に「はじめに」を自動で出すか。セルフホスト版で、足りないものがあり、この端末でまだ閉じていないとき

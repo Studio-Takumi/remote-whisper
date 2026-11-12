@@ -96,9 +96,21 @@ Windows のショートカットと同じく、アプリは `--auto-port` を付
 
 ## Ollama・WhisperX・HuggingFace のトークン
 
-- **Ollama**（要約・用語リスト）は同梱していません。入っていない（または動いていない）と、アイコンのカーソルが橙になり、要約は作りません。**文字起こしそのものは動きます**。初回の案内（#291）に、入れ方が出ます。
+- **Ollama**（要約・用語リスト）は同梱していません（代わりに LM Studio も使えます。下の「LM Studio を使う場合」）。入っていない（または動いていない）と、アイコンのカーソルが橙になり、要約は作りません。**文字起こしそのものは動きます**。初回の案内（#291）に、入れ方が出ます。
 - **WhisperX**（浄書と話者分け）は同梱していません。初回の案内（設定の「セットアップ」）の「入れる」で、同梱の Python に `whisperx-requirements.txt`（版とハッシュを固定）で入れます。入れ先はアプリの中なので、アプリを置き換えると消えます。
 - HuggingFace のトークンがないと、話者分けはしません。
+
+### LM Studio を使う場合
+
+要約と用語リストは、Ollama の代わりに [LM Studio](https://lmstudio.ai/) でも作れます（#327）。
+
+1. [ダウンロードのページ](https://lmstudio.ai/download)から LM Studio を入れ、「アプリケーション」に置きます（`/Applications/LM Studio.app`）。
+2. **サーバーを起動します。** LM Studio はアプリを開いただけではサーバーが動きません。LM Studio の「Developer」でサーバーをオンにするか、ターミナルで `lms server start` を実行します（`lms` が見つからなければ `~/.lmstudio/bin/lms`）。既定は `http://localhost:1234` です。
+3. remote-whisper の画面の設定の「要約」で、「要約に使うアプリ」を「LM Studio」にして保存します。URL を変えたときは「LM Studio の URL」も直します。
+4. LM Studio のサーバーの設定で認証（API トークン）を求めるようにしたときは、同じ「要約」の「LM Studio のトークン」に入れて保存します。トークンは画面に出ません（空のまま保存しても消えず、消すときは「消す」を押してから保存します）。
+5. 設定の「セットアップ」の「要約のモデル」で、おすすめのモデル（`google/gemma-4-e4b`・`qwen/qwen3.5-2b`）を「取得」します（LM Studio がダウンロードします。Mac では MLX 版になることがあり、大きさは Windows の GGUF 版と違います）。LM Studio には取得を止める API がないので、途中で止めるときは LM Studio の画面から止めます。
+
+LM Studio を選んでいる間は、メニューバーのアイコンと画面は LM Studio の状態だけを見ます。remote-whisper が載せたモデルだけを下ろし、LM Studio の画面で手で載せたモデルには触りません。
 
 ## 方式の選び方（Python ごと同梱した .app / py2app / PyInstaller）
 

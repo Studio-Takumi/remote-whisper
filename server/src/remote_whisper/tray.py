@@ -378,13 +378,16 @@ class Tray:
         cloud: CloudHost | None = None,
         announcements: AnnouncementWatcher | None = None,
         notice: str | None = None,
+        backend: Callable[[], str] = lambda: "ollama",
     ):
         """status はサーバーの今の状態を返すもの、on_quit はサーバーを止めるもの
 
         cloud はクラウド版のホストの登録（#158）。None ならクラウドの行と項目を出さない
         announcements は運営からのお知らせ（#164）。登録しているときだけ新しい版を通知する
         notice はアイコンが出たときに 1 回だけ出す通知（別の番号で起動したとき。#290）
+        backend は設定で選んでいる LLM（llm.backend）を返すもの。その状態だけを出す（#327）
         """
+        self.backend = backend
         self.notice = notice
         self.announcements = announcements
         self.status = status
@@ -545,7 +548,7 @@ class Tray:
             self._icon.update_menu()
 
     def _state(self) -> TrayState:
-        return tray_state(self.status(), self._cloud_view())
+        return tray_state(self.status(), self._cloud_view(), self.backend())
 
     def _cloud_view(self) -> CloudView | None:
         return self.cloud.view if self.cloud is not None else None

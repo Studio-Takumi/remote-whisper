@@ -352,9 +352,9 @@ flowchart LR
 
 ## 6.15 初回のセットアップ（#291）
 
-インストーラ（#168）で入れても、要約には Ollama とモデル、浄書済み文字起こし（6.9 節）と話者分けには WhisperX と HuggingFace のトークンが要る。足りないものを画面で順に案内し、ボタンで入れられるものは入れる。**どれも飛ばせて、飛ばしても文字起こしは今までどおり動く**。画面は 8 章（「初回のセットアップの案内」）、API は 7.1 節の `/api/setup`。
+インストーラ（#168）で入れても、要約には Ollama（か LM Studio。#327）とモデル、浄書済み文字起こし（6.9 節）と話者分けには WhisperX と HuggingFace のトークンが要る。足りないものを画面で順に案内し、ボタンで入れられるものは入れる。**どれも飛ばせて、飛ばしても文字起こしは今までどおり動く**。画面は 8 章（「初回のセットアップの案内」）、API は 7.1 節の `/api/setup`。
 
-- **外に取りに行くのはボタンを押したときだけ**（モデルの取得と WhisperX）。状態を調べる（`GET /api/setup`）だけでは、この PC の Ollama（設定の `ollama.host`）に一覧を聞くほかは、どこにもつながない。大きさの目安はサーバーに持っておく（おすすめのモデルの GB、WhisperX のダウンロードとディスクの GB・時間）。
+- **外に取りに行くのはボタンを押したときだけ**（モデルの取得と WhisperX）。状態を調べる（`GET /api/setup`）だけでは、この PC の Ollama（設定の `ollama.host`）か LM Studio（`lmstudio.host`。選んでいるほうだけ）に一覧を聞くほかは、どこにもつながない。大きさの目安はサーバーに持っておく（おすすめのモデルの GB、WhisperX のダウンロードとディスクの GB・時間）。
 - **どの形で動いているか**: サーバーが `runtime` で返す。配布版（`bundle.json` がある。#168）は `windows-bundle`・`mac-bundle`（#292）、ほかは `dev`（開発の環境。uv）。
 - **GPU**: NVIDIA の GPU（NVML でドライバと GPU が見つかる）か Mac の GPU（Apple Silicon で mlx-whisper がある。#276）がなければ `none`。CPU で動く（#274）ことと、遅くなる目安を出す。起動してから 1 回だけ調べる。
 - **Ollama**: 同梱しない。つながらなければ、何ができなくなるか（要約・用語リスト）と、公式のダウンロードのページを開くボタンと「もう一度確かめる」ボタンを出す。`ollama` のコマンド（PATH・Windows の既定の入れ場所・Mac の `/Applications/Ollama.app`）が見つかれば「入っているが動いていない」とみなして、起動するように出す。
@@ -363,6 +363,12 @@ flowchart LR
   - **GPU を使わないので GPU キュー（6.3 節）には積まない**。ただし**録音中は始めない**（ネットワークとディスクを録音の邪魔に使わないため。「録音が終わってから」と出す）。取っている途中に録音が始まっても止めない。
   - 進み具合は、Ollama が返す層（`digest`）ごとの `total`・`completed` の合計。画面は取っている間 1 秒ごとに `GET /api/setup` を呼んで出す。
   - やめると接続を切る（Ollama も取るのをやめる。途中まで取った分は、次に取るときに使われる）。サーバーを止めたときもやめる。
+- **LM Studio（#327）**: 設定で LM Studio を選んでいる（`llm.backend: "lmstudio"`）ときは、上の Ollama と要約のモデルの代わりに LM Studio について案内する（使っていないほうは出さない）。
+  - **入っているか**: `lms` のコマンド（PATH か、LM Studio が置く `~/.lmstudio/bin`）・Mac の `/Applications/LM Studio.app`・Windows の `%LOCALAPPDATA%\Programs\LM Studio` のどれかがあれば、入っているとみなす。入っていなければ、公式のダウンロードのページ（`https://lmstudio.ai/download`）を開くボタン。
+  - **サーバー**: LM Studio はアプリを開いただけではサーバー（`lmstudio.host`。既定は 1234 番）が動かない。入っているのにつながらなければ「LM Studio のサーバーを起動してください」と、起動のしかた（LM Studio の「Developer」でサーバーをオンにするか、`lms server start`）を出す。つながるがトークンが違う・ない（`401`・`403`）ときは、設定の「要約」でトークンを確かめるように出す。
+  - **おすすめのモデル**: `lmstudio.models` のおすすめ（`google/gemma-4-e4b`・`qwen/qwen3.5-2b`）。大きさは、測った `google/gemma-4-e4b`（Windows の GGUF 版。6.3GB）だけを出し、分からないもの（`qwen/qwen3.5-2b`、Mac の MLX 版）は出さない（合計は「約 〇 GB 以上」）。VRAM が 6GB ほどの GPU では、録音中のモデル（`qwen/qwen3.5-2b`）が入っていないと、代わりに大きいモデルで動いて VRAM が溢れる（#326 で 5930/6144MiB）ので、入れておくように出す。
+  - **モデルの取得**: `POST /api/v1/models/download`（本文は `{"model": "<ID>"}`）で始め、`GET /api/v1/models/download/status/<job_id>` を 1 秒ごとに見て、`downloaded_bytes`・`total_size_bytes` を進み具合（`PullProgress`）に直す。入っていれば `already_downloaded` だけが返り、すぐ終わる。同じモデルをもう一度頼むと、取っている途中のジョブ（同じ `job_id`）が返る。`status` が `failed` なら失敗。`paused`（LM Studio の画面で一時停止したとき）と知らない status、取った量が増えないまま 10 分たったときは、見るのをやめて失敗にし、理由を出す（見続けると、ほかの取得を始められないため。もう一度「取得」を押せば、同じ `job_id` で続きを見に行く）。取り終えたあとは、LM Studio の一覧に出るまで少し待つ。取っている途中に設定のバックエンドを切り替えても、始めたほうの進み具合を出し続ける。取ってよいのは、おすすめのモデルだけ（Ollama と同じ理由）。録音中は始めない・トンネルからは断るのも同じ。
+  - **やめられない**: LM Studio 0.4.28 には取得を止める API がない（#327 で確かめた）。画面の「やめる」は出さず、止めるときは LM Studio の画面から止めるように出す。API（`DELETE /api/setup/llm/pull`）とサーバーを止めたときは、見に行くのをやめるだけで、LM Studio は取り続ける。
 - **WhisperX**（浄書済み文字起こし・話者分け）: 配布版で、**同梱の Python と、同梱の固定した依存の一覧（`whisperx-requirements.txt`）の両方があるときだけ**、画面のボタンで pip で入れる（`installable`）。開発の環境では、入れるコマンド（`uv sync --extra final`）を出すだけ。一覧のない古い配布版は入れられない（新しい版のインストーラを入れるように出す。固定しない版で入れると、同梱の依存の版が変わりうるため）。Mac の配布版（#292）も、この一覧を同梱する前提。
   - 入れる中身は `whisperx-requirements.txt`（ビルドのときに `uv export --extra final` で作る。版とハッシュを `uv.lock` に固定）を `--require-hashes` で。同じ `uv.lock` から作った同梱の依存は同じ版なので、そのまま残る。CUDA 版の torch は PyTorch の索引（`https://download.pytorch.org/whl/cu128`）から取る。キャッシュには置かない（数 GB をもう 1 つ置かないため）。
   - **入れる前に、入っているパッケージの一覧（名前と版）を控える**（データのルートの `setup/whisperx-install.json`。入れている途中の印も兼ねる）。失敗した・やめたときは、その一覧に戻す（足したものを `pip uninstall` し、版が変わった・消えたものを元の版で入れ直す）。入れ直すのは、固定した一覧にその版の行があるもの（同梱の依存はすべてここに入る）はその行（ハッシュ付き）を抜き出して `--require-hashes` で、ないもの（利用者が後から足したものなど）はハッシュが分からないので版だけを指定して。戻せたら印を消す。戻せなければ、そう出す（インストーラで入れ直す）。

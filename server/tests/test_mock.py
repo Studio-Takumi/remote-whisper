@@ -401,12 +401,16 @@ def test_continue_a_done_session(mock_client, tmp_path):
 
 
 def test_options(mock_client, client):
-    models = mock_client.get("/api/settings/options").json()["ollama"]["models"]
+    models = mock_client.get("/api/settings/options").json()["llm"]["models"]
     assert {m["thinking"] for m in models} == {True, False}
+    # LM Studio を選ぶと、LM Studio の ID の一覧（#327）
+    mock_client.patch("/api/settings", json={"llm": {"backend": "lmstudio"}})
+    models = mock_client.get("/api/settings/options").json()["llm"]["models"]
+    assert "google/gemma-4-e4b" in {m["name"] for m in models}
     body = client.get("/api/settings/options").json()
     assert "large-v3-turbo" in body["whisper"]["models"]
     # モックでなければ、Ollama（テストでは偽物）のモデルの一覧
-    assert body["ollama"]["models"] == [
+    assert body["llm"]["models"] == [
         {"name": "gemma4:e4b", "thinking": True},
         {"name": "llama3.2:latest", "thinking": False},
     ]

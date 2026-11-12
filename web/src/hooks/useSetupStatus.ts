@@ -1,17 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { api } from '@/api';
-import { type SetupStatus, isBusy } from '@/setup';
+import { type SetupStatus, isBusy, normalizeSetup } from '@/setup';
 import { useAppStore } from '@/store';
 
 // セットアップの状態（GET /api/setup。#291）。取っている・入れている間は 1 秒ごとに取り直す。
 // 終わったら、設定で選べる値（Ollama のモデル・浄書できるか）も取り直す。
 // onFirst は最初に届いたときに 1 回だけ呼ぶ（初回の「はじめに」を出すかを決める）
 export function useSetupStatus(enabled: boolean, onFirst?: (status: SetupStatus) => void) {
-    const [status, setStatus] = useState<SetupStatus | null>(null);
+    const [status, setRawStatus] = useState<SetupStatus | null>(null);
     const [error, setError] = useState<string | null>(null);
     const wasBusy = useRef(false);
     const first = useRef(onFirst);
+    // 古いホスト（#327 より前。llm がなく ollama で返す）の形も読めるようにそろえる
+    const setStatus = useCallback((s: SetupStatus) => setRawStatus(normalizeSetup(s)), []);
 
     const refresh = useCallback(async () => {
         try {
@@ -20,7 +22,7 @@ export function useSetupStatus(enabled: boolean, onFirst?: (status: SetupStatus)
         } catch (e) {
             setError(e instanceof Error ? e.message : 'セットアップの状態を取得できませんでした');
         }
-    }, []);
+    }, [setStatus]);
 
     useEffect(() => {
         if (!enabled) {
@@ -28,11 +30,12 @@ export function useSetupStatus(enabled: boolean, onFirst?: (status: SetupStatus)
         }
         let cancelled = false;
         api.get<SetupStatus>('/api/setup')
-            .then((s) => {
+            .then((raw) => {
                 if (cancelled) {
                     return;
                 }
-                setStatus(s);
+                const s = normalizeSetup(raw);
+                setRawStatus(s);
                 first.current?.(s);
                 first.current = undefined;
             })

@@ -55,6 +55,17 @@ def test_unavailable_is_orange_even_while_recording(changes, problem):
     assert state.text == f"録音中 1件 / {problem}"
 
 
+def test_only_the_chosen_llm_is_shown():
+    """選んでいる LLM（llm.backend）の状態だけを出す（#327）"""
+    lms_down = status(lmstudio="error")
+    state = tray_state(lms_down, backend="lmstudio")
+    assert (state.color, state.text) == ("orange", "LM Studio に接続できません")
+    # Ollama を選んでいれば、LM Studio の状態は見ない
+    assert tray_state(lms_down, backend="ollama").text == "待機中"
+    # LM Studio を選んでいれば、Ollama の状態は見ない
+    assert tray_state(status(ollama="error"), backend="lmstudio").text == "待機中"
+
+
 def test_tooltip_fits_windows():
     state = tray_state(
         status(

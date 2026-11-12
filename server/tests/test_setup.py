@@ -66,8 +66,11 @@ def test_status_lists_what_is_missing(client):
     assert data["remote"] is False
     assert data["recording"] is False
     assert data["gpu"] in ("nvidia", "mac", "none")
-    ollama = data["ollama"]
+    ollama = data["llm"]
+    assert ollama["backend"] == "ollama"
     assert ollama["running"] is True
+    assert ollama["unauthorized"] is False
+    assert ollama["pullCancellable"] is True
     assert ollama["downloadUrl"] == "https://ollama.com/download"
     models = {m["name"]: m for m in ollama["models"]}
     # おすすめは gemma4:e4b と qwen3.5:2b の 2 つ（#328）。偽の Ollama には gemma4:e4b だけ
@@ -87,7 +90,7 @@ def test_status_lists_what_is_missing(client):
 
 def test_status_when_ollama_is_down(client, fake_ollama):
     fake_ollama.up = False
-    ollama = client.get("/api/setup").json()["ollama"]
+    ollama = client.get("/api/setup").json()["llm"]
     assert ollama["running"] is False
     assert all(m["installed"] is False for m in ollama["models"])
 
@@ -97,10 +100,10 @@ def test_mock_reports_everything_ready(home):
 
     with TestClient(create_app(home, mock=True)) as c:
         data = c.get("/api/setup").json()
-        assert data["ollama"]["running"] is True
-        assert all(m["installed"] for m in data["ollama"]["models"])
+        assert data["llm"]["running"] is True
+        assert all(m["installed"] for m in data["llm"]["models"])
         assert data["whisperx"]["installed"] is True
-        assert c.post("/api/setup/ollama/pull", json={"models": ["qwen3.5:2b"]}).status_code == 409
+        assert c.post("/api/setup/llm/pull", json={"models": ["qwen3.5:2b"]}).status_code == 409
 
 
 def test_runtime_follows_the_bundle(tmp_path, monkeypatch):
@@ -220,8 +223,8 @@ def test_tunnel_cannot_touch_the_token_install_or_pull(app, home, fake_ollama):
         ("DELETE", "/api/setup/hf-token", None),
         ("POST", "/api/setup/whisperx", None),
         ("DELETE", "/api/setup/whisperx", None),
-        ("POST", "/api/setup/ollama/pull", {"models": ["qwen3.5:2b"]}),
-        ("DELETE", "/api/setup/ollama/pull", None),
+        ("POST", "/api/setup/llm/pull", {"models": ["qwen3.5:2b"]}),
+        ("DELETE", "/api/setup/llm/pull", None),
     ]:
         res = call(method, path, json=body)
         assert res.status_code == 403, (method, path)
@@ -243,10 +246,10 @@ def test_tunnel_cannot_touch_the_token_install_or_pull(app, home, fake_ollama):
 def test_pull_models_one_by_one(app, fake_ollama):
     del fake_ollama.models["gemma4:e4b"]
     with TestClient(app) as c:
-        res = c.post("/api/setup/ollama/pull", json={"models": ["qwen3.5:2b", "gemma4:e4b"]})
+        res = c.post("/api/setup/llm/pull", json={"models": ["qwen3.5:2b", "gemma4:e4b"]})
         assert res.status_code == 202
         pull = wait_for(
-            lambda: c.get("/api/setup").json()["ollama"]["pull"],
+            lambda: c.get("/api/setup").json()["llm"]["pull"],
             lambda p: p["state"] != "running",
         )
         assert pull["state"] == "done"
@@ -255,7 +258,7 @@ def test_pull_models_one_by_one(app, fake_ollama):
             "qwen3.5:2b",
             "gemma4:e4b",
         ]
-        models = {m["name"]: m for m in c.get("/api/setup").json()["ollama"]["models"]}
+        models = {m["name"]: m for m in c.get("/api/setup").json()["llm"]["models"]}
         assert models["qwen3.5:2b"]["installed"] is True
         assert models["gemma4:e4b"]["installed"] is True
 
@@ -263,9 +266,9 @@ def test_pull_models_one_by_one(app, fake_ollama):
 def test_pull_failure_is_reported(app, fake_ollama):
     fake_ollama.pull_lines = [{"status": "pulling manifest"}, {"error": "file does not exist"}]
     with TestClient(app) as c:
-        assert c.post("/api/setup/ollama/pull", json={"models": ["qwen3.5:2b"]}).status_code == 202
+        assert c.post("/api/setup/llm/pull", json={"models": ["qwen3.5:2b"]}).status_code == 202
         pull = wait_for(
-            lambda: c.get("/api/setup").json()["ollama"]["pull"],
+            lambda: c.get("/api/setup").json()["llm"]["pull"],
             lambda p: p["state"] != "running",
         )
         assert pull["state"] == "failed"
@@ -274,10 +277,10 @@ def test_pull_failure_is_reported(app, fake_ollama):
 
 def test_pull_refuses_unknown_models_and_recording(app, fake_ollama):
     with TestClient(app) as c:
-        res = c.post("/api/setup/ollama/pull", json={"models": ["evil/model:latest"]})
+        res = c.post("/api/setup/llm/pull", json={"models": ["evil/model:latest"]})
         assert res.status_code == 400
         app.state.ctx.recordings = 1
-        res = c.post("/api/setup/ollama/pull", json={"models": ["qwen3.5:2b"]})
+        res = c.post("/api/setup/llm/pull", json={"models": ["qwen3.5:2b"]})
         assert res.status_code == 409
         assert "録音が終わってから" in res.json()["detail"]
         app.state.ctx.recordings = 0
@@ -288,7 +291,7 @@ def test_pull_only_takes_recommended_models(client, fake_ollama):
     """設定の処理ごとのモデルはトンネルからも変えられるので、取ってよいモデルには入れない"""
     res = client.patch("/api/settings", json={"ollama": {"models": {"detail": "evil/model:1"}}})
     assert res.status_code == 200
-    res = client.post("/api/setup/ollama/pull", json={"models": ["evil/model:1"]})
+    res = client.post("/api/setup/llm/pull", json={"models": ["evil/model:1"]})
     assert res.status_code == 400
     assert fake_ollama.bodies("/api/pull") == []
 
@@ -349,6 +352,182 @@ def test_pull_can_be_cancelled(home):
         assert service.pull_job.state == "cancelled"
 
     asyncio.run(run())
+
+
+# --- LM Studio（#327）---
+
+
+@pytest.fixture
+def fake_lmstudio(monkeypatch):
+    """アプリの LMStudioClient は偽の LM Studio とやりとりする。進み具合はすぐに見に行く"""
+    from fake_lmstudio import FakeLMStudio
+
+    from remote_whisper.lmstudio import LMStudioClient
+
+    fake = FakeLMStudio()
+
+    def client(*args, **kwargs):
+        return LMStudioClient(*args, transport=fake.transport(), **kwargs)
+
+    monkeypatch.setattr("remote_whisper.app.LMStudioClient", client)
+    monkeypatch.setattr("remote_whisper.lmstudio.DOWNLOAD_POLL_SEC", 0.01)
+    return fake
+
+
+@pytest.fixture
+def lms_app(home, fake_lmstudio, fake_ollama):
+    from remote_whisper.app import create_app
+    from remote_whisper.settings import SettingsStore
+
+    SettingsStore(home).update({"llm": {"backend": "lmstudio"}})
+    return create_app(home)
+
+
+def test_lmstudio_status(lms_app, fake_lmstudio, fake_ollama):
+    with TestClient(lms_app) as c:
+        llm = c.get("/api/setup").json()["llm"]
+    assert llm["backend"] == "lmstudio"
+    assert llm["running"] is True
+    assert llm["downloadUrl"] == "https://lmstudio.ai/download"
+    # 止める API がないので、やめても LM Studio は取り続ける
+    assert llm["pullCancellable"] is False
+    models = {m["name"]: m for m in llm["models"]}
+    # おすすめは LM Studio のカタログの ID（lmstudio.models の初期値）
+    assert set(models) == {"google/gemma-4-e4b", "qwen/qwen3.5-2b"}
+    assert models["google/gemma-4-e4b"]["installed"] is True
+    assert models["google/gemma-4-e4b"]["sizeGb"] == 6.3
+    assert models["qwen/qwen3.5-2b"]["installed"] is False
+    assert models["qwen/qwen3.5-2b"]["sizeGb"] is None
+    # 使っていない Ollama には聞かない
+    assert fake_ollama.bodies("/api/tags") == []
+
+
+def test_lmstudio_down_tells_installed_or_not(lms_app, fake_lmstudio, monkeypatch):
+    fake_lmstudio.up = False
+    monkeypatch.setattr("remote_whisper.setup.lmstudio_found", lambda: True)
+    with TestClient(lms_app) as c:
+        llm = c.get("/api/setup").json()["llm"]
+        assert (llm["running"], llm["found"], llm["unauthorized"]) == (False, True, False)
+        monkeypatch.setattr("remote_whisper.setup.lmstudio_found", lambda: False)
+        llm = c.get("/api/setup").json()["llm"]
+        assert (llm["running"], llm["found"]) == (False, False)
+
+
+def test_lmstudio_wrong_token_is_told_apart(lms_app, fake_lmstudio, monkeypatch):
+    fake_lmstudio.require_token = "sk-lm-right"
+    monkeypatch.setattr("remote_whisper.setup.lmstudio_found", lambda: False)
+    with TestClient(lms_app) as c:
+        llm = c.get("/api/setup").json()["llm"]
+        # 動いているが、トークンが違う（入っているとみなす）
+        assert (llm["running"], llm["found"], llm["unauthorized"]) == (False, True, True)
+        c.patch("/api/settings", json={"lmstudio": {"token": "sk-lm-right"}})
+        llm = c.get("/api/setup").json()["llm"]
+        assert (llm["running"], llm["unauthorized"]) == (True, False)
+        assert "sk-lm-right" not in c.get("/api/setup").text
+
+
+def test_lmstudio_pull(lms_app, fake_lmstudio):
+    with TestClient(lms_app) as c:
+        res = c.post(
+            "/api/setup/llm/pull", json={"models": ["qwen/qwen3.5-2b", "google/gemma-4-e4b"]}
+        )
+        assert res.status_code == 202
+        pull = wait_for(
+            lambda: c.get("/api/setup").json()["llm"]["pull"],
+            lambda p: p["state"] != "running",
+        )
+        assert pull["state"] == "done"
+        assert pull["backend"] == "lmstudio"
+        assert [b["model"] for b in fake_lmstudio.bodies("/api/v1/models/download")] == [
+            "qwen/qwen3.5-2b",
+            "google/gemma-4-e4b",
+        ]
+        models = {m["name"]: m for m in c.get("/api/setup").json()["llm"]["models"]}
+        assert models["qwen/qwen3.5-2b"]["installed"] is True
+
+
+def test_lmstudio_pull_refuses_ollama_names_and_tunnel(lms_app, fake_lmstudio):
+    with TestClient(lms_app) as c:
+        res = c.post("/api/setup/llm/pull", json={"models": ["qwen3.5:2b"]})
+        assert res.status_code == 400
+    call = tunnel_client(lms_app)
+    res = call("POST", "/api/setup/llm/pull", json={"models": ["qwen/qwen3.5-2b"]})
+    assert res.status_code == 403
+    assert fake_lmstudio.bodies("/api/v1/models/download") == []
+
+
+def test_lmstudio_pull_failure_is_reported(lms_app, fake_lmstudio):
+    fake_lmstudio.download_fails = True
+    with TestClient(lms_app) as c:
+        c.post("/api/setup/llm/pull", json={"models": ["qwen/qwen3.5-2b"]})
+        pull = wait_for(
+            lambda: c.get("/api/setup").json()["llm"]["pull"],
+            lambda p: p["state"] != "running",
+        )
+        assert pull["state"] == "failed"
+        assert pull["error"] == "LM Studio から取得できませんでした"
+
+
+def test_lmstudio_paused_pull_ends_with_a_reason(lms_app, fake_lmstudio):
+    """LM Studio の画面で一時停止したら、見続けずに理由を出して終える。もう一度始められる"""
+    fake_lmstudio.download_status = "paused"
+    with TestClient(lms_app) as c:
+        c.post("/api/setup/llm/pull", json={"models": ["qwen/qwen3.5-2b"]})
+        pull = wait_for(
+            lambda: c.get("/api/setup").json()["llm"]["pull"],
+            lambda p: p["state"] != "running",
+        )
+        assert pull["state"] == "failed"
+        assert "一時停止" in pull["error"]
+        fake_lmstudio.download_status = None
+        res = c.post("/api/setup/llm/pull", json={"models": ["qwen/qwen3.5-2b"]})
+        assert res.status_code == 202
+        pull = wait_for(
+            lambda: c.get("/api/setup").json()["llm"]["pull"],
+            lambda p: p["state"] != "running",
+        )
+        assert pull["state"] == "done"
+
+
+def test_running_pull_stays_visible_after_switching(lms_app, fake_lmstudio):
+    """取っている途中に切り替えても、始めたほうの進み具合を出し続ける（取得はほかに始められない）"""
+    fake_lmstudio.step = 1
+    with TestClient(lms_app) as c:
+        c.post("/api/setup/llm/pull", json={"models": ["qwen/qwen3.5-2b"]})
+        c.patch("/api/settings", json={"llm": {"backend": "ollama"}})
+        llm = c.get("/api/setup").json()["llm"]
+        assert llm["backend"] == "ollama"
+        assert llm["pull"]["backend"] == "lmstudio"
+        assert llm["pull"]["state"] == "running"
+
+
+def test_old_names_are_kept_for_old_screens(client, fake_ollama):
+    """PWA に残っている #327 より前の画面のために、古い名前も返す（消す時期は api.md 7.1）"""
+    data = client.get("/api/setup").json()
+    assert data["ollama"] == {
+        k: data["llm"][k] for k in ("running", "found", "downloadUrl", "models", "pull")
+    }
+    assert "ollama" in client.get("/api/settings/options").json()
+    del fake_ollama.models["gemma4:e4b"]
+    with client:
+        assert (
+            client.post("/api/setup/ollama/pull", json={"models": ["gemma4:e4b"]}).status_code
+            == 202
+        )
+        pull = wait_for(
+            lambda: client.get("/api/setup").json()["ollama"]["pull"],
+            lambda p: p["state"] != "running",
+        )
+        assert pull["state"] == "done"
+
+
+def test_tunnel_cannot_use_the_old_pull_name(app, fake_ollama):
+    call = tunnel_client(app)
+    assert (
+        call("POST", "/api/setup/ollama/pull", json={"models": ["qwen3.5:2b"]}).status_code == 403
+    )
+    assert call("DELETE", "/api/setup/ollama/pull").status_code == 403
+    assert fake_ollama.bodies("/api/pull") == []
 
 
 # --- WhisperX ---

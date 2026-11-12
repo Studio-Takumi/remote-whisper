@@ -33,7 +33,15 @@
     下ろせず、VRAM に残り続けるため
 - 一覧（`GET /api/v1/models`）は短い間だけ覚え、生成 1 回で何度も取らない
 
-TODO(#327): モデルのダウンロード（pull）。今は LMStudioUnavailable にする
+- モデルの取得（#327。初回のセットアップ）: `POST /api/v1/models/download` で始め、
+  `GET /api/v1/models/download/status/:job_id` を 1 秒ごとに見て、`llm.PullProgress` に直す。
+  - 入っていれば `already_downloaded` だけが返る（job_id なし）
+  - 同じモデルをもう一度頼むと、取っている途中のジョブ（同じ job_id）が返る
+  - **LM Studio には取得を止める API がない**（0.4.28 で確かめた）。やめたとき・サーバーを
+    止めたときは、見に行くのをやめるだけで、LM Studio は取り続ける
+  - `paused`（LM Studio の画面で一時停止した）と知らない status では、見るのをやめて失敗にする。
+    取った量が増えないまま `DOWNLOAD_STALL_SEC` たったときも諦める（見続けたままだと、ほかの
+    取得を始められないため）。もう一度頼めば、同じ job_id で続きを見に行ける
 """
 
 import asyncio
@@ -64,9 +72,30 @@ LIST_TTL = 3.0
 # context を超えた入力の 500 の本文に含まれる文字列（LM Studio 自体は動いている）
 CONTEXT_EXCEEDED = "exceed_context_size_error"
 
+# モデルを取っている間、進み具合を見に行く間隔（秒）
+DOWNLOAD_POLL_SEC = 1.0
+# 取り終えたモデルが一覧に出るまで見に行く回数（DOWNLOAD_POLL_SEC ごと）
+DOWNLOAD_LIST_TRIES = 15
+# 取った量が増えないまま、この時間（秒）たったら見るのをやめる（LM Studio 側で止まったなど）
+DOWNLOAD_STALL_SEC = 600.0
+# 見続ける取得の status（`completed`・`failed` とこれ以外の status では見るのをやめる）
+DOWNLOAD_RUNNING = "downloading"
+
+# トークンが違う・ない
+UNAUTHORIZED = (401, 403)
+
 
 class LMStudioUnavailable(LlmUnavailable):
-    """LM Studio につながらない・エラーを返した"""
+    """LM Studio につながらない・エラーを返した
+
+    status は LM Studio が返した HTTP のステータス（つながらないなどで返事がなければ None）。
+    401・403 なら、トークンが違う（セットアップの案内で見分ける。#327）"""
+
+    def __init__(self, message: str, status: int | None = None, detail: str | None = None):
+        super().__init__(message)
+        self.status = status
+        # 画面に出す理由（取得が LM Studio 側で止まったときなど）。なければ None
+        self.detail = detail
 
 
 def lmstudio_error(what: str) -> dict[str, Any]:
@@ -316,11 +345,14 @@ class LMStudioClient:
     async def _failed(self, e: Exception) -> LMStudioUnavailable:
         """失敗を LMStudioUnavailable にする
 
-        status の lmstudio を error にするのは、つながらない・タイムアウト・5xx のときだけ。
-        4xx（モデルがないなど）と、context を超えた入力の 500 は、LM Studio 自体は動いているので
-        変えない"""
-        if isinstance(e, httpx.HTTPStatusError) and (
-            e.response.status_code < 500 or CONTEXT_EXCEEDED in str(e)
+        status の lmstudio を error にするのは、つながらない・タイムアウト・5xx と、トークンが違う・
+        ない（401・403。どの頼みも通らないので、トレイ・画面で気づけるように。#327）とき。
+        ほかの 4xx（モデルがないなど）と、context を超えた入力の 500 は、LM Studio 自体は動いていて
+        使えるので変えない"""
+        if (
+            isinstance(e, httpx.HTTPStatusError)
+            and e.response.status_code not in UNAUTHORIZED
+            and (e.response.status_code < 500 or CONTEXT_EXCEEDED in str(e))
         ):
             log.warning("lmstudio rejected the request: %s", e)
             await self._ok()
@@ -332,7 +364,8 @@ class LMStudioClient:
                 str(e) or type(e).__name__,
             )
             await self.hub.set_status(lmstudio="error")
-        return LMStudioUnavailable(str(e) or type(e).__name__)
+        status = e.response.status_code if isinstance(e, httpx.HTTPStatusError) else None
+        return LMStudioUnavailable(str(e) or type(e).__name__, status)
 
     async def _request(
         self, method: str, path: str, timeout: float = REQUEST_TIMEOUT, **kwargs: Any
@@ -957,9 +990,82 @@ class LMStudioClient:
         if not self.recording():
             self._touch()
 
-    async def pull(self, model: str) -> AsyncIterator[PullProgress]:
-        """モデルを取ってくる。TODO(#327): LM Studio のダウンロードの API を使う
+    async def _wait_listed(self, model: str) -> None:
+        """取り終えたモデルが一覧（GET /api/v1/models）に出るまで、少し待つ
 
-        まだ対応していないので、いつも LMStudioUnavailable にする"""
-        raise LMStudioUnavailable(f"downloading {model} from LM Studio is not supported yet")
-        yield  # async ジェネレータにするため（届かない）
+        0.4.28 では、completed になった直後の一覧にはまだ出なかった（数秒後には出る）。
+        出ないまま終えると、画面が「入っていません」のままになるため。出なければ諦める"""
+        for _ in range(DOWNLOAD_LIST_TRIES):
+            if model in await self._llms(fresh=True):
+                return
+            await self._sleep(DOWNLOAD_POLL_SEC)
+        log.warning("lmstudio downloaded %s but does not list it yet", model)
+
+    async def pull(self, model: str) -> AsyncIterator[PullProgress]:
+        """モデルを取ってくる（#327）。進み具合を、ジョブを 1 つの部分（digest は job_id）として返す
+
+        失敗（カタログにない・LM Studio が failed を返した・つながらない）は LMStudioUnavailable。
+        止める API がないので、呼んだ側がやめても（CancelledError）LM Studio は取り続ける"""
+        data = await self._request("POST", "/api/v1/models/download", json={"model": model})
+        job_id = data.get("job_id")
+        if data.get("status") == "already_downloaded" or not job_id:
+            self._forget_list()
+            yield {"status": "success"}
+            return
+        job_id = str(job_id)
+        log.info("lmstudio is downloading %s (%s)", model, job_id)
+        # 取った量が最後に増えた時刻（進まないまま DOWNLOAD_STALL_SEC たったら諦める）
+        last_done, moved_at = -1, self._clock()
+        try:
+            while True:
+                await self._sleep(DOWNLOAD_POLL_SEC)
+                data = await self._request("GET", f"/api/v1/models/download/status/{job_id}")
+                state = str(data.get("status") or "")
+                total = int(data.get("total_size_bytes") or 0)
+                done = int(data.get("downloaded_bytes") or 0)
+                if state == "completed":
+                    if total:
+                        yield {
+                            "status": state,
+                            "digest": job_id,
+                            "total": total,
+                            "completed": total,
+                        }
+                    await self._wait_listed(model)
+                    yield {"status": "success"}
+                    return
+                if state == "failed":
+                    raise LMStudioUnavailable(f"lmstudio failed to download {model}")
+                if state == "paused":
+                    # LM Studio の画面で一時停止した。見続けると、ほかの取得も始められないままになる
+                    raise LMStudioUnavailable(
+                        f"lmstudio paused downloading {model}",
+                        detail="LM Studio で一時停止されています。"
+                        "LM Studio の画面で再開してください",
+                    )
+                if state != DOWNLOAD_RUNNING:
+                    # 知らない status（版によって増えうる。取り消したなど）
+                    raise LMStudioUnavailable(
+                        f"lmstudio stopped downloading {model} ({state or 'no status'})",
+                        detail="LM Studio で取得が止まりました。LM Studio の画面で確かめてください",
+                    )
+                if done != last_done:
+                    last_done, moved_at = done, self._clock()
+                elif self._clock() - moved_at >= DOWNLOAD_STALL_SEC:
+                    raise LMStudioUnavailable(
+                        f"lmstudio made no progress downloading {model} "
+                        f"for {DOWNLOAD_STALL_SEC:.0f} seconds",
+                        detail="LM Studio の取得が進まないため、見るのをやめました。"
+                        "LM Studio の画面で確かめてください",
+                    )
+                if total:
+                    yield {"status": state, "digest": job_id, "total": total, "completed": done}
+                else:
+                    yield {"status": state}
+        except asyncio.CancelledError:
+            log.info(
+                "stopped watching the download of %s; lmstudio keeps downloading it "
+                "(it has no API to stop downloads)",
+                model,
+            )
+            raise

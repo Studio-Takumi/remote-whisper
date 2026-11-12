@@ -168,7 +168,8 @@ export const fallbackOptions: SettingsOptions = {
         models: ['large-v3-turbo', 'large-v3', 'medium', 'small'],
         computeTypes: ['float16', 'int8_float16', 'int8'],
     },
-    ollama: {
+    llm: {
+        backend: 'ollama',
         models: [
             { name: 'qwen3.5:0.8b', thinking: true },
             { name: 'qwen3.5:2b', thinking: true },

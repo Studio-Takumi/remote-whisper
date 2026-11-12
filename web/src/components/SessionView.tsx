@@ -30,8 +30,15 @@ import { apiUrl } from '@/endpoint';
 import { describeMaterialRange } from '@/materialRange';
 import { recordingLocks } from '@/recording';
 import { isScrolledToBottom, scrollToBottom } from '@/scroll';
-import { type OllamaModels, finalModelLabel, isCurrentFinalSummary } from '@/settings';
-import { makingFinalTranscript, summaryStatus, transcriptStatus } from '@/status';
+import {
+    LLM_NAMES,
+    type OllamaModels,
+    finalModelLabel,
+    isCurrentFinalSummary,
+    llmBackend,
+    llmModels,
+} from '@/settings';
+import { llmUnavailable, makingFinalTranscript, summaryStatus, transcriptStatus } from '@/status';
 import { currentProject, currentSession, useAppStore, visibleProjects } from '@/store';
 import { clockToSeconds } from '@/time';
 import type { FinalTranscriptInfo, Generating, Session, Summary } from '@/types';
@@ -47,7 +54,9 @@ export function SessionView() {
     const recordingState = useAppStore((s) => s.recordingState);
     const server = useAppStore((s) => s.server);
     const liveIntervalMin = useAppStore((s) => s.settings.ollama.liveSummaryIntervalMin);
-    const models = useAppStore((s) => s.settings.ollama.models);
+    // 選んでいる LLM（Ollama か LM Studio。#327）の処理ごとのモデル
+    const backend = useAppStore((s) => llmBackend(s.settings));
+    const models = useAppStore((s) => llmModels(s.settings));
     const generating = useAppStore((s) => s.generating);
     const partial = useAppStore((s) => s.partial);
     const liveDraft = useAppStore((s) => s.liveDraft);
@@ -88,7 +97,7 @@ export function SessionView() {
     const viewingRecording = session !== undefined && session.id === recordingSessionId;
     const viewState = viewingRecording ? recordingState : 'idle';
     const recordingElsewhere = recordingState !== 'idle' && !viewingRecording;
-    const live = summaryStatus(viewState, server, liveIntervalMin);
+    const live = summaryStatus(viewState, server, liveIntervalMin, backend);
     // 録音を終えていて、録音ファイルが残っているセッションだけ再生できる（消えた・変換前なら出さない）
     const url =
         session && session.status !== 'recording' && session.files?.recording
@@ -443,7 +452,10 @@ function SummaryPanel({
     liveDraft: { sessionId: string; text: string } | null;
 }) {
     const regenerate = useAppStore((s) => s.regenerateSummary);
-    const ollama = useAppStore((s) => s.server.ollama);
+    // 選んでいる LLM につながっているか（#327）
+    const backend = useAppStore((s) => llmBackend(s.settings));
+    const llmDown = useAppStore((s) => llmUnavailable(s.server, backend));
+    const llmName = LLM_NAMES[backend];
     // 録音中は作り直せない（GPU を長く使い、録音中の文字起こしが止まるため。#133）
     const recording = useAppStore((s) => s.recordingState !== 'idle');
     // 手で選んだ世代。セッションを替えたときと、要約が増えた（作り直した）ときは既定に戻す
@@ -531,9 +543,9 @@ function SummaryPanel({
                     ? session.files?.transcript === false || session.transcript.length === 0
                         ? '文字起こしが残っていないため、再生成できません'
                         : 'ほかの要約を作り終えてから、再生成してください'
-                    : ollama === 'ready'
-                      ? 'Ollama には今つながっています。再生成してください（保存に失敗した場合は、ディスクの空きも確かめてください）'
-                      : 'Ollama に接続できません。動いているか確かめてから再生成してください'}
+                    : !llmDown
+                      ? `${llmName} には今つながっています。再生成してください（保存に失敗した場合は、ディスクの空きも確かめてください）`
+                      : `${llmName} に接続できません。動いているか確かめてから再生成してください`}
             </p>
             {regenerateButton}
         </div>

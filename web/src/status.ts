@@ -1,11 +1,14 @@
 import type { GpuJobKind, GpuJobs, GpuStats } from '@/protocol';
 import type { RecordingState } from '@/recording';
+import { LLM_NAMES, type LlmBackend } from '@/settings';
 
-// サーバーとブラウザの状態。whisper・ollama・jobs・gpu は WebSocket の status メッセージ（spec/api.md 7.2 節）から、
+// サーバーとブラウザの状態。whisper・ollama・lmstudio・jobs・gpu は WebSocket の status メッセージ（spec/api.md 7.2 節）から、
 // connection は WebSocket がつながっているか、microphone はマイクの許可から、ブラウザ側で決める
 export type ServerStatus = {
     whisper: 'unloaded' | 'loading' | 'ready' | 'error';
     ollama: 'ready' | 'error';
+    // LM Studio（#324）。一度も使っていなければ来ない
+    lmstudio?: 'ready' | 'error';
     connection: 'connected' | 'reconnecting';
     microphone: 'granted' | 'denied';
     jobs: GpuJobs;
@@ -112,16 +115,29 @@ export function transcriptStatus(state: RecordingState, server: ServerStatus, se
     return { tone: 'active', text: '文字起こし中…' };
 }
 
-// 要約タブ用。録音していないときは出さない
-export function summaryStatus(state: RecordingState, server: ServerStatus, intervalMin: number): Status | null {
+// 選んでいる LLM（llm.backend）につながらないか。使っていないほうの状態は見ない（#327）
+export function llmUnavailable(server: Pick<ServerStatus, 'ollama' | 'lmstudio'>, backend: LlmBackend): boolean {
+    return backend === 'lmstudio' ? server.lmstudio === 'error' : server.ollama === 'error';
+}
+
+// 要約タブ用。録音していないときは出さない。backend は設定で選んでいる LLM
+export function summaryStatus(
+    state: RecordingState,
+    server: ServerStatus,
+    intervalMin: number,
+    backend: LlmBackend = 'ollama',
+): Status | null {
     if (state === 'idle') {
         return null;
     }
     if (server.connection === 'reconnecting') {
         return { tone: 'warning', text: 'ホストに再接続しています…（録音は続けています）' };
     }
-    if (server.ollama === 'error') {
-        return { tone: 'error', text: 'Ollama に接続できず、要約を作れません。録音を終えてから再生成できます' };
+    if (llmUnavailable(server, backend)) {
+        return {
+            tone: 'error',
+            text: `${LLM_NAMES[backend]} に接続できず、要約を作れません。録音を終えてから再生成できます`,
+        };
     }
     if (state === 'paused') {
         return { tone: 'paused', text: '一時停止中。再開すると要約の更新も再開します' };
