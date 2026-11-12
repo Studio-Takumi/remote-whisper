@@ -103,6 +103,8 @@ class FakeLMStudio:
         self.step = 400
         # True なら、取得のジョブを failed にする
         self.download_fails = False
+        # 取っている途中の status を差し替える（"paused" など）。None なら downloading
+        self.download_status: str | None = None
         # 取り終えたモデルが一覧に出るまでの、一覧の取得の回数
         # （実機では completed の直後には出ない）
         self.list_lag = 0
@@ -240,7 +242,7 @@ class FakeLMStudio:
             )
         done = min(total, done + self.step)
         job[1] = done
-        status = "completed" if done >= total else "downloading"
+        status = "completed" if done >= total else (self.download_status or "downloading")
         if status == "completed" and model not in self.models:
             self._pending.setdefault(model, self.list_lag)
         return httpx.Response(

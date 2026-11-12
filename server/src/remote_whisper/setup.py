@@ -666,7 +666,10 @@ class SetupService:
         lmstudio = backend == "lmstudio"
         sizes = LMSTUDIO_MODEL_SIZES_GB if lmstudio else MODEL_SIZES_GB
         found = running or unauthorized or (lmstudio_found() if lmstudio else ollama_found())
-        pull = self.pull_job if self.pull_job and self.pull_job.backend == backend else None
+        # 取っている途中なら、途中で切り替えても始めたほうの進み具合を出す（取得はほかに始められない
+        # ため。画面は pull.backend を見る）。終わったものは、そのバックエンドのものだけ
+        job = self.pull_job
+        pull = job if job and (job.backend == backend or job.state == "running") else None
         return {
             "backend": backend,
             "running": running,
@@ -690,13 +693,17 @@ class SetupService:
         """足りないものの一覧。トークンそのものは返さない（あるか・どこからかだけ）"""
         whisperx = self.mock or self.whisperx_installed()
         runtime = self._runtime()
+        llm = await self._llm_status()
         return {
             "runtime": runtime,
             "remote": remote,
             "recording": self.recording(),
             "gpu": "nvidia" if self.mock else self.gpu(),
             # 使っている LLM（Ollama か LM Studio。#327）
-            "llm": await self._llm_status(),
+            "llm": llm,
+            # #327 より前の画面のための古い名前（llm と同じ中身。PWA に古い画面が残っている
+            # 間のため。消す時期は spec/api.md 7.1）
+            "ollama": {k: llm[k] for k in ("running", "found", "downloadUrl", "models", "pull")},
             "whisperx": {
                 "installed": whisperx,
                 "installable": self.installer.installable and not self.mock,
@@ -759,7 +766,8 @@ class SetupService:
         except LlmUnavailable as e:
             log.warning("pulling %s model %s failed: %s", job.backend, job.models[job.index], e)
             job.state = "failed"
-            job.error = f"{name} から取得できませんでした"
+            # LM Studio で一時停止された・進まないなど、画面に出す理由があればそれを出す
+            job.error = getattr(e, "detail", None) or f"{name} から取得できませんでした"
         except Exception:  # noqa: BLE001 思わぬ返事など。取っている途中のまま残さない
             log.exception("pulling %s model %s failed", job.backend, job.models[job.index])
             job.state = "failed"

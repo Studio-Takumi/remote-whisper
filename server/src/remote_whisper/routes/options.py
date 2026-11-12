@@ -21,8 +21,8 @@ async def get_options(ctx: Annotated[AppContext, Depends(get_ctx)]) -> dict[str,
     思考モードに対応しているか
 
     つながらなければ、LLM のモデルは空の一覧にする（status の ollama・lmstudio が error になる）。
-    LLM のモデルは `llm` に入れる（#325 で足し、#327 で画面が読むようにしたので、同じ中身の古い
-    名前の `ollama` はなくした）
+    LLM のモデルは `llm` に入れる。`ollama` は同じ中身の古い名前（#327 で画面は `llm` を読むように
+    したが、PWA に古い画面が残っている間のために残す。消す時期は spec/api.md 7.1）
     """
     if ctx.mock:
         backend = ctx.settings.get().llm.backend
@@ -50,4 +50,5 @@ async def get_options(ctx: Annotated[AppContext, Depends(get_ctx)]) -> dict[str,
             "finalTranscript": final,
         },
         "llm": llm,
+        "ollama": {"models": llm_models, "missing": missing},
     }

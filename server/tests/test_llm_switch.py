@@ -44,8 +44,7 @@ def test_existing_file_runs_with_ollama(client, fake_ollama, fake_lmstudio):
     assert ctx_of(client).ollama.backend == "ollama"
     body = client.get("/api/settings/options").json()
     assert body["llm"]["backend"] == "ollama"
-    # 古い名前の ollama は #327 でなくした（画面は llm を読む）
-    assert "ollama" not in body
+    assert body["llm"]["models"] == body["ollama"]["models"]
     assert [m["name"] for m in body["llm"]["models"]] == sorted(fake_ollama.models)
     # 使っていないほうには頼まない
     assert fake_lmstudio.requests == []
@@ -78,6 +77,8 @@ def test_switching_changes_models_and_status(client, fake_ollama, fake_lmstudio)
     assert body["llm"]["backend"] == "lmstudio"
     names = [m["name"] for m in body["llm"]["models"]]
     assert names == ["acme/always-think", "acme/plain", GEMMA]
+    # 古い名前の ollama も同じ中身（PWA に古い画面が残っている間のため。#327）
+    assert body["ollama"] == {"models": body["llm"]["models"], "missing": body["llm"]["missing"]}
     # 入っていないのは qwen/qwen3.5-2b の 3 つ（lmstudio.models で見る）
     assert sorted(body["llm"]["missing"]) == ["liveSummary", "liveTitle", "transcriptTerms"]
     assert ctx.hub.status.lmstudio == "ready"

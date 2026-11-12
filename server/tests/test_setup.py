@@ -468,6 +468,68 @@ def test_lmstudio_pull_failure_is_reported(lms_app, fake_lmstudio):
         assert pull["error"] == "LM Studio から取得できませんでした"
 
 
+def test_lmstudio_paused_pull_ends_with_a_reason(lms_app, fake_lmstudio):
+    """LM Studio の画面で一時停止したら、見続けずに理由を出して終える。もう一度始められる"""
+    fake_lmstudio.download_status = "paused"
+    with TestClient(lms_app) as c:
+        c.post("/api/setup/llm/pull", json={"models": ["qwen/qwen3.5-2b"]})
+        pull = wait_for(
+            lambda: c.get("/api/setup").json()["llm"]["pull"],
+            lambda p: p["state"] != "running",
+        )
+        assert pull["state"] == "failed"
+        assert "一時停止" in pull["error"]
+        fake_lmstudio.download_status = None
+        res = c.post("/api/setup/llm/pull", json={"models": ["qwen/qwen3.5-2b"]})
+        assert res.status_code == 202
+        pull = wait_for(
+            lambda: c.get("/api/setup").json()["llm"]["pull"],
+            lambda p: p["state"] != "running",
+        )
+        assert pull["state"] == "done"
+
+
+def test_running_pull_stays_visible_after_switching(lms_app, fake_lmstudio):
+    """取っている途中に切り替えても、始めたほうの進み具合を出し続ける（取得はほかに始められない）"""
+    fake_lmstudio.step = 1
+    with TestClient(lms_app) as c:
+        c.post("/api/setup/llm/pull", json={"models": ["qwen/qwen3.5-2b"]})
+        c.patch("/api/settings", json={"llm": {"backend": "ollama"}})
+        llm = c.get("/api/setup").json()["llm"]
+        assert llm["backend"] == "ollama"
+        assert llm["pull"]["backend"] == "lmstudio"
+        assert llm["pull"]["state"] == "running"
+
+
+def test_old_names_are_kept_for_old_screens(client, fake_ollama):
+    """PWA に残っている #327 より前の画面のために、古い名前も返す（消す時期は api.md 7.1）"""
+    data = client.get("/api/setup").json()
+    assert data["ollama"] == {
+        k: data["llm"][k] for k in ("running", "found", "downloadUrl", "models", "pull")
+    }
+    assert "ollama" in client.get("/api/settings/options").json()
+    del fake_ollama.models["gemma4:e4b"]
+    with client:
+        assert (
+            client.post("/api/setup/ollama/pull", json={"models": ["gemma4:e4b"]}).status_code
+            == 202
+        )
+        pull = wait_for(
+            lambda: client.get("/api/setup").json()["ollama"]["pull"],
+            lambda p: p["state"] != "running",
+        )
+        assert pull["state"] == "done"
+
+
+def test_tunnel_cannot_use_the_old_pull_name(app, fake_ollama):
+    call = tunnel_client(app)
+    assert (
+        call("POST", "/api/setup/ollama/pull", json={"models": ["qwen3.5:2b"]}).status_code == 403
+    )
+    assert call("DELETE", "/api/setup/ollama/pull").status_code == 403
+    assert fake_ollama.bodies("/api/pull") == []
+
+
 # --- WhisperX ---
 
 

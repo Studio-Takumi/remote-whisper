@@ -39,6 +39,9 @@
   - 同じモデルをもう一度頼むと、取っている途中のジョブ（同じ job_id）が返る
   - **LM Studio には取得を止める API がない**（0.4.28 で確かめた）。やめたとき・サーバーを
     止めたときは、見に行くのをやめるだけで、LM Studio は取り続ける
+  - `paused`（LM Studio の画面で一時停止した）と知らない status では、見るのをやめて失敗にする。
+    取った量が増えないまま `DOWNLOAD_STALL_SEC` たったときも諦める（見続けたままだと、ほかの
+    取得を始められないため）。もう一度頼めば、同じ job_id で続きを見に行ける
 """
 
 import asyncio
@@ -73,6 +76,13 @@ CONTEXT_EXCEEDED = "exceed_context_size_error"
 DOWNLOAD_POLL_SEC = 1.0
 # 取り終えたモデルが一覧に出るまで見に行く回数（DOWNLOAD_POLL_SEC ごと）
 DOWNLOAD_LIST_TRIES = 15
+# 取った量が増えないまま、この時間（秒）たったら見るのをやめる（LM Studio 側で止まったなど）
+DOWNLOAD_STALL_SEC = 600.0
+# 見続ける取得の status（`completed`・`failed` とこれ以外の status では見るのをやめる）
+DOWNLOAD_RUNNING = "downloading"
+
+# トークンが違う・ない
+UNAUTHORIZED = (401, 403)
 
 
 class LMStudioUnavailable(LlmUnavailable):
@@ -81,9 +91,11 @@ class LMStudioUnavailable(LlmUnavailable):
     status は LM Studio が返した HTTP のステータス（つながらないなどで返事がなければ None）。
     401・403 なら、トークンが違う（セットアップの案内で見分ける。#327）"""
 
-    def __init__(self, message: str, status: int | None = None):
+    def __init__(self, message: str, status: int | None = None, detail: str | None = None):
         super().__init__(message)
         self.status = status
+        # 画面に出す理由（取得が LM Studio 側で止まったときなど）。なければ None
+        self.detail = detail
 
 
 def lmstudio_error(what: str) -> dict[str, Any]:
@@ -333,11 +345,14 @@ class LMStudioClient:
     async def _failed(self, e: Exception) -> LMStudioUnavailable:
         """失敗を LMStudioUnavailable にする
 
-        status の lmstudio を error にするのは、つながらない・タイムアウト・5xx のときだけ。
-        4xx（モデルがないなど）と、context を超えた入力の 500 は、LM Studio 自体は動いているので
-        変えない"""
-        if isinstance(e, httpx.HTTPStatusError) and (
-            e.response.status_code < 500 or CONTEXT_EXCEEDED in str(e)
+        status の lmstudio を error にするのは、つながらない・タイムアウト・5xx と、トークンが違う・
+        ない（401・403。どの頼みも通らないので、トレイ・画面で気づけるように。#327）とき。
+        ほかの 4xx（モデルがないなど）と、context を超えた入力の 500 は、LM Studio 自体は動いていて
+        使えるので変えない"""
+        if (
+            isinstance(e, httpx.HTTPStatusError)
+            and e.response.status_code not in UNAUTHORIZED
+            and (e.response.status_code < 500 or CONTEXT_EXCEEDED in str(e))
         ):
             log.warning("lmstudio rejected the request: %s", e)
             await self._ok()
@@ -999,6 +1014,8 @@ class LMStudioClient:
             return
         job_id = str(job_id)
         log.info("lmstudio is downloading %s (%s)", model, job_id)
+        # 取った量が最後に増えた時刻（進まないまま DOWNLOAD_STALL_SEC たったら諦める）
+        last_done, moved_at = -1, self._clock()
         try:
             while True:
                 await self._sleep(DOWNLOAD_POLL_SEC)
@@ -1019,7 +1036,28 @@ class LMStudioClient:
                     return
                 if state == "failed":
                     raise LMStudioUnavailable(f"lmstudio failed to download {model}")
-                # downloading・paused（LM Studio の画面で止めたとき）は見続ける
+                if state == "paused":
+                    # LM Studio の画面で一時停止した。見続けると、ほかの取得も始められないままになる
+                    raise LMStudioUnavailable(
+                        f"lmstudio paused downloading {model}",
+                        detail="LM Studio で一時停止されています。"
+                        "LM Studio の画面で再開してください",
+                    )
+                if state != DOWNLOAD_RUNNING:
+                    # 知らない status（版によって増えうる。取り消したなど）
+                    raise LMStudioUnavailable(
+                        f"lmstudio stopped downloading {model} ({state or 'no status'})",
+                        detail="LM Studio で取得が止まりました。LM Studio の画面で確かめてください",
+                    )
+                if done != last_done:
+                    last_done, moved_at = done, self._clock()
+                elif self._clock() - moved_at >= DOWNLOAD_STALL_SEC:
+                    raise LMStudioUnavailable(
+                        f"lmstudio made no progress downloading {model} "
+                        f"for {DOWNLOAD_STALL_SEC:.0f} seconds",
+                        detail="LM Studio の取得が進まないため、見るのをやめました。"
+                        "LM Studio の画面で確かめてください",
+                    )
                 if total:
                     yield {"status": state, "digest": job_id, "total": total, "completed": done}
                 else:

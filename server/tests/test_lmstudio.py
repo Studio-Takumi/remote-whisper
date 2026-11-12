@@ -10,6 +10,7 @@ from fake_lmstudio import GEMMA, FakeLMStudio
 from remote_whisper.hub import Hub
 from remote_whisper.llm import LlmClient, LlmUnavailable
 from remote_whisper.lmstudio import (
+    DOWNLOAD_STALL_SEC,
     LMStudioClient,
     LMStudioUnavailable,
     SchemaMismatch,
@@ -605,6 +606,71 @@ def test_unauthorized_is_told_apart(lms, fake):
     with pytest.raises(LMStudioUnavailable) as e:
         run(lms.installed())
     assert e.value.status == 401
+    # どの頼みも通らないので、トレイ・画面で気づけるように error にする（#327）
+    assert lms.hub.status.lmstudio == "error"
+    # トークンを直せば ready に戻る
+    client = LMStudioClient(lms.hub, lms.settings, token="sk-right", transport=fake.transport())
+    run(client.installed())
+    assert lms.hub.status.lmstudio == "ready"
+
+
+@pytest.mark.parametrize(
+    ("state", "detail"),
+    [
+        ("paused", "一時停止"),
+        ("cancelled", "取得が止まりました"),
+        ("mystery", "取得が止まりました"),
+    ],
+)
+def test_pull_stops_watching_when_lmstudio_stops(quick, fake, state, detail):
+    """paused・知らない status のまま見続けない（ほかの取得を始められなくなるため）"""
+    fake.download_status = state
+    with pytest.raises(LMStudioUnavailable) as e:
+        pull(quick, "qwen/qwen3.5-2b")
+    assert detail in e.value.detail
+
+
+def test_pull_gives_up_when_it_makes_no_progress(home, fake):
+    """取った量が増えないまま DOWNLOAD_STALL_SEC たったら諦める（時計を差し替える）"""
+    now = [0.0]
+
+    async def sleep(sec):
+        now[0] += sec
+        await asyncio.sleep(0)
+
+    client = LMStudioClient(
+        Hub(),
+        SettingsStore(home),
+        transport=fake.transport(),
+        clock=lambda: now[0],
+        sleep=sleep,
+    )
+    fake.step = 0
+    with pytest.raises(LMStudioUnavailable) as e:
+        pull(client, "qwen/qwen3.5-2b")
+    assert "進まない" in e.value.detail
+    # 10 分（DOWNLOAD_STALL_SEC）ほどで諦める。それより前には諦めない
+    assert DOWNLOAD_STALL_SEC <= now[0] <= DOWNLOAD_STALL_SEC + 2
+
+
+def test_pull_keeps_watching_while_it_moves(home, fake):
+    """遅くても進んでいれば、DOWNLOAD_STALL_SEC を超えても見続ける"""
+    now = [0.0]
+
+    async def sleep(sec):
+        now[0] += 60
+        await asyncio.sleep(0)
+
+    client = LMStudioClient(
+        Hub(),
+        SettingsStore(home),
+        transport=fake.transport(),
+        clock=lambda: now[0],
+        sleep=sleep,
+    )
+    fake.step = 50
+    assert pull(client, "qwen/qwen3.5-2b")[-1] == {"status": "success"}
+    assert now[0] > DOWNLOAD_STALL_SEC
 
 
 def test_error_message():

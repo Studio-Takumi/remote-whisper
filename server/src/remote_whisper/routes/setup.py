@@ -47,7 +47,10 @@ async def _accepted(request: Request, ctx: AppContext) -> JSONResponse:
     return JSONResponse(await ctx.setup.status(remote=via_tunnel(request)), status_code=202)
 
 
+# /ollama/pull は #327 より前の名前。PWA に古い画面が残っている間のための別名（消す時期は
+# spec/api.md 7.1）。どちらもトンネルからは断る（host）
 @host.post("/llm/pull")
+@host.post("/ollama/pull", include_in_schema=False)
 async def pull_models(
     request: Request,
     models: Annotated[list[str], Body(embed=True)],
@@ -63,6 +66,7 @@ async def pull_models(
 
 
 @host.delete("/llm/pull")
+@host.delete("/ollama/pull", include_in_schema=False)
 async def cancel_pull(
     request: Request, ctx: Annotated[AppContext, Depends(get_ctx)]
 ) -> dict[str, Any]:
