@@ -4,7 +4,7 @@ import logging
 import pytest
 from fastapi.testclient import TestClient
 
-from remote_whisper.gpu_queue import GpuQueue, Priority
+from remote_whisper.gpu_queue import GpuQueue, Priority, report_progress
 
 
 def run(coro):
@@ -245,6 +245,82 @@ def test_snapshot_lists_running_and_waiting_jobs():
         ("contextSet", None, 1),
     ]
     assert after == {"running": None, "waiting": []}
+    # 進み具合を知らせていないジョブには progress を付けない（今までの形のまま）
+    assert "progress" not in running
+
+
+def test_snapshot_includes_the_progress_of_the_running_job():
+    # 実行中のジョブが知らせた進み具合を running.progress に入れて、変わるたびに通知する（#340）
+    async def main():
+        notified = []
+
+        async def on_change(n):
+            notified.append(n)
+
+        queue = GpuQueue(on_change)
+        step = asyncio.Event()
+        release = asyncio.Event()
+        leftover: list[asyncio.Task] = []
+
+        async def later():
+            await asyncio.sleep(0.05)
+            report_progress("late", 1, 1)
+
+        async def job():
+            report_progress("parts", 2, 6)
+            step.set()
+            await release.wait()
+            # 終わったあとに走る（ジョブから作った）タスク
+            leftover.append(asyncio.create_task(later()))
+
+        async def nothing():
+            await asyncio.sleep(0.1)
+
+        first = queue.submit(Priority.BACKGROUND, job, kind="finalSummary", session="s1")
+        await step.wait()
+        for _ in range(3):
+            await asyncio.sleep(0)
+        during = queue.snapshot()
+        count = len(notified)
+        # 同じ進み具合では通知しない
+        report_progress("parts", 2, 6)
+        for _ in range(3):
+            await asyncio.sleep(0)
+        same = len(notified) == count
+        release.set()
+        await first
+        second = queue.submit(Priority.BACKGROUND, nothing, kind="contextSet")
+        await asyncio.sleep(0.07)
+        next_job = queue.snapshot()
+        await second
+        await asyncio.gather(*leftover)
+        await queue.stop()
+        return during, next_job, same, notified
+
+    during, next_job, same, notified = run(main())
+    assert during["running"]["progress"] == {"step": "parts", "done": 2, "total": 6}
+    assert notified and same
+    # 終わったジョブの残りが知らせても、次のジョブには付かない
+    assert next_job["running"]["kind"] == "contextSet"
+    assert "progress" not in next_job["running"]
+
+
+def test_report_progress_outside_a_job_does_nothing():
+    report_progress("parts", 1, 2)
+
+    async def main():
+        queue = GpuQueue()
+
+        async def job():
+            # 件数は両方そろったときだけ。% は 0〜100 に収める
+            report_progress("transcribe", done=1, percent=120.04)
+            return queue.snapshot()
+
+        snapshot = await queue.run(Priority.BACKGROUND, job, kind="finalTranscript")
+        await queue.stop()
+        return snapshot
+
+    assert run(main())["running"]["progress"] == {"step": "transcribe", "percent": 100.0}
 
 
 def test_notifications_are_batched_with_min_interval():

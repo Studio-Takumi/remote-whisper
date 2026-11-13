@@ -247,6 +247,37 @@ def test_empty_part_is_marked_instead_of_dropped(home, fake, monkeypatch, caplog
     assert "part 2/3 of the final summary was empty" in caplog.text
 
 
+def record_progress(monkeypatch):
+    steps = []
+    monkeypatch.setattr(
+        final_summary,
+        "report_progress",
+        lambda step, done=None, total=None: steps.append((step, done, total)),
+    )
+    return steps
+
+
+def test_progress_of_a_long_summary(home, fake, monkeypatch):
+    # 部分ごとの要約は件数つき、まとめ・概要は段階だけ（#340）
+    monkeypatch.setattr(final_summary, "CHUNK_CHARS", 30)
+    steps = record_progress(monkeypatch)
+    chat_replies(fake, [["あ" * 10]] * 6 + [["い" * 10]] * 3 + [["概要"]])
+    lines = [f"[00:00:{i:02d}] 二十文字ほどの長さの発言です。{i}" for i in range(6)]
+    summarize(home, fake, lines)
+    assert steps == [("parts", i, 6) for i in range(6)] + [
+        ("condense", None, None),
+        ("overview", None, None),
+    ]
+
+
+def test_progress_of_a_short_summary_and_the_title(home, fake, tmp_path, monkeypatch):
+    # 一度に要約できるときは段階だけ。タイトルも段階にする
+    steps = record_progress(monkeypatch)
+    gid, _, _ = run_summary(home, fake, tmp_path, None, False)
+    assert gid is not None
+    assert steps == [("summary", None, None), ("title", None, None)]
+
+
 def test_long_parts_are_merged_before_the_overview(home, fake, monkeypatch):
     monkeypatch.setattr(final_summary, "CHUNK_CHARS", 30)
     # 部分の要約（各10文字）は合わせて 30 文字を超えるので、2つずつまとめてから概要を作る

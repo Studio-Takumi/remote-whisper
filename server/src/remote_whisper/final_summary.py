@@ -13,6 +13,11 @@
 5. `title`（provisional: false）を送る（ブラウザは保存されたものを取り直す）
 
 Ollama につながらなければ ollama_unavailable を送り、途中の要約は残す（作り直しは #28）。
+
+作っている間は、GPU キューのジョブの進み具合（#340）を段階ごとに知らせる。
+`summary`（一度に要約する）か、`parts`（部分ごとの要約。済んだ数/部分の数）→ `condense`
+（部分ごとの要約をまとめる）→ `overview`（全体の概要）、それから `pages`（参考資料のページを付ける。
+付けるときだけ）→ `title`
 """
 
 import asyncio
@@ -22,6 +27,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
+from remote_whisper.gpu_queue import report_progress
 from remote_whisper.live_summary import load_context
 from remote_whisper.llm import LlmClient, LlmUnavailable, backend_of
 from remote_whisper.material_pages import Page, annotate_detail, load_pages
@@ -228,6 +234,7 @@ class FinalSummarizer:
         )
 
         clock = time.monotonic()
+        report_progress("title")
         try:
             title = await make_title(self.ollama, models.title, gist)
             if title:
@@ -297,6 +304,7 @@ class FinalSummarizer:
         options = {"num_ctx": NUM_CTX}
         chunks = split_lines(lines, CHUNK_CHARS)
         if len(chunks) == 1:
+            report_progress("summary")
             stream = self.ollama.chat_stream(
                 model,
                 final_summary_messages(lines, context, density.detail),
@@ -306,12 +314,14 @@ class FinalSummarizer:
             text = (await self._send_stream(stream, send)).strip()
             # 流したものには付いていない。保存したものを画面が取り直すときに付いて見える
             if text and pages:
+                report_progress("pages")
                 return await annotate_detail(self.ollama, model, text, pages), text
             return text, text
 
         # 部分ごとに要約する（送らない）。これがそのまま「詳細」になる
         parts: list[str] = []
         for i, chunk in enumerate(chunks):
+            report_progress("parts", i, len(chunks))
             previous = parts[-1][-PREVIOUS_CHARS:] if parts else None
             part = await self.ollama.chat(
                 model,
@@ -333,6 +343,8 @@ class FinalSummarizer:
             if len(groups) == len(digest):
                 # 1つずつにしかならない（どれも長い）なら、これ以上は縮まらないので概要に進む
                 break
+            # 何回まとめるかは前もって分からないので、段階だけ出す
+            report_progress("condense")
             digest = [
                 (
                     await self.ollama.chat(
@@ -346,6 +358,7 @@ class FinalSummarizer:
             ]
         # 全体の概要を流してから、部分ごとの要約を時間の順に続ける
         head = f"## {OVERVIEW_HEADING}\n\n"
+        report_progress("overview")
         stream = self.ollama.chat_stream(
             models.overview,
             overview_messages(digest, context, density.overview),
@@ -357,12 +370,15 @@ class FinalSummarizer:
             return "", ""
         text = head + gist
         if pages:
-            parts = [
-                part
-                if part == EMPTY_PART
-                else await annotate_detail(self.ollama, model, part, pages)
-                for part in parts
-            ]
+            annotated: list[str] = []
+            for i, part in enumerate(parts):
+                report_progress("pages", i, len(parts))
+                annotated.append(
+                    part
+                    if part == EMPTY_PART
+                    else await annotate_detail(self.ollama, model, part, pages)
+                )
+            parts = annotated
         for i, part in enumerate(parts):
             body = "\n".join(demote(line) for line in part.split("\n"))
             section = f"\n\n{section_heading(chunks, i)}\n\n{body}"
