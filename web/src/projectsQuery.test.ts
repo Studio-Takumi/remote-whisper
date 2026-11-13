@@ -4,15 +4,15 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 
 import { ApiError, type ProjectJson, type SessionJson, api } from '@/api';
 import { connection } from '@/connection';
-import { contextSetsQuery, projectsQuery, sessionsQuery } from '@/data';
+import { contextSetsQuery, finalTranscriptQuery, finalTranscriptsQuery, projectsQuery, sessionsQuery } from '@/data';
 import type { ServerMessage } from '@/protocol';
 import { queryClient, queryKeys } from '@/query';
 import { defaultSettings } from '@/settings';
 import { cachedContextSets, useAppStore } from '@/store';
 import type { ContextSet } from '@/types';
 
-// プロジェクトの一覧（#330 の 1 段目）・セッションの一覧と参考資料セットの一覧（2 段目）を
-// TanStack Query のキャッシュを通して取る
+// プロジェクトの一覧（#330 の 1 段目）・セッションの一覧と参考資料セットの一覧（2 段目）・
+// 文字起こしと最終の文字起こし（3 段目）を TanStack Query のキャッシュを通して取る
 
 const selection = { contextSet: null, useHotwords: true, useContext: true };
 const project = (id: string): ProjectJson => ({ id, name: id, path: `/work/${id}`, selection });
@@ -38,11 +38,19 @@ let contextSets: Record<string, ContextSet[]> = {};
 let down = false;
 // 参考資料セットの一覧だけ取れない
 let contextSetsDown = false;
+// そのほかのパスの返事（文字起こしなど。3 段目）
+let other: Record<string, unknown> = {};
 
 function mockServer() {
     return vi.spyOn(api, 'get').mockImplementation(async (path: string) => {
         if (down) {
             throw new ApiError(0, 'ホストにつながりません');
+        }
+        if (path in other) {
+            if (other[path] instanceof Error) {
+                throw other[path];
+            }
+            return structuredClone(other[path]);
         }
         if (path === '/api/projects') {
             return projects;
@@ -97,6 +105,7 @@ beforeEach(() => {
     projectOrder = [];
     sessions = {};
     contextSets = {};
+    other = {};
     down = false;
     contextSetsDown = false;
 });
@@ -250,5 +259,103 @@ describe('セッションの一覧・参考資料セットの一覧', () => {
         expect(useAppStore.getState().projects[0].selection?.setId).toBe('c1');
         expect(useAppStore.getState().contextSelections).toEqual({});
         vi.mocked(api.patch).mockRestore();
+    });
+});
+
+describe('文字起こし・最終の文字起こし', () => {
+    const base = '/api/projects/a/sessions/s1';
+    const meta = (gid: string) => ({
+        generationId: gid,
+        model: `model-${gid}`,
+        generatedAt: '2026-11-01T12:00:00+09:00',
+        diarization: 'off',
+        speakers: 0,
+    });
+    const final = (gid: string, text: string) => ({ lines: [{ time: '00:00:01', text }], meta: meta(gid) });
+
+    beforeEach(() => {
+        sessions = {
+            a: [
+                {
+                    ...session('s1', '週次の定例'),
+                    files: { recording: true, transcript: true, finalTranscripts: 2, summaries: 0, liveSummary: false },
+                },
+            ],
+        };
+        other = {
+            [`${base}/transcript`]: { lines: [{ time: '00:00:01', text: 'こんにちわ' }], meta: { corrections: [] } },
+            [`${base}/final-transcripts`]: [meta('g1'), meta('g2')],
+            [`${base}/final-transcripts/g1`]: final('g1', '古い版'),
+            [`${base}/final-transcripts/g2`]: final('g2', '新しい版'),
+        };
+    });
+
+    const opened = () => useAppStore.getState().projects[0].sessions[0];
+
+    async function open() {
+        const get = mockServer();
+        await useAppStore.getState().loadProjects();
+        useAppStore.getState().selectSession('a', 's1');
+        await vi.waitFor(() => expect(opened().loaded).toBe(true));
+        return get;
+    }
+
+    it('開くと、文字起こし・世代の一覧・出す世代をキャッシュに入れる', async () => {
+        await open();
+        expect(queryClient.getQueryData(queryKeys.transcript('a', 's1'))).toMatchObject({
+            lines: [{ text: 'こんにちわ' }],
+        });
+        expect(queryClient.getQueryData(finalTranscriptsQuery('a', 's1').queryKey)?.map((x) => x.generationId)).toEqual(
+            ['g1', 'g2'],
+        );
+        expect(queryClient.getQueryData(finalTranscriptQuery('a', 's1', 'g2').queryKey)?.lines[0].text).toBe(
+            '新しい版',
+        );
+        expect(opened().finalTranscript?.generationId).toBe('g2');
+    });
+
+    it('世代を切り替えて戻っても、取ってある世代は取り直さない', async () => {
+        const get = await open();
+        await useAppStore.getState().showFinalTranscript('s1', 'g1');
+        expect(opened().finalTranscript?.lines[0].text).toBe('古い版');
+        await useAppStore.getState().showFinalTranscript('s1', 'g2');
+        expect(opened().finalTranscript?.lines[0].text).toBe('新しい版');
+        expect(calls(get, `${base}/final-transcripts/g1`)).toBe(1);
+        expect(calls(get, `${base}/final-transcripts/g2`)).toBe(1);
+    });
+
+    it('corrections: 文字起こしと出している世代を取り直し、ほかの世代も次に出すときに取り直す', async () => {
+        const get = await open();
+        await useAppStore.getState().showFinalTranscript('s1', 'g1');
+        await useAppStore.getState().showFinalTranscript('s1', 'g2');
+        other[`${base}/transcript`] = { lines: [{ time: '00:00:01', text: 'こんにちは' }], meta: { corrections: [] } };
+        other[`${base}/final-transcripts/g1`] = final('g1', '古い版（置き換え後）');
+        other[`${base}/final-transcripts/g2`] = final('g2', '新しい版（置き換え後）');
+        receive({ type: 'corrections', session: 's1' });
+        await vi.waitFor(() => expect(opened().transcript[0].text).toBe('こんにちは'));
+        expect(opened().finalTranscript?.lines[0].text).toBe('新しい版（置き換え後）');
+        await useAppStore.getState().showFinalTranscript('s1', 'g1');
+        expect(opened().finalTranscript?.lines[0].text).toBe('古い版（置き換え後）');
+        expect(calls(get, `${base}/final-transcripts/g1`)).toBe(2);
+    });
+
+    it('finalTranscript: 世代の一覧を取り直して、できた世代を出す', async () => {
+        await open();
+        other[`${base}/final-transcripts`] = [meta('g1'), meta('g2'), meta('g3')];
+        other[`${base}/final-transcripts/g3`] = final('g3', '作り直した版');
+        receive({ type: 'finalTranscript', session: 's1', generationId: 'g3' });
+        await vi.waitFor(() => expect(opened().finalTranscript?.generationId).toBe('g3'));
+        expect(queryClient.getQueryData(finalTranscriptsQuery('a', 's1').queryKey)?.map((x) => x.generationId)).toEqual(
+            ['g1', 'g2', 'g3'],
+        );
+        expect(opened().files?.finalTranscripts).toBe(3);
+    });
+
+    it('文字起こしを取れなければ、今までどおりエラーを出す', async () => {
+        other[`${base}/transcript`] = new ApiError(500, '読めません');
+        const error = vi.spyOn(toast, 'error').mockImplementation(() => '');
+        await open();
+        expect(error).toHaveBeenCalledWith('セッションを読み込めません: 読めません');
+        error.mockRestore();
     });
 });
