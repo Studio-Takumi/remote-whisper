@@ -52,6 +52,7 @@ function AppMain() {
     const watchMicrophone = useAppStore((s) => s.watchMicrophone);
     const connectServer = useAppStore((s) => s.connectServer);
     const loadSettings = useAppStore((s) => s.loadSettings);
+    const settingsLoaded = useAppStore((s) => s.settingsLoaded);
     const loadProjects = useAppStore((s) => s.loadProjects);
     const createProject = useAppStore((s) => s.createProject);
 
@@ -103,6 +104,8 @@ function AppMain() {
                 page={settingsPage}
                 onPageChange={setSettingsPage}
                 settings={settings}
+                loaded={settingsLoaded}
+                onRetry={loadSettings}
                 options={options}
                 recording={recording}
                 onSave={async (s) => {
