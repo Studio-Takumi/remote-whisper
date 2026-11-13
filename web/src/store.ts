@@ -2016,7 +2016,8 @@ export const useAppStore = create<AppState>()((set, get) => {
 // デモではダミーの参考資料セットを最初からキャッシュに入れておく（サーバーにつなぐときは、プロジェクトの一覧と一緒に取る）
 if (isDemo) {
     for (const [pid, sets] of Object.entries(initialContextSets)) {
-        queryClient.setQueryData(contextSetsQuery(pid).queryKey, sets);
+        // setQueryData だと既定の gcTime（5 分）で作られて捨てられるので、contextSetsQuery の設定で入れる
+        void queryClient.prefetchQuery({ ...contextSetsQuery(pid), queryFn: () => sets });
     }
 }
 

@@ -50,8 +50,13 @@ function toSession(json: SessionJson): Session {
 // プロジェクト（セッションの一覧を除いたもの）
 export type ProjectInfo = Omit<Project, 'sessions'>;
 
+// プロジェクトの一覧・セッションの一覧・参考資料セットの一覧は、画面で見ている部品がなくても、
+// ストアが WebSocket の通知で書き換えて使う。既定（5 分）で捨てられないようにする（量は少ない）
+const KEEP = { gcTime: Infinity } as const;
+
 // プロジェクトの一覧（queryKeys.projects()）。並びはサーバーが返したまま（設定の projectOrder の順）
 export const projectsQuery = queryOptions({
+    ...KEEP,
     queryKey: queryKeys.projects(),
     queryFn: async (): Promise<ProjectInfo[]> => {
         const projects = await api.get<ProjectJson[]>('/api/projects');
@@ -68,6 +73,7 @@ export const projectsQuery = queryOptions({
 // プロジェクトのセッションの一覧（queryKeys.sessions()）。文字起こしと要約の中身は入らない（開いたときに取る）
 export const sessionsQuery = (projectId: string) =>
     queryOptions({
+        ...KEEP,
         queryKey: queryKeys.sessions(projectId),
         queryFn: async (): Promise<Session[]> =>
             (await api.get<SessionJson[]>(`/api/projects/${projectId}/sessions`)).map(toSession),
@@ -76,6 +82,7 @@ export const sessionsQuery = (projectId: string) =>
 // プロジェクトの参考資料セットの一覧（queryKeys.contextSets()）。ID の昇順（サーバーと同じ）
 export const contextSetsQuery = (projectId: string) =>
     queryOptions({
+        ...KEEP,
         queryKey: queryKeys.contextSets(projectId),
         queryFn: () => api.get<ContextSet[]>(`/api/projects/${projectId}/context-sets`),
     });

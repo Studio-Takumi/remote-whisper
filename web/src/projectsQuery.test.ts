@@ -213,6 +213,11 @@ describe('セッションの一覧・参考資料セットの一覧', () => {
         expect(queryClient.getQueryData(sessionsQuery('b').queryKey)?.map((x) => x.title)).toEqual(['情報理論']);
         expect(queryClient.getQueryData(contextSetsQuery('a').queryKey)).toEqual([]);
         expect(cachedContextSets('b').map((x) => x.id)).toEqual(['c1']);
+        // この 3 つは見ている部品がなくても捨てない。ほかは既定（5 分）のまま
+        for (const key of [projectsQuery.queryKey, sessionsQuery('a').queryKey, contextSetsQuery('a').queryKey]) {
+            expect(queryClient.getQueryCache().find({ queryKey: key, exact: true })?.gcTime).toBe(Infinity);
+        }
+        expect(queryClient.getDefaultOptions().queries?.gcTime).toBeUndefined();
         expect(useAppStore.getState().projects.map((p) => p.sessions.map((x) => x.title))).toEqual([
             ['週次の定例'],
             ['情報理論'],
