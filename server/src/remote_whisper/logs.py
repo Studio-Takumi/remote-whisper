@@ -18,6 +18,7 @@ import logging
 import multiprocessing
 import sys
 from collections import Counter
+from collections.abc import Callable
 from logging.handlers import QueueHandler, QueueListener, TimedRotatingFileHandler
 from pathlib import Path
 from typing import Any
@@ -151,25 +152,38 @@ class LineLogger(io.TextIOBase):
         self._buffer = ""
 
 
-async def forward_output(stream: asyncio.StreamReader, logger: logging.Logger) -> None:
+async def forward_output(
+    stream: asyncio.StreamReader,
+    logger: logging.Logger,
+    intercept: Callable[[str], bool] | None = None,
+) -> None:
     """子プロセス（最終の文字起こし）の標準出力・標準エラーを、1 行ずつログにする
 
-    進み具合のバー（tqdm）は書かない。行の頭のレベル（`WARNING` など）があれば、そのレベルで書く
+    進み具合のバー（tqdm）は書かない。行の頭のレベル（`WARNING` など）があれば、そのレベルで書く。
+    intercept があれば先に行を渡し、True を返したもの（進み具合の行など。#340）は書かない
     """
     buffer = ""
     while chunk := await stream.read(4096):
         buffer += chunk.decode("utf-8", errors="replace")
         *lines, buffer = buffer.replace("\r", "\n").split("\n")
         for line in lines:
-            _log_child_line(logger, line)
-    _log_child_line(logger, buffer)
+            _log_child_line(logger, line, intercept)
+    _log_child_line(logger, buffer, intercept)
 
 
-def _log_child_line(logger: logging.Logger, line: str) -> None:
+def _log_child_line(
+    logger: logging.Logger, line: str, intercept: Callable[[str], bool] | None = None
+) -> None:
     line = line.strip()
     # tqdm の進み具合（例: " 45%|████▌     | 9/20"）は、行が多くなるだけなので書かない
     if not line or "%|" in line:
         return
+    if intercept is not None:
+        try:
+            if intercept(line):
+                return
+        except Exception:  # noqa: BLE001 横取りの失敗でログを止めない
+            logger.exception("failed to handle a line of the child")
     level = logging.INFO
     # 子のログは「レベル 本文」の形（final_transcribe_worker）。レベルは親のログのレベルにする
     for name in ("CRITICAL", "ERROR", "WARNING", "INFO"):

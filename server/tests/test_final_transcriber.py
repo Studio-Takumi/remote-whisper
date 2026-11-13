@@ -1,5 +1,7 @@
 import asyncio
+import io
 import json
+import logging
 import sys
 import time
 
@@ -9,6 +11,7 @@ from test_recorder import receive_until
 
 from remote_whisper import final_transcriber
 from remote_whisper.documents import FinalTranscriptMeta, TranscriptMeta, read_doc
+from remote_whisper.final_transcribe_worker import Progress, parse_progress
 from remote_whisper.final_transcriber import FinalTranscriber
 from remote_whisper.gpu_queue import GpuQueue
 from remote_whisper.hub import Hub
@@ -27,6 +30,13 @@ count.write_text(str(n))
 count.with_name("job.json").write_text(json.dumps(job, ensure_ascii=False), encoding="utf-8")
 if sys.argv[2] == "slow" and n == 1:
     time.sleep(30)
+if sys.argv[2] == "progress":
+    # 進み具合の行を出して、テストが release を作るまで待つ（#340）
+    print("INFO loading", flush=True)
+    time.sleep(0.3)
+    print('PROGRESS {"step": "align", "done": 2, "total": 4, "percent": 37.5}', flush=True)
+    while not count.with_name("release").exists():
+        time.sleep(0.05)
 if sys.argv[2] == "missing":
     sys.exit(3)
 if sys.argv[2] == "fail":
@@ -208,6 +218,66 @@ def test_manual_terms_are_passed_to_the_final_transcript(home, session_files, fa
     run_final(home, fake_worker(), files, meta)
     job = json.loads(fake_worker.count.with_name("job.json").read_text(encoding="utf-8"))
     assert job["hotwords"] == "ハルシオン、ケルビン"
+
+
+def test_progress_of_the_worker_goes_to_the_gpu_job(home, session_files, fake_worker, caplog):
+    # 子が出した進み具合の行は、ログに書かずに GPU キューのジョブの進み具合にする（#340）
+    files, meta = session_files
+    caplog.set_level(logging.INFO, logger="remote_whisper")
+
+    async def go():
+        gpu = GpuQueue()
+        final = FinalTranscriber(
+            SettingsStore(home), Hub(), gpu, command=fake_worker("progress"), available=lambda: True
+        )
+        task = asyncio.create_task(final.run(files, meta))
+        seen = []
+        try:
+            for _ in range(400):
+                running = gpu.snapshot()["running"]
+                progress = running and running.get("progress")
+                if progress and (not seen or seen[-1] != progress):
+                    seen.append(progress)
+                if progress and progress["step"] == "align":
+                    break
+                await asyncio.sleep(0.025)
+            fake_worker.count.with_name("release").write_text("")
+            gid = await asyncio.wait_for(task, 30)
+        finally:
+            await gpu.stop()
+        return gid, seen
+
+    gid, seen = asyncio.run(go())
+    assert gid is not None
+    # 子が動き出すまでは「モデルの読み込み」。話者分けがオンなので段階は 4 つ
+    assert seen[0] == {"step": "load", "done": 0, "total": 4}
+    assert seen[-1] == {"step": "align", "done": 2, "total": 4, "percent": 37.5}
+    assert "loading" in caplog.text
+    assert "PROGRESS" not in caplog.text
+
+
+def test_worker_progress_lines():
+    # 段階ごとに 1 行、段階の中の % は 1% 以上進んだときだけ出す
+    out = io.StringIO()
+    progress = Progress(diarize=False, out=out)
+    progress.start("transcribe")
+    for value in (0.2, 0.9, 1.0, 1.5, 2.4, 50.0):
+        progress.percent(value)
+    progress.start("align")
+    lines = [parse_progress(line) for line in out.getvalue().splitlines()]
+    assert lines == [
+        {"step": "transcribe", "done": 1, "total": 3},
+        {"step": "transcribe", "done": 1, "total": 3, "percent": 0.2},
+        {"step": "transcribe", "done": 1, "total": 3, "percent": 1.0},
+        {"step": "transcribe", "done": 1, "total": 3, "percent": 2.4},
+        {"step": "transcribe", "done": 1, "total": 3, "percent": 50.0},
+        {"step": "align", "done": 2, "total": 3},
+    ]
+    assert Progress(diarize=True).total == 4
+    # ほかの行は進み具合ではない
+    assert parse_progress("INFO transcribed 3 segments") is None
+    assert parse_progress("PROGRESS {broken") is None
+    assert parse_progress('PROGRESS {"done": 1}') is None
 
 
 def test_a_failed_worker_makes_nothing(home, session_files, fake_worker):

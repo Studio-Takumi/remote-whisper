@@ -1,4 +1,4 @@
-import type { GpuJobKind, GpuJobs, GpuStats } from '@/protocol';
+import type { GpuJobKind, GpuJobProgress, GpuJobs, GpuStats } from '@/protocol';
 import type { RecordingState } from '@/recording';
 import { LLM_NAMES, type LlmBackend } from '@/settings';
 
@@ -45,6 +45,50 @@ export const jobKindLabel: Record<GpuJobKind, string> = {
     materialRange: '扱った範囲での参考資料の再生成',
     other: 'その他',
 };
+
+// 実行中のジョブの段階の名前（#340。spec/api.md 7.2）
+const jobStepLabel: Partial<Record<GpuJobKind, Record<string, string>>> = {
+    finalSummary: {
+        summary: '要約',
+        parts: '要約詳細',
+        condense: '要約詳細のまとめ',
+        overview: '全体概要',
+        pages: '参考資料のページ付け',
+        title: 'タイトル',
+    },
+    finalTranscript: {
+        load: 'モデルの読み込み',
+        transcribe: '文字起こし',
+        align: '位置合わせ',
+        diarize: '話者分け',
+    },
+};
+
+// 実行中のジョブの進み具合の文（「要約詳細 3/6」「位置合わせ 2/4 37%」）と、バーの割合（0〜1。分からなければ null）
+// 進み具合がない（古いサーバー・ほかのジョブ）・知らない段階なら null（今までどおりの表示にする）
+export function jobProgress(
+    kind: GpuJobKind,
+    progress: GpuJobProgress | undefined,
+): { text: string; ratio: number | null } | null {
+    const label = progress && jobStepLabel[kind]?.[progress.step];
+    if (!progress || !label) {
+        return null;
+    }
+    const { done, total, percent } = progress;
+    const counted = typeof done === 'number' && typeof total === 'number' && total > 0;
+    const hasPercent = typeof percent === 'number' && Number.isFinite(percent);
+    const parts = [label];
+    if (counted) {
+        parts.push(`${done}/${total}`);
+    }
+    if (hasPercent) {
+        parts.push(`${Math.floor(percent)}%`);
+    }
+    // 済んだ数に、今の段階の中の % を足す（段階の重さの差は見ない）
+    const within = hasPercent ? percent / 100 : 0;
+    const ratio = counted ? (done + within) / total : hasPercent ? within : null;
+    return { text: parts.join(' '), ratio: ratio === null ? null : Math.min(1, Math.max(0, ratio)) };
+}
 
 // 文字起こしを待たせている理由
 const blockingReason: Partial<Record<GpuJobKind, string>> = {

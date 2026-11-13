@@ -24,9 +24,9 @@ from typing import Any
 
 from remote_whisper import logs
 from remote_whisper.documents import FinalTranscriptMeta, TranscriptMeta, write_doc
-from remote_whisper.final_transcribe_worker import EXIT_NOT_INSTALLED
+from remote_whisper.final_transcribe_worker import EXIT_NOT_INSTALLED, STEPS, parse_progress
 from remote_whisper.final_transcript import render, sentences
-from remote_whisper.gpu_queue import GpuQueue, Priority
+from remote_whisper.gpu_queue import GpuQueue, Priority, report_progress
 from remote_whisper.hub import Hub
 from remote_whisper.live_transcriber import load_hotwords
 from remote_whisper.sessions import SessionFiles
@@ -233,6 +233,8 @@ class FinalTranscriber:
         model = model or whisper.model
         diarize = whisper.diarize if diarize is None else diarize
         started = now()
+        # 子が動き出すまで（VRAM を空ける・torch を読み込む）も「モデルの読み込み」にする（#340）
+        report_progress("load", 0, len(STEPS) if diarize else len(STEPS) - 1)
         await self._free_vram()
         work = files.dir / ".tmp" / files.id
         work.mkdir(parents=True, exist_ok=True)
@@ -275,7 +277,10 @@ class FinalTranscriber:
                 env={**os.environ, **self.extra_env(), "PYTHONIOENCODING": "utf-8"},
             )
             assert self._proc.stdin is not None and self._proc.stdout is not None
-            output = asyncio.create_task(logs.forward_output(self._proc.stdout, worker_log))
+            # 子が出す進み具合の行は、ログに書かずにジョブの進み具合にする（#340）
+            output = asyncio.create_task(
+                logs.forward_output(self._proc.stdout, worker_log, _forward_progress)
+            )
             if self._preempted:
                 # 起こしている間に録音が始まった
                 self._kill("a recording started")
@@ -366,6 +371,21 @@ def _hotwords(files: SessionFiles, meta: TranscriptMeta) -> str | None:
     return combine_hotwords(
         load_hotwords(files.dir, meta.context_set), meta.picked_terms, meta.manual_terms
     )
+
+
+def _forward_progress(line: str) -> bool:
+    """子の進み具合の行（PROGRESS）を、GPU キューのジョブの進み具合にする。そうならば True"""
+    data = parse_progress(line)
+    if data is None:
+        return False
+    done, total, percent = data.get("done"), data.get("total"), data.get("percent")
+    report_progress(
+        data["step"],
+        done if isinstance(done, int) else None,
+        total if isinstance(total, int) else None,
+        float(percent) if isinstance(percent, (int, float)) else None,
+    )
+    return True
 
 
 def _save(

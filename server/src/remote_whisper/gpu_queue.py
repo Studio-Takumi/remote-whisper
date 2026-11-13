@@ -10,11 +10,13 @@
 
 画面で何が詰まっているかを見られるよう、ジョブには種類とセッションを持たせ、
 実行中のジョブと待っているジョブの一覧（`snapshot`）を status の jobs で送る
-（spec/flows.md 6.3・spec/api.md 7.2）。
+（spec/flows.md 6.3・spec/api.md 7.2）。実行中のジョブは、`report_progress` で
+進み具合（段階と件数）を知らせられる（#340）。
 """
 
 import asyncio
 import contextlib
+import contextvars
 import itertools
 import logging
 import time
@@ -67,6 +69,41 @@ class _Job:
     future: asyncio.Future = field(repr=False)
     queued_at: float = field(default_factory=time.monotonic)
     started_at: float | None = None
+    # 進み具合（#340）。`step` と、件数が分かれば `done`・`total`、段階の中の % が分かれば `percent`
+    progress: dict[str, Any] | None = None
+
+
+# 実行中のジョブ。ジョブの中（と、そこから作ったタスク）から report_progress で引く
+# （別のスレッドからは呼ばない。通知のタスクを作るため）
+_running: contextvars.ContextVar[tuple["GpuQueue", _Job] | None] = contextvars.ContextVar(
+    "gpu_job", default=None
+)
+
+
+def report_progress(
+    step: str,
+    done: int | None = None,
+    total: int | None = None,
+    percent: float | None = None,
+) -> None:
+    """実行中のジョブの進み具合を知らせる（#340。spec/api.md 7.2）。status の jobs.running.progress
+
+    GPU キューのジョブの中から呼ぶ（ジョブの外から呼んでも何もしない）。step は段階の名前で、
+    画面に出す名前はブラウザが決める。done・total は済んだ数と全体の数（分かるときだけ）、
+    percent は今の段階の中の %（0〜100。分かるときだけ）。送る間隔は GpuQueue の min_interval に従う
+    （その間の変化はまとめて、最新のものだけを送る）
+    """
+    current = _running.get()
+    if current is None:
+        return
+    queue, job = current
+    progress: dict[str, Any] = {"step": step}
+    if done is not None and total is not None:
+        progress["done"] = done
+        progress["total"] = total
+    if percent is not None:
+        progress["percent"] = round(max(0.0, min(100.0, percent)), 1)
+    queue._set_progress(job, progress)
 
 
 class GpuQueue:
@@ -111,6 +148,8 @@ class GpuQueue:
                 "session": self._current.session,
                 "runningSec": round(now - self._current.started_at, 1),
             }
+            if self._current.progress is not None:
+                running["progress"] = dict(self._current.progress)
         waiting: list[dict[str, Any]] = []
         for job in sorted(self._waiting.values(), key=lambda j: (j.priority, j.order)):
             last = waiting[-1] if waiting else None
@@ -201,6 +240,13 @@ class GpuQueue:
             del self._waiting[future]
             self._changed()
 
+    def _set_progress(self, job: _Job, progress: dict[str, Any]) -> None:
+        # 終わったジョブ（から作ったタスク）が後から知らせても、次のジョブに付けない
+        if job is not self._current or job.progress == progress:
+            return
+        job.progress = progress
+        self._changed()
+
     def _changed(self) -> None:
         if self._on_change is None:
             return
@@ -240,6 +286,7 @@ class GpuQueue:
                     entry.started_at - entry.queued_at,
                 )
             outcome = "finished"
+            token = _running.set((self, entry))
             try:
                 result = await entry.run()
             except asyncio.CancelledError:
@@ -259,6 +306,7 @@ class GpuQueue:
                 if not future.done():
                     future.set_result(result)
             finally:
+                _running.reset(token)
                 if logged:
                     log.info(
                         "gpu job %s of %s %s in %.1fs",
