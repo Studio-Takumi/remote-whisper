@@ -9,6 +9,9 @@ export const queryClient = new QueryClient({
             retry: false,
             // 変わったことは WebSocket の通知で知るので、画面に戻ったときには取り直さない
             refetchOnWindowFocus: false,
+            // 画面に出していないプロジェクトの一覧も、ストアが WebSocket の通知で書き換えて使う。
+            // 見ている部品がなくても捨てない（量は少ない）
+            gcTime: Infinity,
         },
     },
 });

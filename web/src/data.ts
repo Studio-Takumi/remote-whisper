@@ -65,15 +65,30 @@ export const projectsQuery = queryOptions({
     },
 });
 
+// プロジェクトのセッションの一覧（queryKeys.sessions()）。文字起こしと要約の中身は入らない（開いたときに取る）
+export const sessionsQuery = (projectId: string) =>
+    queryOptions({
+        queryKey: queryKeys.sessions(projectId),
+        queryFn: async (): Promise<Session[]> =>
+            (await api.get<SessionJson[]>(`/api/projects/${projectId}/sessions`)).map(toSession),
+    });
+
+// プロジェクトの参考資料セットの一覧（queryKeys.contextSets()）。ID の昇順（サーバーと同じ）
+export const contextSetsQuery = (projectId: string) =>
+    queryOptions({
+        queryKey: queryKeys.contextSets(projectId),
+        queryFn: () => api.get<ContextSet[]>(`/api/projects/${projectId}/context-sets`),
+    });
+
 // プロジェクトの一覧と、それぞれのセッションの一覧（文字起こしと要約の中身は、開いたときに取る）。
-// プロジェクトの一覧は毎回取り直す（同時に頼まれたら 1 回にまとめる）
+// どれもキャッシュがあっても取り直す（同時に頼まれたら 1 回にまとめる。取れなければ、キャッシュは前のまま）
 export async function fetchProjects(): Promise<Project[]> {
     const projects = await queryClient.fetchQuery({ ...projectsQuery, staleTime: 0 });
     return Promise.all(
-        projects.map(async (p) => {
-            const sessions = await api.get<SessionJson[]>(`/api/projects/${p.id}/sessions`);
-            return { ...p, sessions: sessions.map(toSession) };
-        }),
+        projects.map(async (p) => ({
+            ...p,
+            sessions: await queryClient.fetchQuery({ ...sessionsQuery(p.id), staleTime: 0 }),
+        })),
     );
 }
 
@@ -84,11 +99,6 @@ export function toSelection(json: ProjectJson['selection']): ContextSelection {
         useContext: json.useContext,
         pickTerms: json.pickTerms ?? true,
     };
-}
-
-// プロジェクトの参考資料セットの一覧
-export async function fetchContextSets(projectId: string): Promise<ContextSet[]> {
-    return api.get<ContextSet[]>(`/api/projects/${projectId}/context-sets`);
 }
 
 // 前に取った文字起こしと要約は、同じセッションならそのまま使う（セッションを開くたびに取り直さないように）

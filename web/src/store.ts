@@ -18,7 +18,7 @@ import { keepScreenOn, screenKeptOn } from '@/audio/wakeLock';
 import { AudioSender, connection } from '@/connection';
 import { type Correction, applyCorrectionLocally, mergeLiveLines } from '@/corrections';
 import {
-    fetchContextSets,
+    contextSetsQuery,
     fetchFinalTranscript,
     fetchFinalTranscripts,
     fetchProjects,
@@ -26,6 +26,7 @@ import {
     isDemo,
     mergeProjects,
     projectsQuery,
+    sessionsQuery,
     toSelection,
 } from '@/data';
 import { getHostId, isCloud, meUrl } from '@/endpoint';
@@ -99,7 +100,8 @@ type AppState = {
     // サーバーのバージョン（コミットハッシュ）。取れていなければ null
     serverVersion: string | null;
     server: ServerStatus;
-    contextSets: Record<string, ContextSet[]>;
+    // 参考資料セットの選択を保存するまでの間の、手元の選択（プロジェクトごと）。
+    // 参考資料セットの一覧はサーバーのデータなので、ここではなくキャッシュに置く（cachedContextSets）
     contextSelections: Record<string, ContextSelection>;
     generating: Generating | null;
     settingsOpen: boolean;
@@ -195,17 +197,24 @@ export function needsSummaryFor(session: Session, models: OllamaModels) {
         !session.summaries.some((x) => isCurrentFinalSummary(x, models))
     );
 }
-export const currentContextSets = (s: AppState) => {
-    const project = currentProject(s);
-    return project ? (s.contextSets[project.id] ?? NO_SETS) : NO_SETS;
-};
+// プロジェクトの参考資料セットの一覧。サーバーのデータなのでストアには持たず、キャッシュ（#330）から読む。
+// 画面からは useCurrentContextSets（hooks/useContextSets.ts）で読む
+export function cachedContextSets(projectId: string | undefined) {
+    return (projectId && queryClient.getQueryData(contextSetsQuery(projectId).queryKey)) || NO_SETS;
+}
+
+function updateCachedContextSets(projectId: string, change: (sets: ContextSet[]) => ContextSet[]) {
+    queryClient.setQueryData(contextSetsQuery(projectId).queryKey, (sets) => change(sets ?? NO_SETS));
+}
+
+// 開いているプロジェクトで使う参考資料セットの選択。sets はそのプロジェクトの参考資料セットの一覧。
 // 新しいオブジェクトを返すことがあるので、使うときは useShallow で包む
-export const currentContextSelection = (s: AppState): ContextSelection => {
+export const currentContextSelection = (s: AppState, sets: ContextSet[]): ContextSelection => {
     const project = currentProject(s);
     // 手元で変えたもの → サーバーに保存されているもの → 既定（ready のうち最初に作ったもの）
     return (
         (project && (s.contextSelections[project.id] ?? project.selection)) ?? {
-            setId: currentContextSets(s).find((x) => x.status === 'ready')?.id ?? null,
+            setId: sets.find((x) => x.status === 'ready')?.id ?? null,
             useHotwords: true,
             useContext: true,
             pickTerms: true,
@@ -769,21 +778,22 @@ export const useAppStore = create<AppState>()((set, get) => {
         set((s) => ({ projects: sortByIds(s.projects, ids) }));
     }
 
-    // プロジェクトごとの参考資料セットの一覧を取る。取れなかったプロジェクトは入れない（前の一覧のまま）
-    async function loadContextSets(projectIds: string[]) {
-        const results = await Promise.allSettled(projectIds.map((id) => fetchContextSets(id)));
-        const sets: Record<string, ContextSet[]> = {};
-        results.forEach((r, i) => {
-            if (r.status === 'fulfilled') {
-                sets[projectIds[i]] = r.value;
-            }
-        });
-        return sets;
+    // セッションの一覧のキャッシュの、そのセッションを書き換える（WebSocket の通知で。取り直さない）
+    function updateCachedSession(sessionId: string, change: (session: Session) => Session) {
+        const project = get().projects.find((p) => p.sessions.some((x) => x.id === sessionId));
+        if (project) {
+            queryClient.setQueryData(sessionsQuery(project.id).queryKey, (list) =>
+                list?.map((x) => (x.id === sessionId ? change(x) : x)),
+            );
+        }
     }
 
+    // プロジェクトごとの参考資料セットの一覧を取り直して、キャッシュに入れる。
+    // 取れなかったプロジェクトは前の一覧のまま（キャッシュは前のものが残る）
     async function refreshContextSets(projectIds: string[]) {
-        const sets = await loadContextSets(projectIds);
-        set((s) => ({ contextSets: { ...s.contextSets, ...sets } }));
+        await Promise.allSettled(
+            projectIds.map((id) => queryClient.fetchQuery({ ...contextSetsQuery(id), staleTime: 0 })),
+        );
     }
 
     // 最終の要約ができたら、一覧とセッションの中身をサーバーから取り直す
@@ -983,8 +993,6 @@ export const useAppStore = create<AppState>()((set, get) => {
         options: fallbackOptions,
         serverVersion: null,
         server: initialServerStatus,
-        // デモではダミーのセット。サーバーにつなぐときは、プロジェクトの一覧と一緒に取る
-        contextSets: isDemo ? initialContextSets : {},
         contextSelections: {},
         generating: null,
         settingsOpen: false,
@@ -1071,7 +1079,7 @@ export const useAppStore = create<AppState>()((set, get) => {
             try {
                 const projects = await fetchProjects();
                 // 参考資料セットの一覧も取り直す（プロジェクトの数は多くないので、まとめて取る）
-                const sets = await loadContextSets(projects.map((p) => p.id));
+                await refreshContextSets(projects.map((p) => p.id));
                 set((s) => {
                     // 手元で中身を積み上げているセッションは、取り直しで消さない
                     const keep = new Set(
@@ -1081,7 +1089,6 @@ export const useAppStore = create<AppState>()((set, get) => {
                     );
                     return {
                         projects: mergeProjects(s.projects, projects, keep),
-                        contextSets: { ...s.contextSets, ...sets },
                         projectsLoaded: true,
                     };
                 });
@@ -1686,6 +1693,8 @@ export const useAppStore = create<AppState>()((set, get) => {
                     // 置き換えを足した・外した（ほかの端末からのものも。#176）
                     void refreshTranscripts(m.session);
                 } else if (m.type === 'title') {
+                    // キャッシュのセッションの一覧にも入れる（取り直す前に、ほかの画面が古いタイトルを出さないように）
+                    updateCachedSession(m.session, (x) => ({ ...x, title: m.title }));
                     set((s) => ({
                         projects: updateSession(s.projects, m.session, (x) => ({
                             ...x,
@@ -1737,20 +1746,15 @@ export const useAppStore = create<AppState>()((set, get) => {
                 if (m.type === 'contextSet' && m.project) {
                     // 参考資料セットの作成の進み具合（ほかの端末で始めたものも）
                     const pid = m.project;
-                    const known = (get().contextSets[pid] ?? []).find((x) => x.id === m.id);
+                    const known = cachedContextSets(pid).find((x) => x.id === m.id);
                     if (!known) {
                         // 知らないセット（ほかの端末で始めたもの）は、一覧ごと取り直す
                         void refreshContextSets([pid]);
                         return;
                     }
-                    set((s) => ({
-                        contextSets: {
-                            ...s.contextSets,
-                            [pid]: (s.contextSets[pid] ?? []).map((x) =>
-                                x.id === m.id ? { ...x, status: m.status } : x,
-                            ),
-                        },
-                    }));
+                    updateCachedContextSets(pid, (sets) =>
+                        sets.map((x) => (x.id === m.id ? { ...x, status: m.status } : x)),
+                    );
                     if (known.status === 'generating' && m.status === 'ready') {
                         toast.success('参考資料ができました');
                     } else if (known.status === 'generating' && m.status === 'failed') {
@@ -1934,9 +1938,13 @@ export const useAppStore = create<AppState>()((set, get) => {
                     pickTerms: next.pickTerms,
                 });
                 // 保存できたら、サーバーの選択（project.selection）を正にして、手元の上書きは消す
-                // （ほかの端末で変えた選択も、取り直しで出るように）
+                // （ほかの端末で変えた選択も、取り直しで出るように）。キャッシュのプロジェクトの一覧も合わせる
+                const selection = toSelection(saved);
+                queryClient.setQueryData(projectsQuery.queryKey, (list) =>
+                    list?.map((p) => (p.id === pid ? { ...p, selection } : p)),
+                );
                 set((s) => ({
-                    projects: s.projects.map((p) => (p.id === pid ? { ...p, selection: toSelection(saved) } : p)),
+                    projects: s.projects.map((p) => (p.id === pid ? { ...p, selection } : p)),
                     contextSelections: clearOverride(s),
                 }));
             } catch (e) {
@@ -1959,7 +1967,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                 return;
             }
             const pid = project.id;
-            const selection = currentContextSelection(s);
+            const selection = currentContextSelection(s, cachedContextSets(pid));
             if (!isDemo) {
                 try {
                     const created = await api.post<ContextSet & { reused: boolean }>(
@@ -1967,12 +1975,10 @@ export const useAppStore = create<AppState>()((set, get) => {
                         { materials },
                     );
                     const entry: ContextSet = { id: created.id, status: created.status, materials: created.materials };
-                    set((st) => {
-                        const list = (st.contextSets[pid] ?? []).filter((x) => x.id !== entry.id);
-                        // 一覧は ID の昇順（サーバーと同じ）
-                        const sorted = [...list, entry].sort((a, b) => a.id.localeCompare(b.id));
-                        return { contextSets: { ...st.contextSets, [pid]: sorted } };
-                    });
+                    // 一覧は ID の昇順（サーバーと同じ）
+                    updateCachedContextSets(pid, (sets) =>
+                        [...sets.filter((x) => x.id !== entry.id), entry].sort((a, b) => a.id.localeCompare(b.id)),
+                    );
                     if (created.reused) {
                         toast.info('同じ資料の参考資料があるので、それを使います');
                     }
@@ -1982,24 +1988,19 @@ export const useAppStore = create<AppState>()((set, get) => {
                 }
                 return;
             }
-            const same = currentContextSets(s).find((x) => x.materials.join('\n') === materials.join('\n'));
+            const same = cachedContextSets(pid).find((x) => x.materials.join('\n') === materials.join('\n'));
             if (same) {
                 get().changeContextSelection({ ...selection, setId: same.id });
                 toast.info('同じ資料の参考資料があるので、それを使います');
                 return;
             }
             const created: ContextSet = { id: newId(), status: 'generating', materials };
-            set((st) => ({ contextSets: { ...st.contextSets, [pid]: [...(st.contextSets[pid] ?? []), created] } }));
+            updateCachedContextSets(pid, (sets) => [...sets, created]);
             get().changeContextSelection({ ...selection, setId: created.id });
             setTimeout(() => {
-                set((st) => ({
-                    contextSets: {
-                        ...st.contextSets,
-                        [pid]: (st.contextSets[pid] ?? []).map((x) =>
-                            x.id === created.id ? { ...x, status: 'ready' } : x,
-                        ),
-                    },
-                }));
+                updateCachedContextSets(pid, (sets) =>
+                    sets.map((x) => (x.id === created.id ? { ...x, status: 'ready' } : x)),
+                );
                 toast.success('参考資料ができました');
             }, 4000);
         },
@@ -2011,6 +2012,13 @@ export const useAppStore = create<AppState>()((set, get) => {
         setNoProjects: (noProjects) => set({ noProjects }),
     };
 });
+
+// デモではダミーの参考資料セットを最初からキャッシュに入れておく（サーバーにつなぐときは、プロジェクトの一覧と一緒に取る）
+if (isDemo) {
+    for (const [pid, sets] of Object.entries(initialContextSets)) {
+        queryClient.setQueryData(contextSetsQuery(pid).queryKey, sets);
+    }
+}
 
 // マイクが止まったときの知らせ（#102）
 // 音は届いているのに文字起こしが出ないとき（#120）。録音は続いている（音声はサーバーに保存されている）
@@ -2042,6 +2050,8 @@ useAppStore.subscribe((s, prev) => {
 if (import.meta.env.DEV) {
     Object.assign(window, {
         appStore: useAppStore,
+        // サーバーのデータのキャッシュ（#330。参考資料セットの一覧など）
+        appQueryClient: queryClient,
         appConnection: connection,
         // マイクが止まったとき・画面のスリープを止めているかを確かめるため（#102）
         appMicrophone: () => mic,
