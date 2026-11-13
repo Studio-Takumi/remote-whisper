@@ -1,14 +1,14 @@
 import { useState } from 'react';
 
 import { ChevronDownIcon, FileTextIcon, PlusIcon } from 'lucide-react';
-import { useShallow } from 'zustand/react/shallow';
 
 import { MaterialPickerDialog } from '@/components/MaterialPickerDialog';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { Switch } from '@/components/ui/switch';
-import { currentContextSelection, currentContextSets, currentProject, useAppStore } from '@/store';
+import { useCurrentContextSelection, useCurrentContextSets } from '@/hooks/useContextSets';
+import { currentProject, useAppStore } from '@/store';
 import { type ContextSet, contextSetName } from '@/types';
 
 const NONE = 'none';
@@ -23,8 +23,8 @@ const statusLabel: Record<ContextSet['status'], string> = {
 // セットと選択はプロジェクトごとに持つ
 export function ContextSetSheet() {
     const project = useAppStore(currentProject);
-    const sets = useAppStore(currentContextSets);
-    const selection = useAppStore(useShallow(currentContextSelection));
+    const sets = useCurrentContextSets();
+    const selection = useCurrentContextSelection(sets);
     const extensions = useAppStore((s) => s.settings.materials.extensions);
     // 前のサーバーの設定にはない
     const pickTermsEnabled = useAppStore((s) => s.settings.ollama.pickTerms ?? false);

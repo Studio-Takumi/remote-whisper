@@ -470,8 +470,9 @@ const scenes = [
                     status: 'generating',
                     materials: ['D:\\work\\meetings\\release-plan.md', 'D:\\work\\meetings\\glossary.txt'],
                 };
+                // 参考資料セットの一覧はキャッシュ（#330）にある
+                window.appQueryClient.setQueryData(['projects', pid, 'context-sets'], (sets) => [...(sets ?? []), set]);
                 window.appStore.setState({
-                    contextSets: { ...s.contextSets, [pid]: [...(s.contextSets[pid] ?? []), set] },
                     contextSelections: {
                         ...s.contextSelections,
                         [pid]: { ...s.contextSelections[pid], setId: set.id },
