@@ -25,6 +25,7 @@ import {
     fetchSessionDetail,
     isDemo,
     mergeProjects,
+    projectsQuery,
     toSelection,
 } from '@/data';
 import { getHostId, isCloud, meUrl } from '@/endpoint';
@@ -33,6 +34,7 @@ import { sortSessions } from '@/move';
 import { fetchOptions } from '@/options';
 import { sortByIds } from '@/projectOrder';
 import type { ServerMessage, SettingsOptions, WatchedState } from '@/protocol';
+import { queryClient } from '@/query';
 import { type RecordingState, recordingLocks } from '@/recording';
 import { RecordingMetrics, metricsSettings, recordedSeconds, sendRecordingMetrics } from '@/recordingMetrics';
 import { replaceUrlNext } from '@/router';
@@ -761,6 +763,12 @@ export const useAppStore = create<AppState>()((set, get) => {
         }
     }
 
+    // プロジェクトの並びが変わった。キャッシュのプロジェクトの一覧と画面の一覧を並べ直す（取り直さない）
+    function sortProjectsBy(ids: string[]) {
+        queryClient.setQueryData(projectsQuery.queryKey, (list) => list && sortByIds(list, ids));
+        set((s) => ({ projects: sortByIds(s.projects, ids) }));
+    }
+
     // プロジェクトごとの参考資料セットの一覧を取る。取れなかったプロジェクトは入れない（前の一覧のまま）
     async function loadContextSets(projectIds: string[]) {
         const results = await Promise.allSettled(projectIds.map((id) => fetchContextSets(id)));
@@ -1330,7 +1338,8 @@ export const useAppStore = create<AppState>()((set, get) => {
 
         reorderProjects: async (ids) => {
             // 先に画面を入れ替えておく（保存を待つと、離した瞬間に元の位置へ戻って見える）
-            set((s) => ({ projects: sortByIds(s.projects, ids), settings: { ...s.settings, projectOrder: ids } }));
+            sortProjectsBy(ids);
+            set((s) => ({ settings: { ...s.settings, projectOrder: ids } }));
             if (isDemo) {
                 return;
             }
@@ -1670,7 +1679,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                                 // 知らないプロジェクト（ほかの端末で作ったもの）があれば、一覧ごと取り直す
                                 void get().loadProjects();
                             } else {
-                                set((s) => ({ projects: sortByIds(s.projects, ids) }));
+                                sortProjectsBy(ids);
                             }
                         });
                 } else if (m.type === 'corrections' && !isDemo) {
