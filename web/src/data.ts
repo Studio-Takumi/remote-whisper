@@ -1,4 +1,6 @@
 // サーバーの REST API から、画面で使う形（types.ts）のデータを作る
+import { queryOptions } from '@tanstack/react-query';
+
 import {
     type FinalTranscriptJson,
     type ProjectJson,
@@ -8,6 +10,7 @@ import {
     type TranscriptJson,
     api,
 } from '@/api';
+import { queryClient, queryKeys } from '@/query';
 import { formatDateTime } from '@/time';
 import type {
     ContextSelection,
@@ -44,20 +47,32 @@ function toSession(json: SessionJson): Session {
     };
 }
 
-// プロジェクトの一覧と、それぞれのセッションの一覧（文字起こしと要約の中身は、開いたときに取る）
+// プロジェクト（セッションの一覧を除いたもの）
+export type ProjectInfo = Omit<Project, 'sessions'>;
+
+// プロジェクトの一覧（queryKeys.projects()）。並びはサーバーが返したまま（設定の projectOrder の順）
+export const projectsQuery = queryOptions({
+    queryKey: queryKeys.projects(),
+    queryFn: async (): Promise<ProjectInfo[]> => {
+        const projects = await api.get<ProjectJson[]>('/api/projects');
+        return projects.map((p) => ({
+            id: p.id,
+            uuid: p.uuid,
+            name: p.name,
+            path: p.path,
+            selection: toSelection(p.selection),
+        }));
+    },
+});
+
+// プロジェクトの一覧と、それぞれのセッションの一覧（文字起こしと要約の中身は、開いたときに取る）。
+// プロジェクトの一覧は毎回取り直す（同時に頼まれたら 1 回にまとめる）
 export async function fetchProjects(): Promise<Project[]> {
-    const projects = await api.get<ProjectJson[]>('/api/projects');
+    const projects = await queryClient.fetchQuery({ ...projectsQuery, staleTime: 0 });
     return Promise.all(
         projects.map(async (p) => {
             const sessions = await api.get<SessionJson[]>(`/api/projects/${p.id}/sessions`);
-            return {
-                id: p.id,
-                uuid: p.uuid,
-                name: p.name,
-                path: p.path,
-                sessions: sessions.map(toSession),
-                selection: toSelection(p.selection),
-            };
+            return { ...p, sessions: sessions.map(toSession) };
         }),
     );
 }
