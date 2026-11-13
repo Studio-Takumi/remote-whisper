@@ -35,8 +35,16 @@ export type GpuJobKind =
     // 録音のあとに、今回扱った資料の範囲で参考資料を作り直す（#182）
     | 'materialRange'
     | 'other';
+// 実行中のジョブの進み具合（#340）。浄書と最終要約だけ。古いサーバー・ほかのジョブでは来ない
+// step は段階の名前、done・total は済んだ数と全体の数（分かるときだけ）、percent は段階の中の %（分かるときだけ）
+export type GpuJobProgress = { step: string; done?: number; total?: number; percent?: number };
 export type GpuJobs = {
-    running: { kind: GpuJobKind; session: string | null; runningSec: number } | null;
+    running: {
+        kind: GpuJobKind;
+        session: string | null;
+        runningSec: number;
+        progress?: GpuJobProgress;
+    } | null;
     // 実行する順。続けて並ぶ同じ種類・同じセッションのものは count にまとめてある
     waiting: { kind: GpuJobKind; session: string | null; count: number; waitingSec: number }[];
 };
