@@ -184,12 +184,7 @@ function JobRow({
         <>
             <div className='flex items-baseline justify-between gap-2'>
                 <div className='min-w-0'>
-                    <p className='truncate'>
-                        {label}
-                        {progress && (
-                            <span className='ml-2 text-xs text-muted-foreground tabular-nums'>{progress.text}</span>
-                        )}
-                    </p>
+                    <p className='truncate'>{label}</p>
                     {session && (
                         <p className='truncate text-xs text-muted-foreground'>
                             {session.title}
@@ -199,20 +194,26 @@ function JobRow({
                 </div>
                 <span className='shrink-0 text-xs text-muted-foreground tabular-nums'>{time}</span>
             </div>
-            {progress && progress.ratio !== null && (
-                <div
-                    role='progressbar'
-                    aria-label={`${kind}の進み具合`}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-valuenow={Math.round(progress.ratio * 100)}
-                    aria-valuetext={progress.text}
-                    className='mt-1 h-1 overflow-hidden rounded-full bg-muted'
-                >
-                    <div
-                        className='h-full rounded-full bg-primary transition-[width] duration-500'
-                        style={{ width: `${progress.ratio * 100}%` }}
-                    />
+            {progress && (
+                <div className='mt-1 flex items-center gap-2'>
+                    {/* 件数も % もない段階は、文だけを左に出す */}
+                    {progress.ratio !== null && (
+                        <div
+                            role='progressbar'
+                            aria-label={`${kind}の進み具合`}
+                            aria-valuemin={0}
+                            aria-valuemax={100}
+                            aria-valuenow={Math.round(progress.ratio * 100)}
+                            aria-valuetext={progress.text}
+                            className='h-1 min-w-8 flex-1 overflow-hidden rounded-full bg-muted'
+                        >
+                            <div
+                                className='h-full rounded-full bg-primary transition-[width] duration-500'
+                                style={{ width: `${progress.ratio * 100}%` }}
+                            />
+                        </div>
+                    )}
+                    <span className='shrink-0 text-xs text-foreground/80 tabular-nums'>{progress.text}</span>
                 </div>
             )}
         </>
