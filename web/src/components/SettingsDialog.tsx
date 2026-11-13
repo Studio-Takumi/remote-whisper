@@ -163,6 +163,8 @@ export function SettingsDialog({
     page,
     onPageChange,
     settings,
+    loaded,
+    onRetry,
     options,
     recording,
     onSave,
@@ -173,6 +175,9 @@ export function SettingsDialog({
     page: string;
     onPageChange: (page: string) => void;
     settings: Settings;
+    // サーバーから設定を読めたか。読めるまでは既定値なので、フォームを出さず保存もさせない（#339）
+    loaded: boolean;
+    onRetry: () => void;
     options: SettingsOptions;
     recording: boolean;
     onSave: (settings: Settings) => void;
@@ -198,17 +203,26 @@ export function SettingsDialog({
                     </DialogDescription>
                 </DialogHeader>
                 {/* DialogContent は閉じると消えるので、開くたびに今の設定から下書きを作り直せる */}
-                <SettingsForm
-                    page={SETTINGS_PAGES.includes(page) ? page : SETTINGS_PAGES[0]}
-                    onPageChange={onPageChange}
-                    settings={settings}
-                    options={options}
-                    recording={recording}
-                    onSave={(s) => {
-                        onSave(s);
-                        onOpenChange(false);
-                    }}
-                />
+                {loaded ? (
+                    <SettingsForm
+                        page={SETTINGS_PAGES.includes(page) ? page : SETTINGS_PAGES[0]}
+                        onPageChange={onPageChange}
+                        settings={settings}
+                        options={options}
+                        recording={recording}
+                        onSave={(s) => {
+                            onSave(s);
+                            onOpenChange(false);
+                        }}
+                    />
+                ) : (
+                    <div className='flex flex-1 flex-col items-center justify-center gap-3 text-sm text-muted-foreground'>
+                        <p>設定を読み込めていません</p>
+                        <Button variant='outline' onClick={onRetry}>
+                            再読み込み
+                        </Button>
+                    </div>
+                )}
             </DialogContent>
         </Dialog>
     );

@@ -90,6 +90,8 @@ type AppState = {
     // 自分で録音していなければ、サーバーに watch を送って見る
     watching: Watching | null;
     settings: Settings;
+    // サーバーから設定を読めたか（#339）。読めるまでは settings が既定値なので、保存で上書きしないために見る
+    settingsLoaded: boolean;
     // 設定で選べる値。サーバーから取れなければダミーのまま
     options: SettingsOptions;
     // サーバーのバージョン（コミットハッシュ）。取れていなければ null
@@ -969,6 +971,7 @@ export const useAppStore = create<AppState>()((set, get) => {
         liveDraft: null,
         watching: null,
         settings: defaultSettings,
+        settingsLoaded: isDemo,
         options: fallbackOptions,
         serverVersion: null,
         server: initialServerStatus,
@@ -1047,7 +1050,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                 return;
             }
             try {
-                set({ settings: await api.get<Settings>('/api/settings') });
+                set({ settings: await api.get<Settings>('/api/settings'), settingsLoaded: true });
             } catch (e) {
                 toast.error(`設定を読み込めません: ${(e as Error).message}`);
             }
@@ -1760,6 +1763,11 @@ export const useAppStore = create<AppState>()((set, get) => {
             if (isDemo) {
                 set({ settings: next });
                 return true;
+            }
+            // 読み終わる前の settings は既定値。これを送ると、サーバーの設定が既定値で上書きされる（#339）
+            if (!get().settingsLoaded) {
+                toast.error('設定を読み込めていないため、保存できません');
+                return false;
             }
             const before = finalModelLabel(llmModels(get().settings));
             const backendBefore = llmBackend(get().settings);
