@@ -147,24 +147,60 @@ function mergeSession(old: Session | undefined, s: Session, keep: Set<string>): 
     };
 }
 
-// 最終の文字起こし（#121）の 1 つの世代。gid を省くといちばん新しいもの
-export async function fetchFinalTranscript(
-    projectId: string,
-    sessionId: string,
-    gid = 'latest',
-): Promise<FinalTranscript> {
-    const json = await api.get<FinalTranscriptJson>(
-        `/api/projects/${projectId}/sessions/${sessionId}/final-transcripts/${gid}`,
-    );
-    return { ...json.meta, generatedAt: displayTime(json.meta.generatedAt) ?? '', lines: json.lines };
+// 文字起こし（queryKeys.transcript()）。録音中・語の変更・置き換えで変わる
+export const transcriptQuery = (projectId: string, sessionId: string) =>
+    queryOptions({
+        queryKey: queryKeys.transcript(projectId, sessionId),
+        queryFn: () => api.get<TranscriptJson>(`/api/projects/${projectId}/sessions/${sessionId}/transcript`),
+    });
+
+// 最終の文字起こしの世代の一覧（queryKeys.finalTranscripts()。#124。古いものから）。作り直すと増える
+export const finalTranscriptsQuery = (projectId: string, sessionId: string) =>
+    queryOptions({
+        queryKey: queryKeys.finalTranscripts(projectId, sessionId),
+        queryFn: async (): Promise<FinalTranscriptInfo[]> => {
+            const list = await api.get<FinalTranscriptJson['meta'][]>(
+                `/api/projects/${projectId}/sessions/${sessionId}/final-transcripts`,
+            );
+            return list.map((m) => ({ ...m, generatedAt: displayTime(m.generatedAt) ?? '' }));
+        },
+    });
+
+// 最終の文字起こし（#121）の 1 つの世代（queryKeys.finalTranscript()）。世代のファイルは書き換わらないので、
+// 一度取ったらキャッシュのものを使う（世代を切り替えて戻ったときに取り直さない）。
+// サーバーが置き換え（#176）を当てて返すので、置き換えが変わったら無効にする（invalidateTranscripts）
+export const finalTranscriptQuery = (projectId: string, sessionId: string, gid: string) =>
+    queryOptions({
+        queryKey: queryKeys.finalTranscript(projectId, sessionId, gid),
+        queryFn: async (): Promise<FinalTranscript> => {
+            const json = await api.get<FinalTranscriptJson>(
+                `/api/projects/${projectId}/sessions/${sessionId}/final-transcripts/${gid}`,
+            );
+            return { ...json.meta, generatedAt: displayTime(json.meta.generatedAt) ?? '', lines: json.lines };
+        },
+        staleTime: Infinity,
+    });
+
+// 文字起こし（リアルタイム）を取る。キャッシュがあっても取り直す（同時に頼まれたら 1 回にまとめる）
+export function fetchTranscript(projectId: string, sessionId: string) {
+    return queryClient.fetchQuery({ ...transcriptQuery(projectId, sessionId), staleTime: 0 });
 }
 
-// 最終の文字起こしの世代の一覧（#124。古いものから）
-export async function fetchFinalTranscripts(projectId: string, sessionId: string): Promise<FinalTranscriptInfo[]> {
-    const list = await api.get<FinalTranscriptJson['meta'][]>(
-        `/api/projects/${projectId}/sessions/${sessionId}/final-transcripts`,
-    );
-    return list.map((m) => ({ ...m, generatedAt: displayTime(m.generatedAt) ?? '' }));
+// 最終の文字起こしの 1 つの世代
+export function fetchFinalTranscript(projectId: string, sessionId: string, gid: string) {
+    return queryClient.fetchQuery(finalTranscriptQuery(projectId, sessionId, gid));
+}
+
+// 最終の文字起こしの世代の一覧。キャッシュがあっても取り直す
+export function fetchFinalTranscripts(projectId: string, sessionId: string) {
+    return queryClient.fetchQuery({ ...finalTranscriptsQuery(projectId, sessionId), staleTime: 0 });
+}
+
+// 置き換え（#176）が変わった。そのセッションの文字起こしと、最終の文字起こしの全部の世代を古いものにする
+// （次に取るときに取り直す）
+export function invalidateTranscripts(projectId: string, sessionId: string) {
+    void queryClient.invalidateQueries({ queryKey: queryKeys.transcript(projectId, sessionId) });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.finalTranscripts(projectId, sessionId) });
 }
 
 // 表示する最終の文字起こしの世代。今の全体設定の Whisper のモデルで作ったうちいちばん新しいもの。
@@ -179,7 +215,7 @@ export async function fetchSessionDetail(projectId: string, session: Session, wh
     const base = `/api/projects/${projectId}/sessions/${session.id}`;
     // どのファイルがあるか分からない（手元で作ったセッション）ときは、先にサーバーに聞く
     const files = session.files ?? (await api.get<SessionJson>(base)).files;
-    const transcriptJson = files?.transcript ? await api.get<TranscriptJson>(`${base}/transcript`) : null;
+    const transcriptJson = files?.transcript ? await fetchTranscript(projectId, session.id) : null;
     const transcript = transcriptJson?.lines ?? [];
     const pickedTerms = transcriptJson?.meta?.pickedTerms ?? [];
     const manualTerms = transcriptJson?.meta?.manualTerms ?? [];

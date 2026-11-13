@@ -1,7 +1,7 @@
 import { toast } from 'sonner';
 import { create } from 'zustand';
 
-import { ApiError, type CorrectionsJson, type ProjectJson, type TermsJson, type TranscriptJson, api } from '@/api';
+import { ApiError, type CorrectionsJson, type ProjectJson, type TermsJson, api } from '@/api';
 import { type MicState, Microphone, MicrophoneError, SAMPLE_RATE, watchMicrophonePermission } from '@/audio/microphone';
 import {
     type UnsentElsewhere,
@@ -23,6 +23,8 @@ import {
     fetchFinalTranscripts,
     fetchProjects,
     fetchSessionDetail,
+    fetchTranscript,
+    invalidateTranscripts,
     isDemo,
     mergeProjects,
     projectsQuery,
@@ -916,14 +918,18 @@ export const useAppStore = create<AppState>()((set, get) => {
     async function refreshTranscripts(sessionId: string) {
         const project = get().projects.find((p) => p.sessions.some((x) => x.id === sessionId));
         const session = project?.sessions.find((x) => x.id === sessionId);
-        if (!project || !session?.loaded) {
+        if (!project) {
             return;
         }
-        const base = `/api/projects/${project.id}/sessions/${sessionId}`;
+        // キャッシュにある文字起こしと最終の文字起こしの世代は、置き換える前のもの
+        invalidateTranscripts(project.id, sessionId);
+        if (!session?.loaded) {
+            return;
+        }
         const gid = session.finalTranscript?.generationId;
         try {
             const [transcriptJson, finalTranscript] = await Promise.all([
-                api.get<TranscriptJson>(`${base}/transcript`),
+                fetchTranscript(project.id, sessionId),
                 gid ? fetchFinalTranscript(project.id, sessionId, gid) : Promise.resolve(undefined),
             ]);
             set((s) => ({
