@@ -8,12 +8,12 @@
 |---|---|---|
 | GET | `/api/settings` | 全体設定を返す。LM Studio の API トークン（`lmstudio.token`）は返さず、設定済みかどうか（`lmstudio.tokenSet`）だけを返す（#325。5.3 節） |
 | PATCH | `/api/settings` | 全体設定を部分的に更新する。録音中に、録音中は変えられない項目（5.3 節）の値を変えようとすると `409`。クラウド版（トンネル）から接続先など（`cloud.relayUrl`・`cloud.cloudflaredPath`・`materials.roots`・`materials.extensions`・`ollama.host`・`llm.backend`・`lmstudio.host`・`lmstudio.token`・`network.allowedHosts`）の値を変えようとすると `403`。`lmstudio.token` は、送らない・空なら保存済みのまま、`null` なら消す。返事は GET と同じ形（トークンは返さない）。`llm.backend` を変えたら、録音がすべて終わってから切り替える（5.3 節） |
-| GET | `/api/settings/options` | 選べる値を返す（Whisper のモデル、使っている LLM（`llm.backend`。#325）のモデルと、それぞれが思考モードに対応しているか。5.3 節）。LLM は `llm: {backend, models, missing}`（`missing` は処理ごとのモデルのうち、そのバックエンドに入っていないもののキー。`lmstudio` なら `lmstudio.models` で見る）。`ollama: {models, missing}` は同じ中身の古い名前（画面は #327 で `llm` を読むようにしたが、PWA に古い画面が残っている間のために残す。下の「古い名前を消す時期」）。録音中に `llm.backend` を変えたときは、切り替わるまで前のバックエンドのもの |
+| GET | `/api/settings/options` | 選べる値を返す（Whisper のモデル、使っている LLM（`llm.backend`。#325）のモデルと、それぞれが思考モードに対応しているか。5.3 節）。LLM は `llm: {backend, models, missing}`（`missing` は処理ごとのモデルのうち、そのバックエンドに入っていないもののキー。`lmstudio` なら `lmstudio.models` で見る）。`ollama: {models, missing}` は同じ中身の古い名前（画面は #327 で `llm` を読むようにしたが、PWA に古い画面が残っている間のために残す。下の「古い名前を消す時期」）。録音中に `llm.backend` を変えたときは、切り替わるまで前のバックエンドのもの。`recording: {maxSources}`（#241。複数の音源に対応しているサーバーだけが返す。6.16 節） |
 | GET | `/api/projects` | プロジェクトの一覧。全体設定の `projectOrder` の順（5.3 節。ないものは先頭） |
 | POST | `/api/projects` | ディレクトリをプロジェクトとして登録する（すでにあればそれを返す） |
 | GET | `/api/sessions/{uuid}` | セッションの UUID から、セッションのメタ情報と `projectId`・`projectUuid` を返す（#177）。なければ `404` |
 | GET | `/api/projects/{pid}/sessions` | セッションの一覧（サイドバー用） |
-| POST | `/api/projects/{pid}/sessions/upload` | 音声ファイルから新しいセッションを作る（6.11 節、#180）。クエリは `name`・`lastModified`、本文はファイルそのもの。`202` で作ったセッションを返す。複数のファイルを 1 つのセッションにするとき（6.16 節）は、1 つ目のファイル（主の音源）をクエリ `sources=<ファイルの数>`（2〜`recording.maxSources`。超えたら `422`）を付けて送る。このときは、ファイルがそろうまで浄書を始めない |
+| POST | `/api/projects/{pid}/sessions/upload` | 音声ファイルから新しいセッションを作る（6.11 節、#180）。クエリは `name`・`lastModified`、本文はファイルそのもの。`202` で作ったセッションを返す。複数のファイルを 1 つのセッションにするとき（6.16 節）は、1 つ目のファイル（主の音源）をクエリ `sources=<ファイルの数>`（2〜`recording.maxSources`。超えたら `422`）を付けて送る（古いサーバーは `sources` を無視するので、先に `/api/settings/options` の `recording.maxSources` で対応を確かめる。下の「古いクライアント・サーバーとの組み合わせ」）。このときは、ファイルがそろうまで浄書を始めない |
 | POST | `/api/projects/{pid}/sessions/{sid}/sources/upload` | 複数のファイルから作るセッションに、2 つ目以降のファイル（ほかの音源）を足す（6.16 節、#241）。クエリは `name`・`lastModified`、本文はファイルそのもの。受け付ける形式・大きさの上限・エラーは `upload` と同じ。`202` で音源（`id`・`name`）を返す。`sources` の数をそろえたら浄書を始める。`sources` を付けて作ったセッションでない・もうそろっている・浄書を始めたあとは `409`。最後のファイルが 30 分届かなければ、届いた分だけで浄書を始める（ログに書く） |
 | GET | `/api/projects/{pid}/sessions/{sid}` | セッションのメタ情報 |
 | POST | `/api/projects/{pid}/sessions/{sid}/move` | セッションを別のプロジェクトへ移す（#172。5.4 節）。本文は `{ "to": "<移動先のプロジェクト ID か UUID>" }`。移せなければ `409`（理由を `detail` に）、同じプロジェクトなら `400`、途中で失敗したら元に戻して `500`。移したセッションのメタ情報と `projectId`（移動先）を返す |
@@ -95,10 +95,10 @@
 | `projectOrder` | プロジェクトの並び順（`projectOrder`、5.3 節）が変わった（#173。全員に送る）。画面は設定を取り直して一覧を並べ直す（知らないプロジェクトがあれば一覧ごと取り直す） |
 | `sessionMoved` | セッションを別のプロジェクトへ移した（#172。全員に送る）。`session`・`sessionUuid`・`from`・`to`（プロジェクト ID）。画面は一覧を取り直し、開いていたら移した先で開いたままにする |
 | `contextSet` | `project`（プロジェクト ID）、`id`、`status`（`generating` / `ready` / `failed`） |
-| `watching` | `watch` の返事（#238）。`state`（`recording` / `paused` / `disconnected` / `idle`）。`idle` は録音中ではない（自分で録音しているセッションも `idle`）ので見ない。そうでなければ、そこまでの `transcript`（`[{time, text}]`）・`liveSummary`・`title` が付く |
+| `watching` | `watch` の返事（#238）。`state`（`recording` / `paused` / `disconnected` / `idle`）。`idle` は録音中ではない（自分で録音しているセッションも `idle`）ので見ない。そうでなければ、そこまでの `transcript`（`[{time, text}]`）・`liveSummary`・`title` が付く。参加に対応したサーバー（#241）は `join`（`{available, reason}`。`reason` は参加できないときだけ `limit`（つながっている音源が `recording.maxSources` に達した・音源 ID が 16 個に達した）/ `disabled`（`recording.maxSources` が 1））も付ける |
 | `recordingState` | 見ているセッションの録音の状態が変わった（#238）。`state`（`recording` / `paused` / `disconnected` / `stopped`）。見ているクライアントにだけ送る |
 | `joined` | `join` の返事（#241）。`session`・`source`（音源 ID）・`offsetSec`（主の音源の時刻での、参加した時刻）。つなぎ直しのときは `rejoined: true` と、受け取り済みの最後の連番の `ack` も送る |
-| `sources` | セッションの音源の一覧が変わった（#241）。`session`・`sources`（`[{id, name, kind, state}]`。`state` は `active` / `disconnected` / `left`）。録音しているクライアント・見ているクライアント・参加しているクライアントに送る |
+| `sources` | セッションの音源の一覧が変わった（#241）。`session`・`sources`（`[{id, name, kind, state}]`。`state` は `active` / `disconnected` / `left`）と `join`（`watching` と同じ。上限に達した・空いたときに変わる）。録音しているクライアント・見ているクライアント・参加しているクライアントに送る |
 | `finalTranscript` | `generationId`。浄書済み文字起こしができた（6.9 節）。全員に送る |
 | `status` | `whisper`（`unloaded` / `loading` / `ready` / `error`）、`ollama`（`ready` / `error`）、`lmstudio`（`ready` / `error`。LM Studio を一度も呼んでいなければ項目ごと出さない。#324）、`recordings`（録音中のセッションの数）、`queue`（待っている・実行中のジョブの数）、`jobs`、`gpu`、`summarizing`、`transcribing` |
 | `error` | `code`、`message` |
@@ -115,11 +115,15 @@
 - **録音中の参加（#241。6.16 節）**: 録音中のセッションを見られるクライアントは、そのセッションに音源として参加できる。
   - クライアントは `join` を送る。サーバーは新しい音源 ID を振って `joined` を返し、その接続を「見ている」にも登録する（`watching` も送る。参加した端末にもリアルタイム文字起こしが流れる）。1 つの接続が参加できるのは 1 つのセッションだけで、自分で録音しているセッションには参加できない。
   - 参加した接続の音声のバイナリは、主の音源と同じ形（先頭 4 バイトが連番、続きが 16kHz・モノラル・Int16）で、連番は音源ごとに 0 から数える。`ack`・抜けたチャンク・二重のチャンクの扱いも主の音源と同じ。
-  - `partial`・`final` には、音源が 2 つ以上のセッションでは `source`（音源 ID）を付ける。`watching` の `transcript` の各行にも付ける。音源が 1 つのときは付けない。
+  - `partial`・`final` には、音源が 2 つ以上のセッションでは `source`（音源 ID）を付ける。`watching` の `transcript` の各行にも付ける。音源が 1 つのときは付けない。`segment` は音源をまたいだセッション全体の通し番号にする（6.16 節）。クライアントは partial を音源ごとに 1 つずつ持ち、同じ `segment` の final が届いたらその partial を消す。
   - 接続が切れたら、その音源を `disconnected` にして `sources` を送る。主の録音は止めない。`join` に `source` と `nextSeq` を付けて送り直すと、同じ音源としてつなぎ直す（`resume` と同じく、続きの連番から送る）。主の音源の録音が終わったら、参加している接続に `recordingState` の `stopped` を送り、参加を終える。
   - 録音の操作（`pause`・`stop` など）は、参加した接続からは受け付けない（`not_recording`）。
-  - `error` の `code`: `cannot_join`（録音中でない・自分で録音しているセッション・`recording.maxSources` を超える・ほかのセッションに参加している）、`session_not_found`。
-- **古いクライアント・サーバーとの組み合わせ**: 音源が 1 つのセッションでは、メッセージとファイルは今までと同じにする（`source` を付けない）。古いサーバーに `join` を送ると `bad_message` が返るので、新しいクライアントは参加のボタンを出さない（返事が `bad_message` なら「このホストは参加に対応していません」と出す）。古いクライアントは `joined`・`sources` を知らないので読み飛ばし、`partial`・`final` の `source` も無視する（主の音源以外の行も、ふつうの行として出る）。
+  - `error` の `code`: `cannot_join`（録音中でない・自分で録音しているセッション・つながっている音源が `recording.maxSources` を超える・音源 ID が 16 個に達した・ほかのセッションに参加している）、`session_not_found`。
+- **古いクライアント・サーバーとの組み合わせ**: 音源が 1 つのセッションでは、メッセージとファイルは今までと同じにする（`source` を付けない）。
+  - **新しいクライアントと古いサーバー**: 対応しているかは、押す前に次の項目があるかで見分ける。古いサーバーは送らないので、なければ対応していないとみなす。
+    - 参加: `watching`（と `sources`）の `join`。なければ参加のボタンを押せなくして「このホストは参加に対応していません」と出す。`join` を送って `bad_message` が返ったときも同じに扱う。
+    - 複数のファイルから作る: `GET /api/settings/options` の `recording.maxSources`。なければ、複数のファイルを選んだときに「1 つのセッションにまとめる」を押せなくして、同じ理由を出す（別々のセッションにはできる）。古いサーバーは `upload` のクエリの `sources` を無視して 1 本のセッションとして浄書を始め、続く `POST .../sources/upload` は `404` になるので、先に確かめる。それでも `404` が返ったら、残りのファイルは送らず、1 本のセッションとして残ったことを知らせる。
+  - **古いクライアントと新しいサーバー**: 古いクライアントは `joined`・`sources` と `watching` の `join` を知らないので読み飛ばし、`partial`・`final` の `source` も無視する（ほかの音源の行も、ふつうの行として出る）。`segment` が通し番号なので、ほかの音源の final で主の音源の partial が消えることはない。ただし古いクライアントは partial を 1 つしか持たないので、2 つの音源が同時に話している間は、partial が音源ごとに交互に上書きされてちらつく（final は正しく出る）。
 - サーバーとの接続（再接続中かどうか）とマイクの許可は、`status` には含めず、クライアント側で判定して表示する。
 - `recordings` と `queue` は、今のところ クライアントには出さない。
 - `jobs` は GPU キュー（6.3 節）の `running`（実行中のジョブ。`kind`・`session`・`runningSec`、なければ `null`）と `waiting`（待っているジョブを実行する順に。`kind`・`session`・`count`・`waitingSec`）。続けて並ぶ同じ種類・同じセッションのジョブは1つにまとめて `count` にする（partial が溜まっても長くならないように）。秒数は送った時点のもので、クライアントは受け取ってからの時間を足して出す。ジョブが変わるたびに送るが、0.5 秒の間の変化はまとめて送る（partial のたびに送りすぎないように）。
