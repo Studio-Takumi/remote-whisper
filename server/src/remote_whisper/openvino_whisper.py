@@ -210,7 +210,22 @@ def generate(pipe: Any, audio: Any, options: dict) -> list[dict]:
             segments.append({"start": 0.0, "end": duration, "text": text})
     for s in segments:
         s["compression_ratio"] = compression_ratio(s["text"])
+    _log_if_cut(segments, kwargs["max_new_tokens"], duration)
     return segments
+
+
+def _log_if_cut(segments: list[dict], limit: int, duration: float) -> None:
+    """出す長さの上限で止まったらしいときにログに残す（文の後ろが欠けたか、繰り返しで埋まったか
+    を後で見分けるため）。トークンの数は取れないので、文字数で目安にする（日本語は 1 文字が
+    1 トークン以上になることが多いので、上限の 7 割の文字数で出す）"""
+    chars = sum(len(s["text"]) for s in segments)
+    if chars >= limit * 0.7:
+        log.info(
+            "the transcript of %.1fs may be cut at max_new_tokens=%d (%d characters)",
+            duration,
+            limit,
+            chars,
+        )
 
 
 def speech_spans(audio: Any, max_speech_sec: float | None = None) -> list[tuple[int, int]]:
@@ -238,12 +253,18 @@ def transcribe(pipe: Any, audio: Any, options: dict) -> list[dict]:
     """録音中の文字起こし（whisper_worker）。faster-whisper の `vad_filter` と同じく、
     VAD を使うなら話している範囲だけを渡し、話していなければ文字起こししない（#81）
 
-    VAD を使ったときは、区間ごとに話している長さ（`voiced_sec`）を付ける。
-    信頼度の代わりに、ハルシネーションの判定に使う（hallucination.py）
+    文ごとに話している長さ（`voiced_sec`）を付ける。信頼度の代わりに、ハルシネーションの判定に
+    使う（hallucination.py）。VAD で切り出した区間（`vad_filter` が False。録音中の既定）でも
+    付ける（切り詰めはしない）。そのときに VAD が区間のどこにも声を見つけなければ、区間を
+    切り出した側の判定を信じて付けない（区間全体の長さで判定される）
     """
-    if not options.get("vad_filter", True):
-        return generate(pipe, audio, options)
     spans = speech_spans(audio)
+    if not options.get("vad_filter", True):
+        segments = generate(pipe, audio, options)
+        if spans:
+            for s in segments:
+                s["voiced_sec"] = voiced_sec(spans, s["start"], s["end"])
+        return segments
     if not spans:
         return []
     offset, end = spans[0][0], spans[-1][1]

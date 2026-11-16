@@ -175,12 +175,46 @@ def test_transcribe_uses_vad_and_measures_voiced_time(monkeypatch):
     assert result[0]["voiced_sec"] == pytest.approx(1.0)
 
 
+def test_vad_cut_segments_also_get_voiced_time_per_sentence(monkeypatch):
+    # 録音中の既定（VadSegmenter → vad_filter False）: 切り詰めずに全部渡し、文ごとに
+    # 話している長さを付ける。話した後ろに付いた定番の文は、その文の範囲で判定される
+    from remote_whisper.hallucination import drop_reason
+
+    monkeypatch.setattr(
+        openvino_whisper, "speech_spans", lambda audio, max_speech_sec=None: [(0, 3 * SR)]
+    )
+    pipe = FakePipe(
+        chunks=[
+            SimpleNamespace(start_ts=0.0, end_ts=3.0, text="今日は会議の続きです"),
+            SimpleNamespace(start_ts=4.0, end_ts=6.0, text="ご視聴ありがとうございました"),
+        ]
+    )
+    result = openvino_whisper.transcribe(
+        pipe, np.zeros(SR * 6, dtype=np.float32), {"vad_filter": False}
+    )
+    assert pipe.calls[0][0] == SR * 6
+    assert result[0]["voiced_sec"] == pytest.approx(3.0)
+    assert result[1]["voiced_sec"] == 0.0
+    # 区間全体では 3 秒話しているが、文ごとに見るので捨てる
+    assert drop_reason(result[0], 3.0) is None
+    assert drop_reason(result[1], 3.0) == "no_speech"
+
+
+def test_logs_when_the_token_limit_may_have_cut_the_text(caplog):
+    pipe = FakePipe(chunks=[SimpleNamespace(start_ts=0.0, end_ts=1.0, text="あ" * 40)])
+    with caplog.at_level("INFO", logger="remote_whisper.openvino_whisper"):
+        openvino_whisper.generate(pipe, np.zeros(SR, dtype=np.float32), {})
+    # 1 秒 → 上限 44。7 割（30.8 文字）を超えたら残す
+    assert "may be cut at max_new_tokens=44" in caplog.text
+
+
 def test_transcribe_skips_audio_without_speech(monkeypatch):
     monkeypatch.setattr(openvino_whisper, "speech_spans", lambda audio, max_speech_sec=None: [])
     pipe = FakePipe()
     assert openvino_whisper.transcribe(pipe, np.zeros(SR, dtype=np.float32), {}) == []
     assert pipe.calls == []
-    # VAD を切れば（VAD で切り出した区間）、そのまま全部渡す。話している長さは付けない
+    # VAD を切れば（VAD で切り出した区間）、そのまま全部渡す。VAD が声を見つけなければ
+    # 切り出した側の判定を信じて、話している長さは付けない
     result = openvino_whisper.transcribe(
         pipe, np.zeros(SR, dtype=np.float32), {"vad_filter": False}
     )
