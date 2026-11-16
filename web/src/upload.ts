@@ -6,9 +6,30 @@ import { apiUrl } from '@/endpoint';
 // 選べるファイル。動画は音声だけを使う
 export const AUDIO_ACCEPT = 'audio/*,video/*,.m4a,.mp3,.wav,.flac,.ogg,.opus,.webm,.aac';
 
-export function uploadUrl(projectId: string, file: { name: string; lastModified: number }) {
+// sources は複数のファイルを 1 つのセッションにまとめるときのファイルの数（#241・#357。1 つ目のファイルに付ける）
+export function uploadUrl(projectId: string, file: { name: string; lastModified: number }, sources?: number) {
     const params = new URLSearchParams({ name: file.name, lastModified: String(file.lastModified) });
+    if (sources !== undefined) {
+        params.set('sources', String(sources));
+    }
     return apiUrl(`/api/projects/${encodeURIComponent(projectId)}/sessions/upload?${params}`);
+}
+
+// まとめるセッションに、2 つ目以降のファイル（ほかの音源）を足す（POST .../sources/upload）
+export function sourceUploadUrl(projectId: string, sessionId: string, file: { name: string; lastModified: number }) {
+    const params = new URLSearchParams({ name: file.name, lastModified: String(file.lastModified) });
+    return apiUrl(
+        `/api/projects/${encodeURIComponent(projectId)}/sessions/${encodeURIComponent(sessionId)}/sources/upload?${params}`,
+    );
+}
+
+// 送れなかった。status はサーバーの状態コード（つながらなければ 0）
+export class UploadError extends Error {
+    readonly status: number;
+    constructor(status: number, body: string) {
+        super(uploadError(status, body));
+        this.status = status;
+    }
 }
 
 // サーバーの断った理由（detail）。読めなければ状態コード
@@ -29,10 +50,25 @@ export function uploadAudio(
     projectId: string,
     file: File,
     onProgress: (percent: number) => void,
+    sources?: number,
 ): Promise<SessionJson> {
+    return sendFile<SessionJson>(uploadUrl(projectId, file, sources), file, onProgress);
+}
+
+// まとめるセッションに、ほかの音源のファイルを足す。足した音源（id・name）を返す
+export function uploadSource(
+    projectId: string,
+    sessionId: string,
+    file: File,
+    onProgress: (percent: number) => void,
+): Promise<{ id: number; name: string }> {
+    return sendFile(sourceUploadUrl(projectId, sessionId, file), file, onProgress);
+}
+
+function sendFile<T>(url: string, file: File, onProgress: (percent: number) => void): Promise<T> {
     return new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
-        xhr.open('POST', uploadUrl(projectId, file));
+        xhr.open('POST', url);
         xhr.setRequestHeader('Content-Type', 'application/octet-stream');
         xhr.upload.onprogress = (e) => {
             if (e.lengthComputable) {
@@ -41,12 +77,12 @@ export function uploadAudio(
         };
         xhr.onload = () => {
             if (xhr.status >= 200 && xhr.status < 300) {
-                resolve(JSON.parse(xhr.responseText) as SessionJson);
+                resolve(JSON.parse(xhr.responseText) as T);
             } else {
-                reject(new Error(uploadError(xhr.status, xhr.responseText)));
+                reject(new UploadError(xhr.status, xhr.responseText));
             }
         };
-        xhr.onerror = () => reject(new Error(uploadError(0, '')));
+        xhr.onerror = () => reject(new UploadError(0, ''));
         xhr.send(file);
     });
 }

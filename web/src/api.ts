@@ -1,6 +1,7 @@
 // サーバーの REST API（docs/spec/api.md 7.1 節）を呼ぶ
 import type { Correction } from '@/corrections';
 import { apiUrl } from '@/endpoint';
+import type { SessionSource } from '@/sources';
 
 // サーバーがエラー（4xx・5xx）を返したとき。message はサーバーの detail（日本語）
 export class ApiError extends Error {
@@ -101,6 +102,9 @@ export type TranscriptJson = {
         materialRange?: MaterialRange[] | null;
         // 置き換え（#176。古いサーバーにはない）
         corrections?: Correction[];
+        // 音源（#241）。音源が 2 つ以上のセッションだけ。lineSources は行ごとの音源 ID
+        sources?: SessionSource[];
+        lineSources?: number[];
     };
 };
 
@@ -113,6 +117,8 @@ export type FinalTranscriptJson = {
         generatedAt: string;
         diarization: 'done' | 'off' | 'unavailable';
         speakers: number;
+        // 行ごとの音源 ID（#241。音源が 2 つ以上のときだけ）
+        lineSources?: number[];
     };
 };
 

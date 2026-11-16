@@ -79,12 +79,20 @@ export class SourceJoin {
     private ended = false;
     private readonly onChange: (joined: Joined | null) => void;
     private readonly onEnd: (message: string | null) => void;
+    private readonly onLevel: (level: number) => void;
 
-    // onChange は状態が変わったとき、onEnd は参加が終わったとき（message は知らせる理由。抜けた・録音が終わったときは null）
-    constructor(sessionId: string, onChange: (joined: Joined | null) => void, onEnd: (message: string | null) => void) {
+    // onChange は状態が変わったとき、onEnd は参加が終わったとき（message は知らせる理由。抜けた・録音が終わったときは null）。
+    // onLevel はマイクの音量（RMS、0〜1。#357）
+    constructor(
+        sessionId: string,
+        onChange: (joined: Joined | null) => void,
+        onEnd: (message: string | null) => void,
+        onLevel: (level: number) => void = () => {},
+    ) {
         this.sessionId = sessionId;
         this.onChange = onChange;
         this.onEnd = onEnd;
+        this.onLevel = onLevel;
         this.sender = new AudioSender();
         // joined が届くまでは送らずに溜めておく
         this.sender.hold();
@@ -96,7 +104,10 @@ export class SourceJoin {
             // 読み込み直す前の続きの連番から振る（0 から振ると、サーバーが受け取り済みとみなして捨てる）
             this.sender.startFrom(rejoin.nextSeq);
         }
-        this.mic = await Microphone.open((pcm) => this.sender.push(pcm), processing);
+        this.mic = await Microphone.open((pcm, level) => {
+            this.sender.push(pcm);
+            this.onLevel(level);
+        }, processing);
         if (this.ended) {
             this.mic.close();
             return;
