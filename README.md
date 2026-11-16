@@ -100,6 +100,7 @@ uv sync --extra final --extra openvino    # 浄書も（位置合わせと話者
 - Intel のグラフィックスドライバーは 31.0.101.5445 で動くことを確かめています
 - 内蔵の GPU（Iris Xe など）は使いません。NVIDIA の GPU がある PC では、入れても今までどおり CUDA で動きます
 - 初回はモデル（`OpenVINO/whisper-large-v3-turbo-int8-ov`・`-fp16-ov`）のダウンロードと、GPU 向けのコンパイル（1 分ほど）があります。コンパイルの結果は `HF_HOME` の下に残るので、2 回目からは数秒で読み込みます
+- `whisper.model` に `/` を含むリポジトリ名を書くときは、OpenVINO の形式のリポジトリ（`OpenVINO/whisper-...-ov` など）を指定します。faster-whisper 用（CTranslate2）のリポジトリは読み込めません
 - ビームサーチは使えず、いつも greedy で文字起こしします。使わないようにするときは、`setting.json` の `whisper.intelGpu` を `"off"` にします
 
 ### 起動
