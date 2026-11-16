@@ -23,6 +23,12 @@ PHRASE_LOGPROB = -0.6
 # 出ることがあるため（#88）。本当に「ありがとうございました」と言えば 1 秒前後かかる
 PHRASE_MIN_VOICED_SEC = 0.6
 
+# 信頼度が取れない実行系（OpenVINO。#374）の代わりの判定。文の時刻の範囲で VAD が話していると
+# みなした長さ（文ごとの voiced_sec）がこれより短ければ、話していないとみなす
+NO_SCORES_MIN_VOICED_SEC = 0.2
+# 定番の文は、信頼度で後押しできないので、話している長さを長めに求める
+NO_SCORES_PHRASE_MIN_VOICED_SEC = 0.8
+
 # 無音・雑音から作られやすい定番の文（動画の字幕で学習したことによるもの）。
 # 文のほとんどがこれらでできているときだけ一致とみなす（_is_phrase）ので、
 # 言い換えは別に並べる（#235）
@@ -71,11 +77,13 @@ def drop_reason(segment: dict[str, Any], voiced_sec: float | None = None) -> str
 
     voiced_sec は、その文が出た区間で VAD が話しているとみなした長さ（分からなければ None）
     """
+    if not normalize(segment.get("text", "")):
+        return None
+    if segment.get("no_speech_prob") is None and segment.get("avg_logprob") is None:
+        return _drop_reason_without_scores(segment, voiced_sec)
     ns = segment.get("no_speech_prob", 0.0)
     lp = segment.get("avg_logprob", 0.0)
     cr = segment.get("compression_ratio", 0.0)
-    if not normalize(segment.get("text", "")):
-        return None
     if ns >= NO_SPEECH_PROB and lp <= LOW_LOGPROB:
         return "no_speech"
     if cr > MAX_COMPRESSION_RATIO:
@@ -85,4 +93,28 @@ def drop_reason(segment: dict[str, Any], voiced_sec: float | None = None) -> str
             return "phrase"
         if voiced_sec is not None and voiced_sec < PHRASE_MIN_VOICED_SEC:
             return "short_phrase"
+    return None
+
+
+def _drop_reason_without_scores(segment: dict[str, Any], voiced_sec: float | None) -> str | None:
+    """信頼度（no_speech_prob・avg_logprob）がない区間（OpenVINO。#374）。
+    VAD と繰り返しの検出で代える
+
+    - 繰り返し: compression_ratio（実行系の側で計算して付ける）
+    - 話していない: 文ごとの voiced_sec（文の時刻の範囲で VAD が話しているとみなした長さ）が短い
+    - 定番の文: 話している長さ（文ごとの voiced_sec、なければ区間の voiced_sec）が短い
+    どちらの長さも分からなければ（偽の実行系など）、繰り返しのほかは残す
+    """
+    if segment.get("compression_ratio", 0.0) > MAX_COMPRESSION_RATIO:
+        return "repetition"
+    own = segment.get("voiced_sec")
+    if own is not None and own < NO_SCORES_MIN_VOICED_SEC:
+        return "no_speech"
+    voiced = own if own is not None else voiced_sec
+    if (
+        _is_phrase(segment["text"])
+        and voiced is not None
+        and voiced < NO_SCORES_PHRASE_MIN_VOICED_SEC
+    ):
+        return "short_phrase"
     return None

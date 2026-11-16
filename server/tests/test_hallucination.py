@@ -12,6 +12,38 @@ def seg(text, ns=0.0, lp=-0.1, cr=1.0):
     }
 
 
+def ov(text, cr=1.0, voiced=None):
+    """OpenVINO（#374）の区間。信頼度はなく、VAD で測った話している長さが付くことがある"""
+    s = {"start": 0.0, "end": 1.0, "text": text, "compression_ratio": cr}
+    if voiced is not None:
+        s["voiced_sec"] = voiced
+    return s
+
+
+def test_without_scores_drops_repetition():
+    assert drop_reason(ov("うんうんうん", cr=3.0)) == "repetition"
+    assert drop_reason(ov("今日はいい天気ですね")) is None
+
+
+def test_without_scores_drops_text_where_vad_heard_nobody():
+    # 文の時刻の範囲で VAD が話していないとみなしたら、話していない
+    assert drop_reason(ov("今日はいい天気ですね", voiced=0.1)) == "no_speech"
+    assert drop_reason(ov("今日はいい天気ですね", voiced=1.0)) is None
+
+
+def test_without_scores_a_phrase_needs_longer_speech():
+    # 信頼度で後押しできないので、定番の文は話している長さを長めに求める
+    assert drop_reason(ov("ご視聴ありがとうございました", voiced=0.5)) == "short_phrase"
+    assert drop_reason(ov("ありがとうございました", voiced=1.2)) is None
+    # 文ごとの長さがなければ、区間の長さ（VAD で切り出した区間）で見る
+    assert drop_reason(ov("ご視聴ありがとうございました"), voiced_sec=0.7) == "short_phrase"
+    assert drop_reason(ov("ご視聴ありがとうございました"), voiced_sec=1.5) is None
+    # どちらも分からなければ残す（一致しただけでは捨てない）
+    assert drop_reason(ov("ありがとうございました")) is None
+    # 定番の文でなければ短くても残す
+    assert drop_reason(ov("はい", voiced=0.3)) is None
+
+
 def test_keeps_ordinary_speech():
     assert drop_reason(seg("今日はリリース計画について決めていきたいと思います。")) is None
 
