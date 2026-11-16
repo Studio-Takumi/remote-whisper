@@ -108,3 +108,18 @@ def test_realign_finds_the_offset(monkeypatch):
     assert mixer.apply(windows[0], lag, sharpness)
     offset, drift = mixer.alignment(2)
     assert abs(offset + 0.4) < 0.01 and drift == 0.0
+
+
+def test_a_step_in_the_offset_is_not_fitted_as_drift():
+    mixer = LiveMixer(Sink())
+    mixer.add(2, Sink())
+    track = mixer.tracks[2]
+    sharp = live_sources.multisource.MIN_SHARPNESS
+    # ずれは -0.5 秒で安定していて、4 回目で 0.4 秒の段が入る（lag は今の当てはめからの差）
+    for i, lag in enumerate([0.5, 0.0, 0.0, 0.4, 0.0, 0.0]):
+        window = live_sources.AlignWindow(2, (i + 1) * 600, np.zeros(1), np.zeros(1))
+        assert mixer.apply(window, lag * SR, sharp)
+    offset, drift = mixer.alignment(2)
+    assert abs(drift) < 1.0
+    assert len(track.measures) == 3
+    assert abs(offset - (-0.9)) < 0.01

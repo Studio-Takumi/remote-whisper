@@ -41,6 +41,7 @@ WAIT_FRAMES = 20  # 遅れて届く音源を待つのは 2 秒まで
 FADE = SR // 50  # つなぎ目を 20ms で滑らかにする
 ALIGN_FRAMES = int(multisource.WINDOW_SEC * 10)  # 60 秒ごとに、直近 60 秒の窓でずれを測り直す
 ALIGN_HISTORY = 8  # ドリフトは直近 8 回の測定の傾きから
+STEP_SEC = 0.1  # 新しい測定が今の当てはめからこれ以上外れたら、ずれが段で変わったとみなす
 KEEP_FRAMES = ALIGN_FRAMES + 100  # 音を持っておく長さ（ずれの測り直しに使う）
 SILENT_DB = -100.0
 
@@ -328,6 +329,10 @@ class LiveMixer:
             return False
         at = window.end_frame * FRAME / SR - multisource.WINDOW_SEC / 2
         current = self._correction(track, at)
+        # 今の当てはめから大きく外れたら、ずれが段で変わった。それまでの測定を捨てて測り直す
+        # （段も直線に当てはめるとドリフトになってしまう）
+        if track.measures and abs(lag_samples) / SR >= STEP_SEC:
+            track.measures.clear()
         # 並べた音が lag だけ遅れていれば、その分だけ前にずらす
         track.measures.append((at, current - lag_samples / SR))
         del track.measures[:-ALIGN_HISTORY]
