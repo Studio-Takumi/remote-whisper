@@ -125,6 +125,10 @@ class LiveMixer:
     def remove(self, source: int) -> None:
         """抜けた音源。もう区切りに入れない（区切りの残りは呼ぶ側が final にする）"""
         self.tracks.pop(source, None)
+        # 抜けた音源が選ばれている記録は、今いる音源から選び直す（まだ区切りに入れていない枠の分）
+        for k, chosen in list(self.raw.items()):
+            if chosen == source and k >= self.next_out:
+                self.raw[k] = self._choose(k, record=False)
         self._advance()
 
     def set_connected(self, source: int, connected: bool) -> None:
@@ -218,15 +222,18 @@ class LiveMixer:
             self._output(self.next_out)
             self.next_out += 1
 
-    def _choose(self, k: int) -> int:
-        """枠 k で、雑音の床からの高さが一番大きい音源（同じなら番号の小さいほう）"""
+    def _choose(self, k: int, record: bool = True) -> int:
+        """枠 k で、雑音の床からの高さが一番大きい音源（同じなら番号の小さいほう）
+
+        record=False は選び直し（音源が抜けたあと）。音量を雑音の床の記録に二重に入れない"""
         best, best_rel = 1, -np.inf
         for track in sorted(self.tracks.values(), key=lambda t: t.id):
             got = track.frames.get(k)
             if got is None:
                 continue
             db = got[1]
-            track.levels.append(db)
+            if record:
+                track.levels.append(db)
             floor = float(np.percentile(np.fromiter(track.levels, dtype=np.float64), 10))
             rel = db - floor
             if rel > best_rel:
@@ -250,6 +257,10 @@ class LiveMixer:
         track = self.tracks.get(choice)
         if track is None or k not in track.frames:
             choice = self.raw[k]
+            track = self.tracks.get(choice)
+            if track is None or k not in track.frames:
+                # 戻した先も抜けた音源なら、今いる音源から選び直す
+                choice = self.raw[k] = self._choose(k, record=False)
         self.smooth[k] = choice
         return choice
 
