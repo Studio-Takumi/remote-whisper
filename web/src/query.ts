@@ -1,6 +1,6 @@
 // サーバーから取ったデータのキャッシュ（TanStack Query。#330）。
 // 取るのは api.request()（api.ts）のまま。画面からは useQuery で、ストアからは queryClient で使う
-import { QueryClient } from '@tanstack/react-query';
+import { MutationObserver, type MutationOptions, QueryClient } from '@tanstack/react-query';
 
 export const queryClient = new QueryClient({
     defaultOptions: {
@@ -12,6 +12,16 @@ export const queryClient = new QueryClient({
         },
     },
 });
+
+// サーバーのデータを変える操作（mutation）を 1 回行う。useMutation と同じく、onMutate（楽観的更新）→
+// mutationFn → onSuccess か onError（巻き戻し）→ onSettled の順に呼ぶ。失敗したら投げる。
+// 操作はストアからも（WebSocket の通知や、ほかの操作の続きとして）呼ぶので、フックではなくこれを使う
+export function runMutation<TData, TVariables, TContext>(
+    options: MutationOptions<TData, Error, TVariables, TContext>,
+    variables: TVariables,
+): Promise<TData> {
+    return new MutationObserver(queryClient, options).mutate(variables);
+}
 
 // queryKey の決まり。API のパス（/api を除く）を「/」で分けたものにする。
 // 例: GET /api/projects/{pid}/sessions/{sid}/transcript → ['projects', pid, 'sessions', sid, 'transcript']

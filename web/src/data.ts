@@ -168,7 +168,7 @@ export const finalTranscriptsQuery = (projectId: string, sessionId: string) =>
 
 // 最終の文字起こし（#121）の 1 つの世代（queryKeys.finalTranscript()）。世代のファイルは書き換わらないので、
 // 一度取ったらキャッシュのものを使う（世代を切り替えて戻ったときに取り直さない）。
-// サーバーが置き換え（#176）を当てて返すので、置き換えが変わったら無効にする（invalidateTranscripts）
+// サーバーが置き換え（#176）を当てて返すので、置き換えが変わったらキャッシュから消す（forgetTranscripts）
 export const finalTranscriptQuery = (projectId: string, sessionId: string, gid: string) =>
     queryOptions({
         queryKey: queryKeys.finalTranscript(projectId, sessionId, gid),
@@ -196,12 +196,47 @@ export function fetchFinalTranscripts(projectId: string, sessionId: string) {
     return queryClient.fetchQuery({ ...finalTranscriptsQuery(projectId, sessionId), staleTime: 0 });
 }
 
-// 置き換え（#176）が変わった。そのセッションの文字起こしと、最終の文字起こしの全部の世代を古いものにする
-// （次に取るときに取り直す）
-export function invalidateTranscripts(projectId: string, sessionId: string) {
-    void queryClient.invalidateQueries({ queryKey: queryKeys.transcript(projectId, sessionId) });
-    void queryClient.invalidateQueries({ queryKey: queryKeys.finalTranscripts(projectId, sessionId) });
+// 置き換え（#176）が変わった。そのセッションの文字起こしと、最終の文字起こしの全部の世代をキャッシュから消す
+// （次に取るときに取り直す）。
+// 無効にする（invalidate）だけだと、置き換える前に取り始めていたものがあとで届いたときに、古い中身が新しいものとして
+// 残る（世代は staleTime: Infinity なので取り直されない）。そのため、取っている途中のものは届くのを待ってから消す。
+// 止めて（cancel）すぐ消すと、それを待っている呼び出し（世代の切り替えなど）がエラーになるので止めない。
+// 待っている間に新しく取り始めたもの（置き換えのあとに頼んだもの）は新しい中身なので、消さない
+export async function forgetTranscripts(projectId: string, sessionId: string) {
+    const prefixes = [queryKeys.transcript(projectId, sessionId), queryKeys.finalTranscripts(projectId, sessionId)];
+    const cache = queryClient.getQueryCache();
+    const queries = prefixes.flatMap((queryKey) => cache.findAll({ queryKey }));
+    await Promise.allSettled(queries.map((q) => q.promise));
+    for (const q of queries) {
+        if (q.state.fetchStatus === 'idle') {
+            cache.remove(q);
+        }
+    }
 }
+
+// 最終の要約の一覧（queryKeys.summaries()。版 ID・モデル・生成日時）。作り直すと増える
+export const summariesQuery = (projectId: string, sessionId: string) =>
+    queryOptions({
+        queryKey: queryKeys.summaries(projectId, sessionId),
+        queryFn: () => api.get<SummaryInfoJson[]>(`/api/projects/${projectId}/sessions/${sessionId}/summaries`),
+    });
+
+// 最終の要約の 1 つの版（queryKeys.summary()）。版のファイルは書き換わらないので、一度取ったらキャッシュのものを使う
+export const summaryQuery = (projectId: string, sessionId: string, gid: string) =>
+    queryOptions({
+        queryKey: queryKeys.summary(projectId, sessionId, gid),
+        queryFn: () => api.get<SummaryJson>(`/api/projects/${projectId}/sessions/${sessionId}/summaries/${gid}`),
+        staleTime: Infinity,
+    });
+
+// 途中の要約（GET .../summaries/latest。最終の要約がまだないときに返る）。キーは queryKeys.summary(…, 'latest')。
+// 録音中に作り直されるので、キャッシュのものは使わずに毎回取り直す
+export const liveSummaryQuery = (projectId: string, sessionId: string) =>
+    queryOptions({
+        queryKey: queryKeys.summary(projectId, sessionId, 'latest'),
+        queryFn: () => api.get<SummaryJson>(`/api/projects/${projectId}/sessions/${sessionId}/summaries/latest`),
+        staleTime: 0,
+    });
 
 // 表示する最終の文字起こしの世代。今の全体設定の Whisper のモデルで作ったうちいちばん新しいもの。
 // そのモデルのものがなければ、モデルを問わずいちばん新しいもの（要約と同じ。spec/flows.md 6.5）
@@ -229,10 +264,12 @@ export async function fetchSessionDetail(projectId: string, session: Session, wh
     const finalTranscript = picked
         ? await fetchFinalTranscript(projectId, session.id, picked.generationId).catch(() => undefined)
         : undefined;
-    const infos = files?.summaries ? await api.get<SummaryInfoJson[]>(`${base}/summaries`) : [];
+    const infos = files?.summaries
+        ? await queryClient.fetchQuery({ ...summariesQuery(projectId, session.id), staleTime: 0 })
+        : [];
     const summaries: Summary[] = await Promise.all(
         infos.map(async (info) => {
-            const json = await api.get<SummaryJson>(`${base}/summaries/${info.generationId}`);
+            const json = await queryClient.fetchQuery(summaryQuery(projectId, session.id, info.generationId));
             return {
                 generationId: info.generationId,
                 model: info.model,
@@ -245,7 +282,7 @@ export async function fetchSessionDetail(projectId: string, session: Session, wh
     // 最終の要約がまだなければ、途中の要約を代わりに出す
     let liveSummary: string | undefined;
     if (summaries.length === 0 && files?.liveSummary) {
-        const json = await api.get<SummaryJson>(`${base}/summaries/latest`);
+        const json = await queryClient.fetchQuery(liveSummaryQuery(projectId, session.id));
         liveSummary = json.kind === 'live' ? json.text : undefined;
     }
     return {
