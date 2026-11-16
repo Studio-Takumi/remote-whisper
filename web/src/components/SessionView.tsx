@@ -18,6 +18,7 @@ import { Markdown } from '@/components/Markdown';
 import { MicAlert } from '@/components/MicAlert';
 import { RecordingPlayer } from '@/components/RecordingPlayer';
 import { SessionTerms } from '@/components/SessionTerms';
+import { ShareButton } from '@/components/ShareButton';
 import { StatusIndicator } from '@/components/StatusIndicator';
 import { type Playback, Transcript } from '@/components/Transcript';
 import { TranscriptCorrection } from '@/components/TranscriptCorrection';
@@ -38,10 +39,11 @@ import {
     llmBackend,
     llmModels,
 } from '@/settings';
+import type { ShareSource } from '@/share';
 import { llmUnavailable, makingFinalTranscript, summaryStatus, transcriptStatus } from '@/status';
 import { currentProject, currentSession, useAppStore, visibleProjects } from '@/store';
 import { clockToSeconds } from '@/time';
-import type { FinalTranscriptInfo, Generating, Session, Summary } from '@/types';
+import type { FinalTranscriptInfo, Generating, Session, Summary, TranscriptLine } from '@/types';
 import { describeWatched, recordedElsewhere } from '@/watch';
 
 // メイン画面の中身。何も選んでいない・新しいセッション・既存のセッションの3つを出し分ける
@@ -66,6 +68,8 @@ export function SessionView() {
     const continueRecording = useAppStore((s) => s.continueRecording);
     const { tab, changeTab, followTranscript } = useTabScroll(session?.id);
     const audio = useRef<HTMLAudioElement>(null);
+    // 要約パネルで手で選んだ世代（文字起こしタブの共有にも使う）
+    const [pickedSummary, setPickedSummary] = useState<PickedSummary | null>(null);
     // 読み込めなかった録音（開いた後に消えたなど）。再生バーを消し、時刻も押せなくする
     const [failedRecording, setFailedRecording] = useState<string | null>(null);
     // 録音の再生位置に当たる行（#122）。行が変わったときだけ変える（再生中の timeupdate のたびに描き直さない）
@@ -214,6 +218,14 @@ export function SessionView() {
                     {session && expired(session, 'transcript') && (
                         <p className='text-sm text-muted-foreground'>文字起こしは期限切れのため消えています</p>
                     )}
+                    {session && session.loaded && lines && lines.length > 0 && (
+                        <div className='flex'>
+                            <ShareButton
+                                source={shareSource(session, shownSummary(session, models, pickedSummary)?.text, lines)}
+                                initial='transcript'
+                            />
+                        </div>
+                    )}
                     {session && (
                         <FinalTranscriptBar
                             session={session}
@@ -261,7 +273,14 @@ export function SessionView() {
 
                 <TabsContent value='summary' className='flex flex-col gap-4'>
                     {session ? (
-                        <SummaryPanel session={session} models={models} generating={generating} liveDraft={liveDraft} />
+                        <SummaryPanel
+                            session={session}
+                            models={models}
+                            generating={generating}
+                            liveDraft={liveDraft}
+                            picked={pickedSummary}
+                            onPick={setPickedSummary}
+                        />
                     ) : (
                         recordingState === 'idle' && (
                             <p className='text-sm text-muted-foreground'>
@@ -444,12 +463,16 @@ function SummaryPanel({
     models,
     generating,
     liveDraft,
+    picked,
+    onPick,
 }: {
     session: Session;
     // 今の全体設定の処理ごとのモデル（最終の要約は、全体概要と要約詳細の組で見る。#178）
     models: OllamaModels;
     generating: Generating | null;
     liveDraft: { sessionId: string; text: string } | null;
+    picked: PickedSummary | null;
+    onPick: (picked: PickedSummary) => void;
 }) {
     const regenerate = useAppStore((s) => s.regenerateSummary);
     // 選んでいる LLM につながっているか（#327）
@@ -458,16 +481,9 @@ function SummaryPanel({
     const llmName = LLM_NAMES[backend];
     // 録音中は作り直せない（GPU を長く使い、録音中の文字起こしが止まるため。#133）
     const recording = useAppStore((s) => s.recordingState !== 'idle');
-    // 手で選んだ世代。セッションを替えたときと、要約が増えた（作り直した）ときは既定に戻す
-    const [picked, setPicked] = useState<{ sessionId: string; count: number; generationId: string } | null>(null);
 
     const finalModel = finalModelLabel(models);
-    const fallback: Summary | undefined =
-        session.summaries.findLast((s) => isCurrentFinalSummary(s, models)) ?? session.summaries.at(-1);
-    const summary =
-        picked?.sessionId === session.id && picked.count === session.summaries.length
-            ? (session.summaries.find((s) => s.generationId === picked.generationId) ?? fallback)
-            : fallback;
+    const summary = shownSummary(session, models, picked);
 
     if (generating?.sessionId === session.id) {
         const status = <StatusIndicator status={{ tone: 'active', text: `${generating.model} で要約を作成中…` }} />;
@@ -595,7 +611,7 @@ function SummaryPanel({
                     <Select
                         value={summary.generationId}
                         onValueChange={(generationId) =>
-                            setPicked({ sessionId: session.id, count: session.summaries.length, generationId })
+                            onPick({ sessionId: session.id, count: session.summaries.length, generationId })
                         }
                     >
                         <SelectTrigger size='sm' className='text-xs' aria-label='表示する要約'>
@@ -628,6 +644,7 @@ function SummaryPanel({
                         コピー
                     </Button>
                 )}
+                {summary.text && <ShareButton source={shareSource(session, summary.text)} initial='summary' />}
                 {regenerateButton}
             </div>
             {!isCurrentFinalSummary(summary, models) && (
@@ -636,6 +653,31 @@ function SummaryPanel({
             <Markdown>{summary.text ?? ''}</Markdown>
         </>
     );
+}
+
+// 手で選んでいないときに出す最終の要約。今のモデルのものがあればそれ、なければいちばん新しいもの
+function defaultSummary(session: Session, models: OllamaModels): Summary | undefined {
+    return session.summaries.findLast((s) => isCurrentFinalSummary(s, models)) ?? session.summaries.at(-1);
+}
+
+// 手で選んだ世代。セッションを替えたときと、要約が増えた（作り直した）ときは既定に戻す
+type PickedSummary = { sessionId: string; count: number; generationId: string };
+
+// 要約パネルに出している版
+function shownSummary(session: Session, models: OllamaModels, picked: PickedSummary | null) {
+    const fallback = defaultSummary(session, models);
+    return picked?.sessionId === session.id && picked.count === session.summaries.length
+        ? (session.summaries.find((s) => s.generationId === picked.generationId) ?? fallback)
+        : fallback;
+}
+
+// 共有する中身。文字起こしは画面に出している世代
+function shareSource(session: Session, summary: string | undefined, lines?: TranscriptLine[]): ShareSource {
+    return {
+        title: session.title,
+        summary,
+        transcript: lines ?? session.finalTranscript?.lines ?? session.transcript,
+    };
 }
 
 // 再生位置（秒）に当たる行。行の始まり（starts は時刻の順）が再生位置以前の、最後の行。まだなければ null
