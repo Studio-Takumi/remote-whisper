@@ -18,13 +18,13 @@ import re
 import shutil
 import uuid
 from collections.abc import AsyncIterator, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from remote_whisper.audio_convert import AudioInfo, convert_audio, decode_pcm, probe
-from remote_whisper.documents import parse, recording_name, transcript_name
+from remote_whisper.documents import SourceInfo, parse, recording_name, transcript_name
 from remote_whisper.gpu_queue import GpuQueue, Priority
 from remote_whisper.hallucination import drop_reason
 from remote_whisper.hub import Hub
@@ -50,6 +50,10 @@ SAMPLE_RATE = 16000
 # 録音中は、録音が終わるまで待ってから文字起こしを始める（確かめる間隔、秒）
 RECORDING_POLL_SEC = 5.0
 _EXT_RE = re.compile(r"[a-z0-9]{1,8}")
+# 複数のファイルから作るとき（#241）、残りのファイルを待つ時間（秒）。過ぎたら届いた分だけで作る
+PENDING_TIMEOUT_SEC = 30 * 60
+# ファイルの更新日時から出す大まかなずれが、これより大きければ使わない（秒）
+MAX_ROUGH_OFFSET_SEC = 3600
 
 
 class UploadError(Exception):
@@ -63,6 +67,24 @@ class UploadError(Exception):
 class Uploaded:
     writer: SessionWriter
     info: AudioInfo
+
+
+@dataclass
+class _Pending:
+    """複数のファイルから作るセッションで、残りのファイルを待っているもの（#241）"""
+
+    writer: SessionWriter
+    expected: int
+    sources: list[SourceInfo]
+    started: datetime  # 主の音源の開始日時
+    main_modified: bool  # 主の音源の更新日時が分かっている（大まかなずれを出せる）
+    timer: asyncio.Task | None = None
+    # 置く・数える・始めるを 1 つずつにする（同時に送られた・時間切れと重なったとき）
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    receiving: int = 0  # 受け取っている途中のファイルの数（この間は時間切れにしない）
+
+    def full(self) -> bool:
+        return len(self.sources) >= self.expected
 
 
 def extension(name: str) -> str:
@@ -134,6 +156,8 @@ class UploadService:
         self._lock = asyncio.Lock()
         self._reserved: set[str] = set()
         self._tasks: set[asyncio.Task] = set()
+        # 残りのファイルを待っている、複数のファイルから作るセッション（(pid, sid) → 待つもの）
+        self._pending: dict[tuple[str, str], _Pending] = {}
 
     async def receive(
         self,
@@ -141,11 +165,20 @@ class UploadService:
         name: str,
         last_modified_ms: float | None,
         body: AsyncIterator[bytes],
+        sources: int | None = None,
     ) -> Uploaded:
         """アップロードされたファイルを受け取り、セッションを作って、後ろで文字起こしと要約を始める
 
+        sources は、複数のファイルを 1 つのセッションにするときのファイルの数（#241）。
+        このファイルを主の音源にし、残りが receive_source でそろうまで文字起こしを始めない。
         ProjectError（プロジェクトがない）と UploadError（大きすぎる・読めない）を投げる
         """
+        if sources is not None:
+            limit = self.settings.get().recording.max_sources
+            if not 2 <= sources <= limit:
+                raise UploadError(
+                    422, f"1 つのセッションにまとめられるファイルは {limit} 個までです"
+                )
         self.projects.load(pid)
         project_dir = self.projects.dir(pid)
         work = project_dir / ".tmp" / f"upload-{uuid.uuid4().hex}"
@@ -187,10 +220,144 @@ class UploadService:
             info.codec,
             info.bit_rate,
         )
+        if sources is not None:
+            # 残りのファイルを待つ（来なければ PENDING_TIMEOUT_SEC で、届いた分だけで始める）
+            main = SourceInfo(id=1, name=Path(name).name, kind="main", recording=recording.name)
+            pending = _Pending(writer, sources, [main], started, bool(last_modified_ms))
+            self._pending[(pid, writer.id)] = pending
+            self._restart_timer(pid, writer.id, pending)
+        else:
+            self._start(writer)
+        return Uploaded(writer, info)
+
+    def _start(self, writer: SessionWriter) -> None:
         task = asyncio.create_task(self._process(writer))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
-        return Uploaded(writer, info)
+
+    def waiting(self, pid: str, sid: str) -> bool:
+        """残りのファイルを待っているセッションか（移す・再生成するのを断るのに使う）"""
+        return (pid, sid) in self._pending
+
+    def _restart_timer(self, pid: str, sid: str, pending: _Pending) -> None:
+        """時間切れを、最後にファイルが届いた（届き始めた）ときから数え直す"""
+        if pending.timer is not None:
+            pending.timer.cancel()
+        pending.timer = asyncio.create_task(self._wait_rest(pid, sid, pending))
+
+    async def _wait_rest(self, pid: str, sid: str, pending: _Pending) -> None:
+        await asyncio.sleep(PENDING_TIMEOUT_SEC)
+        async with pending.lock:
+            if self._pending.get((pid, sid)) is not pending:
+                return
+            if pending.receiving:
+                # 大きいファイルを受け取っている途中。届き終えてから数え直す
+                pending.timer = None
+                return
+            del self._pending[(pid, sid)]
+            log.warning(
+                "only %d of %d files of %s arrived; making the session with them",
+                len(pending.sources),
+                pending.expected,
+                sid,
+            )
+            self._start(pending.writer)
+
+    async def receive_source(
+        self,
+        pid: str,
+        sid: str,
+        name: str,
+        last_modified_ms: float | None,
+        body: AsyncIterator[bytes],
+    ) -> SourceInfo:
+        """複数のファイルから作るセッションに、ほかの音源のファイルを足す
+        （#241。spec/flows.md 6.16）
+
+        そろったら文字起こしと要約を始める。待っているセッションでなければ UploadError（409）
+        """
+        pending = self._pending.get((pid, sid))
+        if pending is None:
+            raise UploadError(409, "ファイルを足せるセッションではありません")
+        # 受け取っている間は時間切れにしない（大きいファイルは 30 分以上かかることがある）
+        pending.receiving += 1
+        try:
+            return await self._receive_source(pid, sid, name, last_modified_ms, body, pending)
+        finally:
+            pending.receiving -= 1
+            # 時間切れは、最後にファイルが届いたときから数え直す
+            if self._pending.get((pid, sid)) is pending:
+                self._restart_timer(pid, sid, pending)
+
+    async def _receive_source(
+        self,
+        pid: str,
+        sid: str,
+        name: str,
+        last_modified_ms: float | None,
+        body: AsyncIterator[bytes],
+        pending: _Pending,
+    ) -> SourceInfo:
+        project_dir = self.projects.dir(pid)
+        work = project_dir / ".tmp" / f"upload-{uuid.uuid4().hex}"
+        work.mkdir(parents=True)
+        try:
+            path = work / f"upload.{extension(name) or 'bin'}"
+            await self._save(path, body)
+            try:
+                info = await asyncio.to_thread(probe, path)
+            except ValueError as e:
+                raise UploadError(415, f"音声ファイルとして読めません（{name}）") from e
+            if info.duration_sec <= 0:
+                raise UploadError(415, f"音声の長さが 0 です（{name}）")
+            # 置く・数える・始めるは 1 つずつ（同時に送られても、置き終えたものだけを数える）
+            async with pending.lock:
+                # 待っている間にほかのファイルが先にそろった・時間切れになった
+                if self._pending.get((pid, sid)) is not pending or pending.full():
+                    raise UploadError(409, "ファイルを足せるセッションではありません")
+                source_id = len(pending.sources) + 1
+                try:
+                    recording = await asyncio.to_thread(
+                        self._place, path, info, project_dir, sid, source_id
+                    )
+                except Exception as e:
+                    log.exception("failed to place the uploaded %s for %s", name, sid)
+                    raise UploadError(500, f"録音ファイルを置けませんでした（{name}）") from e
+                source = SourceInfo(
+                    id=source_id,
+                    name=Path(name).name,
+                    kind="upload",
+                    recording=recording.name,
+                    offset_sec=round(self._rough_offset(pending, last_modified_ms, info), 3),
+                )
+                pending.sources.append(source)
+                pending.writer.set_sources(pending.sources)
+                log.info(
+                    "uploaded %s as source %d of %s (%.0fs, rough offset %.1fs)",
+                    name,
+                    source_id,
+                    sid,
+                    info.duration_sec,
+                    source.offset_sec,
+                )
+                if pending.full():
+                    del self._pending[(pid, sid)]
+                    if pending.timer is not None:
+                        pending.timer.cancel()
+                    self._start(pending.writer)
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+        return source
+
+    @staticmethod
+    def _rough_offset(pending: _Pending, last_modified_ms: float | None, info: AudioInfo) -> float:
+        """大まかなずれ: ファイルの更新日時から出した開始日時の差（浄書のときに相関で測り直す）。
+        どちらかの更新日時が分からない・1 時間以上違うときは 0 から探す"""
+        if not (last_modified_ms and pending.main_modified):
+            return 0.0
+        began = start_time(last_modified_ms, info.duration_sec, now())
+        rough = (began - pending.started).total_seconds()
+        return rough if abs(rough) <= MAX_ROUGH_OFFSET_SEC else 0.0
 
     async def _save(self, path: Path, body: AsyncIterator[bytes]) -> None:
         limit = self.settings.get().recording.upload_max_mb * MB
@@ -222,15 +389,21 @@ class UploadService:
         return started, sid
 
     @staticmethod
-    def _place(path: Path, info: AudioInfo, project_dir: Path, sid: str) -> Path:
+    def _place(
+        path: Path, info: AudioInfo, project_dir: Path, sid: str, source: int | None = None
+    ) -> Path:
         ext = path.suffix.lstrip(".")
         if keeps_as_is(ext, info):
-            dst = project_dir / recording_name(sid, ext)
+            dst = project_dir / recording_name(sid, ext, source)
             path.replace(dst)
             return dst
-        return convert_audio(path, project_dir, sid)
+        return convert_audio(path, project_dir, sid, source)
 
     async def close(self) -> None:
+        for pending in self._pending.values():
+            if pending.timer is not None:
+                pending.timer.cancel()
+        self._pending.clear()
         for task in list(self._tasks):
             task.cancel()
         if self._tasks:

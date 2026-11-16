@@ -19,6 +19,7 @@ from pathlib import Path
 
 from remote_whisper.documents import (
     FINAL_TRANSCRIPT_RE,
+    RECORDING_RE,
     SUMMARY_RE,
     ContextSetMeta,
     context_name,
@@ -114,6 +115,11 @@ def clean_project(
             recording = files.recording()
             if recording is not None:
                 _remove(recording, project_dir, report)
+            # ほかの音源の録音（#241）も、同じ期限で消す
+            for path in sorted(project_dir.glob(f"recording-{s.id}-*")):
+                m = RECORDING_RE.fullmatch(path.name)
+                if m and m.group(1) == s.id and m.group(2):
+                    _remove(path, project_dir, report)
             # mp3 に変換できずに残っている WAV も録音なので、録音の期限で消す
             _remove(tmp / "audio.wav", project_dir, report)
         if expired(ended, days.transcript, at):

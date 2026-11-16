@@ -51,4 +51,6 @@ async def get_options(ctx: Annotated[AppContext, Depends(get_ctx)]) -> dict[str,
         },
         "llm": llm,
         "ollama": {"models": llm_models, "missing": missing},
+        # 複数の音源に対応しているサーバーだけが返す（#241。画面はこれで対応を見分ける）
+        "recording": {"maxSources": ctx.settings.get().recording.max_sources},
     }

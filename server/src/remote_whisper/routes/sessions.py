@@ -86,17 +86,23 @@ async def upload(
     ctx: Ctx,
     name: Annotated[str, Query(min_length=1, max_length=255)],
     last_modified: Annotated[float | None, Query(alias="lastModified")] = None,
+    sources: Annotated[int | None, Query(ge=2)] = None,
 ) -> dict[str, Any]:
     """音声ファイルをアップロードして、新しいセッションを作る（#180。spec/flows.md 6.11）
 
     本文はファイルそのもの（`curl --data-binary @a.m4a`）。name は元のファイル名、
     lastModified はファイルの更新日時（ミリ秒）。作ったセッションをすぐ返し、最終の文字起こしと
-    最終の要約は後ろで作る（status の transcribing・summarizing と jobs で進み具合が分かる）
+    最終の要約は後ろで作る（status の transcribing・summarizing と jobs で進み具合が分かる）。
+    sources は、複数のファイルを 1 つのセッションにするときのファイルの数
+    （#241。spec/flows.md 6.16）。
+    このファイルが主の音源になり、残りを `/{sid}/sources/upload` で足すまで文字起こしを始めない
     """
     if ctx.uploads is None:
         raise HTTPException(status_code=503, detail="このホストではアップロードできません")
     try:
-        uploaded = await ctx.uploads.receive(pid, name, last_modified, request.stream())
+        uploaded = await ctx.uploads.receive(
+            pid, name, last_modified, request.stream(), sources=sources
+        )
     except ProjectError as e:
         raise HTTPException(status_code=e.status, detail=e.message) from e
     except UploadError as e:
@@ -106,6 +112,31 @@ async def upload(
     writer = uploaded.writer
     entry = next(s for s in _project(ctx, pid).sessions if s.id == writer.id)
     return {**_session_json(entry, writer.files), "projectId": pid}
+
+
+@router.post("/{sid}/sources/upload", status_code=202)
+async def upload_source(
+    pid: Pid,
+    sid: str,
+    request: Request,
+    ctx: Ctx,
+    name: Annotated[str, Query(min_length=1, max_length=255)],
+    last_modified: Annotated[float | None, Query(alias="lastModified")] = None,
+) -> dict[str, Any]:
+    """複数のファイルから作るセッションに、2 つ目以降のファイル（ほかの音源）を足す
+    （#241。spec/api.md 7.1・spec/flows.md 6.16）。そろったら文字起こしと要約を始める"""
+    if ctx.uploads is None:
+        raise HTTPException(status_code=503, detail="このホストではアップロードできません")
+    _session(ctx, pid, sid)
+    try:
+        source = await ctx.uploads.receive_source(pid, sid, name, last_modified, request.stream())
+    except ProjectError as e:
+        raise HTTPException(status_code=e.status, detail=e.message) from e
+    except UploadError as e:
+        raise HTTPException(status_code=e.status, detail=e.message) from e
+    except ClientDisconnect as e:
+        raise HTTPException(status_code=400, detail="アップロードが途中で切れました") from e
+    return {"id": source.id, "name": source.name}
 
 
 @router.get("")
@@ -135,9 +166,12 @@ class MoveBody(BaseModel):
     to: str
 
 
-def move_blocker(ctx: AppContext, entry: SessionEntry) -> str | None:
+def move_blocker(ctx: AppContext, entry: SessionEntry, pid: str | None = None) -> str | None:
     """セッションを移せない理由（移せるなら None）。#172"""
     sid = entry.id
+    if pid is not None and ctx.uploads is not None and ctx.uploads.waiting(pid, sid):
+        # 複数のファイルから作るセッションで、残りのファイルを待っている（#241）
+        return "残りの音声ファイルを待っているセッションは移せません"
     session = getattr(ctx.recorder, "sessions", {}).get(sid)
     restoring = getattr(ctx.recorder, "_restoring", set())
     if entry.status == "recording" or (session is not None and not session.ended):
@@ -165,7 +199,7 @@ async def move(pid: Pid, sid: str, body: MoveBody, ctx: Ctx) -> dict[str, Any]:
         dst = ctx.projects.resolve(body.to)
     except ProjectError as e:
         raise HTTPException(status_code=e.status, detail=e.message) from e
-    reason = move_blocker(ctx, entry)
+    reason = move_blocker(ctx, entry, pid)
     if reason is not None:
         raise HTTPException(status_code=409, detail=reason)
     try:
@@ -278,6 +312,12 @@ async def regenerate_final_transcript(pid: Pid, sid: str, ctx: Ctx) -> dict[str,
     if entry.status == "recording" or _still_finishing(ctx, sid):
         raise HTTPException(
             status_code=409, detail="録音中のセッションの文字起こしは再生成できません"
+        )
+    if ctx.uploads is not None and ctx.uploads.waiting(pid, sid):
+        # 複数のファイルから作るセッションで、残りのファイルを待っている（#241）。
+        # そろったら作るので、主の音源だけで先に作らない
+        raise HTTPException(
+            status_code=409, detail="残りの音声ファイルを待っているセッションは再生成できません"
         )
     if sid in ctx.hub.status.transcribing:
         # 連打やほかの端末から頼まれても、同じものを重ねて作らない（数分 GPU を使うため）
