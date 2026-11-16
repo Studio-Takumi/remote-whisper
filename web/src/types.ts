@@ -1,11 +1,12 @@
 // 画面で扱うデータの形。サーバーの API（spec/api.md 7.1）から作る
 import type { MaterialRange, SessionFiles } from '@/api';
 import type { Correction } from '@/corrections';
+import type { SessionSource } from '@/sources';
 
 export type TranscriptLine = {
     time: string;
     text: string;
-    // 音源 ID（音源が 2 つ以上のセッションの、録音中に届いた行だけ。#356）
+    // 音源 ID（音源が 2 つ以上のセッションだけ。録音中に届いた行と、フロントマターの lineSources から。#356・#357）
     source?: number;
 };
 
@@ -72,6 +73,8 @@ export type Session = {
     materialRange?: MaterialRange[];
     // 文字起こしの置き換え（#176）
     corrections?: Correction[];
+    // 音源（#241・#357）。音源が 2 つ以上のセッションだけ（文字起こしのフロントマターから）
+    sources?: SessionSource[];
 };
 
 export type Project = {

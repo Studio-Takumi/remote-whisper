@@ -11,6 +11,7 @@ import {
     api,
 } from '@/api';
 import { queryClient, queryKeys } from '@/query';
+import { withLineSources } from '@/sources';
 import { formatDateTime } from '@/time';
 import type {
     ContextSelection,
@@ -177,7 +178,12 @@ export const finalTranscriptQuery = (projectId: string, sessionId: string, gid: 
             const json = await api.get<FinalTranscriptJson>(
                 `/api/projects/${projectId}/sessions/${sessionId}/final-transcripts/${gid}`,
             );
-            return { ...json.meta, generatedAt: displayTime(json.meta.generatedAt) ?? '', lines: json.lines };
+            return {
+                ...json.meta,
+                generatedAt: displayTime(json.meta.generatedAt) ?? '',
+                // 音源が 2 つ以上なら、行ごとの音源を付ける（#357）
+                lines: withLineSources(json.lines, json.meta.lineSources),
+            };
         },
         staleTime: Infinity,
     });
@@ -252,7 +258,9 @@ export async function fetchSessionDetail(projectId: string, session: Session, wh
     // どのファイルがあるか分からない（手元で作ったセッション）ときは、先にサーバーに聞く
     const files = session.files ?? (await api.get<SessionJson>(base)).files;
     const transcriptJson = files?.transcript ? await fetchTranscript(projectId, session.id) : null;
-    const transcript = transcriptJson?.lines ?? [];
+    const transcript = withLineSources(transcriptJson?.lines ?? [], transcriptJson?.meta?.lineSources);
+    // 音源（#357）。音源が 1 つのセッションは持たない
+    const sources = (transcriptJson?.meta?.sources?.length ?? 0) >= 2 ? transcriptJson?.meta?.sources : undefined;
     const pickedTerms = transcriptJson?.meta?.pickedTerms ?? [];
     const manualTerms = transcriptJson?.meta?.manualTerms ?? [];
     const materialRange = transcriptJson?.meta?.materialRange ?? undefined;
@@ -297,5 +305,6 @@ export async function fetchSessionDetail(projectId: string, session: Session, wh
         manualTerms,
         materialRange,
         corrections,
+        sources,
     };
 }

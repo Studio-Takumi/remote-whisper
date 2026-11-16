@@ -185,4 +185,6 @@ export type SettingsOptions = {
     // 使っている LLM（Ollama か LM Studio。#325・#327）のモデル。録音中に llm.backend を変えたときは、
     // 切り替わるまで前のもの。missing は、処理ごとのモデル（#178）のうち、そのバックエンドに入っていないもののキー
     llm: { backend: LlmBackend; models: { name: string; thinking: boolean }[]; missing?: string[] };
+    // 複数の音源に対応しているサーバーだけが返す（#241）。maxSources はまとめられるファイルの数の上限
+    recording?: { maxSources: number };
 };

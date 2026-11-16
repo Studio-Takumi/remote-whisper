@@ -12,14 +12,14 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 
-import { AudioDropZone, AudioUploadButton, UploadProgress } from '@/components/AudioUpload';
-import { JoinButton } from '@/components/JoinButton';
+import { AudioDropZone, AudioUploadButton, MultiUploadDialog, UploadProgress } from '@/components/AudioUpload';
 import { LiveSummary } from '@/components/LiveSummary';
 import { Markdown } from '@/components/Markdown';
 import { MicAlert } from '@/components/MicAlert';
 import { RecordingPlayer } from '@/components/RecordingPlayer';
 import { SessionTerms } from '@/components/SessionTerms';
 import { ShareButton } from '@/components/ShareButton';
+import { JoinedSourceChips, SourceList } from '@/components/Sources';
 import { StatusIndicator } from '@/components/StatusIndicator';
 import { type Playback, Transcript } from '@/components/Transcript';
 import { TranscriptCorrection } from '@/components/TranscriptCorrection';
@@ -29,6 +29,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { copyText } from '@/copyMarkdown';
 import { pickFinalTranscript } from '@/data';
 import { apiUrl } from '@/endpoint';
+import { useSessionSources } from '@/hooks/useSessionSources';
+import { joinUnavailable } from '@/join';
 import { type LivePartial, partialsOf } from '@/livePartials';
 import { describeMaterialRange } from '@/materialRange';
 import { recordingLocks } from '@/recording';
@@ -42,11 +44,12 @@ import {
     llmModels,
 } from '@/settings';
 import type { ShareSource } from '@/share';
+import { sourceNames } from '@/sources';
 import { llmUnavailable, makingFinalTranscript, summaryStatus, transcriptStatus } from '@/status';
 import { currentProject, currentSession, useAppStore, visibleProjects } from '@/store';
 import { clockToSeconds } from '@/time';
 import type { FinalTranscriptInfo, Generating, Session, Summary, TranscriptLine } from '@/types';
-import { describeWatched, recordedElsewhere } from '@/watch';
+import { type Watching, describeWatched, recordedElsewhere } from '@/watch';
 
 const NO_PARTIALS: LivePartial[] = [];
 
@@ -70,8 +73,11 @@ export function SessionView() {
     const recordingSessionId = useAppStore((s) => s.recordingSessionId);
     // ほかの端末で録音中のセッションを見ている（#238）
     const watching = useAppStore((s) => s.watching);
-    // このマイクで参加している（#356。閲覧専用ではない）
+    // このマイクで参加している（#356。閲覧専用ではない）。参加はマイクボタンで（#357）
     const joinedHere = useAppStore((s) => s.joined !== null && s.joined.sessionId === s.selection.sessionId);
+    // 音源の一覧と、行の札に出す名前（音源が 2 つ以上のセッションだけ。#357）
+    const sources = useSessionSources(session);
+    const names = useMemo(() => sourceNames(sources), [sources]);
     const continueRecording = useAppStore((s) => s.continueRecording);
     const { tab, changeTab, followTranscript } = useTabScroll(session?.id);
     const audio = useRef<HTMLAudioElement>(null);
@@ -164,7 +170,9 @@ export function SessionView() {
                             {session.status === 'recording' &&
                                 (session.id === recordingSessionId
                                     ? '・録音中'
-                                    : `・${describeWatched(watching?.sessionId === session.id ? watching.state : undefined)}${joinedHere ? '' : '（この端末では閲覧専用です）'}`)}
+                                    : `・${describeWatched(watching?.sessionId === session.id ? watching.state : undefined)}${joinedHere || canJoin(watching, session.id) ? '' : '（この端末では閲覧専用です）'}`)}
+                            {/* 録音している端末には、参加している音源を出す（#357） */}
+                            {session.id === recordingSessionId && <JoinedSourceChips sessionId={session.id} />}
                             {session.status === 'interrupted' && '・途中で中断'}
                             {session.uploaded && (
                                 <span className='ml-2 inline-flex items-center gap-1 align-middle'>
@@ -173,8 +181,6 @@ export function SessionView() {
                                 </span>
                             )}
                         </p>
-                        {/* ほかの端末で録音中なら、この端末のマイクを音源として参加できる（#356） */}
-                        {recordedElsewhere(session, recordingSessionId) && <JoinButton sessionId={session.id} />}
                         {/* 途中で終わったセッションは、同じセッションのまま続きを録音できる（#101）。
                             録音ファイルがまだ mp3 になっていない（WAV のまま）こともあるので、ファイルの有無では隠さない
                             （残っていなければ、サーバーが断る） */}
@@ -212,6 +218,7 @@ export function SessionView() {
                                 </p>
                             </div>
                             <UploadProgress />
+                            <MultiUploadDialog />
                         </div>
                     </AudioDropZone>
                 )}
@@ -227,12 +234,19 @@ export function SessionView() {
                     {session && expired(session, 'transcript') && (
                         <p className='text-sm text-muted-foreground'>文字起こしは期限切れのため消えています</p>
                     )}
-                    {session && session.loaded && lines && lines.length > 0 && (
-                        <div className='flex'>
-                            <ShareButton
-                                source={shareSource(session, shownSummary(session, models, pickedSummary)?.text, lines)}
-                                initial='transcript'
-                            />
+                    {session && ((session.loaded && lines && lines.length > 0) || sources.length >= 2) && (
+                        <div className='flex flex-wrap gap-2'>
+                            {session.loaded && lines && lines.length > 0 && (
+                                <ShareButton
+                                    source={shareSource(
+                                        session,
+                                        shownSummary(session, models, pickedSummary)?.text,
+                                        lines,
+                                    )}
+                                    initial='transcript'
+                                />
+                            )}
+                            <SourceList session={session} sources={sources} />
                         </div>
                     )}
                     {session && (
@@ -253,6 +267,8 @@ export function SessionView() {
                                 follow={followTranscript}
                                 onSeek={recordingUrl ? seek : undefined}
                                 playback={recordingUrl && playback?.sessionId === session.id ? playback : null}
+                                sourceNames={names}
+                                defaultSource={sources.length >= 2 ? 1 : undefined}
                             />
                             <TranscriptCorrection
                                 container={transcriptBox}
@@ -702,6 +718,11 @@ function lineAt(starts: number[], sec: number) {
         }
     }
     return lo > 0 ? lo - 1 : null;
+}
+
+// 見ている録音に、この端末のマイクで参加できるか（#357。押せるならマイクボタンが「この端末のマイクで参加」になる）
+function canJoin(watching: Watching | null, sessionId: string) {
+    return watching?.sessionId === sessionId && joinUnavailable(watching.join) === null;
 }
 
 // 保存期間を過ぎて、ファイルが消えているか（spec/flows.md 6.8）。サーバーから取ったセッションだけ判定できる

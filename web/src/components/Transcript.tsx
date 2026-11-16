@@ -4,6 +4,7 @@ import { LocateFixedIcon } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { isScrolledToBottom, scrollToBottom } from '@/scroll';
+import { sourceColor, sourceLabel, sourceTitle } from '@/sources';
 import { type LivePartial, useAppStore } from '@/store';
 import type { TranscriptLine } from '@/types';
 
@@ -19,6 +20,8 @@ export function Transcript({
     follow = true,
     onSeek,
     playback,
+    sourceNames = NO_NAMES,
+    defaultSource,
 }: {
     sessionId: string;
     lines: TranscriptLine[];
@@ -29,6 +32,11 @@ export function Transcript({
     onSeek?: (time: string) => void;
     // 録音を再生しているとき、その位置の行を目立たせて追う（#122）
     playback?: Playback | null;
+    // 音源の名前（音源 ID ごと。行の音源の札の title に出す。#357）
+    sourceNames?: Record<number, string | null>;
+    // 音源の分からない行の音源（音源が 2 つ以上のセッションで 1。ほかの端末が参加する前の行は音源が付かないので、
+    // 主の音源とみなす。spec/flows.md 6.16）。音源が 1 つのセッションでは渡さない（札を出さない）
+    defaultSource?: number;
 }) {
     // 文字送りで伸びた分も追う（PartialLine が伸びるたびに知らせる）
     const [typed, setTyped] = useState(0);
@@ -43,19 +51,33 @@ export function Transcript({
         <div ref={outer}>
             {/* 行の間隔は親（TabsContent）と同じ gap-2 */}
             <div ref={inner} className='flex flex-col gap-2'>
-                {lines.map((line, i) => (
-                    <Line
-                        key={`${line.time}-${i}`}
-                        index={i}
-                        line={line}
-                        active={i === active}
-                        rowRef={i === active ? activeRow : undefined}
-                        onSeek={onSeek}
-                    />
-                ))}
-                {partials.map((partial) => (
-                    <PartialLine key={partial.source ?? 0} partial={partial} onTyped={onTyped} />
-                ))}
+                {lines.map((line, i) => {
+                    const source = line.source ?? defaultSource;
+                    return (
+                        <Line
+                            key={`${line.time}-${i}`}
+                            index={i}
+                            line={line}
+                            active={i === active}
+                            rowRef={i === active ? activeRow : undefined}
+                            onSeek={onSeek}
+                            source={source}
+                            sourceName={source !== undefined ? sourceNames[source] : undefined}
+                        />
+                    );
+                })}
+                {partials.map((partial) => {
+                    const source = partial.source ?? defaultSource;
+                    return (
+                        <PartialLine
+                            key={partial.source ?? 0}
+                            partial={partial}
+                            onTyped={onTyped}
+                            source={source}
+                            sourceName={source !== undefined ? sourceNames[source] : undefined}
+                        />
+                    );
+                })}
             </div>
             {active !== null && !following && (
                 // 自分でスクロールして再生位置から離れたとき。本文の列の中央、下のマイクのボタンより上に貼り付ける
@@ -71,7 +93,17 @@ export function Transcript({
 }
 
 // 文字起こし中の区間。確定した部分を文字送りで出し、追いついていない分は未確定の部分と同じく薄く出す
-function PartialLine({ partial, onTyped }: { partial: LivePartial; onTyped: () => void }) {
+function PartialLine({
+    partial,
+    onTyped,
+    source,
+    sourceName,
+}: {
+    partial: LivePartial;
+    onTyped: () => void;
+    source?: number;
+    sourceName?: string | null;
+}) {
     const committed = useTypewriter(partial.committed, partial.segment);
     const pending = partial.committed.slice(committed.length) + partial.tentative;
     useEffect(() => {
@@ -83,6 +115,7 @@ function PartialLine({ partial, onTyped }: { partial: LivePartial; onTyped: () =
             <span aria-hidden className='invisible shrink-0 font-mono text-xs leading-6'>
                 00:00:00
             </span>
+            {source !== undefined && <SourceBadge id={source} name={sourceName} />}
             <p className='leading-6'>
                 {committed}
                 <span className='text-muted-foreground/70'>{pending}</span>
@@ -98,12 +131,16 @@ const Line = memo(function Line({
     active,
     rowRef,
     onSeek,
+    source,
+    sourceName,
 }: {
     index: number;
     line: TranscriptLine;
     active: boolean;
     rowRef?: Ref<HTMLDivElement>;
     onSeek?: (time: string) => void;
+    source?: number;
+    sourceName?: string | null;
 }) {
     return (
         <div
@@ -126,10 +163,30 @@ const Line = memo(function Line({
             ) : (
                 <span className='shrink-0 font-mono text-xs leading-6 text-muted-foreground'>{line.time}</span>
             )}
+            {source !== undefined && <SourceBadge id={source} name={sourceName} />}
             <LineText text={line.text} />
         </div>
     );
 });
+
+const NO_NAMES: Record<number, string | null> = {};
+
+// 行の音源の札（音源が 2 つ以上のセッションだけ。#357）。どの音源の声として文字になったか。
+// 話者の札（塗りの四角）と取り違えないよう、枠線の丸い札にする（音源は話者ではない）。
+// 時刻の横に置き、置き換え（#176）で選ぶ文字には入れない
+export function SourceBadge({ id, name }: { id: number; name?: string | null }) {
+    const title = sourceTitle(id, name);
+    return (
+        <span
+            role='img'
+            title={title}
+            aria-label={title}
+            className={`mt-0.5 inline-flex h-5 shrink-0 items-center self-start rounded-full border px-1.5 text-xs whitespace-nowrap tabular-nums ${sourceColor(id)}`}
+        >
+            {sourceLabel(id)}
+        </span>
+    );
+}
 
 // 置き換え（#176）に使えるのは data-correctable の中の文字だけ（時刻と話者の札は選んでも使わない）
 // 最終の文字起こし（#121）で話者を分けた行は「話者 1: …」で始まる。話者は色付きの札にする

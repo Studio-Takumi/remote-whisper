@@ -40,7 +40,7 @@ import { demoProjects, fallbackOptions, initialContextSets } from '@/mock';
 import { sortSessions } from '@/move';
 import { fetchOptions } from '@/options';
 import { sortByIds } from '@/projectOrder';
-import type { ServerMessage, SettingsOptions, WatchedState } from '@/protocol';
+import type { LiveSource, ServerMessage, SettingsOptions, WatchedState } from '@/protocol';
 import { queryClient, runMutation } from '@/query';
 import { type RecordingState, recordingLocks } from '@/recording';
 import { RecordingMetrics, metricsSettings, recordedSeconds, sendRecordingMetrics } from '@/recordingMetrics';
@@ -56,10 +56,11 @@ import {
     llmBackend,
     llmModels,
 } from '@/settings';
+import { keepLineSources, newlyDisconnected, sourceTitle, withLineSources } from '@/sources';
 import { type ServerStatus, initialServerStatus } from '@/status';
 import { formatClock, formatDateTime, newId } from '@/time';
 import type { ContextSelection, ContextSet, Generating, Project, Session } from '@/types';
-import { uploadAudio } from '@/upload';
+import { UploadError, uploadAudio, uploadSource } from '@/upload';
 import type { VersionJson } from '@/version';
 import { type Watching, watchTarget } from '@/watch';
 
@@ -97,6 +98,8 @@ type AppState = {
     // 参加する・抜ける
     joinSession: (sessionId: string) => Promise<void>;
     leaveSession: () => void;
+    // 録音中のセッションの音源の一覧（sources のメッセージ。#357）。セッション ID ごと
+    liveSources: Record<string, LiveSource[]>;
     // 届いている途中の途中の要約（summary.delta kind: live）。summary.done で session.liveSummary に移す
     liveDraft: { sessionId: string; text: string } | null;
     // ほかのクライアントで録音中のセッションを見ている（#238）。開いているセッションが録音中で、
@@ -126,6 +129,14 @@ type AppState = {
     uploading: { projectId: string; name: string; percent: number } | null;
     // 音声ファイルから新しいセッションを作る。終わったら、そのセッションを開く
     uploadAudio: (projectId: string, file: File) => Promise<void>;
+    // 選んだ（ドロップした）音声ファイル。複数なら、まとめるか別々にするかを選ぶまで持つ（#357）
+    pickedAudio: { projectId: string; files: File[] } | null;
+    pickAudioFiles: (projectId: string, files: File[]) => void;
+    cancelPickedAudio: () => void;
+    // 選んだファイルを別々のセッションにする
+    uploadSeparately: () => Promise<void>;
+    // 選んだファイルを 1 つのセッションの音源にまとめる（#241・#357）。main は主の音源にするファイルの番号
+    uploadSources: (main: number) => Promise<void>;
     // 開発用パネルで、プロジェクトが 0 件の状態を確かめるためのもの
     noProjects: boolean;
 
@@ -376,7 +387,13 @@ export const useAppStore = create<AppState>()((set, get) => {
                 }
                 // サーバーは抜けた接続の「見ている」登録を消すので、まだ録音中なら見直して送り直す
                 watchedSession = null;
-                set((s) => ({ projects: [...s.projects] }));
+                set((s) => ({ projects: [...s.projects], micLevel: 0 }));
+            },
+            // マイクの音量（マイクボタンの輪に出す。#357）。参加している間は録音していないので、録音のものと重ならない
+            (level) => {
+                if (get().micLevel !== level) {
+                    set({ micLevel: level });
+                }
             },
         );
         joiner = join;
@@ -539,9 +556,18 @@ export const useAppStore = create<AppState>()((set, get) => {
             return;
         }
         if (m.type === 'sources') {
-            // 参加できるか（上限に達した・空いた）が変わる（#356）
+            // 録音している端末では、参加した端末が切れたら知らせる（録音は続いている。#357）
+            if (m.session === get().recordingSessionId) {
+                for (const lost of newlyDisconnected(get().liveSources[m.session], m.sources)) {
+                    toast.warning(`${sourceTitle(lost.id, lost.name)} との接続が切れました。録音は続いています`, {
+                        duration: 10000,
+                    });
+                }
+            }
+            // 参加できるか（上限に達した・空いた）が変わる（#356）。音源の一覧も覚える（#357）
             set((s) => ({
                 watching: s.watching?.sessionId === m.session ? { ...s.watching, join: m.join } : s.watching,
+                liveSources: { ...s.liveSources, [m.session]: m.sources },
             }));
             return;
         }
@@ -556,7 +582,11 @@ export const useAppStore = create<AppState>()((set, get) => {
                 // サーバーは見ている登録を消したので、まだ録音中なら（すぐ続きを録音した）見直して送り直す
                 watchedSession = null;
                 set((s) => ({ watching: null, partials: dropSession(s.partials, m.session), liveDraft: null }));
-                void get().loadProjects();
+                // 音源が 2 つ以上なら、音源の一覧をフロントマターのもの（参加していた時間）に替える（#357）
+                const multi = (get().liveSources[m.session]?.length ?? 0) >= 2;
+                void get()
+                    .loadProjects()
+                    .then(() => (multi ? refreshTranscripts(m.session) : undefined));
             } else {
                 set({ watching: { ...w, state: m.state } });
             }
@@ -971,6 +1001,10 @@ export const useAppStore = create<AppState>()((set, get) => {
             const session = project?.sessions.find((x) => x.id === sessionId);
             if (project && session && !session.loaded) {
                 await loadSession(project.id, session);
+            } else if (session?.sources === undefined && get().liveSources[sessionId]) {
+                // 音源が 2 つ以上の録音を終えた（#357）。録音中の音源の一覧を、フロントマターのもの（参加していた時間・
+                // 行ごとの音源）に替える
+                await refreshTranscripts(sessionId);
             }
             set((s) => ({ generating: s.generating?.sessionId === sessionId ? null : s.generating }));
         } finally {
@@ -1087,10 +1121,16 @@ export const useAppStore = create<AppState>()((set, get) => {
                     transcript:
                         s.recordingSessionId === sessionId && x.transcript
                             ? mergeLiveLines(x.transcript, transcriptJson.lines)
-                            : transcriptJson.lines,
+                            : keepLineSources(
+                                  withLineSources(transcriptJson.lines, transcriptJson.meta?.lineSources),
+                                  x.transcript,
+                              ),
                     pickedTerms: transcriptJson.meta?.pickedTerms ?? x.pickedTerms,
                     manualTerms: transcriptJson.meta?.manualTerms ?? x.manualTerms,
                     corrections: transcriptJson.meta?.corrections ?? x.corrections,
+                    // 音源（#357）。録音を終えたら、録音中の一覧からフロントマターのもの（参加していた時間）に替える
+                    sources:
+                        (transcriptJson.meta?.sources?.length ?? 0) >= 2 ? transcriptJson.meta?.sources : x.sources,
                     // 取り直している間に別の版に切り替えていたら、そのまま
                     finalTranscript:
                         finalTranscript && x.finalTranscript?.generationId === gid
@@ -1128,6 +1168,31 @@ export const useAppStore = create<AppState>()((set, get) => {
         unsubscribe = null;
     }
 
+    // 音声ファイルから作ったセッションを開く。最終の文字起こしと最終の要約は、サーバーが後ろで作る
+    async function openUploaded(projectId: string, sessionId: string) {
+        if (isCloud) {
+            const m = new RecordingMetrics({
+                upload: true,
+                hostId: getHostId(),
+                settings: metricsSettings(get().settings, true),
+            });
+            m.awaitSummary();
+            awaiting.set(sessionId, m);
+        }
+        await get().loadProjects();
+        get().selectSession(projectId, sessionId);
+        // 要約が届くまでは「作成中」と出す（作り終えたら、status の summarizing から外れたことで取り直す）
+        if (!get().generating) {
+            set((s) => ({
+                generating: {
+                    sessionId,
+                    model: finalModelLabel(llmModels(s.settings)),
+                    text: '',
+                },
+            }));
+        }
+    }
+
     return {
         projects: isDemo ? demoProjects : [],
         selection: { projectId: null, sessionId: null },
@@ -1151,6 +1216,7 @@ export const useAppStore = create<AppState>()((set, get) => {
         leaveSession: () => {
             joiner?.leave();
         },
+        liveSources: {},
         liveDraft: null,
         watching: null,
         settings: defaultSettings,
@@ -1182,31 +1248,85 @@ export const useAppStore = create<AppState>()((set, get) => {
                 const created = await uploadAudio(projectId, file, (percent) =>
                     set({ uploading: { projectId, name: file.name, percent } }),
                 );
-                if (isCloud) {
-                    const m = new RecordingMetrics({
-                        upload: true,
-                        hostId: getHostId(),
-                        settings: metricsSettings(get().settings, true),
-                    });
-                    m.awaitSummary();
-                    awaiting.set(created.id, m);
-                }
-                await get().loadProjects();
-                get().selectSession(projectId, created.id);
-                // 最終の文字起こしと最終の要約は、サーバーが後ろで作る。要約が届くまでは「作成中」と出す
-                // （作り終えたら、status の summarizing から外れたことで取り直す）
-                if (!get().generating) {
-                    set((s) => ({
-                        generating: {
-                            sessionId: created.id,
-                            model: finalModelLabel(llmModels(s.settings)),
-                            text: '',
-                        },
-                    }));
-                }
+                await openUploaded(projectId, created.id);
                 toast.success(`${file.name} から作ります。要約まで少しかかります`);
             } catch (e) {
                 toast.error(`${file.name} をアップロードできません: ${(e as Error).message}`);
+            } finally {
+                set({ uploading: null });
+            }
+        },
+        pickedAudio: null,
+        pickAudioFiles: (projectId, files) => {
+            if (files.length === 1) {
+                void get().uploadAudio(projectId, files[0]);
+            } else if (files.length > 1) {
+                if (get().uploading) {
+                    toast.info('ほかのファイルをアップロード中です。終わってから選び直してください');
+                    return;
+                }
+                set({ pickedAudio: { projectId, files } });
+            }
+        },
+        cancelPickedAudio: () => set({ pickedAudio: null }),
+        uploadSeparately: async () => {
+            const picked = get().pickedAudio;
+            set({ pickedAudio: null });
+            if (!picked) {
+                return;
+            }
+            // 1 つずつ送る（同時に送れるのは 1 つだけ）。最後に作ったセッションが開く
+            for (const file of picked.files) {
+                await get().uploadAudio(picked.projectId, file);
+            }
+        },
+        uploadSources: async (main) => {
+            const picked = get().pickedAudio;
+            set({ pickedAudio: null });
+            if (!picked || isDemo || get().uploading) {
+                return;
+            }
+            const { projectId } = picked;
+            // 主の音源にするファイルを先頭にする
+            const files = [picked.files[main], ...picked.files.filter((_, i) => i !== main)];
+            const total = files.length;
+            const progress = (i: number, percent: number) =>
+                set({ uploading: { projectId, name: `${files[i].name}（${i + 1}/${total}）`, percent } });
+            progress(0, 0);
+            try {
+                const created = await uploadAudio(projectId, files[0], (p) => progress(0, p), total);
+                // 送れなかったファイル。old は 404（まとめられない古いホスト）
+                const failed: string[] = [];
+                let old = false;
+                for (let i = 1; i < total; i++) {
+                    try {
+                        await uploadSource(projectId, created.id, files[i], (p) => progress(i, p));
+                    } catch (e) {
+                        if (e instanceof UploadError && e.status === 404) {
+                            old = true;
+                            break;
+                        }
+                        failed.push(`${files[i].name}（${(e as Error).message}）`);
+                    }
+                }
+                await openUploaded(projectId, created.id);
+                if (old) {
+                    // 1 つ目のファイルだけのセッションとして浄書が始まっている
+                    toast.warning(
+                        `このホストは複数の音源に対応していないため、${files[0].name} だけのセッションにしました`,
+                        { duration: 15000 },
+                    );
+                } else if (failed.length > 0) {
+                    // ホストは残りのファイルを 30 分待ってから、届いた分だけで作る（spec/flows.md 6.16）
+                    toast.error(
+                        `${failed.join('、')} を送れませんでした。届いた ${total - failed.length} 個のファイルで、30 分後に作ります`,
+                        { duration: 20000 },
+                    );
+                } else {
+                    toast.success(`${total} 個のファイルを 1 つのセッションにまとめて作ります。要約まで少しかかります`);
+                }
+            } catch (e) {
+                toast.error(`${files[0].name} をアップロードできません: ${(e as Error).message}`);
             } finally {
                 set({ uploading: null });
             }
