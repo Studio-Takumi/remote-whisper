@@ -3,12 +3,19 @@
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
 from remote_whisper.context import AppContext, Pid, get_ctx
 from remote_whisper.context_sets import ContextSetError, ContextSetService
-from remote_whisper.projects import ProjectError, ProjectFile, display_name, order_projects
+from remote_whisper.projects import (
+    SUMMARY_DIR_MAX,
+    ProjectError,
+    ProjectFile,
+    display_name,
+    normalize_summary_dir,
+    order_projects,
+)
 
 router = APIRouter(prefix="/api/projects")
 
@@ -24,7 +31,44 @@ def project_json(pid: str, project: ProjectFile) -> dict[str, Any]:
         "name": display_name(project.path),
         "path": project.path,
         "selection": project.effective_selection().model_dump(by_alias=True),
+        "summaryDir": project.summary_dir,
     }
+
+
+class ProjectBody(BaseModel):
+    """省いたものは今のまま"""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    # null は 422（直下に戻すときは空の文字列を送る）
+    summary_dir: str = Field(default="", max_length=SUMMARY_DIR_MAX * 2)
+
+
+@router.patch("/{pid}")
+def change_project(
+    pid: Pid, body: ProjectBody, ctx: Annotated[AppContext, Depends(get_ctx)]
+) -> dict[str, Any]:
+    """プロジェクトの設定を変える（今は最終要約のコピーの置き場所 summaryDir だけ。#341）
+
+    選んだディレクトリの中に限るので、録音中もトンネル（クラウド版）からも変えられる。
+    不正なパスは 422（spec/files.md 5.4）"""
+    changes = body.model_dump(exclude_unset=True)
+    summary_dir: str | None = None
+    if "summary_dir" in changes:
+        try:
+            summary_dir = normalize_summary_dir(changes["summary_dir"])
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e)) from e
+
+    def change(project: ProjectFile) -> None:
+        if summary_dir is not None:
+            project.summary_dir = summary_dir
+
+    try:
+        project = ctx.projects.update(pid, change)
+    except ProjectError as e:
+        raise HTTPException(status_code=e.status, detail=e.message) from e
+    return project_json(pid, project)
 
 
 @router.get("")

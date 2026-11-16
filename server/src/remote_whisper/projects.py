@@ -67,6 +67,40 @@ def display_name(path: str) -> str:
 
 _T = TypeVar("_T")
 
+# 最終要約のコピーの置き場所（#341）に使えない文字（Windows のファイル名に使えないもの）
+_SUMMARY_DIR_UNSAFE = re.compile(r'[<>:"|?*\x00-\x1f]')
+# Windows の予約された名前（拡張子が付いていても使えない）
+_WINDOWS_RESERVED = re.compile(r"(CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9])(\..*)?", re.IGNORECASE)
+SUMMARY_DIR_MAX = 200
+
+
+def normalize_summary_dir(value: str) -> str:
+    """最終要約のコピーの置き場所（選んだディレクトリからの相対パス。#341）を確かめてそろえる
+
+    `\\` は `/` にし、空の部分と `.` は除く（`./summary/` は `summary`、`.` や空は直下で `""`）。
+    絶対パス・UNC・ドライブ文字・`..`・Windows で使えない文字と名前は ValueError。
+    シンボリックリンクで外に出ることは、ここではなくコピーするときに確かめる
+    """
+    raw = value.strip()
+    if len(raw) > SUMMARY_DIR_MAX:
+        raise ValueError(f"長すぎます（{SUMMARY_DIR_MAX} 文字まで）")
+    slashed = raw.replace("\\", "/")
+    if slashed.startswith("/"):
+        raise ValueError("絶対パスは使えません（選んだディレクトリからの相対パスで書きます）")
+    if re.match(r"[A-Za-z]:", slashed):
+        raise ValueError("ドライブ文字は使えません（選んだディレクトリからの相対パスで書きます）")
+    if m := _SUMMARY_DIR_UNSAFE.search(slashed):
+        raise ValueError(f"使えない文字が入っています: {m.group(0)!r}")
+    parts = [p for p in slashed.split("/") if p not in ("", ".")]
+    for part in parts:
+        if part == "..":
+            raise ValueError("`..` は使えません（選んだディレクトリの外には置けません）")
+        if part != part.strip(" ") or part.endswith("."):
+            raise ValueError(f"先頭・末尾が空白の名前と、末尾が `.` の名前は使えません: {part}")
+        if _WINDOWS_RESERVED.fullmatch(part):
+            raise ValueError(f"Windows で使えない名前です: {part}")
+    return "/".join(parts)
+
 
 def order_projects(items: list[tuple[str, _T]], order: list[str]) -> list[tuple[str, _T]]:
     """プロジェクトを setting.json の projectOrder（#173）の順に並べる
@@ -127,6 +161,10 @@ class ProjectFile(_Model):
     uuid: str | None = None
     path: str
     selection: Selection | None = None
+    # 最終要約のコピーを置く、選んだディレクトリの下の子ディレクトリ（#341。`/` 区切りの相対パス）。
+    # 空なら選んだディレクトリの直下。読むときは検証しない（手で直した値でも project.json を
+    # 作り直さないように）。保存の API とコピーするときに normalize_summary_dir で確かめる
+    summary_dir: str = ""
     context_sets: list[ContextSetEntry] = Field(default_factory=list)
     sessions: list[SessionEntry] = Field(default_factory=list)
 

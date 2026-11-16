@@ -21,9 +21,16 @@ from remote_whisper.documents import (
     transcript_name,
     write_doc,
 )
+from remote_whisper.fsaccess import is_within, real_path
 from remote_whisper.fsutil import atomic_write_text
 from remote_whisper.material_toc import MaterialRange
-from remote_whisper.projects import ProjectFile, ProjectStore, SessionEntry
+from remote_whisper.projects import (
+    ProjectError,
+    ProjectFile,
+    ProjectStore,
+    SessionEntry,
+    normalize_summary_dir,
+)
 from remote_whisper.sessions import SessionFiles
 from remote_whisper.settings import Settings
 from remote_whisper.timeutil import iso, make_id, now
@@ -335,23 +342,59 @@ class SessionWriter:
         return gid
 
     def copy_summary(self, gid: str) -> Path:
-        """最終の要約を、選んだディレクトリにコピーする（spec/files.md 5.1）
+        """最終の要約を、選んだディレクトリ（プロジェクトの summaryDir があればその下）に
+        コピーする（spec/files.md 5.1）
 
         名前は `summary-YYYYMMDD-<タイトル>.md`。同じ名前のファイルがあれば `-2` のような
-        番号を付ける。コピーしたパスを返す
+        番号を付ける（置き場所の中で判定する）。コピーしたパスを返す。置き場所はコピーする
+        時点のプロジェクトの設定に従う（作り直し・セッションの移動のあとも。#341）
         """
         stem = f"summary-{self.id[:8]}-{safe_filename(self.meta.title or 'タイトルなし')}"
-        target_dir = Path(self.meta.project)
-        if not target_dir.is_dir():
-            # 選んだディレクトリが消えていたら、作り直さない
-            raise FileNotFoundError(f"選んだディレクトリがありません: {target_dir}")
+        try:
+            summary_dir = self.store.load(self.pid).summary_dir
+        except ProjectError as e:
+            raise OSError(f"project.json を読めません: {e.message}") from e
+        target_dir = summary_copy_dir(self.meta.project, summary_dir)
         dst = target_dir / f"{stem}.md"
         n = 2
-        while dst.exists():
+        # 切れたリンク（外を指すものも）は exists() が False になるので、リンクも使っている
+        # 名前として番号をずらす（リンクを置き換えたり、その先に書いたりしない）
+        while dst.exists() or dst.is_symlink():
             dst = target_dir / f"{stem}-{n}.md"
             n += 1
         atomic_write_text(dst, self.files.summary(gid).read_text(encoding="utf-8"))
         return dst
+
+
+def summary_copy_dir(project_path: str, summary_dir: str) -> Path:
+    """最終要約のコピーを置くディレクトリ（#341）。子ディレクトリがなければ作る
+
+    選んだディレクトリそのものがなければ作らずに FileNotFoundError。summaryDir が不正なとき
+    （手で直した project.json など）と、シンボリックリンク・ジャンクションで選んだディレクトリの
+    外に出るときは、書かずに OSError
+    """
+    base = Path(project_path)
+    if not base.is_dir():
+        # 選んだディレクトリが消えていたら、作り直さない
+        raise FileNotFoundError(f"選んだディレクトリがありません: {base}")
+    try:
+        rel = normalize_summary_dir(summary_dir)
+    except ValueError as e:
+        raise OSError(f"要約のコピーの置き場所が不正です（{summary_dir}）: {e}") from e
+    if not rel:
+        return base
+    target = base.joinpath(*rel.split("/"))
+    root = real_path(base)
+
+    def ensure_inside() -> None:
+        if not is_within(real_path(target), root):
+            raise PermissionError(f"選んだディレクトリの外を指しています: {target}")
+
+    # 作る前に（途中のリンクで外に作らないように）と、作ったあとに確かめる
+    ensure_inside()
+    target.mkdir(parents=True, exist_ok=True)
+    ensure_inside()
+    return target
 
 
 # Windows のファイル名に使えない文字

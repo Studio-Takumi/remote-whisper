@@ -56,6 +56,8 @@ export type ProjectJson = {
     path: string;
     // pickTerms は前のサーバーにはない
     selection: { contextSet: string | null; useHotwords: boolean; useContext: boolean; pickTerms?: boolean };
+    // 最終要約のコピーの置き場所（#341。古いサーバーにはない）
+    summaryDir?: string;
 };
 
 // どのファイルが残っているか。保存期間を過ぎて消えたものは「期限切れ」と出す

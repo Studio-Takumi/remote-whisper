@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { ChevronDownIcon, FileTextIcon, PlusIcon } from 'lucide-react';
 
 import { MaterialPickerDialog } from '@/components/MaterialPickerDialog';
+import { SummaryDirField } from '@/components/SummaryDirField';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
@@ -121,6 +122,12 @@ export function ContextSetSheet() {
                                 onCheckedChange={(pickTerms) => onChangeSelection({ ...selection, pickTerms })}
                             />
                         </label>
+                        {/* 古いサーバー（summaryDir を返さない）では出さない（#341） */}
+                        {project.summaryDir !== undefined && (
+                            <div className='border-t pt-4'>
+                                <SummaryDirField project={project} />
+                            </div>
+                        )}
                     </div>
                 ) : (
                     <p className='px-4 text-sm text-muted-foreground'>先にメニューからプロジェクトを選んでください</p>

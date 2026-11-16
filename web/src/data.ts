@@ -66,6 +66,7 @@ export const projectsQuery = queryOptions({
             name: p.name,
             path: p.path,
             selection: toSelection(p.selection),
+            summaryDir: p.summaryDir,
         }));
     },
 });

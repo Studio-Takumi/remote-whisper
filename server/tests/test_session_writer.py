@@ -1,4 +1,6 @@
+import sys
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 
@@ -111,3 +113,127 @@ def test_interrupted(project):
     w.start()
     w.finish(42, status="interrupted")
     assert store.load(pid).sessions[0].status == "interrupted"
+
+
+# --- 最終要約のコピーの置き場所（#341） ---
+
+
+def _summarized(project) -> tuple[SessionWriter, str]:
+    store, pid, settings = project
+    w = SessionWriter(store, pid, SID, STARTED, settings.get())
+    w.start()
+    w.finish(10)
+    w.set_title("リリース計画")
+    return w, w.save_final_summary("gemma4:e4b", True, "## 要約\n")
+
+
+def _set_summary_dir(store, pid, value):
+    def change(p):
+        p.summary_dir = value
+
+    store.update(pid, change)
+
+
+def test_copy_goes_to_the_project_dir_when_summary_dir_is_empty(project):
+    w, gid = _summarized(project)
+    meetings = Path(w.meta.project)
+    dst = w.copy_summary(gid)
+    assert dst == meetings / "summary-20261009-リリース計画.md"
+    assert dst.read_text(encoding="utf-8") == w.files.summary(gid).read_text(encoding="utf-8")
+
+
+def test_copy_goes_to_the_summary_dir_and_creates_it(project):
+    store, pid, _ = project
+    w, gid = _summarized(project)
+    meetings = Path(w.meta.project)
+    _set_summary_dir(store, pid, "notes/summary")
+
+    dst = w.copy_summary(gid)
+    assert dst == meetings / "notes" / "summary" / "summary-20261009-リリース計画.md"
+    assert dst.is_file()
+    # 同じ名前があれば、置き場所の中で番号を付ける（直下にあっても関係ない）
+    (meetings / "summary-20261009-リリース計画.md").write_text("old", encoding="utf-8")
+    assert w.copy_summary(gid).name == "summary-20261009-リリース計画-2.md"
+    assert w.copy_summary(gid).name == "summary-20261009-リリース計画-3.md"
+    # 設定を変えても、置いたコピーは動かさない。次のコピーから新しい場所に置く
+    _set_summary_dir(store, pid, "")
+    assert w.copy_summary(gid) == meetings / "summary-20261009-リリース計画-2.md"
+    assert dst.is_file()
+
+
+def test_copy_follows_the_setting_at_the_time_of_regeneration(project):
+    store, pid, settings = project
+    w, gid = _summarized(project)
+    _set_summary_dir(store, pid, "summary")
+    # 要約の作り直し（SessionWriter.existing）でも、その時点の設定に従う
+    again = SessionWriter.existing(store, pid, SID)
+    dst = again.copy_summary(gid)
+    assert dst.parent == Path(w.meta.project) / "summary"
+
+
+def test_copy_fails_when_the_project_dir_is_gone(project, tmp_path):
+    store, pid, _ = project
+    w, gid = _summarized(project)
+    _set_summary_dir(store, pid, "summary")
+    meetings = Path(w.meta.project)
+    for f in meetings.iterdir():
+        f.unlink()
+    meetings.rmdir()
+    # 選んだディレクトリそのものは作り直さない
+    with pytest.raises(FileNotFoundError):
+        w.copy_summary(gid)
+    assert not meetings.exists()
+
+
+def test_copy_refuses_an_invalid_hand_edited_summary_dir(project):
+    store, pid, _ = project
+    w, gid = _summarized(project)
+    meetings = Path(w.meta.project)
+    _set_summary_dir(store, pid, "../outside")
+    with pytest.raises(OSError):
+        w.copy_summary(gid)
+    assert not (meetings.parent / "outside").exists()
+
+
+def test_copy_refuses_a_link_pointing_outside(project, tmp_path, make_dir_link):
+    store, pid, _ = project
+    w, gid = _summarized(project)
+    meetings = Path(w.meta.project)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    make_dir_link(meetings / "summary", outside)
+
+    for value in ("summary", "summary/deeper"):
+        _set_summary_dir(store, pid, value)
+        with pytest.raises(OSError):
+            w.copy_summary(gid)
+    assert list(outside.iterdir()) == []
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="ファイルのシンボリックリンクは権限が要る")
+def test_copy_does_not_write_through_a_dangling_file_link(project, tmp_path):
+    store, pid, _ = project
+    w, gid = _summarized(project)
+    meetings = Path(w.meta.project)
+    _set_summary_dir(store, pid, "summary")
+    (meetings / "summary").mkdir()
+    # コピー先の名前が、外のまだない場所を指す（切れた）リンク
+    outside = tmp_path / "outside.md"
+    link = meetings / "summary" / "summary-20261009-リリース計画.md"
+    link.symlink_to(outside)
+
+    dst = w.copy_summary(gid)
+    assert dst.name == "summary-20261009-リリース計画-2.md"
+    assert not outside.exists()
+    assert link.is_symlink()
+
+
+def test_copy_allows_a_link_inside_the_project_dir(project, make_dir_link):
+    store, pid, _ = project
+    w, gid = _summarized(project)
+    meetings = Path(w.meta.project)
+    (meetings / "real").mkdir()
+    make_dir_link(meetings / "alias", meetings / "real")
+    _set_summary_dir(store, pid, "alias")
+    w.copy_summary(gid)
+    assert (meetings / "real" / "summary-20261009-リリース計画.md").is_file()

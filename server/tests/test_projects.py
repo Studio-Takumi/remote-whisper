@@ -19,6 +19,7 @@ from remote_whisper.projects import (
     ProjectStore,
     SessionEntry,
     display_name,
+    normalize_summary_dir,
     project_id,
     rebuild_project_file,
 )
@@ -411,3 +412,109 @@ def test_rebuild_without_any_documents_is_not_possible(home):
         store.load("D--work-abcdef")
     assert e.value.status == 404
     assert store.all() == []
+
+
+# --- 最終要約のコピーの置き場所（#341） ---
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("", ""),
+        ("  ", ""),
+        (".", ""),
+        ("./", ""),
+        ("summary", "summary"),
+        ("./summary/", "summary"),
+        ("notes/summary", "notes/summary"),
+        ("notes//summary", "notes/summary"),
+        # Windows 風の区切りも受け付け、`/` にそろえる
+        ("notes\\summary", "notes/summary"),
+        (".\\notes\\summary\\", "notes/summary"),
+        ("要約", "要約"),
+        ("my summaries", "my summaries"),
+        ("v1.0", "v1.0"),
+    ],
+)
+def test_normalize_summary_dir(value, expected):
+    assert normalize_summary_dir(value) == expected
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        # 絶対パス・UNC・ドライブ文字
+        "/tmp/summary",
+        "\\summary",
+        "\\\\server\\share\\summary",
+        "//server/share",
+        "C:\\summary",
+        "c:summary",
+        "D:/work/summary",
+        # 外に出る
+        "..",
+        "../summary",
+        "summary/../../x",
+        "summary\\..\\..\\x",
+        # Windows で使えない文字・名前
+        "sum:mary",
+        "sum*mary",
+        "a?b",
+        'a"b',
+        "a<b>",
+        "a|b",
+        "a\tb",
+        "summary.",
+        "summary /x",
+        "x/ summary",
+        "CON",
+        "notes/nul.txt",
+        "com1",
+        "a" * 201,
+    ],
+)
+def test_normalize_summary_dir_rejects(value):
+    with pytest.raises(ValueError):
+        normalize_summary_dir(value)
+
+
+def test_summary_dir_is_saved_in_project_json(client, workdir, home):
+    created = client.post("/api/projects", json={"path": str(workdir / "meetings")}).json()
+    assert created["summaryDir"] == ""
+    pid = created["id"]
+
+    res = client.patch(f"/api/projects/{pid}", json={"summaryDir": ".\\notes\\summary\\"})
+    assert res.status_code == 200
+    assert res.json()["summaryDir"] == "notes/summary"
+    data = json.loads((home / "projects" / pid / "project.json").read_text("utf-8"))
+    assert data["summaryDir"] == "notes/summary"
+    assert client.get("/api/projects").json()[0]["summaryDir"] == "notes/summary"
+
+    # 省けば今のまま。空にすれば直下に戻る
+    assert client.patch(f"/api/projects/{pid}", json={}).json()["summaryDir"] == "notes/summary"
+    assert client.patch(f"/api/projects/{pid}", json={"summaryDir": ""}).json()["summaryDir"] == ""
+
+
+@pytest.mark.parametrize(
+    "value", ["../x", "C:\\x", "\\\\server\\share", "/abs", "a:b", "CON", None, 1]
+)
+def test_invalid_summary_dir_is_rejected_on_save(client, workdir, home, value):
+    created = client.post("/api/projects", json={"path": str(workdir / "meetings")}).json()
+    pid = created["id"]
+    client.patch(f"/api/projects/{pid}", json={"summaryDir": "summary"})
+
+    res = client.patch(f"/api/projects/{pid}", json={"summaryDir": value})
+    assert res.status_code == 422
+    # 弾いたら、前の値のまま
+    data = json.loads((home / "projects" / pid / "project.json").read_text("utf-8"))
+    assert data["summaryDir"] == "summary"
+
+
+def test_summary_dir_of_unknown_project(client, workdir):
+    res = client.patch("/api/projects/D--nothing-abcdef", json={"summaryDir": "summary"})
+    assert res.status_code == 404
+
+
+def test_project_json_without_summary_dir_is_read_as_empty():
+    # #341 より前の project.json（summaryDir がない）
+    assert ProjectFile.model_validate({"path": "D:\\work"}).summary_dir == ""
