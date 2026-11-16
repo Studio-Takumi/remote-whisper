@@ -407,3 +407,78 @@ def test_source_recordings_expire_and_move_with_the_session(client, project, tmp
     ctx = client.app.state.ctx
     clean(ctx.projects, ctx.settings, at=datetime.now().astimezone() + timedelta(days=11))
     assert not (d / f"recording-{sid}-2.mp3").exists()
+
+
+async def _body(data: bytes):
+    yield data
+
+
+def test_files_sent_at_once_are_placed_one_by_one(client, project, tmp_path):
+    # 2 つ目と 3 つ目を同時に送っても、置き終えてから数え、浄書は 1 回だけ始める
+    pid, d = project
+    final = CountingFinal()
+    ctx = client.app.state.ctx
+    ctx.uploads.final_transcriber = final
+    wav = write_audio(tmp_path / "a.wav", "pcm_s16le", fmt="wav")
+    sid = upload(client, pid, wav, sources=3).json()["id"]
+    data = wav.read_bytes()
+
+    async def both():
+        import asyncio
+
+        return await asyncio.gather(
+            ctx.uploads.receive_source(pid, sid, "b.wav", None, _body(data)),
+            ctx.uploads.receive_source(pid, sid, "c.wav", None, _body(data)),
+        )
+
+    got = client.portal.call(both)
+    assert sorted(s.id for s in got) == [2, 3]
+    wait_done(client)
+    assert final.calls == [(sid, [1, 2, 3])]
+    assert (d / f"recording-{sid}-2.mp3").is_file() and (d / f"recording-{sid}-3.mp3").is_file()
+
+
+def test_the_timeout_waits_for_a_file_being_received(client, project, tmp_path, monkeypatch):
+    # 置いている途中に時間切れが来ても、二重に始めない（届いたファイルも使う）
+    monkeypatch.setattr(uploads, "PENDING_TIMEOUT_SEC", 0.1)
+    place = uploads.UploadService._place
+
+    def slow_place(*args, **kwargs):
+        time.sleep(0.5)
+        return place(*args, **kwargs)
+
+    pid, _ = project
+    final = CountingFinal()
+    ctx = client.app.state.ctx
+    ctx.uploads.final_transcriber = final
+    wav = write_audio(tmp_path / "a.wav", "pcm_s16le", fmt="wav")
+    sid = upload(client, pid, wav, sources=2).json()["id"]
+    monkeypatch.setattr(uploads.UploadService, "_place", staticmethod(slow_place))
+    assert upload_source(client, pid, sid, wav).status_code == 202
+    time.sleep(0.3)
+    wait_done(client)
+    assert final.calls == [(sid, [1, 2])]
+
+
+def test_a_waiting_session_cannot_be_moved_or_made_again(client, project, tmp_path, monkeypatch):
+    pid, _ = project
+    ctx = client.app.state.ctx
+    ctx.uploads.final_transcriber = CountingFinal()
+    if ctx.final_transcriber is not None:
+        monkeypatch.setattr(ctx.final_transcriber, "available", lambda: True)
+        monkeypatch.setattr(ctx.final_transcriber, "regenerate", lambda *a: None)
+    other = tmp_path / "work" / "other"
+    other.mkdir()
+    dst = client.post("/api/projects", json={"path": str(other)}).json()["id"]
+    wav = write_audio(tmp_path / "a.wav", "pcm_s16le", fmt="wav")
+    sid = upload(client, pid, wav, sources=2).json()["id"]
+    res = client.post(f"/api/projects/{pid}/sessions/{sid}/move", json={"to": dst})
+    assert res.status_code == 409 and "待っている" in res.json()["detail"]
+    if ctx.final_transcriber is not None:
+        res = client.post(f"/api/projects/{pid}/sessions/{sid}/final-transcripts")
+        assert res.status_code == 409 and "待っている" in res.json()["detail"]
+    # そろえば移せる
+    upload_source(client, pid, sid, wav)
+    wait_done(client)
+    res = client.post(f"/api/projects/{pid}/sessions/{sid}/move", json={"to": dst})
+    assert res.status_code == 200

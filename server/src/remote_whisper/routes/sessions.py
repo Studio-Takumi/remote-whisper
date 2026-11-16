@@ -166,9 +166,12 @@ class MoveBody(BaseModel):
     to: str
 
 
-def move_blocker(ctx: AppContext, entry: SessionEntry) -> str | None:
+def move_blocker(ctx: AppContext, entry: SessionEntry, pid: str | None = None) -> str | None:
     """セッションを移せない理由（移せるなら None）。#172"""
     sid = entry.id
+    if pid is not None and ctx.uploads is not None and ctx.uploads.waiting(pid, sid):
+        # 複数のファイルから作るセッションで、残りのファイルを待っている（#241）
+        return "残りの音声ファイルを待っているセッションは移せません"
     session = getattr(ctx.recorder, "sessions", {}).get(sid)
     restoring = getattr(ctx.recorder, "_restoring", set())
     if entry.status == "recording" or (session is not None and not session.ended):
@@ -196,7 +199,7 @@ async def move(pid: Pid, sid: str, body: MoveBody, ctx: Ctx) -> dict[str, Any]:
         dst = ctx.projects.resolve(body.to)
     except ProjectError as e:
         raise HTTPException(status_code=e.status, detail=e.message) from e
-    reason = move_blocker(ctx, entry)
+    reason = move_blocker(ctx, entry, pid)
     if reason is not None:
         raise HTTPException(status_code=409, detail=reason)
     try:
@@ -309,6 +312,12 @@ async def regenerate_final_transcript(pid: Pid, sid: str, ctx: Ctx) -> dict[str,
     if entry.status == "recording" or _still_finishing(ctx, sid):
         raise HTTPException(
             status_code=409, detail="録音中のセッションの文字起こしは再生成できません"
+        )
+    if ctx.uploads is not None and ctx.uploads.waiting(pid, sid):
+        # 複数のファイルから作るセッションで、残りのファイルを待っている（#241）。
+        # そろったら作るので、主の音源だけで先に作らない
+        raise HTTPException(
+            status_code=409, detail="残りの音声ファイルを待っているセッションは再生成できません"
         )
     if sid in ctx.hub.status.transcribing:
         # 連打やほかの端末から頼まれても、同じものを重ねて作らない（数分 GPU を使うため）
