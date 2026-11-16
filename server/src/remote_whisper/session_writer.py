@@ -13,6 +13,7 @@ from pathlib import Path
 
 from remote_whisper.corrections import Correction, replace
 from remote_whisper.documents import (
+    SourceInfo,
     SummaryMeta,
     TranscriptMeta,
     WhisperUsed,
@@ -251,6 +252,12 @@ class SessionWriter:
         """録音ファイル（mp3）ができた。フロントマターに記録する"""
         with self._lock:
             self.meta.recording = name
+            self._rewrite_meta()
+
+    def set_sources(self, sources: list[SourceInfo] | None) -> None:
+        """音源の一覧（#241）。音源が 1 つ以下なら書かない（今までのセッションと同じにする）"""
+        with self._lock:
+            self.meta.sources = list(sources) if sources and len(sources) > 1 else None
             self._rewrite_meta()
 
     def use_range_set(self, set_id: str, base: str, ranges: list[MaterialRange]) -> None:

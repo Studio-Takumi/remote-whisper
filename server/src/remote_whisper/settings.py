@@ -308,6 +308,9 @@ class RecordingSettings(_Model):
     echo_cancellation: bool = True
     # アップロードできる音声ファイルの大きさの上限（MB。#180）
     upload_max_mb: int = Field(2048, ge=1)
+    # 1 つのセッションで同時につながっていられる音源の数（主の音源を含む。#241）。
+    # まとめてアップロードできるファイルの数もこれ。1 なら参加・まとめてのアップロードを受け付けない
+    max_sources: int = Field(4, ge=1, le=8)
 
 
 class RetentionDays(_Model):

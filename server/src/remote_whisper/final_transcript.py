@@ -20,6 +20,7 @@ WhisperX の結果（区間ごとの文と、単語ごとの時刻・話者）�
 """
 
 import logging
+import re
 from collections import Counter
 from dataclasses import dataclass
 from functools import cache
@@ -58,6 +59,70 @@ class Sentence:
     start: float
     text: str
     speaker: str | None = None
+    # どの音源から出た行か（#241。音源が 2 つ以上のときだけ）
+    source: int | None = None
+
+
+# 複数の音源で、同じ文が 2 つの音源から出たとみなす時刻の差（秒）と、文字の 2-gram の含有率
+DUPLICATE_SEC = 3.0
+DUPLICATE_CONTAINMENT = 0.5
+_NOT_TEXT = re.compile(r"[\s、。，．,.!！?？・「」『』（）()\-ー〜~…]+")
+
+
+def _bigrams(text: str) -> set[str]:
+    t = _NOT_TEXT.sub("", text)
+    return {t[i : i + 2] for i in range(len(t) - 1)} if len(t) > 1 else ({t} if t else set())
+
+
+def _containment(a: str, b: str) -> float:
+    ga, gb = _bigrams(a), _bigrams(b)
+    if not ga or not gb:
+        return 0.0
+    return len(ga & gb) / min(len(ga), len(gb))
+
+
+def _loudest_at(dominant: list[list[float]], t: float) -> int | None:
+    """dominant（[始まり, 終わり, 音源 ID] の区間）で、時刻 t に一番大きい音源"""
+    for start, end, source in dominant:
+        if start <= t < end:
+            return int(source)
+    return None
+
+
+def merge_sources(
+    per_source: dict[int, list[Sentence]], dominant: list[list[float]]
+) -> list[Sentence]:
+    """音源ごとの行を時刻で並べる（#241。spec/flows.md 6.16）
+
+    余白が重なって同じ文が 2 つの音源から出たとき（DUPLICATE_SEC 以内で含有率が
+    DUPLICATE_CONTAINMENT 以上）は、その時点で一番大きい音源の行だけを残す
+    """
+    items = sorted(
+        (
+            Sentence(s.start, s.text, s.speaker, source)
+            for source, ss in per_source.items()
+            for s in ss
+        ),
+        key=lambda s: s.start,
+    )
+    drop: set[int] = set()
+    for i, x in enumerate(items):
+        if i in drop:
+            continue
+        for j in range(i + 1, len(items)):
+            y = items[j]
+            if y.start - x.start > DUPLICATE_SEC:
+                break
+            if j in drop or y.source == x.source:
+                continue
+            if _containment(x.text, y.text) < DUPLICATE_CONTAINMENT:
+                continue
+            loud = _loudest_at(dominant, x.start)
+            lose = i if loud == y.source else j
+            drop.add(lose)
+            if lose == i:
+                break
+    return [s for k, s in enumerate(items) if k not in drop]
 
 
 @dataclass

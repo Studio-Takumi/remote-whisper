@@ -49,6 +49,16 @@ class SessionFiles:
                 return path
         return None
 
+    def source_recording(self, source: int) -> Path | None:
+        """音源ごとの録音ファイル（#241）。音源 1（主の音源）は recording() と同じ"""
+        if source <= 1:
+            return self.recording()
+        for ext in ("mp3", "m4a"):
+            path = self.dir / recording_name(self.id, ext, source)
+            if path.is_file():
+                return path
+        return None
+
     def audio(self) -> Path | None:
         """録音を終えたセッションの録音全体。`.tmp` に WAV が残っていればそちら（続きを録音できる間
         （#174）や変換に失敗したとき。続きを録音したあとの mp3 は前の部分だけのことがある）"""

@@ -89,12 +89,13 @@ def probe(path: Path) -> AudioInfo:
         raise ValueError(f"音声ファイルとして読めません: {e}") from e
 
 
-def convert_audio(src_path: Path, out_dir: Path, sid: str) -> Path:
+def convert_audio(src_path: Path, out_dir: Path, sid: str, source: int | None = None) -> Path:
     """どんな音声ファイル（動画なら音声だけ）でも、録音したときと同じ形式
     （16kHz・モノラル・64kbps の mp3、なければ m4a）にする（#180）。
+    source はほかの音源の音源 ID（#241。ファイル名に付ける）。
     途中で失敗したら、書きかけのファイルは消して例外を投げる"""
     ext, container, encoder = pick_format()
-    dst = out_dir / recording_name(sid, ext)
+    dst = out_dir / recording_name(sid, ext, source)
     tmp = dst.with_name(dst.name + ".tmp")
     try:
         with av.open(str(src_path)) as src, av.open(str(tmp), "w", format=container) as out:

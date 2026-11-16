@@ -63,10 +63,12 @@ def project(client, tmp_path):
     return created["id"], client.app.state.ctx.projects.dir(created["id"])
 
 
-def upload(client, pid, path, name=None, last_modified=None):
+def upload(client, pid, path, name=None, last_modified=None, sources=None):
     params = {"name": name or path.name}
     if last_modified is not None:
         params["lastModified"] = last_modified
+    if sources is not None:
+        params["sources"] = sources
     return client.post(
         f"/api/projects/{pid}/sessions/upload", params=params, content=path.read_bytes()
     )
@@ -280,3 +282,128 @@ def test_upload_in_mock_mode_makes_a_summary(home, tmp_path):
         lines = client.get(f"/api/projects/{pid}/sessions/{sid}/transcript").json()["lines"]
         assert len(lines) == 6
         assert len(client.get(f"/api/projects/{pid}/sessions/{sid}/summaries").json()) == 1
+
+
+# --- 複数のファイルから 1 つのセッション（#241。spec/flows.md 6.16） ---
+
+
+def upload_source(client, pid, sid, path, last_modified=None):
+    params = {"name": path.name}
+    if last_modified is not None:
+        params["lastModified"] = last_modified
+    return client.post(
+        f"/api/projects/{pid}/sessions/{sid}/sources/upload",
+        params=params,
+        content=path.read_bytes(),
+    )
+
+
+class CountingFinal:
+    """最終の文字起こしの代わり。呼ばれたセッションと、そのときの音源を覚える"""
+
+    def __init__(self):
+        self.calls = []
+
+    def enabled(self):
+        return True
+
+    async def run(self, files, meta):
+        self.calls.append((files.id, [s.id for s in meta.sources or []]))
+        return "20261016-000000"
+
+
+def test_files_make_one_session_after_all_arrive(client, project, tmp_path):
+    pid, d = project
+    final = CountingFinal()
+    client.app.state.ctx.uploads.final_transcriber = final
+    main = write_audio(tmp_path / "pc.wav", "pcm_s16le", seconds=60, fmt="wav")
+    phone = write_audio(tmp_path / "phone.m4a", "aac", seconds=50, bit_rate=64_000, fmt="mp4")
+    modified = datetime(2026, 10, 1, 10, 30, 0).astimezone().timestamp() * 1000
+    res = upload(client, pid, main, last_modified=modified, sources=2)
+    assert res.status_code == 202
+    sid = res.json()["id"]
+    # 残りが届くまでは始めない
+    wait_done(client)
+    assert final.calls == []
+    # 2 本目は 5 秒早く録り終えた（長さが 10 秒短い）→ 主の音源の 5 秒後に始まった
+    res = upload_source(client, pid, sid, phone, last_modified=modified - 5000)
+    assert res.status_code == 202
+    assert res.json() == {"id": 2, "name": "phone.m4a"}
+    wait_done(client)
+    assert final.calls == [(sid, [1, 2])]
+    # ほかの音源は変換せずに音源 ID を付けて置く。主の音源は今までと同じ名前
+    assert (d / f"recording-{sid}-2.m4a").read_bytes() == phone.read_bytes()
+    assert (d / f"recording-{sid}.mp3").is_file()
+    meta, _ = read_doc(d / f"transcript-{sid}.md", TranscriptMeta)
+    assert [(s.id, s.kind, s.name, s.recording) for s in meta.sources] == [
+        (1, "main", "pc.wav", f"recording-{sid}.mp3"),
+        (2, "upload", "phone.m4a", f"recording-{sid}-2.m4a"),
+    ]
+    assert abs(meta.sources[1].offset_sec - 5) < 0.2
+    # そろったあとは足せない
+    assert upload_source(client, pid, sid, phone).status_code == 409
+
+
+def test_a_single_upload_has_no_sources(client, project, tmp_path):
+    pid, d = project
+    wav = write_audio(tmp_path / "a.wav", "pcm_s16le", fmt="wav")
+    sid = upload(client, pid, wav).json()["id"]
+    wait_done(client)
+    text = (d / f"transcript-{sid}.md").read_text(encoding="utf-8")
+    assert "sources" not in text and "lineSources" not in text
+    # 待っていないセッションには足せない
+    assert upload_source(client, pid, sid, wav).status_code == 409
+    assert upload_source(client, pid, "20200101-000000", wav).status_code == 404
+
+
+def test_too_many_files_are_refused(client, project, tmp_path):
+    pid, _ = project
+    wav = write_audio(tmp_path / "a.wav", "pcm_s16le", fmt="wav")
+    params = {"name": "a.wav", "sources": 5}
+    res = client.post(
+        f"/api/projects/{pid}/sessions/upload", params=params, content=wav.read_bytes()
+    )
+    assert res.status_code == 422
+    params["sources"] = 1
+    res = client.post(
+        f"/api/projects/{pid}/sessions/upload", params=params, content=wav.read_bytes()
+    )
+    assert res.status_code == 422
+    options = client.get("/api/settings/options").json()
+    assert options["recording"] == {"maxSources": 4}
+
+
+def test_missing_files_time_out(client, project, tmp_path, monkeypatch):
+    # 残りが来なければ、届いた分だけで作る
+    monkeypatch.setattr(uploads, "PENDING_TIMEOUT_SEC", 0.2)
+    pid, _ = project
+    final = CountingFinal()
+    client.app.state.ctx.uploads.final_transcriber = final
+    wav = write_audio(tmp_path / "a.wav", "pcm_s16le", fmt="wav")
+    params = {"name": "a.wav", "sources": 3}
+    sid = client.post(
+        f"/api/projects/{pid}/sessions/upload", params=params, content=wav.read_bytes()
+    ).json()["id"]
+    assert upload_source(client, pid, sid, wav).status_code == 202
+    time.sleep(0.5)
+    wait_done(client)
+    assert final.calls == [(sid, [1, 2])]
+
+
+def test_source_recordings_expire_and_move_with_the_session(client, project, tmp_path):
+    pid, d = project
+    client.app.state.ctx.uploads.final_transcriber = CountingFinal()
+    wav = write_audio(tmp_path / "a.wav", "pcm_s16le", fmt="wav")
+    params = {"name": "a.wav", "sources": 2}
+    sid = client.post(
+        f"/api/projects/{pid}/sessions/upload", params=params, content=wav.read_bytes()
+    ).json()["id"]
+    upload_source(client, pid, sid, wav)
+    wait_done(client)
+    from remote_whisper.session_move import session_paths
+
+    names = {p.name for p in session_paths(d, sid)}
+    assert {f"recording-{sid}.mp3", f"recording-{sid}-2.mp3"} <= names
+    ctx = client.app.state.ctx
+    clean(ctx.projects, ctx.settings, at=datetime.now().astimezone() + timedelta(days=11))
+    assert not (d / f"recording-{sid}-2.mp3").exists()

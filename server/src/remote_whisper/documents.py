@@ -23,7 +23,8 @@ CONTEXT_RE = re.compile(rf"context-({ID})\.md")
 TRANSCRIPT_RE = re.compile(rf"transcript-({ID})\.md")
 SUMMARY_RE = re.compile(rf"summary-({ID})-({ID})\.md")
 FINAL_TRANSCRIPT_RE = re.compile(rf"transcript-final-({ID})-({ID})\.md")
-RECORDING_RE = re.compile(rf"recording-({ID})\.(mp3|m4a)")
+# ほかの音源の録音（#241）は recording-<ID>-<音源 ID>.<拡張子>。group(1) はどちらもセッション ID
+RECORDING_RE = re.compile(rf"recording-({ID})(?:-([2-9]|1[0-6]))?\.(mp3|m4a)")
 
 
 def hotwords_name(set_id: str) -> str:
@@ -47,7 +48,11 @@ def final_transcript_name(sid: str, gid: str) -> str:
     return f"transcript-final-{sid}-{gid}.md"
 
 
-def recording_name(sid: str, ext: str = "mp3") -> str:
+def recording_name(sid: str, ext: str = "mp3", source: int | None = None) -> str:
+    """録音ファイル。ほかの音源（音源 ID が 2 から。#241）は音源 ID を付ける
+    （主の音源は今までと同じ）"""
+    if source is not None and source > 1:
+        return f"recording-{sid}-{source}.{ext}"
     return f"recording-{sid}.{ext}"
 
 
@@ -141,6 +146,32 @@ class WhisperUsed(_Meta):
     speech_dbfs: float | None = None
 
 
+class SourceInfo(_Meta):
+    """音源（#241。spec/files.md 5.5・spec/flows.md 6.16）。1 つ目が主の音源"""
+
+    id: int
+    name: str | None = None
+    # main（主の音源）/ join（録音中に参加した端末）/ upload（アップロードしたファイル）
+    kind: Literal["main", "join", "upload"] = "upload"
+    recording: str | None = None
+    # 主の音源の時刻 = 音源の時刻 × (1 − driftPpm × 10⁻⁶) + offsetSec
+    offset_sec: float = 0.0
+    drift_ppm: float = 0.0
+    joined_sec: float | None = None
+    left_sec: float | None = None
+
+
+# 音源が 2 つ以上のときだけ書く項目（ないときは書かない。今までのファイルと同じにするため）
+_SOURCE_KEYS = ("sources", "lineSources")
+
+
+def _drop_empty_sources(data: dict[str, Any]) -> dict[str, Any]:
+    for key in _SOURCE_KEYS:
+        if data.get(key) is None:
+            data.pop(key, None)
+    return data
+
+
 class TranscriptMeta(_Meta):
     """文字起こし `transcript-<ID>.md` のフロントマター"""
 
@@ -180,6 +211,12 @@ class TranscriptMeta(_Meta):
     # context_set はそのセッション専用のセットになり、base_context_set に元のセットを残す
     material_range: list[MaterialRange] | None = None
     base_context_set: str | None = None
+    # 音源（#241）。音源が 2 つ以上のセッションだけが持つ。lineSources は本文の行ごとの音源 ID
+    sources: list[SourceInfo] | None = None
+    line_sources: list[int] | None = None
+
+    def to_json(self) -> dict[str, Any]:
+        return _drop_empty_sources(super().to_json())
 
 
 class SummaryMeta(_Meta):
@@ -225,6 +262,12 @@ class FinalTranscriptMeta(_Meta):
     diarization: Literal["done", "off", "unavailable"] = "off"
     speakers: int = 0
     app_version: str | None = None
+    # 使った音源 ID と、行ごとの音源 ID（#241。音源が 2 つ以上のときだけ）
+    sources: list[int] | None = None
+    line_sources: list[int] | None = None
+
+    def to_json(self) -> dict[str, Any]:
+        return _drop_empty_sources(super().to_json())
 
 
 M = TypeVar("M", bound=_Meta)

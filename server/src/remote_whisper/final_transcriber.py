@@ -23,12 +23,13 @@ from pathlib import Path
 from typing import Any
 
 from remote_whisper import logs
-from remote_whisper.documents import FinalTranscriptMeta, TranscriptMeta, write_doc
+from remote_whisper.documents import FinalTranscriptMeta, TranscriptMeta, parse, write_doc
 from remote_whisper.final_transcribe_worker import EXIT_NOT_INSTALLED, STEPS, parse_progress
-from remote_whisper.final_transcript import render, sentences
+from remote_whisper.final_transcript import Sentence, merge_sources, render, sentences
 from remote_whisper.gpu_queue import GpuQueue, Priority, report_progress
 from remote_whisper.hub import Hub
 from remote_whisper.live_transcriber import load_hotwords
+from remote_whisper.session_writer import transcript_lock
 from remote_whisper.sessions import SessionFiles
 from remote_whisper.settings import SettingsStore
 from remote_whisper.term_picker import combine_hotwords
@@ -252,10 +253,16 @@ class FinalTranscriber:
             "hotwords": _hotwords(files, meta),
             "initialPrompt": INITIAL_PROMPT.get(meta.language),
         }
+        sources = _job_sources(files, meta, audio)
+        if len(sources) > 1:
+            job["sources"] = sources
         if self._preempted:
             raise _Preempted
         # 固まっても GPU キューを止めたままにしないよう、録音の長さに応じた時間で打ち切る
-        timeout = TIMEOUT_BASE_SEC + TIMEOUT_PER_SEC * (meta.duration_sec or 3600)
+        # （複数の音源は、文字起こしと位置合わせを音源の数だけ行う）
+        timeout = TIMEOUT_BASE_SEC + TIMEOUT_PER_SEC * (meta.duration_sec or 3600) * max(
+            1, len(sources)
+        )
         timed_out = False
         clock = time.monotonic()
         log.info(
@@ -328,14 +335,17 @@ class FinalTranscriber:
             log.warning("diarization of %s skipped: %s", files.id, result["diarizationError"])
         diarized = result.get("diarization") == "done"
         # 形態素解析と話者の割り当てで 1 時間の録音なら数秒かかるので、別のスレッドで
-        lines = await asyncio.to_thread(
-            sentences,
-            result.get("segments") or [],
-            result.get("turns") if diarized else None,
-            meta.language,
-        )
+        turns = result.get("turns") if diarized else None
+        segments = result.get("segments") or []
+        if len(sources) > 1:
+            lines = await asyncio.to_thread(
+                _multi_source_lines, segments, turns, meta.language, result.get("dominant") or []
+            )
+            _record_alignment(files, meta, result.get("sources") or [])
+        else:
+            lines = await asyncio.to_thread(sentences, segments, turns, meta.language)
         body, speakers = render(lines, diarized)
-        gid = _save(files, meta, model, started, result, body, speakers, audio)
+        gid = _save(files, meta, model, started, result, body, speakers, audio, lines, sources)
         log.info(
             "final transcript of %s saved as %s in %.0fs (diarization %s, %d speakers)",
             files.id,
@@ -397,7 +407,10 @@ def _save(
     body: str,
     speakers: int,
     audio: Path,
+    lines: list[Sentence] | None = None,
+    sources: list[dict[str, Any]] | None = None,
 ) -> str:
+    multi = sources is not None and len(sources) > 1
     gid = make_id(started)
     # 同じ秒に作り直したときは、1秒ずつずらす
     while files.final_transcript(gid).exists():
@@ -416,7 +429,57 @@ def _save(
             diarization=result.get("diarization") or "off",
             speakers=speakers,
             app_version=app_version(),
+            sources=[int(s["id"]) for s in sources] if multi and sources else None,
+            line_sources=[s.source or 1 for s in lines or []] if multi else None,
         ),
         body,
     )
     return gid
+
+
+def _job_sources(files: SessionFiles, meta: TranscriptMeta, audio: Path) -> list[dict[str, Any]]:
+    """子に渡す音源（#241）。音源が 1 つなら主の音源だけ。録音ファイルが消えた音源は使わない"""
+    out: list[dict[str, Any]] = [{"id": 1, "audio": str(audio), "roughOffsetSec": 0.0}]
+    for s in (meta.sources or [])[1:]:
+        path = files.source_recording(s.id)
+        if path is None:
+            log.warning("no recording of source %d of %s; it is skipped", s.id, files.id)
+            continue
+        out.append({"id": s.id, "audio": str(path), "roughOffsetSec": s.offset_sec})
+    return out
+
+
+def _multi_source_lines(
+    segments: list[dict[str, Any]],
+    turns: list[dict[str, Any]] | None,
+    language: str,
+    dominant: list[list[float]],
+) -> list[Sentence]:
+    """音源ごとに文に分けてから、時刻で並べて二重の行を消す（spec/flows.md 6.16）"""
+    by_source: dict[int, list[dict[str, Any]]] = {}
+    for s in segments:
+        by_source.setdefault(int(s.get("source") or 1), []).append(s)
+    per_source = {
+        source: sentences(segs, turns, language) for source, segs in sorted(by_source.items())
+    }
+    return merge_sources(per_source, dominant)
+
+
+def _record_alignment(
+    files: SessionFiles, meta: TranscriptMeta, measured: list[dict[str, Any]]
+) -> None:
+    """測ったずれ・ドリフトを、文字起こしのフロントマターの音源に書く（再生で音源を切り替えるため）"""
+    if not meta.sources or not measured:
+        return
+    by_id = {int(m["id"]): m for m in measured}
+    for s in meta.sources:
+        m = by_id.get(s.id)
+        if m is not None:
+            s.offset_sec = float(m.get("offsetSec") or 0.0)
+            s.drift_ppm = float(m.get("driftPpm") or 0.0)
+    try:
+        with transcript_lock(files.transcript):
+            _, body = parse(files.transcript.read_text(encoding="utf-8"))
+            write_doc(files.transcript, meta, body)
+    except (OSError, ValueError):
+        log.exception("failed to record the source alignment of %s", files.id)

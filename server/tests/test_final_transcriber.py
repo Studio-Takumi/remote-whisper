@@ -51,6 +51,19 @@ result = {"segments": [{"start": 0.0, "end": 1.3, "text": "最終です。はい
           "turns": turns if job["diarize"] else [],
           "diarization": "done" if job["diarize"] else "off", "diarizationError": None,
           "alignModel": "fake-align", "device": "cpu", "job": job}
+if job.get("sources"):
+    # 複数の音源（#241）: 音源 2 にも「最終です。」が余白で入り、音源 2 が「はい。」を拾った
+    dup = [dict(c, start=c["start"] + 0.1, end=c["end"] + 0.1) for c in chars[:5]]
+    result.update(
+        segments=[
+            {"start": 0.0, "end": 0.5, "text": "最終です。", "words": chars[:5], "source": 1},
+            {"start": 0.1, "end": 0.6, "text": "最終です。", "words": dup, "source": 2},
+            {"start": 1.0, "end": 1.3, "text": "はい。", "words": chars[5:], "source": 2},
+        ],
+        dominant=[[0.0, 0.9, 1], [0.9, 60.0, 2]],
+        sources=[{"id": 1, "offsetSec": 0.0, "driftPpm": 0.0, "windows": None},
+                 {"id": 2, "offsetSec": 4.875, "driftPpm": -41.2, "windows": 3}],
+    )
 if sys.argv[2] == "unavailable":
     for c in chars:
         c["speaker"] = None
@@ -476,3 +489,38 @@ def test_final_transcript_api_errors(client, project):  # noqa: F811
     assert client.get(f"{url}/latest").status_code == 410
     assert client.get(f"{url}/20261013-090000").status_code == 410
     assert client.get(f"{url}/..%2Fsecret").status_code == 404
+
+
+def test_multiple_sources_are_transcribed_and_merged(home, session_files, fake_worker):
+    # 複数の音源（#241。spec/flows.md 6.16）: 子に音源を渡し、音源ごとの行を時刻で並べて、
+    # 余白で二重になった行は、その時点で一番大きい音源のものだけを残す
+    from remote_whisper.documents import SourceInfo, write_doc
+
+    files, meta = session_files
+    (files.dir / f"recording-{files.id}-2.m4a").write_bytes(b"fake")
+    meta.sources = [
+        SourceInfo(id=1, kind="main", recording=f"recording-{files.id}.mp3"),
+        SourceInfo(id=2, kind="upload", recording=f"recording-{files.id}-2.m4a", offset_sec=5.0),
+        # 録音ファイルが消えた音源は使わない
+        SourceInfo(id=3, kind="upload", recording=f"recording-{files.id}-3.mp3"),
+    ]
+    write_doc(files.transcript, meta, "")
+    gid = run_final(home, fake_worker(), files, meta)
+    job = json.loads(fake_worker.count.with_name("job.json").read_text(encoding="utf-8"))
+    assert [(s["id"], s["roughOffsetSec"]) for s in job["sources"]] == [(1, 0.0), (2, 5.0)]
+    assert job["sources"][1]["audio"].endswith(f"recording-{files.id}-2.m4a")
+    saved, body = read_doc(files.final_transcript(gid), FinalTranscriptMeta)
+    assert body == "[00:00:00] 話者 1: 最終です。\n[00:00:01] 話者 2: はい。\n"
+    assert (saved.sources, saved.line_sources) == ([1, 2], [1, 2])
+    # 測ったずれ・ドリフトを、文字起こしの音源に書く
+    transcript, _ = read_doc(files.transcript, TranscriptMeta)
+    assert (transcript.sources[1].offset_sec, transcript.sources[1].drift_ppm) == (4.875, -41.2)
+
+
+def test_a_single_source_has_no_source_fields(home, session_files, fake_worker):
+    files, meta = session_files
+    gid = run_final(home, fake_worker(), files, meta)
+    job = json.loads(fake_worker.count.with_name("job.json").read_text(encoding="utf-8"))
+    assert "sources" not in job
+    text = files.final_transcript(gid).read_text(encoding="utf-8")
+    assert "sources" not in text and "lineSources" not in text
