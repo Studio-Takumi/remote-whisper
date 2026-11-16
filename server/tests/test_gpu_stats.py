@@ -1,7 +1,9 @@
 import asyncio
 from types import SimpleNamespace
 
-from remote_whisper.gpu_stats import GpuStats
+import pytest
+
+from remote_whisper.gpu_stats import GpuStats, WindowsGpuCounters
 
 
 class FakeNvml:
@@ -80,6 +82,70 @@ def test_sends_none_when_reading_fails_later():
 
     sent = run(main())
     assert sent and all(s is None for s in sent)
+
+
+ARC = "luid_0x00000000_0x00013930"
+IRIS = "luid_0x00000000_0x000134EB"
+TYPEPERF = (
+    '"(PDH-CSV 4.0)",'
+    f'"\\\\PC\\GPU Adapter Memory({IRIS}_phys_0)\\Dedicated Usage",'
+    f'"\\\\PC\\GPU Adapter Memory({ARC}_phys_0)\\Dedicated Usage",'
+    f'"\\\\PC\\GPU Engine(pid_1_{ARC}_phys_0_eng_5_engtype_Compute)\\Utilization Percentage",'
+    f'"\\\\PC\\GPU Engine(pid_2_{ARC}_phys_0_eng_5_engtype_Compute)\\Utilization Percentage",'
+    f'"\\\\PC\\GPU Engine(pid_2_{ARC}_phys_0_eng_6_engtype_Compute)\\Utilization Percentage",'
+    f'"\\\\PC\\GPU Engine(pid_2_{ARC}_phys_0_eng_0_engtype_3D)\\Utilization Percentage",'
+    f'"\\\\PC\\GPU Engine(pid_3_{IRIS}_phys_0_eng_5_engtype_Compute)\\Utilization Percentage"\r\n'
+    '"11/17/2026 04:08:57.422","1000000.0","1887436800.0","30.5","40.2","10.0","90.0","99.0"\r\n'
+    "\r\n終了しています。\r\n"
+)
+
+
+def test_windows_counters_read_the_arc_only():
+    # Intel の GPU（#374）: LUID で GPU を選び、Compute のエンジンをプロセスごとに足す
+    counters = WindowsGpuCounters(ARC, 3935, run=lambda paths: TYPEPERF)
+    assert counters.read() == {"util": 71, "memUsedMb": 1800, "memTotalMb": 3935}
+
+
+def test_windows_counters_fail_without_output():
+    counters = WindowsGpuCounters(ARC, 3935, run=lambda paths: "")
+    with pytest.raises(RuntimeError):
+        counters.read()
+
+
+def test_windows_counters_are_used_instead_of_nvml(monkeypatch):
+    import remote_whisper.gpu_stats as gs
+
+    monkeypatch.setattr(gs.sys, "platform", "win32")
+
+    async def main():
+        sent = []
+
+        async def on_change(stats):
+            sent.append(stats)
+
+        # NVML は使えない PC（NVIDIA がない）
+        stats = GpuStats(on_change, interval=0.01, nvml=FakeNvml(fail_init=True))
+        stats.use_windows_counters(ARC, 3935)
+        stats._counters._run = lambda paths: TYPEPERF
+        stats.start()
+        await asyncio.sleep(0.1)
+        await stats.close()
+        return sent
+
+    sent = run(main())
+    assert sent[0] == {"util": 71, "memUsedMb": 1800, "memTotalMb": 3935}
+
+
+def test_windows_counters_are_not_used_without_the_luid_or_off_windows(monkeypatch):
+    import remote_whisper.gpu_stats as gs
+
+    stats = GpuStats(lambda s: None, nvml=FakeNvml())
+    monkeypatch.setattr(gs.sys, "platform", "win32")
+    stats.use_windows_counters(None, 3935)
+    assert stats._counters is None
+    monkeypatch.setattr(gs.sys, "platform", "darwin")
+    stats.use_windows_counters(ARC, 3935)
+    assert stats._counters is None
 
 
 def run(coro):
