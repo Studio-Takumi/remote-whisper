@@ -71,6 +71,8 @@ class _Job:
     started_at: float | None = None
     # 進み具合（#340）。`step` と、件数が分かれば `done`・`total`、段階の中の % が分かれば `percent`
     progress: dict[str, Any] | None = None
+    # 画面には出さない、中で見分けるための印（録音中の final は "final"。#356）
+    label: str | None = None
 
 
 # 実行中のジョブ。ジョブの中（と、そこから作ったタスク）から report_progress で引く
@@ -197,12 +199,13 @@ class GpuQueue:
         job: Callable[[], Awaitable[T]],
         kind: JobKind | None = None,
         session: str | None = None,
+        label: str | None = None,
     ) -> asyncio.Future[T]:
         """ジョブを積む。結果（か例外）は返す Future に入る。cancel すると、まだなら実行しない
         （実行中のジョブを cancel しても、GPU の処理そのものは止まらない）
 
         kind と session は画面に出すためのもの（何のジョブか・どのセッションのものか）。
-        kind を省くと優先度から決める"""
+        kind を省くと優先度から決める。label は画面に出さない印（oldest_waiting で使う）"""
         self.start()
         future: asyncio.Future[T] = asyncio.get_running_loop().create_future()
         order = next(self._order)
@@ -213,6 +216,7 @@ class GpuQueue:
             session=session,
             run=job,
             future=future,
+            label=label,
         )
         self._waiting[future] = entry
         # 待っている間に cancel されたら、すぐ一覧から外す
@@ -230,6 +234,12 @@ class GpuQueue:
     ) -> T:
         """ジョブを積んで、終わるまで待つ"""
         return await self.submit(priority, job, kind, session)
+
+    def oldest_waiting(self, label: str) -> float:
+        """label を付けて積んだ、まだ始まっていないジョブの一番長い待ち時間（秒。なければ 0）"""
+        now = time.monotonic()
+        waits = [now - j.queued_at for j in self._waiting.values() if j.label == label]
+        return max(waits, default=0.0)
 
     def is_waiting(self, future: asyncio.Future) -> bool:
         """submit で積んだジョブが、まだ始まっていないか（cancel すれば実行しない）"""
