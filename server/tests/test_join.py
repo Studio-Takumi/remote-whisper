@@ -7,7 +7,7 @@ import json
 
 import pytest
 from fastapi.testclient import TestClient
-from test_recorder import chunk, finished, of_type, receive_until, start
+from test_recorder import chunk, finished, of_type, receive_until, start, wait_for
 
 from remote_whisper.app import create_app
 from remote_whisper.documents import TranscriptMeta, read_doc
@@ -308,7 +308,11 @@ def test_leftover_source_wavs_are_converted_at_startup(client, project, monkeypa
         receive_until(a, of_type("ack", seq=0))
         rec.send_json({"type": "stop"})
         receive_until(rec, of_type("status", recordings=0))
-    finished(client, sid)
+    # 録音のあとの処理（変換・最終要約のタイトル）が、復旧のあとに古いフロントマターを書き戻さないよう、
+    # 終わるまで待つ（本物の起動時の復旧では、録音中のセッションはいない）
+    session = client.app.state.ctx.recorder.sessions[sid]
+    client.portal.call(session.wait_converted)
+    wait_for(lambda: sid not in client.app.state.ctx.hub.status.summarizing)
     assert (d / ".tmp" / sid / "audio-2.wav").is_file()
     monkeypatch.setattr(recorder, "convert_wav", original)
 
