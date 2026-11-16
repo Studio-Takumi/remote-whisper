@@ -68,6 +68,8 @@ export function SessionView() {
     const recordingSessionId = useAppStore((s) => s.recordingSessionId);
     // ほかの端末で録音中のセッションを見ている（#238）
     const watching = useAppStore((s) => s.watching);
+    // このマイクで参加している（#356。閲覧専用ではない）
+    const joinedHere = useAppStore((s) => s.joined !== null && s.joined.sessionId === s.selection.sessionId);
     const continueRecording = useAppStore((s) => s.continueRecording);
     const { tab, changeTab, followTranscript } = useTabScroll(session?.id);
     const audio = useRef<HTMLAudioElement>(null);
@@ -158,7 +160,7 @@ export function SessionView() {
                             {session.status === 'recording' &&
                                 (session.id === recordingSessionId
                                     ? '・録音中'
-                                    : `・${describeWatched(watching?.sessionId === session.id ? watching.state : undefined)}（この端末では閲覧専用です）`)}
+                                    : `・${describeWatched(watching?.sessionId === session.id ? watching.state : undefined)}${joinedHere ? '' : '（この端末では閲覧専用です）'}`)}
                             {session.status === 'interrupted' && '・途中で中断'}
                             {session.uploaded && (
                                 <span className='ml-2 inline-flex items-center gap-1 align-middle'>
