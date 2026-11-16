@@ -76,6 +76,24 @@ def test_a_removed_source_is_no_longer_fed():
     assert len(main.data) == 20 * FRAME_BYTES
 
 
+def test_main_is_not_silenced_when_the_chosen_source_leaves():
+    main, other = Sink(), Sink()
+    mixer = LiveMixer(main)
+    mixer.add(2, other)
+    # 静かな間に雑音の床を作ってから、ほかの音源のほうが大きい声で話す
+    mixer.feed_main(tone(3, 30))
+    mixer.feed_source(2, tone(3, 30))
+    mixer.feed_main(tone(2, 2000))
+    mixer.feed_source(2, tone(2, 6000))
+    # 話している途中で、選ばれている音源が抜ける
+    mixer.remove(2)
+    mixer.flush()
+    levels = main.frames()
+    assert len(levels) == 50
+    # 抜けたときにまだ区切りに入れていなかった枠（47 から）から、主の音源の音が途切れない
+    assert (levels[47:] > 500).all()
+
+
 def test_skip_moves_the_source_forward():
     mixer = LiveMixer(Sink())
     mixer.add(2, Sink())
