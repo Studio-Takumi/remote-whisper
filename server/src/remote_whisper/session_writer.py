@@ -6,17 +6,21 @@ spec/files.md 5.4・5.5・spec/flows.md 6.2
 """
 
 import contextlib
+import logging
 import re
 import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from remote_whisper import okf
 from remote_whisper.corrections import Correction, replace
 from remote_whisper.documents import (
     SourceInfo,
     SummaryMeta,
     TranscriptMeta,
     WhisperUsed,
+    dump,
+    hotwords_name,
     parse,
     read_doc,
     transcript_name,
@@ -32,10 +36,12 @@ from remote_whisper.projects import (
     SessionEntry,
     normalize_summary_dir,
 )
-from remote_whisper.sessions import SessionFiles
+from remote_whisper.sessions import SessionFiles, summary_source
 from remote_whisper.settings import Settings
 from remote_whisper.timeutil import iso, make_id, now
 from remote_whisper.version import app_version
+
+log = logging.getLogger(__name__)
 
 _LINE = re.compile(r"^\[(\d{2}:\d{2}:\d{2})\] (.*)$")
 
@@ -354,20 +360,24 @@ class SessionWriter:
             self.files.live_summary.parent.rmdir()
         return gid
 
-    def copy_summary(self, gid: str) -> Path:
+    def copy_summary(self, gid: str, description: str | None = None) -> Path:
         """最終の要約を、選んだディレクトリ（プロジェクトの summaryDir があればその下）に
         コピーする（spec/files.md 5.1）
 
         名前は `summary-YYYYMMDD-<タイトル>.md`。同じ名前のファイルがあれば `-2` のような
         番号を付ける（置き場所の中で判定する）。コピーしたパスを返す。置き場所はコピーする
         時点のプロジェクトの設定に従う（作り直し・セッションの移動のあとも。#341）
+
+        コピーは OKF（#343）に準拠させる（`type: Summary` などを足し、`project` を外す）。
+        description は要約を 1 文で表したもの（タイトルと一緒に作る）。なければ全体概要の
+        1 文目。子ディレクトリ（summaryDir）に置いたときは、その index.md を作り直す
         """
         stem = f"summary-{self.id[:8]}-{safe_filename(self.meta.title or 'タイトルなし')}"
         try:
-            summary_dir = self.store.load(self.pid).summary_dir
+            project = self.store.load(self.pid)
         except ProjectError as e:
             raise OSError(f"project.json を読めません: {e.message}") from e
-        target_dir = summary_copy_dir(self.meta.project, summary_dir)
+        target_dir = summary_copy_dir(self.meta.project, project.summary_dir)
         dst = target_dir / f"{stem}.md"
         n = 2
         # 切れたリンク（外を指すものも）は exists() が False になるので、リンクも使っている
@@ -375,8 +385,56 @@ class SessionWriter:
         while dst.exists() or dst.is_symlink():
             dst = target_dir / f"{stem}-{n}.md"
             n += 1
-        atomic_write_text(dst, self.files.summary(gid).read_text(encoding="utf-8"))
+        meta, body = read_doc(self.files.summary(gid), SummaryMeta)
+        front = okf.copy_frontmatter(
+            meta.to_json(),
+            description=okf.one_line(description) or okf.first_sentence(body),
+            tags=self._tags(meta),
+            generated_by=f"remote-whisper({meta.app_version or app_version()})/{meta.model}",
+            sources=self._sources(meta, project, target_dir),
+        )
+        atomic_write_text(dst, dump(front, body))
+        if target_dir != Path(self.meta.project):
+            # 選んだディレクトリの直下では、ほかの .md とまざるので index.md は作らない
+            try:
+                okf.update_index(target_dir)
+            except Exception:
+                # index.md は付随のもの。何があっても要約の確定を止めない
+                log.exception("failed to update %s in %s", okf.INDEX_NAME, target_dir)
         return dst
+
+    def _tags(self, summary: SummaryMeta) -> list[str]:
+        """tags。手で足した語 → 用語リスト（資料抽出） → 用語リスト（文字起こし抽出）の順"""
+        hotwords: list[str] = []
+        if summary.use_context and summary.context_set:
+            try:
+                _, text = parse(
+                    (self.files.dir / hotwords_name(summary.context_set)).read_text(
+                        encoding="utf-8"
+                    )
+                )
+                hotwords = [line.strip() for line in text.splitlines() if line.strip()]
+            except (OSError, ValueError):
+                pass
+        return okf.pick_tags(self.meta.manual_terms, hotwords, self.meta.picked_terms)
+
+    def _sources(
+        self, summary: SummaryMeta, project: ProjectFile, copy_dir: Path
+    ) -> list[dict[str, str]]:
+        """sources。元にした文字起こし（サーバーの中のファイル名）と、使った参考資料
+        （選んだディレクトリの中ならコピーから見た相対パス、外ならファイル名だけ）"""
+        sources: list[dict[str, str]] = []
+        transcript = summary_source(self.files)
+        if transcript.is_file():
+            sources.append({"id": "transcript", "resource": transcript.name, "title": "文字起こし"})
+        if summary.use_context and summary.context_set:
+            entry = next((s for s in project.context_sets if s.id == summary.context_set), None)
+            for i, material in enumerate(entry.materials if entry else [], start=1):
+                resource = okf.material_resource(material, copy_dir, Path(self.meta.project))
+                sources.append(
+                    {"id": f"material-{i}", "resource": resource, "title": Path(resource).name}
+                )
+        return sources
 
 
 def summary_copy_dir(project_path: str, summary_dir: str) -> Path:

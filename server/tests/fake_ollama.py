@@ -18,6 +18,7 @@ class FakeOllama:
         self.reply = ["要約", "です"]
         # format（JSON Schema）付きの /api/chat には、このタイトルを JSON で返す
         self.title = "リリース計画の確認"
+        self.description = "リリース計画の確認をした会議の要約です。"
         # True なら、思考オンの /api/chat は本文を返さない
         # （思考が長すぎて本文まで届かなかったときのまね）
         self.empty_when_thinking = False
@@ -76,7 +77,11 @@ class FakeOllama:
             if body["model"] not in self.loaded:
                 self.loaded.append(body["model"])
             reply = (
-                [json.dumps({"title": self.title}, ensure_ascii=False)]
+                [
+                    json.dumps(
+                        {"title": self.title, "description": self.description}, ensure_ascii=False
+                    )
+                ]
                 if body.get("format")
                 else self.reply
             )

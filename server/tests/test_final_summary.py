@@ -8,7 +8,7 @@ from test_recorder import chunk, finished, of_type, receive_until, start
 
 from remote_whisper import final_summary
 from remote_whisper.app import create_app
-from remote_whisper.documents import SummaryMeta, TranscriptMeta, read_doc
+from remote_whisper.documents import SummaryMeta, TranscriptMeta, parse, read_doc
 from remote_whisper.final_summary import (
     FinalSummarizer,
     demote,
@@ -90,7 +90,10 @@ def test_final_summary_is_streamed_saved_and_copied(client, project, fake_ollama
     # 選んだディレクトリにコピーを置く。同じ名前があれば番号を付ける
     meetings = tmp_path / "work" / "meetings"
     copy = meetings / f"summary-{sid[:8]}-リリース計画の確認.md"
-    assert copy.read_text(encoding="utf-8") == summary_file.read_text(encoding="utf-8")
+    front, body = parse(copy.read_text(encoding="utf-8"))
+    assert body == parse(summary_file.read_text(encoding="utf-8"))[1]
+    assert (front["type"], front["description"]) == ("Summary", fake_ollama.description)
+    assert "project" not in front
     record(client, pid)
     assert (meetings / f"summary-{sid[:8]}-リリース計画の確認-2.md").exists()
     # セッションの詳細から要約が見える
@@ -143,9 +146,9 @@ def test_ollama_unavailable_keeps_the_live_summary(client, project, fake_ollama)
 
 def test_title_falls_back_when_it_cannot_be_made(client, project, monkeypatch):
     async def broken(*args, **kwargs):
-        return None
+        return None, None
 
-    monkeypatch.setattr(final_summary, "make_title", broken)
+    monkeypatch.setattr(final_summary, "make_title_description", broken)
     pid, _ = project
     _, seen = record(client, pid)
     # 仮のタイトルもないので、要約の最初の行から作る
@@ -520,7 +523,7 @@ class StubWriter:
         self.density = density
         return "20261010-100100"
 
-    def copy_summary(self, gid):
+    def copy_summary(self, gid, description=None):
         raise FileNotFoundError("選んだディレクトリがありません")
 
 
@@ -586,7 +589,7 @@ def test_title_error_still_saves_the_summary(home, fake, tmp_path, monkeypatch):
         raise RuntimeError("broken")
 
     # タイトルだけの思わぬ失敗では、できている本文を捨てない
-    monkeypatch.setattr(final_summary, "make_title", broken)
+    monkeypatch.setattr(final_summary, "make_title_description", broken)
     settings = SettingsStore(home)
     summarizer = FinalSummarizer(
         OllamaClient(Hub(), settings, transport=fake.transport()), settings
@@ -621,3 +624,26 @@ def test_unexpected_error_is_reported_and_recorded(home, fake, tmp_path):
     assert asyncio.run(summarizer.run(writer, send)) is None
     assert sent[-1]["type"] == "error" and sent[-1]["code"] == "summary_failed"
     assert writer.summary_failed is True
+
+
+def test_description_is_made_with_the_title_in_one_call_and_passed_to_the_copy(
+    home, fake, tmp_path
+):
+    settings = SettingsStore(home)
+    summarizer = FinalSummarizer(
+        OllamaClient(Hub(), settings, transport=fake.transport()), settings
+    )
+    writer = StubWriter(tmp_path)
+    copied = []
+    writer.copy_summary = lambda gid, description=None: copied.append(description)
+
+    async def send(m):
+        pass
+
+    assert asyncio.run(summarizer.run(writer, send)) is not None
+    titled = [b for b in fake.bodies("/api/chat") if b.get("format")]
+    # タイトルのための呼び出しは 1 回で、スキーマに description が入っている
+    assert len(titled) == 1
+    assert set(titled[0]["format"]["properties"]) == {"title", "description"}
+    assert writer.meta.title == "リリース計画の確認"
+    assert copied == [fake.description]
