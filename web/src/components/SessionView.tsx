@@ -483,7 +483,6 @@ function SummaryPanel({
     const recording = useAppStore((s) => s.recordingState !== 'idle');
 
     const finalModel = finalModelLabel(models);
-    const fallback = defaultSummary(session, models);
     const summary = shownSummary(session, models, picked);
 
     if (generating?.sessionId === session.id) {
