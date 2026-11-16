@@ -357,7 +357,9 @@ class SessionWriter:
         target_dir = summary_copy_dir(self.meta.project, summary_dir)
         dst = target_dir / f"{stem}.md"
         n = 2
-        while dst.exists():
+        # 切れたリンク（外を指すものも）は exists() が False になるので、リンクも使っている
+        # 名前として番号をずらす（リンクを置き換えたり、その先に書いたりしない）
+        while dst.exists() or dst.is_symlink():
             dst = target_dir / f"{stem}-{n}.md"
             n += 1
         atomic_write_text(dst, self.files.summary(gid).read_text(encoding="utf-8"))

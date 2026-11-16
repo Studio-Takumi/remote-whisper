@@ -1,3 +1,4 @@
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -207,6 +208,24 @@ def test_copy_refuses_a_link_pointing_outside(project, tmp_path, make_dir_link):
         with pytest.raises(OSError):
             w.copy_summary(gid)
     assert list(outside.iterdir()) == []
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="ファイルのシンボリックリンクは権限が要る")
+def test_copy_does_not_write_through_a_dangling_file_link(project, tmp_path):
+    store, pid, _ = project
+    w, gid = _summarized(project)
+    meetings = Path(w.meta.project)
+    _set_summary_dir(store, pid, "summary")
+    (meetings / "summary").mkdir()
+    # コピー先の名前が、外のまだない場所を指す（切れた）リンク
+    outside = tmp_path / "outside.md"
+    link = meetings / "summary" / "summary-20261009-リリース計画.md"
+    link.symlink_to(outside)
+
+    dst = w.copy_summary(gid)
+    assert dst.name == "summary-20261009-リリース計画-2.md"
+    assert not outside.exists()
+    assert link.is_symlink()
 
 
 def test_copy_allows_a_link_inside_the_project_dir(project, make_dir_link):

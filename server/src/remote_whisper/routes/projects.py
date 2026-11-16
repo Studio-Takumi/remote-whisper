@@ -40,7 +40,8 @@ class ProjectBody(BaseModel):
 
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
-    summary_dir: str | None = Field(default=None, max_length=SUMMARY_DIR_MAX * 2)
+    # null は 422（直下に戻すときは空の文字列を送る）
+    summary_dir: str = Field(default="", max_length=SUMMARY_DIR_MAX * 2)
 
 
 @router.patch("/{pid}")
@@ -53,7 +54,7 @@ def change_project(
     不正なパスは 422（spec/files.md 5.4）"""
     changes = body.model_dump(exclude_unset=True)
     summary_dir: str | None = None
-    if changes.get("summary_dir") is not None:
+    if "summary_dir" in changes:
         try:
             summary_dir = normalize_summary_dir(changes["summary_dir"])
         except ValueError as e:

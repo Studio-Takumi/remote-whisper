@@ -495,7 +495,9 @@ def test_summary_dir_is_saved_in_project_json(client, workdir, home):
     assert client.patch(f"/api/projects/{pid}", json={"summaryDir": ""}).json()["summaryDir"] == ""
 
 
-@pytest.mark.parametrize("value", ["../x", "C:\\x", "\\\\server\\share", "/abs", "a:b", "CON"])
+@pytest.mark.parametrize(
+    "value", ["../x", "C:\\x", "\\\\server\\share", "/abs", "a:b", "CON", None, 1]
+)
 def test_invalid_summary_dir_is_rejected_on_save(client, workdir, home, value):
     created = client.post("/api/projects", json={"path": str(workdir / "meetings")}).json()
     pid = created["id"]
