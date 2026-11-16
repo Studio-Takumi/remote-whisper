@@ -356,6 +356,7 @@ class RecordingSession:
         self.writer.append_final(start, text)
         if self.line_sources is not None:
             self.line_sources.append(source)
+            self._append_line_sources([source])
         if self.summarizer is not None:
             self.summarizer.add_final(start, text)
         if self.picker is not None:
@@ -456,6 +457,7 @@ class RecordingSession:
         if self.line_sources is None:
             # 音源が 2 つ以上になった。そこまでの行は主の音源
             self.line_sources = [1] * len(self.writer.final_lines())
+        self._append_line_sources([])
         joined_at = self.elapsed
         source = JoinedSource(sid, name, ws, wav, joined_at)
         if self.transcriber is not None and self.whisper_gpu is not None:
@@ -625,11 +627,29 @@ class RecordingSession:
         except (OSError, ValueError) as e:
             log.warning("failed to record the sources of %s: %s", self.id, e)
 
+    def _line_sources_path(self) -> Path:
+        return self.writer.files.dir / ".tmp" / self.id / "line-sources.jsonl"
+
+    def _append_line_sources(self, sources: list[int]) -> None:
+        """録音中の行の音源を `.tmp/<ID>/line-sources.jsonl` に 1 行ずつ足す（spec/files.md 5.5）。
+        まだなければ、そこまでの全部を書く"""
+        path = self._line_sources_path()
+        try:
+            if path.is_file():
+                lines, mode = sources, "a"
+            else:
+                lines, mode = self.line_sources or [], "w"
+            with path.open(mode, encoding="utf-8", newline="\n") as f:
+                f.writelines(f"{s}\n" for s in lines)
+        except OSError as e:
+            log.warning("failed to record the line sources of %s: %s", self.id, e)
+
     def _record_sources(self) -> None:
         """録音を終えた（残りの final も書き終えた）。行の音源と音源の一覧をフロントマターに書く"""
         if self.line_sources is not None:
             try:
                 self.writer.set_line_sources(self.line_sources)
+                self._line_sources_path().unlink(missing_ok=True)
             except (OSError, ValueError) as e:
                 log.warning("failed to record the line sources of %s: %s", self.id, e)
         self._sources_changed()
@@ -751,7 +771,7 @@ class RecordingSession:
                     await transcriber.close()
                 if self._aligning is not None:
                     self._aligning.cancel()
-                if self.joined:
+                if self.joined or self.line_sources is not None:
                     # 行の音源と、音源の一覧（抜けた時刻など）を書く
                     self._record_sources()
         finally:

@@ -154,6 +154,7 @@ def _convert_leftover(store: ProjectStore, pid: str, sid: str, report: Report) -
     d = store.dir(pid)
     files = SessionFiles(d, sid)
     wav = d / ".tmp" / sid / "audio.wav"
+    _recover_line_sources(store, pid, sid, wav.parent / "line-sources.jsonl")
     if files.transcript.is_file() and any(wav.parent.glob("audio-*.wav")):
         # 録音中に参加した音源の録音（#356）。フロントマターの音源にも書く
         convert_source_wavs(SessionWriter.existing(store, pid, sid))
@@ -184,6 +185,21 @@ def _convert_leftover(store: ProjectStore, pid: str, sid: str, report: Report) -
         wav.parent.rmdir()
     except OSError:
         pass
+
+
+def _recover_line_sources(store: ProjectStore, pid: str, sid: str, path: Path) -> None:
+    """録音中に書いていた行の音源（#356）を、フロントマターの lineSources に移す。
+    本文の行の数と合わなければ（書く途中で落ちた）移さない"""
+    if not path.is_file():
+        return
+    try:
+        sources = [int(x) for x in path.read_text(encoding="utf-8").split()]
+        writer = SessionWriter.existing(store, pid, sid)
+        if writer.meta.line_sources is None and len(sources) == len(writer.final_lines()):
+            writer.set_line_sources(sources)
+        path.unlink()
+    except (OSError, ValueError, ProjectError) as e:
+        log.warning("failed to recover the line sources of %s: %s", sid, e)
 
 
 def fix_leftovers(store: ProjectStore, found: Leftovers) -> Report:

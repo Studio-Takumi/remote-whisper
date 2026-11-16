@@ -248,9 +248,43 @@ def test_sources_json_is_written_while_recording(client, project):
         data = json.loads((d / ".tmp" / sid / "sources.json").read_text(encoding="utf-8"))
         assert [s["id"] for s in data["sources"]] == [1, 2]
         assert data["sources"][1]["name"] == "机の右"
+        # 行の音源も録音中に 1 行ずつ書く（落ちたら次の起動時にフロントマターへ移す）
+        for seq in range(8):
+            a.send_bytes(noise(seq, QUIET))
+            receive_until(a, of_type("ack", seq=seq))
+            rec.send_bytes(noise(seq, LOUD if seq < 2 else QUIET))
+        receive_until(rec, of_type("final"))
+        lines = (d / ".tmp" / sid / "line-sources.jsonl").read_text(encoding="utf-8").split()
+        assert lines and set(lines) <= {"1", "2"}
         rec.send_json({"type": "stop"})
         receive_until(rec, of_type("status", recordings=0))
     finished(client, sid)
+    assert not (d / ".tmp" / sid / "line-sources.jsonl").exists()
+
+
+def test_line_sources_are_recovered_at_startup(client, project):
+    from remote_whisper import recovery
+    from remote_whisper.session_writer import SessionWriter
+
+    pid, d = project
+    with client.websocket_connect("/ws") as rec:
+        rec.receive_json()
+        sid = start(rec, pid)
+        for seq in range(4):
+            rec.send_bytes(chunk(seq, value=3000 if seq < 2 else 0))
+        receive_until(rec, of_type("final"))
+        rec.send_json({"type": "stop"})
+        receive_until(rec, of_type("status", recordings=0))
+    finished(client, sid)
+    # 録音中に落ちた: 行の音源は .tmp にだけある
+    tmp = d / ".tmp" / sid
+    tmp.mkdir(parents=True, exist_ok=True)
+    (tmp / "line-sources.jsonl").write_text("2\n", encoding="utf-8")
+    (tmp / "audio.wav").write_bytes(b"")
+    store = client.app.state.ctx.projects
+    recovery.fix_leftovers(store, recovery.find_leftovers(store))
+    assert SessionWriter.existing(store, pid, sid).meta.line_sources == [2]
+    assert not (tmp / "line-sources.jsonl").exists()
 
 
 def test_leftover_source_wavs_are_converted_at_startup(client, project, monkeypatch):
