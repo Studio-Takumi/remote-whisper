@@ -58,7 +58,7 @@
   - `runtime`: どの形で動いているか。`windows-bundle`（Windows の配布版）・`mac-bundle`（Mac の配布版。#292）・`dev`（開発の環境。uv）
   - `remote`: トンネル（クラウド版）から来たリクエストか。`true` なら画面はボタンを押せなくする
   - `recording`: 録音中か
-  - `gpu`: `nvidia`（NVIDIA の GPU とドライバがある）・`mac`（Apple Silicon で mlx-whisper がある）・`none`（どちらもない。CPU で動く。#274）
+  - `gpu`: `nvidia`（NVIDIA の GPU とドライバがある）・`mac`（Apple Silicon で mlx-whisper がある）・`intel`（OpenVINO GenAI が入っていて、単体の Intel の GPU を使える。#374。`whisper.intelGpu` を `off` にしていても `intel`）・`none`（どれもない。CPU で動く。#274）
   - `llm`（#327 で `ollama` から変えた）: 使っている LLM（`llm.backend`。録音中に変えたときは、切り替わるまで前のもの）について。`backend`（`ollama` / `lmstudio`）、`running`（つながる）、`found`（この PC に入っていそうか。動いていないときに「起動して」と「入れて」を出し分ける）、`unauthorized`（LM Studio が動いているが、トークンが違う・ない。`401`・`403` が返った）、`downloadUrl`（公式のダウンロードのページ）、`models`（そのバックエンドのおすすめのモデル。`name`・`sizeGb`（分からなければ `null`）・`installed`）、`pull`（取っている・取り終えたもの。なければ `null`。取り終えたものはそのバックエンドのものだけ、取っている途中のものは、途中でバックエンドを切り替えても始めたほうのものを出す（取得はほかに始められないため。画面は `pull.backend` を見る）。`state`（`running` / `done` / `failed` / `cancelled`）・`backend`・`models`・`model`（取っているもの）・`index`・`completed`・`total`（バイト）・`error`）、`pullCancellable`（やめると取っている先も止まるか。LM Studio は `false`）
   - `ollama`: `llm` の古い名前（#327 より前の画面のため）。`llm` の `running`・`found`・`downloadUrl`・`models`・`pull` と同じ中身。下の「古い名前を消す時期」
   - `whisperx`: `installed`、`installable`（画面のボタンで入れられるか。同梱の Python と固定した依存の一覧の両方がある配布版だけ `true`）、`downloadGb`・`diskGb`・`minutes`（大きさと時間の目安）、`command`（開発の環境で入れるコマンド。ほかは `null`）、`install`（入れている・入れ終えたもの。なければ `null`。`state`（`running` / `done` / `failed` / `cancelled`）・`phase`（`preparing` / `downloading` / `installing` / `rollingBack`）・`package`（取っているパッケージ）・`collected`・`rolledBack`・`rollbackFailed`・`elapsedSec`）
@@ -133,7 +133,7 @@
   - **進み具合（#340）**: 浄書（`finalTranscript`）と最終要約（`finalSummary`）を実行している間は、`running` に `progress`（`{ step, done?, total?, percent? }`）を付ける。`step` は段階の名前（画面に出す名前はクライアントが決める）、`done`・`total` は済んだ数と全体の数（分かる段階だけ。両方そろえて送る）、`percent` は段階の中の %（0〜100。分かる段階だけ）。進み具合が変わるたびに送る（上と同じく 0.5 秒の間の変化はまとめる）。ほかのジョブと古いサーバーでは付かず、クライアントは今までどおりの表示にする。知らない `step` も出さない。
     - 最終要約: 一度に要約できるときは `summary`（件数なし）。長いときは `parts`（要約詳細。`done` は済んだ要約区間の数、`total` は要約区間の数）→ `condense`（要約詳細のまとめ。何回まとめるかは前もって分からないので件数なし。まとめないときは飛ばす）→ `overview`（全体概要）。そのあと、参考資料のページを付けるときは `pages`（長いときは要約区間の数で `done`・`total`）、最後に `title`。% は出さない（要約区間ごとの重さの差やまとめの回数があり、不正確になるため）。
     - 浄書: `load`（モデルの読み込み。VRAM を空ける・子プロセスを起こすところから）→ `transcribe`（文字起こし）→ `align`（位置合わせ）→ `diarize`（話者分け。するときだけ）。`done` は済んだ段階の数、`total` は段階の数（話者分けをするときは 4、しないときは 3）。`transcribe`・`align`・`diarize` は WhisperX の `progress_callback` の % を `percent` に入れる（1% 以上進んだときだけ）。浄書の子プロセスは、標準出力に `PROGRESS <JSON>` の行を出して親に知らせる（ほかの出力はこれまでどおりサーバーのログに書く）。
-- `gpu` は GPU の使用率と VRAM（`util`（%）・`memUsedMb`・`memTotalMb`）。`nvidia-ml-py` で3秒おきに取る。NVIDIA の GPU やドライバがない環境とモックでは `null`（サーバーはそのまま動く）。
+- `gpu` は GPU の使用率と VRAM（`util`（%）・`memUsedMb`・`memTotalMb`）。`nvidia-ml-py` で3秒おきに取る。Intel の GPU で文字起こしするとき（#374）は、Windows の性能カウンターから取る（6.17 節）。NVIDIA の GPU やドライバがない環境とモックでは `null`（サーバーはそのまま動く）。
 - `transcribing` は、浄書済み文字起こし（6.9 節）を作っているセッションの ID の一覧。録音が終わるのを待っている間（GPU キューに積む前）も入る。画面は「作成中」を出すのに使う（#124）。
 - `summarizing` は、最終要約を作っているセッションの ID の一覧。録音を終えてから（残りの文字起こし・変換のあいだも含めて）最終要約のジョブが終わるまでと、再生成のジョブが終わるまで入る。録音を終えたときは、`recordings` が減ったことを知らせる `status` にすでに入っている。最終要約の結果（`title`・`error`）は一度しか送らないので、接続が切れていて取りこぼしたクライアントは、`summarizing` から外れたこと（つながり直した直後の `status` に入っていないこと）で作り終えたと判断し、保存されたものを取り直して「作成中」を消す（#118）。
 
