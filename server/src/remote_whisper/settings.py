@@ -38,6 +38,7 @@ class SettingsLockedError(Exception):
 RECORDING_LOCKED: tuple[tuple[str, str], ...] = (
     ("whisper", "model"),
     ("whisper", "computeType"),
+    ("whisper", "intelGpu"),
     ("whisper", "silenceMs"),
     ("whisper", "maxSegmentSec"),
     ("whisper", "speechThreshold"),
@@ -98,6 +99,9 @@ class WhisperSettings(_Model):
     final_transcript: bool = True
     # 最終の文字起こしで話者を分ける（pyannote。HuggingFace のトークンと利用条件への同意が要る）
     diarize: bool = True
+    # Intel の GPU（Arc）で文字起こしするか（#374。OpenVINO）。auto は、NVIDIA の GPU がなく、
+    # extra `openvino` が入っていて単体の Intel の GPU が見つかったときに使う。off は使わない（CPU）
+    intel_gpu: Literal["auto", "off"] = "auto"
 
 
 # 処理ごとのおすすめのモデル（#178）。軽い処理は小さいモデルにする。入っていなければ、

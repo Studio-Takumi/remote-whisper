@@ -39,6 +39,11 @@ final = [
     "fugashi>=1.3",
     "unidic-lite>=1.0.8",
 ]
+# Intel の GPU（Arc）で文字起こしする（#374）。OpenVINO GenAI の WhisperPipeline。
+# NVIDIA の GPU がなく、単体の Intel の GPU が見つかったときだけ使う（`uv sync --extra openvino`）
+openvino = [
+    "openvino-genai>=2026.4.1; sys_platform == 'win32'",
+]
 
 [project.scripts]
 remote-whisper = "remote_whisper.__main__:main"

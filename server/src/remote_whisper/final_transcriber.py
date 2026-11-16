@@ -22,7 +22,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from remote_whisper import logs
+from remote_whisper import logs, openvino_whisper
 from remote_whisper.documents import FinalTranscriptMeta, TranscriptMeta, parse, write_doc
 from remote_whisper.final_transcribe_worker import EXIT_NOT_INSTALLED, STEPS, parse_progress
 from remote_whisper.final_transcript import Sentence, merge_sources, render, sentences
@@ -81,11 +81,15 @@ class FinalTranscriber:
         command: list[str] | None = None,
         available: Callable[[], bool] = installed,
         extra_env: Callable[[], dict[str, str]] = dict,
+        openvino_device: str | None = None,
     ):
         """command はテスト用（子プロセスの代わりに動かすもの）。
-        extra_env は子プロセスに足す環境変数（HuggingFace のトークン。#291）"""
+        extra_env は子プロセスに足す環境変数（HuggingFace のトークン。#291）。
+        openvino_device は Intel の GPU のデバイス（#374）。設定の whisper.intelGpu が auto なら、
+        文字起こしだけ OpenVINO でする"""
         self.settings = settings
         self.extra_env = extra_env
+        self.openvino_device = openvino_device
         self.hub = hub
         self.gpu = gpu
         self.whisper = whisper
@@ -253,6 +257,13 @@ class FinalTranscriber:
             "hotwords": _hotwords(files, meta),
             "initialPrompt": INITIAL_PROMPT.get(meta.language),
         }
+        if self.openvino_device is not None and whisper.intel_gpu == "auto":
+            # 浄書は fp16（#347。録音は終わっているので VRAM に余裕がある）
+            precision = openvino_whisper.FINAL_PRECISION
+            job["openvino"] = {
+                "device": self.openvino_device,
+                "model": openvino_whisper.repo_for(model, precision),
+            }
         sources = _job_sources(files, meta, audio)
         if len(sources) > 1:
             job["sources"] = sources

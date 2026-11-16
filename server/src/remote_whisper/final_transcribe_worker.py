@@ -8,7 +8,8 @@ torch と CTranslate2 が使った VRAM は最後に必ず空く。
 標準入力で JSON の指示を受け取り、結果を JSON で `out` に書く。
 
 - 指示: `audio`・`out`・`model`・`computeType`・`language`・`diarize`・`diarizationModel`・
-  `batchSize`・`hotwords`・`initialPrompt`（この 2 つはなくてもよい）
+  `batchSize`・`hotwords`・`initialPrompt`（この 2 つはなくてもよい）・
+  `openvino`（`device`・`model`。あれば文字起こしだけ Intel の GPU の OpenVINO でする。#374）
 - 結果: `segments`（`start`・`end`・`text`・`speaker`・
   `words`（`word`・`start`・`end`・`speaker`））、`turns`（話者分けの区間。`start`・`end`・`speaker`）、
   `diarization`（`done` / `off` / `unavailable`）、`diarizationError`、`alignModel`、`device`
@@ -118,6 +119,46 @@ def _asr_options(job: dict[str, Any]) -> dict[str, Any] | None:
     return asr_options or None
 
 
+class _OpenVinoAsr:
+    """文字起こしだけを Intel の GPU（OpenVINO）でする（#374）。WhisperX のモデルと同じ形で呼べる
+
+    指示の `openvino`（`device`・`model`）があるときに使う。位置合わせと話者分けは WhisperX のまま
+    （CPU）。greedy だけで、`hotwords`・`initialPrompt` は渡す
+    """
+
+    def __init__(self, job: dict[str, Any]):
+        from remote_whisper import openvino_whisper
+
+        self._ov = openvino_whisper
+        self.options = {
+            "hotwords": job.get("hotwords"),
+            "initial_prompt": job.get("initialPrompt"),
+        }
+        self.pipe = openvino_whisper.load(job["openvino"]["model"], job["openvino"]["device"])
+
+    def transcribe(
+        self, audio: Any, batch_size: int = 0, language: str = "ja", progress_callback: Any = None
+    ) -> dict[str, Any]:
+        segments = self._ov.transcribe_long(
+            self.pipe, audio, {**self.options, "language": language}, progress_callback
+        )
+        return {"segments": segments, "language": language}
+
+
+def _load_asr(job: dict[str, Any], whisperx: Any, device: str, compute_type: str) -> Any:
+    """文字起こしのモデル。OpenVINO の指示があれば Intel の GPU で（#374）、なければ WhisperX"""
+    if job.get("openvino"):
+        log.info("transcribing with openvino on %s", job["openvino"]["device"])
+        return _OpenVinoAsr(job)
+    return whisperx.load_model(
+        job["model"],
+        device,
+        compute_type=compute_type,
+        language=job.get("language", "ja"),
+        asr_options=_asr_options(job),
+    )
+
+
 def _segments_json(segments: list[dict[str, Any]], source: int | None = None) -> list[dict]:
     out = []
     for s in segments:
@@ -210,13 +251,7 @@ def run_multi(job: dict[str, Any]) -> dict[str, Any]:
     log.info("prepared %d sources in %.0fs", len(sources), time.monotonic() - t)
 
     t = time.monotonic()
-    model = whisperx.load_model(
-        job["model"],
-        device,
-        compute_type=compute_type,
-        language=language,
-        asr_options=_asr_options(job),
-    )
+    model = _load_asr(job, whisperx, device, compute_type)
     progress.start("transcribe")
     results = []
     for k, audio in enumerate(prepared.gated):
@@ -343,19 +378,7 @@ def run(job: dict[str, Any]) -> dict[str, Any]:
     audio = load_audio(job["audio"])
 
     t = time.monotonic()
-    asr_options = {}
-    if job.get("hotwords"):
-        asr_options["hotwords"] = job["hotwords"]
-    if job.get("initialPrompt"):
-        # 句読点つきの例文。large-v3-turbo は日本語で「。」をあまり打たないので、促す（#141）
-        asr_options["initial_prompt"] = job["initialPrompt"]
-    model = whisperx.load_model(
-        job["model"],
-        device,
-        compute_type=compute_type,
-        language=language,
-        asr_options=asr_options or None,
-    )
+    model = _load_asr(job, whisperx, device, compute_type)
     progress.start("transcribe")
     result = model.transcribe(
         audio,
