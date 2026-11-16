@@ -35,7 +35,8 @@ export type SetupStatus = {
     // トンネル（クラウド版）から見ている。ボタンは押せない
     remote: boolean;
     recording: boolean;
-    gpu: 'nvidia' | 'mac' | 'none';
+    // intel は Intel の GPU（Arc）を OpenVINO で使う（#374）
+    gpu: 'nvidia' | 'mac' | 'intel' | 'none';
     // 使っている LLM（Ollama か LM Studio。#327）
     llm: {
         backend: LlmBackend;

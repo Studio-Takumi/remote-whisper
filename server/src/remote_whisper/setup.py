@@ -165,11 +165,15 @@ def worker_env(home: Path) -> dict[str, str]:
 
 def detect_gpu() -> str:
     """`nvidia`（NVIDIA の GPU とドライバがある）・`mac`（Apple Silicon で mlx-whisper がある）・
-    `none`（どちらもない。CPU で動く。#274）"""
+    `intel`（extra `openvino` があり、単体の Intel の GPU を OpenVINO で使える。#374）・
+    `none`（どれもない。CPU で動く。#274）"""
+    from remote_whisper import openvino_whisper
     from remote_whisper.whisper_worker import default_backend
 
     if default_backend() == "mlx":
         return "mac"
+    if openvino_whisper.detect() is not None:
+        return "intel"
     try:
         import pynvml
 

@@ -44,6 +44,8 @@ class _ChildDied(WhisperUnavailable):
 class ModelSpec:
     model: str
     compute_type: str
+    # Intel の GPU で OpenVINO を使うときのデバイス（例: GPU.1。#374）。None なら backend のまま
+    openvino_device: str | None = None
 
 
 # --- 子プロセスの中で動く部分 ---
@@ -102,6 +104,11 @@ def _speech_range(audio: Any) -> tuple[int, int] | None:
 
 
 def _load(backend: str, spec: ModelSpec) -> Any:
+    if backend == "openvino":
+        from remote_whisper import openvino_whisper
+
+        assert spec.openvino_device is not None
+        return openvino_whisper.load(spec.model, spec.openvino_device)
     if backend == "fake":
         # テスト用: モデル名が fail なら読み込みに失敗する
         if spec.model == "fail":
@@ -141,6 +148,11 @@ def _transcribe(backend: str, model: Any, pcm: bytes, options: dict) -> list[dic
     audio = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
     if backend == "mlx":
         return _transcribe_mlx(model, audio, options)
+    if backend == "openvino":
+        from remote_whisper import openvino_whisper
+
+        # greedy だけ（beam_size は使わない）。信頼度は付かない（#374）
+        return openvino_whisper.transcribe(model, audio, options)
     segments, _ = model.transcribe(
         audio,
         language=options.get("language", "ja"),
@@ -218,6 +230,8 @@ def _child_main(conn: Connection, backend: str, log_queue: Any = None) -> None:
 
 def _serve(conn: Connection, backend: str) -> None:
     model = None
+    # OpenVINO のデバイスが付いたモデルは OpenVINO で動かす（#374）
+    using = backend
     while True:
         try:
             kind, *args = conn.recv()
@@ -225,12 +239,13 @@ def _serve(conn: Connection, backend: str) -> None:
             return
         try:
             if kind == "load":
-                model = _load(backend, args[0])
+                using = "openvino" if args[0].openvino_device and backend != "fake" else backend
+                model = _load(using, args[0])
                 conn.send(("ok", None))
             elif kind == "transcribe":
                 if model is None:
                     raise RuntimeError("モデルを読み込んでいません")
-                conn.send(("ok", _transcribe(backend, model, args[0], args[1])))
+                conn.send(("ok", _transcribe(using, model, args[0], args[1])))
             elif kind == "crash":
                 # テスト用: CUDA まわりの異常終了をまねる
                 os._exit(3)
@@ -244,10 +259,20 @@ def _serve(conn: Connection, backend: str) -> None:
 
 
 class WhisperWorker:
-    def __init__(self, hub: Hub, settings: SettingsStore, backend: str = "faster-whisper"):
+    def __init__(
+        self,
+        hub: Hub,
+        settings: SettingsStore,
+        backend: str = "faster-whisper",
+        openvino_device: str | None = None,
+    ):
+        """openvino_device は、Intel の GPU を見つけたときのデバイス
+        （#374。openvino_whisper.detect）。設定の whisper.intelGpu が auto なら、
+        faster-whisper の代わりに OpenVINO で動かす"""
         self.hub = hub
         self.settings = settings
         self.backend = backend
+        self.openvino_device = openvino_device
         self._mp = multiprocessing.get_context("spawn")
         self._process: Any = None
         self._conn: Connection | None = None
@@ -269,6 +294,14 @@ class WhisperWorker:
 
     def _spec(self) -> ModelSpec:
         w = self.settings.get().whisper
+        if self.openvino_device is not None and w.intel_gpu == "auto":
+            from remote_whisper import openvino_whisper
+
+            # 録音中は int8（要約の LLM と VRAM を分け合うため。#347）
+            precision = openvino_whisper.LIVE_PRECISION
+            return ModelSpec(
+                openvino_whisper.repo_for(w.model, precision), precision, self.openvino_device
+            )
         return ModelSpec(w.model, w.compute_type)
 
     async def _set_status(self, state: str) -> None:

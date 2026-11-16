@@ -358,7 +358,7 @@ flowchart LR
 
 - **外に取りに行くのはボタンを押したときだけ**（モデルの取得と WhisperX）。状態を調べる（`GET /api/setup`）だけでは、この PC の Ollama（設定の `ollama.host`）か LM Studio（`lmstudio.host`。選んでいるほうだけ）に一覧を聞くほかは、どこにもつながない。大きさの目安はサーバーに持っておく（おすすめのモデルの GB、WhisperX のダウンロードとディスクの GB・時間）。
 - **どの形で動いているか**: サーバーが `runtime` で返す。配布版（`bundle.json` がある。#168）は `windows-bundle`・`mac-bundle`（#292）、ほかは `dev`（開発の環境。uv）。
-- **GPU**: NVIDIA の GPU（NVML でドライバと GPU が見つかる）か Mac の GPU（Apple Silicon で mlx-whisper がある。#276）がなければ `none`。CPU で動く（#274）ことと、遅くなる目安を出す。起動してから 1 回だけ調べる。
+- **GPU**: NVIDIA の GPU（NVML でドライバと GPU が見つかる）か Mac の GPU（Apple Silicon で mlx-whisper がある。#276）か Intel の GPU（OpenVINO で使える。#374、6.17 節。`intel`）がなければ `none`。CPU で動く（#274）ことと、遅くなる目安を出す。起動してから 1 回だけ調べる。
 - **Ollama**: 同梱しない。つながらなければ、何ができなくなるか（要約・用語リスト）と、公式のダウンロードのページを開くボタンと「もう一度確かめる」ボタンを出す。`ollama` のコマンド（PATH・Windows の既定の入れ場所・Mac の `/Applications/Ollama.app`）が見つかれば「入っているが動いていない」とみなして、起動するように出す。
 - **要約のモデル**: おすすめのモデル（5.3 節の処理ごとのおすすめ。重なりを除く）のうち入っていないものを、大きさ（GB）と一緒に出す。ボタンで Ollama の `/api/pull` を呼び、1 つずつ取る。
   - 取ってよいのは、おすすめのモデルだけ。設定で処理ごとに選んでいるモデル（`ollama.models`）はトンネルからも変えられるので含めない（含めると、トンネルから任意のモデルを取らせる抜け道になる）。
@@ -472,3 +472,17 @@ flowchart LR
 
 - 処理の時間は、文字起こしと単語の時刻の分が音源の数にほぼ比例する（#350 で、10 分・2 音源で 159 秒。1 本のときは 85〜92 秒）。VRAM は 1 本のときと同じ。
 - 録音中に作らない・途中で録音が始まったら止める・打ち切る時間（長さは主の音源の長さ × 音源の数で数える）などは、6.9 節と同じ。
+
+## 6.17 Intel の GPU（Arc）での文字起こし（#374）
+
+NVIDIA の GPU がない Windows の PC で、単体の Intel の GPU（Arc）があれば、Whisper を OpenVINO GenAI（`WhisperPipeline`）で GPU で動かす。#347 の検証（Arc A350M 4GB）で、CPU の faster-whisper（int8）はリアルタイムに追いつかない（0.3〜0.8 倍）が、Arc は 8 倍前後・1 区間の待ちが 1〜2 秒だった。
+
+- **使うとき**: サーバーに OpenVINO GenAI が入っていて（extra `openvino`。Windows だけ）、NVIDIA の GPU（NVML）がなく、OpenVINO が単体の GPU（`FULL_DEVICE_NAME` に `(dGPU)`。内蔵の Iris Xe などは使わない）を見つけ、`whisper.intelGpu` が `auto`（5.3 節）のとき。起動してから 1 回だけ調べる。NVIDIA の GPU がある PC・Mac・OpenVINO を入れていない PC は今までどおり（faster-whisper・mlx-whisper）。
+- **使うところ**: 録音中の文字起こし（6.1 節）と、浄書の文字起こし（6.9 節。録音全体を VAD で話している範囲に分け、30 秒までのまとまりごとに起こす）。浄書の位置合わせ（wav2vec2）と話者分け（pyannote）は CPU のまま（PyTorch の XPU は位置合わせが CPU の 7 倍遅く、話者分けは失敗した）。要約は今までどおり（Ollama は設定なしで Vulkan で Arc を使う）。
+- **モデル**: `whisper.model` の OpenVINO 版（`large-v3-turbo` なら `OpenVINO/whisper-large-v3-turbo-<精度>-ov`。`/` を含む名前はそのまま使うので、OpenVINO の形式（IR）のリポジトリを指定する。faster-whisper（CTranslate2）のリポジトリは読み込めない）。録音中は int8（VRAM 約 1.1GB。要約のモデルと並べるため）、浄書は fp16（約 1.8GB）。`whisper.computeType` は使わない。コンパイルしたモデルは HuggingFace のキャッシュ（`HF_HOME`）の下の `openvino-cache` に置く（2 回目からの読み込みが 46 秒 → 6〜7 秒）。
+- **faster-whisper との違い**:
+  - ビームサーチは GPU で動かないので greedy（`whisper.beamSize` は使わない）。時刻つき（`return_timestamps`）で起こす（同じ語の繰り返しが出にくい）。greedy は同じ語を繰り返し続けることがあるので、出す長さを音声の長さで抑える（1 秒あたり 12 トークン＋32、448 まで。35 秒を超える区間は 448 で頭打ちになり、文の後ろが欠けうる。出た文字数が上限の 7 割を超えたらログに残す）。
+  - `initial_prompt`・`hotwords` は渡す。`language` は `<|ja|>` の形。
+  - **区間の信頼度（`no_speech_prob`・`avg_logprob`）が取れない**。ハルシネーションの判定（6.2 節）は、代わりに、文の時刻の範囲で VAD が話しているとみなした長さ（前後 0.3 秒を含む。録音中に VAD で切り出した区間も、区間の中でもう一度 Silero VAD をかけて測る。区間のどこにも声が見つからなければ、切り出した側を信じて区間全体の長さで見る）と、こちらで計算する `compression_ratio`（繰り返し）で行う。話している長さが 0.2 秒より短い文は「話していない」、定番の文は話している長さが 0.8 秒より短ければ捨てる（信頼度で後押しできないので、faster-whisper の 0.6 秒より長めに求める）。浄書では、繰り返しで埋まった区間（`compression_ratio` が 2.4 より大きい）を捨てる。
+- **GPU の状態**（7.2 節の `gpu`）: NVML の代わりに、Windows の性能カウンター（`\GPU Adapter Memory(*)\Dedicated Usage`・`\GPU Engine(*)\Utilization Percentage` の Compute のエンジン）から、OpenVINO の `DEVICE_LUID` で選んだ GPU の値を `typeperf` で取る。VRAM の全体は OpenVINO の `GPU_DEVICE_TOTAL_MEM_SIZE`。`whisper.intelGpu` が `off`（CPU で起こしている）の間は `null`。
+- **初回のセットアップ**（6.15 節）の `gpu` は `intel`。

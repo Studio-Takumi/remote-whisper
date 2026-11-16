@@ -57,6 +57,8 @@ export type Settings = {
         // 録音を終えたら録音全体から最終の文字起こしを作るか・話者を分けるか（#121。古いサーバーにはない）
         finalTranscript?: boolean;
         diarize?: boolean;
+        // Intel の GPU（Arc）で文字起こしするか（#374。画面では変えない。古いサーバーにはない）
+        intelGpu?: 'auto' | 'off';
     };
     ollama: {
         host: string;

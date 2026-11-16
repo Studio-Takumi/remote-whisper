@@ -233,6 +233,27 @@ def test_manual_terms_are_passed_to_the_final_transcript(home, session_files, fa
     assert job["hotwords"] == "ハルシオン、ケルビン"
 
 
+def test_the_intel_gpu_is_passed_only_when_found_and_allowed(home, session_files, fake_worker):
+    # Intel の GPU が見つかっていれば、文字起こしだけ OpenVINO の fp16 で（#374）
+    files, meta = session_files
+
+    def job():
+        return json.loads(fake_worker.count.with_name("job.json").read_text(encoding="utf-8"))
+
+    run_final(home, fake_worker(), files, meta, openvino_device="GPU.1")
+    assert job()["openvino"] == {
+        "device": "GPU.1",
+        "model": "OpenVINO/whisper-large-v3-turbo-fp16-ov",
+    }
+    # 見つかっていない（NVIDIA・Mac・extra なし）なら今までどおり
+    run_final(home, fake_worker(), files, meta)
+    assert "openvino" not in job()
+    # 設定で切っていれば使わない
+    SettingsStore(home).update({"whisper": {"intelGpu": "off"}})
+    run_final(home, fake_worker(), files, meta, openvino_device="GPU.1")
+    assert "openvino" not in job()
+
+
 def test_progress_of_the_worker_goes_to_the_gpu_job(home, session_files, fake_worker, caplog):
     # 子が出した進み具合の行は、ログに書かずに GPU キューのジョブの進み具合にする（#340）
     files, meta = session_files

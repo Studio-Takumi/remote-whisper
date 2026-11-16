@@ -15,7 +15,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import Response
 from starlette.types import Scope
 
-from remote_whisper import bundle
+from remote_whisper import bundle, openvino_whisper
 from remote_whisper.context import AppContext
 from remote_whisper.context_sets import ContextSetService, OllamaGenerator
 from remote_whisper.final_summary import FinalSummarizer
@@ -209,7 +209,19 @@ def create_app(
         # REMOTE_WHISPER_WHISPER_BACKEND=fake で、GPU を使わない偽物にできる（テスト用）。
         # 指定がなければ、Apple Silicon の Mac は mlx、ほかは faster-whisper（#276）
         backend = os.environ.get("REMOTE_WHISPER_WHISPER_BACKEND") or default_backend()
-        ctx.whisper = WhisperWorker(ctx.hub, ctx.settings, backend=backend)
+        # NVIDIA の GPU がなく、単体の Intel の GPU（Arc）があれば、faster-whisper の代わりに
+        # OpenVINO で動かす（#374。extra `openvino` が入っているときだけ。設定 whisper.intelGpu）
+        arc = openvino_whisper.detect() if backend == "faster-whisper" else None
+        if arc is not None:
+            gpu_stats.use_windows_counters(
+                arc.luid,
+                arc.total_mb,
+                active=lambda: ctx.settings.get().whisper.intel_gpu == "auto",
+            )
+        openvino_device = arc.name if arc is not None else None
+        ctx.whisper = WhisperWorker(
+            ctx.hub, ctx.settings, backend=backend, openvino_device=openvino_device
+        )
         # 名前は ctx.ollama のままだが、中身は設定（llm.backend）で選んだ Ollama か LM Studio の
         # クライアント（#325）。切り替えは録音がすべて終わってから（LlmSwitch）
         ctx.ollama = LlmSwitch(
@@ -265,6 +277,8 @@ def create_app(
             available=installed if backend != "fake" else lambda: False,
             # 画面から保存した HuggingFace のトークン（#291）を子プロセスに渡す
             extra_env=lambda: worker_env(home),
+            # 浄書の文字起こしも Intel の GPU で（#374。位置合わせと話者分けは CPU のまま）
+            openvino_device=openvino_device,
         )
         ctx.recorder.final_transcript = ctx.final_transcriber
         if ctx.ollama is not None:

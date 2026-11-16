@@ -86,7 +86,7 @@
 
 | 項目 | 録音中に変えられない理由 |
 |---|---|
-| `whisper.model`・`whisper.computeType` | 変えると読み込み直しになり、その間の文字起こしが止まる |
+| `whisper.model`・`whisper.computeType`・`whisper.intelGpu` | 変えると読み込み直しになり、その間の文字起こしが止まる |
 | `whisper.silenceMs`・`whisper.maxSegmentSec`・`whisper.speechThreshold`・`whisper.speechDbfs` | 区切りの設定は録音を始めたときに決まるので、今の録音には効かない |
 | `recording.noiseSuppression`・`recording.autoGainControl`・`recording.echoCancellation` | クライアントが録音を始めるときにマイクに設定する |
 
@@ -104,7 +104,8 @@
     "speechThreshold": "auto",
     "speechDbfs": -40,
     "finalTranscript": true,
-    "diarize": true
+    "diarize": true,
+    "intelGpu": "auto"
   },
   "ollama": {
     "host": "http://localhost:11434",
@@ -226,6 +227,7 @@
 - 思考モードは処理ごとに固定する。参考資料の作成と最終要約はオン、リアルタイム要約はオフ。思考モードに対応していないモデルが選ばれた場合は、オフで実行する（9.3 節）。
 - `whisper.speechThreshold` は、話しているかの判定のしかた（6.2 節）。`auto`（既定）は、音の大きさをそろえてから Silero VAD で声らしさを判定する。`manual` は `whisper.speechDbfs`（dBFS、-70〜-10）より大きい音を話し声とみなす。自動の結果が悪いときのために手動を残している。
 - `whisper.finalTranscript` は、録音を終えたら浄書するか（6.9 節、既定はオン）。サーバーに WhisperX が入っていないとき（`uv sync --extra final` していないとき）は、オンでも作らない。`whisper.diarize` は、浄書済み文字起こしで話者を分けるか（既定はオン）。話者分けのモデルを使えない（HuggingFace のトークンがない・利用条件に同意していない）ときは、分けずに作る。どちらも作り始める時点の値を使う。
+- `whisper.intelGpu` は、Intel の GPU（Arc）で文字起こしするか（#374。6.17 節）。`auto`（既定）は、NVIDIA の GPU がなく、サーバーに OpenVINO GenAI が入っていて（`uv sync --extra openvino`）、単体の Intel の GPU が見つかったときに使う。`off` は使わない（CPU の faster-whisper）。NVIDIA の GPU がある PC・Mac・OpenVINO を入れていない PC では、どちらでも今までどおり。画面には出さない（setting.json で変える）。
 - `recording.noiseSuppression`・`recording.autoGainControl`・`recording.echoCancellation` は、ブラウザのマイクの処理（`getUserMedia` の制約の同じ名前の項目）。サーバーは使わず、クライアントが録音を始めるときに読む。既定はどれもオン（指定しなかったときのブラウザの既定と同じ）。録音の途中でマイクの処理が切り替わって文字起こしが止まるときに、切って試せるようにしてある（#120）。
 - `recording.uploadMaxMb` は、アップロードできる音声ファイルの大きさの上限（MB、既定 2048。6.11 節）。
 - `recording.maxSources` は、1 つのセッションで同時につながっていられる音源の数の上限（主の音源を含む。既定 4。1〜8。#241、6.16 節）。抜けた音源は数えない。1 つのセッションにまとめてアップロードできるファイルの数もこれで決まる。1 なら、参加とまとめてのアップロードを受け付けない。

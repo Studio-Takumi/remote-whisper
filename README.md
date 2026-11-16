@@ -65,7 +65,7 @@ remote-whisper は、手元の端末に GPU がなくても、別のマシンの
 Windows で Python や uv を入れずに使いたいときは、インストーラを使えます（[docs/install-windows.md](docs/install-windows.md)）。Apple シリコンの Mac 向けには `.dmg` があります（[docs/install-mac.md](docs/install-mac.md)）。以下はリポジトリから動かす開発用の手順です。
 
 ### 必要なもの
-- NVIDIA GPU と、それに対応したドライバ
+- NVIDIA GPU と、それに対応したドライバ（Intel Arc でも動きます。下の「Intel の GPU（Arc）で文字起こしする」）
 - Python 3.11 と [uv](https://docs.astral.sh/uv/)
 - [Ollama](https://ollama.com/)（要約と用語リストの生成に使う）か [LM Studio](https://lmstudio.ai/)（どちらか一方。下の「LM Studio を使う場合」）
 
@@ -87,6 +87,21 @@ uv sync --extra final
 ```
 
 話者分け（「話者 1」「話者 2」）には、[HuggingFace](https://huggingface.co/) のトークンが必要です。また、[pyannote/speaker-diarization-community-1](https://huggingface.co/pyannote/speaker-diarization-community-1) のページで利用条件に同意しておく必要があります。トークンは環境変数 `HF_TOKEN` で渡すか、`uv run hf auth login` で保存してください（`HF_HOME` の下に保存されます。サーバーも同じ `HF_HOME` で起動すれば読み込みます）。トークンがなければ、話者を分けずに作ります。
+
+#### Intel の GPU（Arc）で文字起こしする（任意・Windows）
+
+NVIDIA の GPU がなく、Intel Arc などの単体の Intel の GPU がある Windows の PC では、OpenVINO を入れると文字起こしを GPU で動かせます（CPU より 10 倍前後速くなります）。入れなければ CPU で動きます。浄書（最終の文字起こし）も使うときは、両方を入れます。
+
+```bash
+uv sync --extra openvino                  # 録音中の文字起こしだけ
+uv sync --extra final --extra openvino    # 浄書も（位置合わせと話者分けは CPU で動きます）
+```
+
+- Intel のグラフィックスドライバーは 31.0.101.5445 で動くことを確かめています
+- 内蔵の GPU（Iris Xe など）は使いません。NVIDIA の GPU がある PC では、入れても今までどおり CUDA で動きます
+- 初回はモデル（`OpenVINO/whisper-large-v3-turbo-int8-ov`・`-fp16-ov`）のダウンロードと、GPU 向けのコンパイル（1 分ほど）があります。コンパイルの結果は `HF_HOME` の下に残るので、2 回目からは数秒で読み込みます
+- `whisper.model` に `/` を含むリポジトリ名を書くときは、OpenVINO の形式のリポジトリ（`OpenVINO/whisper-...-ov` など）を指定します。faster-whisper 用（CTranslate2）のリポジトリは読み込めません
+- ビームサーチは使えず、いつも greedy で文字起こしします。使わないようにするときは、`setting.json` の `whisper.intelGpu` を `"off"` にします
 
 ### 起動
 
