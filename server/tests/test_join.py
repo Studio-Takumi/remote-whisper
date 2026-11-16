@@ -308,8 +308,9 @@ def test_leftover_source_wavs_are_converted_at_startup(client, project, monkeypa
         receive_until(a, of_type("ack", seq=0))
         rec.send_json({"type": "stop"})
         receive_until(rec, of_type("status", recordings=0))
-    # 録音のあとの処理（変換・最終要約のタイトル）が、復旧のあとに古いフロントマターを書き戻さないよう、
-    # 終わるまで待つ（本物の起動時の復旧では、録音中のセッションはいない）
+    # 録音のあとの処理（変換・最終要約のタイトル）が、復旧のあとに
+    # 古いフロントマターを書き戻さないよう、終わるまで待つ
+    # （本物の起動時の復旧では、録音中のセッションはいない）
     session = client.app.state.ctx.recorder.sessions[sid]
     client.portal.call(session.wait_converted)
     wait_for(lambda: sid not in client.app.state.ctx.hub.status.summarizing)
