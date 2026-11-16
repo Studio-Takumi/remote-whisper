@@ -146,9 +146,13 @@ def build_index(directory: Path) -> str | None:
             continue
         if meta.get("type") != TYPE:
             continue
-        title = str(meta.get("title") or path.stem)
+        # 他のツールや手で書かれたコピーの値は、文字列のときだけ使う
+        title = meta.get("title")
+        title = title if isinstance(title, str) and title.strip() else path.stem
         description = meta.get("description")
-        entries.append((title, path.name, one_line(description) if description else None))
+        entries.append(
+            (title, path.name, one_line(description) if isinstance(description, str) else None)
+        )
     if not entries:
         return None
     lines = [INDEX_MARK, "", INDEX_HEADING, ""]

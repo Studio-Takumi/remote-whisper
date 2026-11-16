@@ -385,8 +385,9 @@ class SessionWriter:
             # 選んだディレクトリの直下では、ほかの .md とまざるので index.md は作らない
             try:
                 okf.update_index(target_dir)
-            except OSError as e:
-                log.warning("failed to update %s in %s: %s", okf.INDEX_NAME, target_dir, e)
+            except Exception:
+                # index.md は付随のもの。何があっても要約の確定を止めない
+                log.exception("failed to update %s in %s", okf.INDEX_NAME, target_dir)
         return dst
 
     def _tags(self, summary: SummaryMeta) -> list[str]:
