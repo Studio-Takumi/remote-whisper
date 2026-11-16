@@ -69,6 +69,8 @@ export type SessionFiles = {
     finalTranscripts?: number;
     summaries: number;
     liveSummary: boolean;
+    // 録音ファイルのある音源 ID（#371）。ほかの音源の録音があるときだけ。古いサーバーにはない
+    sourceRecordings?: number[];
 };
 
 export type SessionJson = {

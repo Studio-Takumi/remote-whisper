@@ -16,7 +16,7 @@ import { AudioDropZone, AudioUploadButton, MultiUploadDialog, UploadProgress } f
 import { LiveSummary } from '@/components/LiveSummary';
 import { Markdown } from '@/components/Markdown';
 import { MicAlert } from '@/components/MicAlert';
-import { RecordingPlayer } from '@/components/RecordingPlayer';
+import { PlaybackSourceSelect, RecordingPlayer } from '@/components/RecordingPlayer';
 import { SessionTerms } from '@/components/SessionTerms';
 import { ShareButton } from '@/components/ShareButton';
 import { JoinedSourceChips, SourceList } from '@/components/Sources';
@@ -29,6 +29,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { copyText } from '@/copyMarkdown';
 import { pickFinalTranscript } from '@/data';
 import { apiUrl } from '@/endpoint';
+import { usePlaybackSource } from '@/hooks/usePlaybackSource';
 import { useSessionSources } from '@/hooks/useSessionSources';
 import { joinUnavailable } from '@/join';
 import { type LivePartial, partialsOf } from '@/livePartials';
@@ -81,6 +82,8 @@ export function SessionView() {
     const continueRecording = useAppStore((s) => s.continueRecording);
     const { tab, changeTab, followTranscript } = useTabScroll(session?.id);
     const audio = useRef<HTMLAudioElement>(null);
+    // 再生する音源（#371。音源が 1 つのセッションは主の音源だけ）
+    const playSource = usePlaybackSource(session, audio);
     // 要約パネルで手で選んだ世代（文字起こしタブの共有にも使う）
     const [pickedSummary, setPickedSummary] = useState<PickedSummary | null>(null);
     // 読み込めなかった録音（開いた後に消えたなど）。再生バーを消し、時刻も押せなくする
@@ -94,16 +97,17 @@ export function SessionView() {
     const final = session?.finalTranscript;
     const lines = final ? final.lines : session?.transcript;
     const starts = useMemo(() => (lines ?? []).map((l) => clockToSeconds(l.time) ?? 0), [lines]);
-    const seek = useCallback((time: string) => {
-        const sec = clockToSeconds(time);
-        const player = audio.current;
-        if (sec === null || !player) {
-            return;
-        }
-        player.currentTime = sec;
-        // 読み込めないときなどは、onError で再生バーを消す
-        player.play().catch(() => {});
-    }, []);
+    // 行の時刻（主の音源の時刻）から、選んでいる音源で再生する（#371）
+    const seekSource = playSource.seek;
+    const seek = useCallback(
+        (time: string) => {
+            const sec = clockToSeconds(time);
+            if (sec !== null) {
+                seekSource(sec);
+            }
+        },
+        [seekSource],
+    );
 
     if (!project) {
         return notFound ? <NotFoundState /> : <EmptyState hasProjects={hasProjects} />;
@@ -118,14 +122,17 @@ export function SessionView() {
     // 録音を終えていて、録音ファイルが残っているセッションだけ再生できる（消えた・変換前なら出さない）
     const url =
         session && session.status !== 'recording' && session.files?.recording
-            ? apiUrl(`/api/projects/${project.id}/sessions/${session.id}/recording`)
+            ? apiUrl(`/api/projects/${project.id}/sessions/${session.id}/recording${playSource.query}`)
             : null;
     const recordingUrl = url !== failedRecording ? url : null;
     const onTime = (sec: number, playing: boolean, seeked: boolean) => {
         if (!session) {
             return;
         }
-        const index = lineAt(starts, sec);
+        if (playing && playSource.notice) {
+            playSource.clearNotice();
+        }
+        const index = lineAt(starts, playSource.mainTime(sec));
         setPlayback((p) => {
             const same = p?.sessionId === session.id;
             if (same && p.index === index && p.playing === playing && !seeked) {
@@ -150,9 +157,29 @@ export function SessionView() {
                     <RecordingPlayer
                         src={recordingUrl}
                         audio={audio}
-                        onError={() => setFailedRecording(recordingUrl)}
+                        onError={() => {
+                            // ほかの音源が読み込めなければ主の音源に戻す。主の音源なら再生バーを消す
+                            if (!playSource.failed()) {
+                                setFailedRecording(recordingUrl);
+                            }
+                        }}
                         onTime={onTime}
-                    />
+                        onLoaded={playSource.onLoaded}
+                    >
+                        {playSource.playable.length >= 2 && (
+                            <PlaybackSourceSelect
+                                sources={playSource.playable}
+                                value={playSource.selected}
+                                onChange={playSource.select}
+                                uploaded={session?.uploaded === true}
+                            />
+                        )}
+                    </RecordingPlayer>
+                )}
+                {recordingUrl && playSource.notice && (
+                    <p role='status' className='w-full max-w-3xl text-xs text-muted-foreground'>
+                        {playSource.notice}
+                    </p>
                 )}
             </div>
             {/* 下の pb は、マイクのボタンの上に出す経過時間（絶対配置）が本文に重ならないようにするため */}

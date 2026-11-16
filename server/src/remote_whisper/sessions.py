@@ -10,6 +10,7 @@ from typing import Any
 from remote_whisper.corrections import Correction, apply_final_lines
 from remote_whisper.documents import (
     FINAL_TRANSCRIPT_RE,
+    RECORDING_RE,
     SUMMARY_RE,
     FinalTranscriptMeta,
     SummaryMeta,
@@ -25,6 +26,11 @@ from remote_whisper.documents import (
 ID_RE = re.compile(r"\d{8}-\d{6}")
 # 文字起こしの本文の1行。例: [00:00:03] 今日は…
 LINE_RE = re.compile(r"\[(\d{2}:\d{2}:\d{2})\]\s?(.*)")
+# 音源 ID の上限（1 つのセッションで 16 個まで。spec/flows.md 6.16）
+MAX_SOURCE_ID = 16
+# 変換前のほかの音源の録音（`.tmp/<ID>/audio-<音源 ID>.wav`。#356）。
+# 音源 ID は RECORDING_RE と同じ 2〜16
+SOURCE_WAV_RE = re.compile(r"audio-([2-9]|1[0-6])\.wav")
 
 
 class SessionFiles:
@@ -65,6 +71,32 @@ class SessionFiles:
         wav = self.dir / ".tmp" / self.id / "audio.wav"
         return wav if wav.is_file() else self.recording()
 
+    def source_audio(self, source: int) -> Path | None:
+        """録音を終えたセッションの、音源ごとの録音全体（#371）。audio() と同じく、`.tmp` に
+        変換前の WAV（`audio-<音源 ID>.wav`）が残っていればそちら。音源 1 は audio() と同じ"""
+        if source <= 1:
+            return self.audio()
+        wav = self.dir / ".tmp" / self.id / f"audio-{source}.wav"
+        return wav if wav.is_file() else self.source_recording(source)
+
+    def source_recordings(self) -> list[int]:
+        """録音ファイルが残っている音源 ID（#371）。ほかの音源の録音がなければ空
+        （音源が 1 つのセッションは今までと同じにするため。主の音源だけ残っていても空）"""
+        others: set[int] = set()
+        for path in self.dir.glob(f"recording-{self.id}-*"):
+            m = RECORDING_RE.fullmatch(path.name)
+            if m and m.group(1) == self.id and m.group(2):
+                others.add(int(m.group(2)))
+        tmp = self.dir / ".tmp" / self.id
+        if tmp.is_dir():
+            for wav in tmp.glob("audio-*.wav"):
+                m = SOURCE_WAV_RE.fullmatch(wav.name)
+                if m:
+                    others.add(int(m.group(1)))
+        if not others:
+            return []
+        return ([1] if self.audio() is not None else []) + sorted(others)
+
     def summary(self, gid: str) -> Path:
         return self.dir / summary_name(self.id, gid)
 
@@ -102,7 +134,7 @@ class SessionFiles:
 
     def availability(self) -> dict[str, Any]:
         """どのファイルが残っているか。保存期間を過ぎて消えたものを UI で「期限切れ」と出すため"""
-        return {
+        result: dict[str, Any] = {
             # 変換前の WAV（続きを録音できる間。#174）も再生できるので、あるものとして返す
             "recording": self.audio() is not None,
             "transcript": self.transcript.is_file(),
@@ -110,6 +142,13 @@ class SessionFiles:
             "summaries": len(self.summaries()),
             "liveSummary": self.live_summary.is_file(),
         }
+        # 音源ごとの録音（#371）。ほかの音源の録音があるときだけ付ける。画面はこれがあることで
+        # `GET .../recording?source=` に対応したサーバーだと見分ける
+        # （古いサーバーは source を無視して主の音源を返す）
+        sources = self.source_recordings()
+        if sources:
+            result["sourceRecordings"] = sources
+        return result
 
 
 def summary_source(files: SessionFiles) -> Path:
