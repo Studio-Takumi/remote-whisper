@@ -181,7 +181,7 @@ export function SourceBadge({ id, name }: { id: number; name?: string | null }) 
             role='img'
             title={title}
             aria-label={title}
-            className={`mt-0.5 inline-flex h-5 shrink-0 items-center self-start rounded-full border px-1.5 text-xs whitespace-nowrap ${sourceColor(id)}`}
+            className={`mt-0.5 inline-flex h-5 shrink-0 items-center self-start rounded-full border px-1.5 text-xs whitespace-nowrap tabular-nums ${sourceColor(id)}`}
         >
             {sourceLabel(id)}
         </span>

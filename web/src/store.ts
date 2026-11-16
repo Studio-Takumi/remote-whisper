@@ -582,7 +582,11 @@ export const useAppStore = create<AppState>()((set, get) => {
                 // サーバーは見ている登録を消したので、まだ録音中なら（すぐ続きを録音した）見直して送り直す
                 watchedSession = null;
                 set((s) => ({ watching: null, partials: dropSession(s.partials, m.session), liveDraft: null }));
-                void get().loadProjects();
+                // 音源が 2 つ以上なら、音源の一覧をフロントマターのもの（参加していた時間）に替える（#357）
+                const multi = (get().liveSources[m.session]?.length ?? 0) >= 2;
+                void get()
+                    .loadProjects()
+                    .then(() => (multi ? refreshTranscripts(m.session) : undefined));
             } else {
                 set({ watching: { ...w, state: m.state } });
             }
@@ -997,6 +1001,10 @@ export const useAppStore = create<AppState>()((set, get) => {
             const session = project?.sessions.find((x) => x.id === sessionId);
             if (project && session && !session.loaded) {
                 await loadSession(project.id, session);
+            } else if (session?.sources === undefined && get().liveSources[sessionId]) {
+                // 音源が 2 つ以上の録音を終えた（#357）。録音中の音源の一覧を、フロントマターのもの（参加していた時間・
+                // 行ごとの音源）に替える
+                await refreshTranscripts(sessionId);
             }
             set((s) => ({ generating: s.generating?.sessionId === sessionId ? null : s.generating }));
         } finally {
@@ -1120,6 +1128,9 @@ export const useAppStore = create<AppState>()((set, get) => {
                     pickedTerms: transcriptJson.meta?.pickedTerms ?? x.pickedTerms,
                     manualTerms: transcriptJson.meta?.manualTerms ?? x.manualTerms,
                     corrections: transcriptJson.meta?.corrections ?? x.corrections,
+                    // 音源（#357）。録音を終えたら、録音中の一覧からフロントマターのもの（参加していた時間）に替える
+                    sources:
+                        (transcriptJson.meta?.sources?.length ?? 0) >= 2 ? transcriptJson.meta?.sources : x.sources,
                     // 取り直している間に別の版に切り替えていたら、そのまま
                     finalTranscript:
                         finalTranscript && x.finalTranscript?.generationId === gid
@@ -1282,27 +1293,38 @@ export const useAppStore = create<AppState>()((set, get) => {
             const progress = (i: number, percent: number) =>
                 set({ uploading: { projectId, name: `${files[i].name}（${i + 1}/${total}）`, percent } });
             progress(0, 0);
-            let created: { id: string } | null = null;
             try {
-                created = await uploadAudio(projectId, files[0], (p) => progress(0, p), total);
+                const created = await uploadAudio(projectId, files[0], (p) => progress(0, p), total);
+                // 送れなかったファイル。old は 404（まとめられない古いホスト）
+                const failed: string[] = [];
+                let old = false;
                 for (let i = 1; i < total; i++) {
                     try {
                         await uploadSource(projectId, created.id, files[i], (p) => progress(i, p));
                     } catch (e) {
                         if (e instanceof UploadError && e.status === 404) {
-                            // まとめられない古いホスト。1 つ目のファイルだけのセッションとして浄書が始まっている
-                            toast.warning(
-                                `このホストは複数の音源に対応していないため、${files[0].name} だけのセッションにしました`,
-                                { duration: 15000 },
-                            );
+                            old = true;
                             break;
                         }
-                        // 届いた分だけで作る（ホストは残りを 30 分待ってから作る）
-                        toast.error(`${files[i].name} をアップロードできません: ${(e as Error).message}`);
+                        failed.push(`${files[i].name}（${(e as Error).message}）`);
                     }
                 }
                 await openUploaded(projectId, created.id);
-                toast.success(`${total} 個のファイルを 1 つのセッションにまとめて作ります。要約まで少しかかります`);
+                if (old) {
+                    // 1 つ目のファイルだけのセッションとして浄書が始まっている
+                    toast.warning(
+                        `このホストは複数の音源に対応していないため、${files[0].name} だけのセッションにしました`,
+                        { duration: 15000 },
+                    );
+                } else if (failed.length > 0) {
+                    // ホストは残りのファイルを 30 分待ってから、届いた分だけで作る（spec/flows.md 6.16）
+                    toast.error(
+                        `${failed.join('、')} を送れませんでした。届いた ${total - failed.length} 個のファイルで、30 分後に作ります`,
+                        { duration: 20000 },
+                    );
+                } else {
+                    toast.success(`${total} 個のファイルを 1 つのセッションにまとめて作ります。要約まで少しかかります`);
+                }
             } catch (e) {
                 toast.error(`${files[0].name} をアップロードできません: ${(e as Error).message}`);
             } finally {

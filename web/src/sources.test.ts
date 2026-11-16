@@ -24,9 +24,16 @@ describe('withLineSources', () => {
         ]);
     });
 
-    it('ない・行の数と合わないときは付けない（音源が 1 つのセッション・書きかけ）', () => {
+    it('ない・空なら付けない（音源が 1 つのセッション）', () => {
         expect(withLineSources([a, b], undefined)).toEqual([a, b]);
-        expect(withLineSources([a, b], [1])).toEqual([a, b]);
+        expect(withLineSources([a, b], [])).toEqual([a, b]);
+    });
+
+    it('行の数より短ければ、足りない行は主の音源とみなす（spec/flows.md 6.16）', () => {
+        expect(withLineSources([a, b], [2])).toEqual([
+            { ...a, source: 2 },
+            { ...b, source: 1 },
+        ]);
     });
 });
 

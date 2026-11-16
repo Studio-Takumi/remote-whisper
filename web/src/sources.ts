@@ -22,15 +22,16 @@ export type ListedSource = { id: number; name: string | null; kind: SessionSourc
     { live: false; joinedSec?: number | null; leftSec?: number | null } | { live: true; state: LiveSource['state'] }
 );
 
-// 行の音源（lineSources）を行に付ける。行の数と合わないとき（書きかけ・古いファイル）は付けない
+// 行の音源（lineSources）を行に付ける。行の数より短ければ、足りない行は主の音源（1）とみなす（spec/flows.md 6.16）。
+// ない・空なら付けない（音源が 1 つのセッション）
 export function withLineSources<T extends { time: string; text: string }>(
     lines: T[],
     lineSources: number[] | null | undefined,
 ): (T & { source?: number })[] {
-    if (!lineSources || lineSources.length !== lines.length) {
+    if (!lineSources || lineSources.length === 0) {
         return lines;
     }
-    return lines.map((line, i) => ({ ...line, source: lineSources[i] }));
+    return lines.map((line, i) => ({ ...line, source: lineSources[i] ?? 1 }));
 }
 
 // 取り直した行に音源がなければ（録音中はフロントマターにまだない）、手元の同じ行の音源を残す

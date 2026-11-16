@@ -21,21 +21,25 @@ export function SourceList({ session, sources }: { session: Session; sources: Li
             <PopoverTrigger asChild>
                 <Button variant='outline' size='sm' title='音源の一覧'>
                     <MicIcon />
-                    音源 {sources.length}
+                    {/* 行の札（「音源 2」は音源 ID）と取り違えないよう、数は「つ」で数える */}
+                    音源 {sources.length} つ
                 </Button>
             </PopoverTrigger>
             <PopoverContent align='start' className='w-80 max-w-[calc(100vw-2rem)] p-3'>
                 <p className='mb-2 text-xs text-muted-foreground'>
-                    行の札は、どの音源の声として文字になったかです（話者とは別です）
+                    行の札は、その行の声を拾った音源です（話者とは別です）
                 </p>
                 <ul className='flex flex-col gap-2'>
                     {sources.map((s) => (
                         <li key={s.id} className='flex items-start gap-2 text-sm'>
                             <SourceBadge id={s.id} name={s.name} />
                             <div className='min-w-0'>
-                                <p className='truncate'>{s.name ?? sourceTitle(s.id, null)}</p>
+                                {/* 名前がなければ（主の音源など）種類を名前の代わりにする（「音源 1」を 2 回並べない） */}
+                                <p className='truncate'>
+                                    {s.name ?? sourceKindLabel(s.kind, session.uploaded === true)}
+                                </p>
                                 <p className='text-xs text-muted-foreground'>
-                                    {sourceKindLabel(s.kind, session.uploaded === true)}・
+                                    {s.name && `${sourceKindLabel(s.kind, session.uploaded === true)}・`}
                                     {describeSourceSpan(s, session.durationSec, session.uploaded === true)}
                                 </p>
                             </div>
