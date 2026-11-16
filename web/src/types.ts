@@ -81,6 +81,8 @@ export type Project = {
     sessions: Session[];
     // サーバーに保存されている、今選んでいる参考資料セット（spec/files.md 5.4 節の selection）
     selection?: ContextSelection;
+    // 最終要約のコピーの置き場所（spec/files.md 5.4 節の summaryDir。#341）。古いサーバーにはない
+    summaryDir?: string;
 };
 
 // 作成中の最終の要約。summary.delta（spec/api.md 7.2 節）で届いた分
