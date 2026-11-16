@@ -43,12 +43,12 @@ export function buildShareText(source: ShareSource, what: ShareWhat, instruction
 }
 
 // ファイル名に使えない文字を除く
-export function shareFileName(title: string) {
+export function shareFileName(title: string, ext = 'md') {
     const name = title
         .replace(/[\\/:*?"<>|\u0000-\u001f]/g, '')
         .trim()
         .slice(0, 60);
-    return `${name || 'remote-whisper'}.md`;
+    return `${name || 'remote-whisper'}.${ext}`;
 }
 
 // Web Share API が使えるか。https か localhost でしか使えない（LAN の http で開いていると使えない）
@@ -64,7 +64,8 @@ export async function shareContent(source: ShareSource, what: ShareWhat, instruc
     const text = buildShareText(source, what, instruction);
     const data: ShareData = { title: source.title };
     if (text.length > SHARE_TEXT_LIMIT) {
-        const file = new File([text], shareFileName(source.title), { type: 'text/markdown' });
+        // Chrome は .md・text/markdown を共有に渡せないので、共有に渡すファイルは .txt にする（中身は Markdown のまま）
+        const file = new File([text], shareFileName(source.title, 'txt'), { type: 'text/plain' });
         if (typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] })) {
             data.files = [file];
         } else {
@@ -96,5 +97,6 @@ export function downloadShareText(source: ShareSource, what: ShareWhat, instruct
     document.body.appendChild(a);
     a.click();
     a.remove();
-    URL.revokeObjectURL(url);
+    // Safari（iOS・PWA）は click の直後に解放すると保存できないことがあるので、少し待つ
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

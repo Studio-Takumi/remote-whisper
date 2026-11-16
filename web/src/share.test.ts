@@ -86,7 +86,8 @@ describe('shareContent', () => {
         const data = share.mock.calls[0][0];
         expect(data.text).toBeUndefined();
         expect(data.files).toHaveLength(1);
-        expect(data.files[0].name).toBe('第3回 講義.md');
+        expect(data.files[0].name).toBe('第3回 講義.txt');
+        expect(data.files[0].type).toBe('text/plain');
     });
     it('長くてもファイルを渡せない環境ではテキストで渡す', async () => {
         const share = vi.fn().mockResolvedValue(undefined);
