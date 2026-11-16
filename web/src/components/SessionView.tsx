@@ -13,6 +13,7 @@ import {
 import { toast } from 'sonner';
 
 import { AudioDropZone, AudioUploadButton, UploadProgress } from '@/components/AudioUpload';
+import { JoinButton } from '@/components/JoinButton';
 import { LiveSummary } from '@/components/LiveSummary';
 import { Markdown } from '@/components/Markdown';
 import { MicAlert } from '@/components/MicAlert';
@@ -27,6 +28,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { copyText } from '@/copyMarkdown';
 import { pickFinalTranscript } from '@/data';
 import { apiUrl } from '@/endpoint';
+import { type LivePartial, partialsOf } from '@/livePartials';
 import { describeMaterialRange } from '@/materialRange';
 import { recordingLocks } from '@/recording';
 import { isScrolledToBottom, scrollToBottom } from '@/scroll';
@@ -44,6 +46,8 @@ import { clockToSeconds } from '@/time';
 import type { FinalTranscriptInfo, Generating, Session, Summary } from '@/types';
 import { describeWatched, recordedElsewhere } from '@/watch';
 
+const NO_PARTIALS: LivePartial[] = [];
+
 // メイン画面の中身。何も選んでいない・新しいセッション・既存のセッションの3つを出し分ける
 export function SessionView() {
     const hasProjects = useAppStore((s) => visibleProjects(s).length > 0);
@@ -58,7 +62,8 @@ export function SessionView() {
     const backend = useAppStore((s) => llmBackend(s.settings));
     const models = useAppStore((s) => llmModels(s.settings));
     const generating = useAppStore((s) => s.generating);
-    const partial = useAppStore((s) => s.partial);
+    const allPartials = useAppStore((s) => s.partials);
+    const partials = useMemo(() => (session ? partialsOf(allPartials, session.id) : []), [allPartials, session]);
     const liveDraft = useAppStore((s) => s.liveDraft);
     const recordingSessionId = useAppStore((s) => s.recordingSessionId);
     // ほかの端末で録音中のセッションを見ている（#238）
@@ -162,6 +167,8 @@ export function SessionView() {
                                 </span>
                             )}
                         </p>
+                        {/* ほかの端末で録音中なら、この端末のマイクを音源として参加できる（#356） */}
+                        {recordedElsewhere(session, recordingSessionId) && <JoinButton sessionId={session.id} />}
                         {/* 途中で終わったセッションは、同じセッションのまま続きを録音できる（#101）。
                             録音ファイルがまだ mp3 になっていない（WAV のまま）こともあるので、ファイルの有無では隠さない
                             （残っていなければ、サーバーが断る） */}
@@ -228,7 +235,7 @@ export function SessionView() {
                             <Transcript
                                 sessionId={session.id}
                                 lines={lines ?? []}
-                                partial={!final && partial?.sessionId === session.id ? partial : null}
+                                partials={final ? NO_PARTIALS : partials}
                                 follow={followTranscript}
                                 onSeek={recordingUrl ? seek : undefined}
                                 playback={recordingUrl && playback?.sessionId === session.id ? playback : null}

@@ -34,6 +34,8 @@ import {
     transcriptQuery,
 } from '@/data';
 import { getHostId, isCloud, meUrl } from '@/endpoint';
+import { type Joined, SourceJoin, forgetJoin, recalledJoin } from '@/join';
+import { type LivePartial, dropPartial, upsertPartial } from '@/livePartials';
 import { demoProjects, fallbackOptions, initialContextSets } from '@/mock';
 import { sortSessions } from '@/move';
 import { fetchOptions } from '@/options';
@@ -70,8 +72,7 @@ function llmFailed(code: string) {
 
 type Selection = { projectId: string | null; sessionId: string | null };
 
-// partial（spec/api.md 7.2）。committed は確定した部分、tentative はまだ変わるかもしれない部分
-export type LivePartial = { sessionId: string; segment: number; committed: string; tentative: string };
+export type { LivePartial } from '@/livePartials';
 
 type AppState = {
     projects: Project[];
@@ -89,8 +90,13 @@ type AppState = {
     transcriptionStalled: boolean;
     // 送ったが ack がまだ来ていない音声のチャンクの数
     pendingAudio: number;
-    // 文字起こし中の区間（partial）。final が来たら消える
-    partial: LivePartial | null;
+    // 文字起こし中の区間（partial）。final が来たら消える。音源が 2 つ以上なら音源ごとに 1 つ（#356）
+    partials: LivePartial[];
+    // 録音中のセッションに、この端末のマイクを音源として参加している（#241・#356）
+    joined: Joined | null;
+    // 参加する・抜ける
+    joinSession: (sessionId: string) => Promise<void>;
+    leaveSession: () => void;
     // 届いている途中の途中の要約（summary.delta kind: live）。summary.done で session.liveSummary に移す
     liveDraft: { sessionId: string; text: string } | null;
     // ほかのクライアントで録音中のセッションを見ている（#238）。開いているセッションが録音中で、
@@ -325,7 +331,65 @@ function finishMetrics(sessionId: string, ok: boolean) {
 type StartedMessage = Extract<ServerMessage, { type: 'started' }>;
 type ErrorMessage = Extract<ServerMessage, { type: 'error' }>;
 
+// 届いた partial・final から、画面で持つ形にする（source は音源が 2 つ以上のときだけ来る。#356）
+function partialFrom(m: Extract<ServerMessage, { type: 'partial' }>): LivePartial {
+    const partial: LivePartial = {
+        sessionId: m.session,
+        segment: m.segment,
+        committed: m.committed,
+        tentative: m.tentative,
+    };
+    if (m.source !== undefined) {
+        partial.source = m.source;
+    }
+    return partial;
+}
+
+function lineFrom(m: Extract<ServerMessage, { type: 'final' }>) {
+    const line: { time: string; text: string; source?: number } = { time: formatClock(m.start), text: m.text };
+    if (m.source !== undefined) {
+        line.source = m.source;
+    }
+    return line;
+}
+
+function dropSession(partials: LivePartial[], sessionId: string) {
+    return partials.filter((p) => p.sessionId !== sessionId);
+}
+
+// この端末のマイクで、録音中のセッションに音源として参加しているもの（#356）
+let joiner: SourceJoin | null = null;
+
 export const useAppStore = create<AppState>()((set, get) => {
+    // 録音中のセッションに音源として参加する（#356）。rejoin は読み込み直す前に参加していた音源
+    async function startJoin(sessionId: string, rejoin: { source: number; nextSeq: number } | null) {
+        const { noiseSuppression, autoGainControl, echoCancellation = true } = get().settings.recording;
+        const join = new SourceJoin(
+            sessionId,
+            (joined) => set({ joined }),
+            (message) => {
+                if (joiner === join) {
+                    joiner = null;
+                }
+                if (message) {
+                    toast.error(message);
+                }
+                // サーバーは抜けた接続の「見ている」登録を消すので、まだ録音中なら見直して送り直す
+                watchedSession = null;
+                set((s) => ({ projects: [...s.projects] }));
+            },
+        );
+        joiner = join;
+        try {
+            await join.start({ noiseSuppression, autoGainControl, echoCancellation }, rejoin);
+        } catch (e) {
+            joiner = null;
+            forgetJoin(sessionId);
+            set({ joined: null });
+            toast.error((e as Error).message);
+        }
+    }
+
     // 送る音声を数えて、経過時間を進める。接続が切れて手元に溜めている分も、録音した長さとして数える
     function countRecorded(pcm: Int16Array) {
         recordedSamples += pcm.length;
@@ -388,14 +452,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                     }
                 }
             } else if (m.type === 'partial') {
-                set({
-                    partial: {
-                        sessionId: m.session,
-                        segment: m.segment,
-                        committed: m.committed,
-                        tentative: m.tentative,
-                    },
-                });
+                set((s) => ({ partials: upsertPartial(s.partials, partialFrom(m)) }));
             } else if (m.type === 'transcriptionStalled') {
                 if (m.stalled && !get().transcriptionStalled) {
                     toast.warning(stalledMessage, { duration: 15000 });
@@ -403,7 +460,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                 set({ transcriptionStalled: m.stalled });
             } else if (m.type === 'final') {
                 // 区間全体の文字起こしで、partial を置き換える。text が空なら文字にならなかった区間なので、partial を消すだけ（#89）
-                const line = { time: formatClock(m.start), text: m.text };
+                const line = lineFrom(m);
                 set((s) => ({
                     projects: m.text
                         ? updateSession(s.projects, m.session, (x) => ({
@@ -411,7 +468,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                               transcript: [...x.transcript, line],
                           }))
                         : s.projects,
-                    partial: s.partial?.sessionId === m.session && s.partial.segment === m.segment ? null : s.partial,
+                    partials: dropPartial(s.partials, m.session, m.segment),
                 }));
             } else if (
                 (m.type === 'summary.delta' || m.type === 'summary.done') &&
@@ -464,7 +521,7 @@ export const useAppStore = create<AppState>()((set, get) => {
             }
             // そこまでの文字起こし・リアルタイム要約・タイトルで置き換え、続きはこのあとのメッセージで足す
             set((s) => ({
-                watching: { sessionId: m.session, state: m.state as WatchedState },
+                watching: { sessionId: m.session, state: m.state as WatchedState, join: m.join },
                 projects: updateSession(s.projects, m.session, (x) => ({
                     ...x,
                     transcript: m.transcript ?? x.transcript,
@@ -473,6 +530,18 @@ export const useAppStore = create<AppState>()((set, get) => {
                     loaded: true,
                 })),
                 liveDraft: s.liveDraft?.sessionId === m.session ? null : s.liveDraft,
+            }));
+            // 読み込み直す前に参加していたら、同じ音源としてつなぎ直す（#356）
+            const recalled = recalledJoin(m.session);
+            if (recalled && !joiner && m.join !== undefined) {
+                void startJoin(m.session, recalled);
+            }
+            return;
+        }
+        if (m.type === 'sources') {
+            // 参加できるか（上限に達した・空いた）が変わる（#356）
+            set((s) => ({
+                watching: s.watching?.sessionId === m.session ? { ...s.watching, join: m.join } : s.watching,
             }));
             return;
         }
@@ -486,22 +555,20 @@ export const useAppStore = create<AppState>()((set, get) => {
                 // summarizing と title）で気づける。一覧を取り直して、録音中ではなくする。
                 // サーバーは見ている登録を消したので、まだ録音中なら（すぐ続きを録音した）見直して送り直す
                 watchedSession = null;
-                set({ watching: null, partial: null, liveDraft: null });
+                set((s) => ({ watching: null, partials: dropSession(s.partials, m.session), liveDraft: null }));
                 void get().loadProjects();
             } else {
                 set({ watching: { ...w, state: m.state } });
             }
         } else if (m.type === 'partial') {
-            set({
-                partial: { sessionId: m.session, segment: m.segment, committed: m.committed, tentative: m.tentative },
-            });
+            set((s) => ({ partials: upsertPartial(s.partials, partialFrom(m)) }));
         } else if (m.type === 'final') {
-            const line = { time: formatClock(m.start), text: m.text };
+            const line = lineFrom(m);
             set((s) => ({
                 projects: m.text
                     ? updateSession(s.projects, m.session, (x) => ({ ...x, transcript: [...x.transcript, line] }))
                     : s.projects,
-                partial: s.partial?.sessionId === m.session && s.partial.segment === m.segment ? null : s.partial,
+                partials: dropPartial(s.partials, m.session, m.segment),
             }));
         } else if (m.type === 'terms') {
             set((s) => ({
@@ -610,7 +677,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                 recordingState: 'recording',
                 recordingSessionId: continueSessionId,
                 elapsed: Math.floor(recordedSamples / SAMPLE_RATE),
-                partial: null,
+                partials: [],
                 liveDraft: null,
             }));
             // 切れている間に録音した分（サーバーに届かなかった音声）を、続きの頭に送る。
@@ -657,7 +724,7 @@ export const useAppStore = create<AppState>()((set, get) => {
             recordingState: 'recording',
             recordingSessionId: created.id,
             elapsed: 0,
-            partial: null,
+            partials: [],
             liveDraft: null,
         }));
     }
@@ -750,7 +817,7 @@ export const useAppStore = create<AppState>()((set, get) => {
             micLevel: 0,
             transcriptionStalled: false,
             pendingAudio: 0,
-            partial: null,
+            partials: [],
             liveDraft: null,
             projects: updateSession(s.projects, sessionId, (x) => ({
                 ...x,
@@ -1073,7 +1140,17 @@ export const useAppStore = create<AppState>()((set, get) => {
         unsent: null,
         unsentElsewhere: [],
         pendingAudio: 0,
-        partial: null,
+        partials: [],
+        joined: null,
+        joinSession: async (sessionId) => {
+            if (joiner || get().recordingState !== 'idle') {
+                return;
+            }
+            await startJoin(sessionId, null);
+        },
+        leaveSession: () => {
+            joiner?.leave();
+        },
         liveDraft: null,
         watching: null,
         settings: defaultSettings,
@@ -1296,7 +1373,7 @@ export const useAppStore = create<AppState>()((set, get) => {
                     recordingState: 'recording',
                     recordingSessionId: sessionId,
                     elapsed: Math.floor(recordedSamples / SAMPLE_RATE),
-                    partial: null,
+                    partials: [],
                     liveDraft: null,
                 }));
             } catch (e) {

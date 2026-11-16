@@ -5,6 +5,8 @@ import type { Correction } from '@/corrections';
 export type TranscriptLine = {
     time: string;
     text: string;
+    // 音源 ID（音源が 2 つ以上のセッションの、録音中に届いた行だけ。#356）
+    source?: number;
 };
 
 // 最終の要約。作り直すたびに増えていく（spec/flows.md 6.5 節）

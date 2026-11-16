@@ -1,8 +1,9 @@
 // ほかのクライアントで録音中のセッションを見る（#238。spec/api.md 7.2・spec/ui.md 8 章）
-import type { WatchedState } from '@/protocol';
+import type { JoinAvailability, WatchedState } from '@/protocol';
 import type { Project, Session } from '@/types';
 
-export type Watching = { sessionId: string; state: WatchedState };
+// join は参加できるか（#356）。参加に対応していない古いサーバーでは undefined
+export type Watching = { sessionId: string; state: WatchedState; join?: JoinAvailability };
 
 // 見るセッション。開いているセッションが録音中で、自分で録音しているものでなければその ID。なければ null
 export function watchTarget(
