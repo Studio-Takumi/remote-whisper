@@ -17,6 +17,7 @@
 取り違えないようにするため。WAV の変換は時間がかかるので、後ろで行う（`fix_leftovers`）。
 """
 
+import contextlib
 import logging
 import re
 import wave
@@ -28,6 +29,7 @@ from remote_whisper.audio_convert import convert_wav
 from remote_whisper.documents import TranscriptMeta, read_doc
 from remote_whisper.janitor import expired
 from remote_whisper.projects import ProjectError, ProjectStore
+from remote_whisper.recorder import convert_source_wavs, refresh_source_recordings
 from remote_whisper.session_writer import SessionWriter
 from remote_whisper.sessions import ID_RE, SessionFiles, parse_transcript_lines
 from remote_whisper.timeutil import now
@@ -91,9 +93,11 @@ def find_leftovers(store: ProjectStore, summary_days: int = 0) -> Leftovers:
                 ):
                     # 録音は終えたのに、最終の要約がなく失敗の記録もない（要約の途中で止まった）
                     found.unsummarized.append((pid, meta.id))
-            for wav in sorted(d.glob(".tmp/*/audio.wav")):
-                if ID_RE.fullmatch(wav.parent.name):
-                    found.wavs.append((pid, wav.parent.name))
+            # 録音中に参加した音源の WAV（audio-<音源 ID>.wav。#356）だけが残っていることもある
+            for wav in sorted(d.glob(".tmp/*/audio*.wav")):
+                key = (pid, wav.parent.name)
+                if ID_RE.fullmatch(wav.parent.name) and key not in found.wavs:
+                    found.wavs.append(key)
             found.partials.extend(
                 p for p in sorted(d.glob("recording-*.tmp")) if PARTIAL_RE.fullmatch(p.name)
             )
@@ -150,7 +154,14 @@ def _convert_leftover(store: ProjectStore, pid: str, sid: str, report: Report) -
     d = store.dir(pid)
     files = SessionFiles(d, sid)
     wav = d / ".tmp" / sid / "audio.wav"
+    if files.transcript.is_file() and any(wav.parent.glob("audio-*.wav")):
+        # 録音中に参加した音源の録音（#356）。フロントマターの音源にも書く
+        convert_source_wavs(SessionWriter.existing(store, pid, sid))
     if not wav.is_file():
+        if not any(wav.parent.glob("audio-*.wav")):
+            (wav.parent / "sources.json").unlink(missing_ok=True)
+            with contextlib.suppress(OSError):
+                wav.parent.rmdir()
         return
     # WAV が録音の正本。mp3 がもうあっても（変換の途中で止まった・途中まで変換したものかもしれない）
     # WAV から変換し直して置き換える。変換と記録ができてから WAV を消す（失敗したら WAV を残す）
@@ -161,9 +172,13 @@ def _convert_leftover(store: ProjectStore, pid: str, sid: str, report: Report) -
         # 前の拡張子のもの（m4a と mp3）が残らないように
         existing.unlink(missing_ok=True)
     if files.transcript.is_file():
-        SessionWriter.existing(store, pid, sid).set_recording(recording.name)
+        writer = SessionWriter.existing(store, pid, sid)
+        writer.set_recording(recording.name)
+        refresh_source_recordings(writer)
     wav.unlink()
     report.removed.append(wav)
+    if not any(wav.parent.glob("audio-*.wav")):
+        (wav.parent / "sources.json").unlink(missing_ok=True)
     try:
         # 途中の要約が残っていなければ、ディレクトリごと消す
         wav.parent.rmdir()

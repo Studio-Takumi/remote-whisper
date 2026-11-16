@@ -2,6 +2,7 @@
 
 import json
 import logging
+from dataclasses import dataclass
 from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -27,6 +28,8 @@ async def websocket(ws: WebSocket) -> None:
     await ctx.hub.add(ws)
     # この接続で録音しているセッション。1つの接続で同時に録音できるのは1つだけ
     session = None
+    # この接続が音源として参加しているセッションと音源（#241・#356）。参加できるのは 1 つだけ
+    joined: Joined | None = None
     try:
         while True:
             msg = await ws.receive()
@@ -34,9 +37,20 @@ async def websocket(ws: WebSocket) -> None:
                 break
             try:
                 if msg.get("bytes") is not None:
-                    await _audio(ws, session, msg["bytes"])
+                    if joined is not None and _joined_here(ws, joined) and not _owns(ws, session):
+                        await _source_audio(joined, msg["bytes"])
+                    else:
+                        await _audio(ws, session, msg["bytes"])
                 elif msg.get("text") is not None:
-                    session = await _control(ctx, ws, session, msg["text"], peer)
+                    kind = _kind(msg["text"])
+                    if kind in ("join", "leave"):
+                        joined = await _join_control(ctx, ws, session, joined, msg["text"], peer)
+                    else:
+                        if kind in ("start", "continue", "resume") and _joined_here(ws, joined):
+                            raise RecordingError(
+                                "already_recording", "音源として参加しています。先に抜けてください"
+                            )
+                        session = await _control(ctx, ws, session, msg["text"], peer)
             except RecordingError as e:
                 log.warning("recording request from %s refused: %s", peer, e.code)
                 await send(ws, e.to_message())
@@ -44,6 +58,10 @@ async def websocket(ws: WebSocket) -> None:
         pass
     finally:
         ctx.hub.remove(ws)
+        if joined is not None and _joined_here(ws, joined):
+            # 参加した端末が切れても、主の録音は止めない。つなぎ直すのを待つ
+            joined.session.source_detached(joined.source)
+            await joined.session.send_sources()
         recording = session is not None and session.ws is ws
         log.info(
             "websocket disconnected from %s%s",
@@ -55,6 +73,92 @@ async def websocket(ws: WebSocket) -> None:
             # 見ているクライアントには、録音しているクライアントとの接続が
             # 切れたことを知らせる（#238）
             await ctx.hub.send_watchers(session.id, _state_message(session))
+
+
+@dataclass
+class Joined:
+    session: Any
+    source: Any
+
+
+def _joined_here(ws: WebSocket, joined: "Joined | None") -> bool:
+    """この接続が、録音中のセッションに音源として参加しているか"""
+    return (
+        joined is not None
+        and not joined.session.ended
+        and joined.source.ws is ws
+        and joined.source.state == "active"
+    )
+
+
+def _kind(text: str) -> Any:
+    try:
+        return json.loads(text).get("type")
+    except (ValueError, AttributeError):
+        return None
+
+
+async def _source_audio(joined: Joined, data: bytes) -> None:
+    if len(data) < 4:
+        raise RecordingError("bad_message", "音声のチャンクが短すぎます")
+    traffic.audio(len(data) - 4)
+    await joined.session.source_audio(joined.source, int.from_bytes(data[:4], "little"), data[4:])
+
+
+async def _join_control(
+    ctx: AppContext, ws: WebSocket, session: Any, joined: Joined | None, text: str, peer: str
+) -> Joined | None:
+    """録音中のセッションに音源として参加する・抜ける（#241・#356。spec/api.md 7.2）"""
+    message = json.loads(text)
+    if message["type"] == "leave":
+        if joined is not None and _joined_here(ws, joined):
+            log.info("source %d of %s left from %s", joined.source.id, joined.session.id, peer)
+            await joined.session.leave(joined.source)
+            ctx.hub.unwatch(ws)
+        return None
+    key = message.get("session")
+    if not isinstance(key, str) or not key:
+        raise RecordingError("bad_message", "session を指定してください")
+    if _owns(ws, session):
+        raise RecordingError("cannot_join", "録音しているので参加できません")
+    sid = _session_id(ctx, key)
+    recorder = ctx.recorder
+    active = recorder.active() if recorder is not None else []
+    target = next((s for s in active if s.id == sid), None)
+    if target is None:
+        if recorder is not None and sid in getattr(recorder, "sessions", {}):
+            raise RecordingError("cannot_join", "録音中ではありません")
+        raise RecordingError("session_not_found", "セッションがありません")
+    if not hasattr(target, "join"):
+        raise RecordingError("cannot_join", "このホストでは参加できません")
+    rejoin = message.get("source")
+    if _joined_here(ws, joined) and not (
+        rejoin is not None and joined is not None and joined.source.id == rejoin
+    ):
+        raise RecordingError("cannot_join", "ほかのセッションに参加しています")
+    if rejoin is not None:
+        source = await target.rejoin(ws, rejoin, message.get("nextSeq"))
+    else:
+        name = message.get("name")
+        source = await target.join(ws, name[:60] if isinstance(name, str) and name else None)
+    reply: dict[str, Any] = {
+        "type": "joined",
+        "session": sid,
+        "source": source.id,
+        "offsetSec": round(source.joined_sec, 2),
+    }
+    if rejoin is not None:
+        reply["rejoined"] = True
+    await send(ws, reply)
+    if rejoin is not None:
+        await send(ws, {"type": "ack", "session": sid, "seq": source.last_seq})
+    log.info("source %d %s %s from %s", source.id, "rejoined" if rejoin else "joined", sid, peer)
+    # 参加した端末にもリアルタイム文字起こしが流れるよう、見ている登録もする
+    snapshot = _snapshot(target)
+    ctx.hub.watch(ws, sid)
+    await send(ws, snapshot)
+    await target.send_sources()
+    return Joined(target, source)
 
 
 def _peer(ws: WebSocket) -> str:
@@ -149,7 +253,7 @@ def _snapshot(session: Any) -> dict[str, Any]:
         except (OSError, ValueError) as e:
             log.warning("could not read the live summary of %s for a watcher: %s", session.id, e)
         title = writer.meta.title
-    return {
+    message: dict[str, Any] = {
         "type": "watching",
         "session": session.id,
         "state": _state(session),
@@ -157,6 +261,14 @@ def _snapshot(session: Any) -> dict[str, Any]:
         "liveSummary": live,
         "title": title,
     }
+    if hasattr(session, "join_status"):
+        # 参加に対応したサーバー（#241・#356）。行の音源も付ける（音源が 2 つ以上のときだけ）
+        message["join"] = session.join_status()
+        sources = session.line_sources if session.multi else None
+        if sources is not None and len(sources) == len(lines):
+            for line, source in zip(lines, sources, strict=True):
+                line["source"] = source
+    return message
 
 
 async def _watch(ctx: AppContext, ws: WebSocket, key: Any) -> None:

@@ -267,6 +267,12 @@ class SessionWriter:
             self.meta.sources = list(sources) if sources and len(sources) > 1 else None
             self._rewrite_meta()
 
+    def set_line_sources(self, line_sources: list[int] | None) -> None:
+        """本文の行ごとの音源 ID（#356。録音中に参加した音源があるときだけ。届いた順）"""
+        with self._lock:
+            self.meta.line_sources = list(line_sources) if line_sources is not None else None
+            self._rewrite_meta()
+
     def use_range_set(self, set_id: str, base: str, ranges: list[MaterialRange]) -> None:
         """範囲で作り直したセッション専用の参考資料セットを使う（#182）。元のセットは base に残す"""
         with self._lock:

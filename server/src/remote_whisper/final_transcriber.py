@@ -441,7 +441,9 @@ def _job_sources(files: SessionFiles, meta: TranscriptMeta, audio: Path) -> list
     """子に渡す音源（#241）。音源が 1 つなら主の音源だけ。録音ファイルが消えた音源は使わない"""
     out: list[dict[str, Any]] = [{"id": 1, "audio": str(audio), "roughOffsetSec": 0.0}]
     for s in (meta.sources or [])[1:]:
-        path = files.source_recording(s.id)
+        # 録音中に参加した音源は、続きを録音できる間は WAV のまま（主の音源と同じ。#356）
+        wav = files.dir / ".tmp" / files.id / f"audio-{s.id}.wav"
+        path = wav if wav.is_file() else files.source_recording(s.id)
         if path is None:
             log.warning("no recording of source %d of %s; it is skipped", s.id, files.id)
             continue
