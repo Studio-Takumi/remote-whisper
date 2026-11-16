@@ -1,10 +1,12 @@
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import quote
 
 import pytest
 
-from remote_whisper.documents import SummaryMeta, TranscriptMeta, read_doc
+from remote_whisper import okf
+from remote_whisper.documents import SummaryMeta, TranscriptMeta, parse, read_doc
 from remote_whisper.projects import ProjectStore, rebuild_project_file
 from remote_whisper.session_writer import SessionWriter, fmt_clock
 from remote_whisper.settings import SettingsStore
@@ -139,7 +141,8 @@ def test_copy_goes_to_the_project_dir_when_summary_dir_is_empty(project):
     meetings = Path(w.meta.project)
     dst = w.copy_summary(gid)
     assert dst == meetings / "summary-20261009-リリース計画.md"
-    assert dst.read_text(encoding="utf-8") == w.files.summary(gid).read_text(encoding="utf-8")
+    # 本文はそのまま。フロントマターは OKF 用に足す（test_copy_is_okf_conformant）
+    assert dst.read_text(encoding="utf-8").endswith("---\n## 要約\n")
 
 
 def test_copy_goes_to_the_summary_dir_and_creates_it(project):
@@ -237,3 +240,145 @@ def test_copy_allows_a_link_inside_the_project_dir(project, make_dir_link):
     _set_summary_dir(store, pid, "alias")
     w.copy_summary(gid)
     assert (meetings / "real" / "summary-20261009-リリース計画.md").is_file()
+
+
+# --- OKF への準拠（#343） ---
+
+
+def _front(path: Path) -> tuple[dict, str]:
+    return parse(path.read_text(encoding="utf-8"))
+
+
+def test_copy_is_okf_conformant(project):
+    store, pid, _ = project
+    w, gid = _summarized(project)
+    w.set_manual_terms(["手で足した語"])
+    w.set_terms(["文字起こしの語", "手で足した語"], [])
+    dst = w.copy_summary(gid, "リリース計画を確認した会議です。")
+    front, body = _front(dst)
+    server = _front(w.files.summary(gid))[0]
+
+    assert front["type"] == "Summary"
+    assert front["title"] == "リリース計画"
+    assert front["description"] == "リリース計画を確認した会議です。"
+    assert front["tags"] == ["手で足した語", "文字起こしの語"]
+    assert front["generated"] == {
+        "by": f"remote-whisper({app_version()})/gemma4:e4b",
+        "at": server["generatedAt"],
+    }
+    assert front["sources"] == [
+        {"id": "transcript", "resource": f"transcript-{SID}.md", "title": "文字起こし"}
+    ]
+    # 手元の絶対パスは見せない。ほかのキーはそのまま残す
+    assert "project" not in front
+    assert {k: v for k, v in front.items() if k in server} == {
+        k: v for k, v in server.items() if k != "project"
+    }
+    assert body == "## 要約\n"
+    # サーバーの中の要約は変わらない（project も残る）
+    assert server["project"] == w.meta.project
+    assert "type" not in server
+    read_doc(w.files.summary(gid), SummaryMeta)
+
+
+def test_description_falls_back_to_the_first_sentence_of_the_overview(project):
+    store, pid, settings = project
+    w, _ = _summarized(project)
+    gid = w.save_final_summary(
+        "gemma4:e4b",
+        True,
+        "## 全体概要\n\nリリースを来週に決めました。残りは別の話です。\n\n## 詳細\n- x\n",
+    )
+    assert _front(w.copy_summary(gid))[0]["description"] == "リリースを来週に決めました。"
+
+
+def test_sources_list_materials_without_local_paths(project, tmp_path):
+    store, pid, _ = project
+    w, _ = _summarized(project)
+    meetings = Path(w.meta.project)
+    (meetings / "docs").mkdir()
+    inside = meetings / "docs" / "agenda.pdf"
+    outside = tmp_path / "private-dir" / "plan.pdf"
+
+    def add(p):
+        from remote_whisper.projects import ContextSetEntry
+
+        p.context_sets.append(
+            ContextSetEntry(id="s1", status="ready", materials=[str(inside), str(outside)])
+        )
+
+    store.update(pid, add)
+    w.meta.context_set = "s1"
+    w.use_context = True
+    gid = w.save_final_summary("gemma4:e4b", True, "## 要約\n")
+    _set_summary_dir(store, pid, "notes/summary")
+    dst = w.copy_summary(gid)
+    sources = _front(dst)[0]["sources"]
+    assert [s["resource"] for s in sources[1:]] == ["../../docs/agenda.pdf", "plan.pdf"]
+    assert str(tmp_path) not in dst.read_text(encoding="utf-8")
+
+
+def test_index_is_made_in_the_summary_dir_and_updated(project):
+    store, pid, _ = project
+    w, gid = _summarized(project)
+    meetings = Path(w.meta.project)
+    _set_summary_dir(store, pid, "summary")
+    w.copy_summary(gid, "1 つ目の説明です。")
+    index = meetings / "summary" / "index.md"
+    text = index.read_text(encoding="utf-8")
+    assert text.splitlines()[0] == okf.INDEX_MARK
+    # §8: フロントマターがなく、見出しと `* [タイトル](相対パス) - 説明` の箇条書き
+    assert "---" not in text
+    assert "# 要約" in text
+    link = quote("summary-20261009-リリース計画.md")
+    assert f"* [リリース計画]({link}) - 1 つ目の説明です。" in text
+
+    w.copy_summary(gid, "2 つ目の説明です。")
+    text = index.read_text(encoding="utf-8")
+    assert text.count("* [") == 2
+    assert "2 つ目の説明です。" in text
+
+
+def test_no_index_in_the_project_dir_itself(project):
+    w, gid = _summarized(project)
+    w.copy_summary(gid)
+    assert not (Path(w.meta.project) / "index.md").exists()
+
+
+def test_existing_foreign_index_is_not_overwritten(project):
+    store, pid, _ = project
+    w, gid = _summarized(project)
+    meetings = Path(w.meta.project)
+    _set_summary_dir(store, pid, "summary")
+    (meetings / "summary").mkdir()
+    foreign = meetings / "summary" / "index.md"
+    foreign.write_text("# 自分で書いた目次\n", encoding="utf-8")
+    w.copy_summary(gid)
+    assert foreign.read_text(encoding="utf-8") == "# 自分で書いた目次\n"
+
+
+def test_index_ignores_files_that_are_not_okf_summaries(project):
+    store, pid, _ = project
+    w, gid = _summarized(project)
+    meetings = Path(w.meta.project)
+    _set_summary_dir(store, pid, "summary")
+    (meetings / "summary").mkdir()
+    (meetings / "summary" / "summary-memo.md").write_text("メモ\n", encoding="utf-8")
+    (meetings / "summary" / "summary-old.md").write_text(
+        "---\ntype: Other\n---\n", encoding="utf-8"
+    )
+    w.copy_summary(gid)
+    text = (meetings / "summary" / "index.md").read_text(encoding="utf-8")
+    assert text.count("* [") == 1
+
+
+def test_first_sentence_and_tags():
+    assert okf.first_sentence("## 見出し\n- 決まったこと。次に進みます\n") == "決まったこと。"
+    assert okf.first_sentence("") is None
+    assert okf.pick_tags(["a", "b"], ["b", "c", "x" * 40], ["d", "e", "f", "g"]) == [
+        "a",
+        "b",
+        "c",
+        "d",
+        "e",
+    ]
