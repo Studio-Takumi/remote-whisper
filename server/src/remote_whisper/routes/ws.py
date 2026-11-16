@@ -137,7 +137,9 @@ async def _join_control(
     ):
         raise RecordingError("cannot_join", "ほかのセッションに参加しています")
     if rejoin is not None:
-        source = await target.rejoin(ws, rejoin, message.get("nextSeq"))
+        source = await target.rejoin(
+            ws, rejoin, message.get("nextSeq"), lost=message.get("lost") is True
+        )
     else:
         name = message.get("name")
         source = await target.join(ws, name[:60] if isinstance(name, str) and name else None)

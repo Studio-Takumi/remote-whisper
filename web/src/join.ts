@@ -74,6 +74,8 @@ export class SourceJoin {
     private unsubscribe: (() => void) | null = null;
     private unwatchConnection: (() => void) | null = null;
     private resendAfterAck = false;
+    // join を送って、返事（joined）を待っている
+    private awaiting = false;
     private ended = false;
     private readonly onChange: (joined: Joined | null) => void;
     private readonly onEnd: (message: string | null) => void;
@@ -90,6 +92,10 @@ export class SourceJoin {
 
     // マイクを開いて参加する。rejoin は読み込み直す前に参加していた音源（同じ音源としてつなぎ直す）
     async start(processing: Processing, rejoin: { source: number; nextSeq: number } | null) {
+        if (rejoin) {
+            // 読み込み直す前の続きの連番から振る（0 から振ると、サーバーが受け取り済みとみなして捨てる）
+            this.sender.startFrom(rejoin.nextSeq);
+        }
         this.mic = await Microphone.open((pcm) => this.sender.push(pcm), processing);
         if (this.ended) {
             this.mic.close();
@@ -111,15 +117,21 @@ export class SourceJoin {
             this.source = rejoin.source;
         }
         this.onChange({ sessionId: this.sessionId, source: this.source, state: 'joining' });
-        this.sendJoin(
-            rejoin ? { source: rejoin.source, nextSeq: Math.max(rejoin.nextSeq, this.sender.nextSeq) } : null,
-        );
+        // 読み込み直したときは手元の音をなくしているので lost を付ける（サーバーが届かなかった間を無音で埋める）
+        this.sendJoin(rejoin ? { source: rejoin.source, nextSeq: rejoin.nextSeq, lost: true } : null);
     }
 
-    private sendJoin(rejoin: { source: number; nextSeq: number } | null) {
+    private sendJoin(rejoin: { source: number; nextSeq: number; lost?: boolean } | null) {
+        this.awaiting = true;
         if (rejoin) {
             this.resendAfterAck = true;
-            connection.send({ type: 'join', session: this.sessionId, source: rejoin.source, nextSeq: rejoin.nextSeq });
+            connection.send({
+                type: 'join',
+                session: this.sessionId,
+                source: rejoin.source,
+                nextSeq: rejoin.nextSeq,
+                ...(rejoin.lost ? { lost: true } : {}),
+            });
         } else {
             connection.send({ type: 'join', session: this.sessionId, name: deviceName() });
         }
@@ -130,6 +142,7 @@ export class SourceJoin {
             return;
         }
         if (m.type === 'joined' && m.session === this.sessionId) {
+            this.awaiting = false;
             this.source = m.source;
             rememberJoin(this.sessionId, m.source, this.sender.nextSeq);
             this.onChange({ sessionId: this.sessionId, source: m.source, state: 'joined' });
@@ -146,16 +159,16 @@ export class SourceJoin {
             if (this.source !== null) {
                 rememberJoin(this.sessionId, this.source, this.sender.nextSeq);
             }
-        } else if (m.type === 'error' && this.source === null) {
-            // 参加の返事を待っている間のエラー（古いサーバーは join を知らないので bad_message）
-            if (m.code === 'bad_message') {
+        } else if (m.type === 'error' && this.awaiting) {
+            // 参加・つなぎ直しの返事を待っている間のエラーだけを見る（ほかのエラーで参加を終えない）
+            const rejoining = this.source !== null;
+            if (m.code === 'bad_message' && !rejoining) {
+                // 古いサーバーは join を知らない
                 this.finish(UNSUPPORTED);
-            } else if (m.code === 'cannot_join' || m.code === 'session_not_found') {
-                this.finish(m.message);
+            } else if (m.code === 'cannot_join' || m.code === 'session_not_found' || m.code === 'bad_message') {
+                // つなぎ直せなかった（抜けたことになっていた・録音が終わっていた）ときは、参加し直してもらう
+                this.finish(rejoining ? '参加が切れました。もう一度参加してください' : m.message);
             }
-        } else if (m.type === 'error' && this.resendAfterAck && m.code === 'session_not_found') {
-            // つなぎ直せなかった（抜けたことになっていた）。もう一度参加し直してもらう
-            this.finish('参加が切れました。もう一度参加してください');
         } else if (
             (m.type === 'recordingState' && m.session === this.sessionId && m.state === 'stopped') ||
             (m.type === 'watching' && m.session === this.sessionId && m.state === 'idle')

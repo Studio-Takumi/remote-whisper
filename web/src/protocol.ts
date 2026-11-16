@@ -16,7 +16,8 @@ export type ClientMessage =
     | { type: 'unwatch' }
     // 録音中のセッションに音源として参加する・抜ける（#241・#356）。source・nextSeq は切れたあとのつなぎ直し
     | { type: 'join'; session: string; name: string }
-    | { type: 'join'; session: string; source: number; nextSeq: number }
+    // lost は、読み込み直して手元の音をなくした（サーバーが届かなかった間を無音で埋め、nextSeq から受け取る）
+    | { type: 'join'; session: string; source: number; nextSeq: number; lost?: boolean }
     | { type: 'leave' };
 
 // 録音中のセッションに参加できるか（#241・#356）。参加に対応していない古いサーバーは送らない

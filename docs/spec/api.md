@@ -77,7 +77,7 @@
 | 制御 | `{"type":"start","project":"<pid>"}` / `{"type":"stop"}` / `{"type":"pause"}` / `{"type":"unpause"}` / `{"type":"resume","session":"<sid>","nextSeq":n}`（`resume` は再接続のためのもので、一時停止からの再開は `unpause`） / `{"type":"continue","project":"<pid>","session":"<sid>"}`（途中で終わったセッションと、普通に終えてから `recording.continueWindowMin` 分以内のセッションの続きを録音する。6.7 節） |
 | 音声 | バイナリ。先頭4バイトが連番（uint32、リトルエンディアン）、続きが 16kHz・モノラル・Int16 の PCM |
 | 見る（#238） | `{"type":"watch","session":"<sid か UUID>"}` / `{"type":"unwatch"}`。ほかのクライアントで録音中のセッションを見る・見るのをやめる（下の「録音中のセッションを見る」） |
-| 参加（#241） | `{"type":"join","session":"<sid か UUID>","name":"<端末の名前>"}` / `{"type":"join","session":"…","source":n,"nextSeq":n}`（切れたあとのつなぎ直し） / `{"type":"leave"}`。録音中のセッションに音源として参加する・抜ける（下の「録音中の参加」、6.16 節）。参加している間の音声のバイナリは、その音源の音声として受け取る |
+| 参加（#241） | `{"type":"join","session":"<sid か UUID>","name":"<端末の名前>"}` / `{"type":"join","session":"…","source":n,"nextSeq":n,"lost":true?}`（切れたあとのつなぎ直し。`lost` は読み込み直して手元の音をなくしたとき） / `{"type":"leave"}`。録音中のセッションに音源として参加する・抜ける（下の「録音中の参加」、6.16 節）。参加している間の音声のバイナリは、その音源の音声として受け取る |
 
 **サーバー → クライアント**
 
@@ -117,7 +117,7 @@
   - クライアントは `join` を送る。サーバーは新しい音源 ID を振って `joined` を返し、その接続を「見ている」にも登録する（`watching` も送る。参加した端末にもリアルタイム文字起こしが流れる）。1 つの接続が参加できるのは 1 つのセッションだけで、自分で録音しているセッションには参加できない。
   - 参加した接続の音声のバイナリは、主の音源と同じ形（先頭 4 バイトが連番、続きが 16kHz・モノラル・Int16）で、連番は音源ごとに 0 から数える。`ack`・抜けたチャンク・二重のチャンクの扱いも主の音源と同じ。
   - `partial`・`final` には、音源が 2 つ以上のセッションでは `source`（音源 ID）を付ける。`watching` の `transcript` の各行にも付ける。音源が 1 つのときは付けない。`segment` は音源をまたいだセッション全体の通し番号にする（6.16 節）。クライアントは partial を音源ごとに 1 つずつ持ち、同じ `segment` の final が届いたらその partial を消す。
-  - 接続が切れたら、その音源を `disconnected` にして `sources` を送る。主の録音は止めない。`join` に `source` と `nextSeq` を付けて送り直すと、同じ音源としてつなぎ直す（`resume` と同じく、続きの連番から送る）。主の音源の録音が終わったら、参加している接続に `recordingState` の `stopped` を送り、参加を終える。
+  - 接続が切れたら、その音源を `disconnected` にして `sources` を送る。主の録音は止めない。`join` に `source` と `nextSeq` を付けて送り直すと、同じ音源としてつなぎ直す（`resume` と同じく、続きの連番から送る）。読み込み直して手元の音をなくしたときは `lost: true` も付ける。サーバーは届かなかった間を無音で埋め、受け取り済みの連番にかかわらず `nextSeq` から受け取る（6.16 節）。返事を待っている間の `cannot_join`・`session_not_found` は、つなぎ直せなかった（抜けたことになっていた・録音が終わっていた）ので、クライアントは参加を終える。主の音源の録音が終わったら、参加している接続に `recordingState` の `stopped` を送り、参加を終える。
   - 録音の操作（`pause`・`stop` など）は、参加した接続からは受け付けない（`not_recording`）。参加している間は、その接続で録音を始められない（`start`・`continue`・`resume` は `already_recording`。先に `leave` する）。
   - `joined`・`watching`・`sources` の順に送る（参加した接続を「見ている」に登録してから `sources` を送るので、参加した接続にも届く）。`watching` の `transcript` の行の `source` は、音源が 2 つ以上のセッションで、行の数と行の音源（`lineSources`）の数が合うときだけ付ける。
   - `error` の `code`: `cannot_join`（録音中でない・自分で録音しているセッション・つながっている音源が `recording.maxSources` を超える・音源 ID が 16 個に達した・ほかのセッションに参加している）、`session_not_found`。

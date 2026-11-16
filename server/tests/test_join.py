@@ -318,3 +318,38 @@ def test_leftover_source_wavs_are_converted_at_startup(client, project, monkeypa
     assert not (d / ".tmp" / sid).exists()
     meta, _ = read_doc(d / f"transcript-{sid}.md", TranscriptMeta)
     assert [s.recording for s in meta.sources] == [f"recording-{sid}.mp3", f"recording-{sid}-2.mp3"]
+
+
+def test_rejoin_after_losing_the_buffer_fills_the_gap_with_silence(client, project):
+    # 読み込み直して手元の音をなくした端末は lost を付けて、覚えていた連番から送り直す。
+    # 連番が受け取り済みの次と同じでも、届かなかった間は無音で埋めて時刻を合わせる
+    import wave
+
+    pid, d = project
+    with client.websocket_connect("/ws") as rec:
+        rec.receive_json()
+        sid = start(rec, pid)
+        with client.websocket_connect("/ws") as src:
+            src.receive_json()
+            join(src, sid)
+            src.send_bytes(noise(0, QUIET))
+            receive_until(src, of_type("ack", seq=0))
+        # 主の音源だけが 5 秒進んだ
+        for seq in range(10):
+            rec.send_bytes(noise(seq, QUIET))
+            receive_until(rec, of_type("ack", seq=seq))
+        with client.websocket_connect("/ws") as src:
+            src.receive_json()
+            again = join(src, sid, source=2, nextSeq=1, lost=True)
+            assert again["rejoined"] is True
+            assert receive_until(src, of_type("ack"))[-1]["seq"] == 0
+            # 続きの連番から受け取る（二重とみなして捨てない）
+            src.send_bytes(noise(1, QUIET))
+            receive_until(src, of_type("ack", seq=1))
+            with wave.open(str(d / ".tmp" / sid / "audio-2.wav")) as w:
+                seconds = w.getnframes() / w.getframerate()
+        rec.send_json({"type": "stop"})
+        receive_until(rec, of_type("status", recordings=0))
+    finished(client, sid)
+    # 主の音源の 5 秒（参加したのは主の音源の 0 秒）に、続きの 0.5 秒
+    assert seconds == pytest.approx(5.5, abs=0.15)

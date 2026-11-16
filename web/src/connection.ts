@@ -204,6 +204,14 @@ export class AudioSender {
         }
     }
 
+    // 連番をここから振る（読み込み直して、録音中のセッションに同じ音源としてつなぎ直すとき。#356）。
+    // まだ何も作っていないときだけ
+    startFrom(seq: number) {
+        if (this.pending.size === 0 && this.length === 0) {
+            this.seq = seq;
+        }
+    }
+
     // 溜まっている分を半端でも送る（録音を終えるときなど）
     flush() {
         if (this.length === 0) {

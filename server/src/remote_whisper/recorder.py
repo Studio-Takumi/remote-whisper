@@ -490,8 +490,13 @@ class RecordingSession:
         self._sources_changed()
         return source
 
-    async def rejoin(self, ws: WebSocket, sid: Any, next_seq: Any) -> JoinedSource:
-        """切れた端末が、同じ音源としてつなぎ直す（続きの連番から送る）"""
+    async def rejoin(
+        self, ws: WebSocket, sid: Any, next_seq: Any, lost: bool = False
+    ) -> JoinedSource:
+        """切れた端末が、同じ音源としてつなぎ直す（続きの連番から送る）
+
+        lost は、端末が手元の音をなくした（読み込み直した）。届かなかった間を無音で埋め、
+        端末が送る連番（next_seq）から受け取る（受け取り済みの連番より前でも）"""
         if self.ended:
             raise RecordingError("cannot_join", "録音中ではありません")
         source = self.joined.get(sid) if isinstance(sid, int) else None
@@ -500,7 +505,7 @@ class RecordingSession:
         if source.expire is not None:
             source.expire.cancel()
             source.expire = None
-        if next_seq > source.last_seq + 1:
+        if lost or next_seq > source.last_seq + 1:
             # 手元の音声をなくした（読み込み直したなど）。届かなかった間は無音で埋める
             self._fill_gap(source)
             source.last_seq = next_seq - 1
