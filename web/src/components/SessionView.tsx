@@ -18,6 +18,7 @@ import { Markdown } from '@/components/Markdown';
 import { MicAlert } from '@/components/MicAlert';
 import { RecordingPlayer } from '@/components/RecordingPlayer';
 import { SessionTerms } from '@/components/SessionTerms';
+import { ShareButton } from '@/components/ShareButton';
 import { StatusIndicator } from '@/components/StatusIndicator';
 import { type Playback, Transcript } from '@/components/Transcript';
 import { TranscriptCorrection } from '@/components/TranscriptCorrection';
@@ -38,10 +39,11 @@ import {
     llmBackend,
     llmModels,
 } from '@/settings';
+import type { ShareSource } from '@/share';
 import { llmUnavailable, makingFinalTranscript, summaryStatus, transcriptStatus } from '@/status';
 import { currentProject, currentSession, useAppStore, visibleProjects } from '@/store';
 import { clockToSeconds } from '@/time';
-import type { FinalTranscriptInfo, Generating, Session, Summary } from '@/types';
+import type { FinalTranscriptInfo, Generating, Session, Summary, TranscriptLine } from '@/types';
 import { describeWatched, recordedElsewhere } from '@/watch';
 
 // メイン画面の中身。何も選んでいない・新しいセッション・既存のセッションの3つを出し分ける
@@ -213,6 +215,14 @@ export function SessionView() {
                     {session && !session.loaded && <p className='text-sm text-muted-foreground'>読み込んでいます…</p>}
                     {session && expired(session, 'transcript') && (
                         <p className='text-sm text-muted-foreground'>文字起こしは期限切れのため消えています</p>
+                    )}
+                    {session && session.loaded && lines && lines.length > 0 && (
+                        <div className='flex'>
+                            <ShareButton
+                                source={shareSource(session, defaultSummary(session, models)?.text, lines)}
+                                initial='transcript'
+                            />
+                        </div>
                     )}
                     {session && (
                         <FinalTranscriptBar
@@ -462,8 +472,7 @@ function SummaryPanel({
     const [picked, setPicked] = useState<{ sessionId: string; count: number; generationId: string } | null>(null);
 
     const finalModel = finalModelLabel(models);
-    const fallback: Summary | undefined =
-        session.summaries.findLast((s) => isCurrentFinalSummary(s, models)) ?? session.summaries.at(-1);
+    const fallback = defaultSummary(session, models);
     const summary =
         picked?.sessionId === session.id && picked.count === session.summaries.length
             ? (session.summaries.find((s) => s.generationId === picked.generationId) ?? fallback)
@@ -628,6 +637,7 @@ function SummaryPanel({
                         コピー
                     </Button>
                 )}
+                {summary.text && <ShareButton source={shareSource(session, summary.text)} initial='summary' />}
                 {regenerateButton}
             </div>
             {!isCurrentFinalSummary(summary, models) && (
@@ -636,6 +646,20 @@ function SummaryPanel({
             <Markdown>{summary.text ?? ''}</Markdown>
         </>
     );
+}
+
+// 手で選んでいないときに出す最終の要約。今のモデルのものがあればそれ、なければいちばん新しいもの
+function defaultSummary(session: Session, models: OllamaModels): Summary | undefined {
+    return session.summaries.findLast((s) => isCurrentFinalSummary(s, models)) ?? session.summaries.at(-1);
+}
+
+// 共有する中身。文字起こしは画面に出している世代
+function shareSource(session: Session, summary: string | undefined, lines?: TranscriptLine[]): ShareSource {
+    return {
+        title: session.title,
+        summary,
+        transcript: lines ?? session.finalTranscript?.lines ?? session.transcript,
+    };
 }
 
 // 再生位置（秒）に当たる行。行の始まり（starts は時刻の順）が再生位置以前の、最後の行。まだなければ null
