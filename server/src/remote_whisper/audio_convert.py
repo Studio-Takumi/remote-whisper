@@ -121,13 +121,14 @@ def convert_audio(src_path: Path, out_dir: Path, sid: str, source: int | None = 
     return dst
 
 
-def convert_wav(wav: Path, out_dir: Path, sid: str) -> Path:
+def convert_wav(wav: Path, out_dir: Path, sid: str, source: int | None = None) -> Path:
     """WAV を out_dir/recording-<ID>.mp3（なければ .m4a）に変換して、できたファイルを返す
 
+    source はほかの音源の音源 ID（#356。recording-<ID>-<音源 ID>.mp3 にする）。
     途中で失敗したら、書きかけのファイルは消して例外を投げる（WAV はそのまま残る）。
     """
     ext, container, encoder = pick_format()
-    dst = out_dir / recording_name(sid, ext)
+    dst = out_dir / recording_name(sid, ext, source)
     tmp = dst.with_name(dst.name + ".tmp")
     try:
         with av.open(str(wav)) as src, av.open(str(tmp), "w", format=container) as out:

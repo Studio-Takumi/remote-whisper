@@ -13,7 +13,22 @@ export type ClientMessage =
     | { type: 'continue'; project: string; session: string }
     // ほかのクライアントで録音中のセッションを見る・見るのをやめる（#238）。見るのは 1 つだけ
     | { type: 'watch'; session: string }
-    | { type: 'unwatch' };
+    | { type: 'unwatch' }
+    // 録音中のセッションに音源として参加する・抜ける（#241・#356）。source・nextSeq は切れたあとのつなぎ直し
+    | { type: 'join'; session: string; name: string }
+    // lost は、読み込み直して手元の音をなくした（サーバーが届かなかった間を無音で埋め、nextSeq から受け取る）
+    | { type: 'join'; session: string; source: number; nextSeq: number; lost?: boolean }
+    | { type: 'leave' };
+
+// 録音中のセッションに参加できるか（#241・#356）。参加に対応していない古いサーバーは送らない
+export type JoinAvailability = { available: boolean; reason?: 'limit' | 'disabled' };
+// 音源の一覧（sources）。state は active（つながっている）・disconnected（切れている）・left（抜けた）
+export type LiveSource = {
+    id: number;
+    name: string | null;
+    kind: 'main' | 'join' | 'upload';
+    state: 'active' | 'disconnected' | 'left';
+};
 
 export type SummaryKind = 'live' | 'final';
 
@@ -69,9 +84,29 @@ export type ServerMessage =
       }
     // ここまでの音声を手元のバッファから消してよい
     | { type: 'ack'; session: string; seq: number }
-    | { type: 'partial'; session: string; segment: number; committed: string; tentative: string }
+    // source は音源 ID（音源が 2 つ以上のセッションだけ。#356）。segment は音源をまたいだ通し番号
+    | {
+          type: 'partial';
+          session: string;
+          segment: number;
+          committed: string;
+          tentative: string;
+          source?: number;
+      }
     // start・end は録音の開始からの秒数
-    | { type: 'final'; session: string; segment: number; start: number; end: number; text: string }
+    | {
+          type: 'final';
+          session: string;
+          segment: number;
+          start: number;
+          end: number;
+          text: string;
+          source?: number;
+      }
+    // join の返事（#356）。offsetSec は主の音源の時刻での参加した時刻。rejoined はつなぎ直し（続けて ack が届く）
+    | { type: 'joined'; session: string; source: number; offsetSec: number; rejoined?: boolean }
+    // 音源の一覧が変わった（#356）
+    | { type: 'sources'; session: string; sources: LiveSource[]; join: JoinAvailability }
     // 最終の文字起こしができた（#121。全員に送る）
     | { type: 'finalTranscript'; session: string; generationId: string }
     // 音は届いているのに文字起こしが出ていない（stalled: true）・また出るようになった（false）。#120
@@ -95,9 +130,11 @@ export type ServerMessage =
           type: 'watching';
           session: string;
           state: WatchedState | 'idle';
-          transcript?: { time: string; text: string }[];
+          transcript?: { time: string; text: string; source?: number }[];
           liveSummary?: string | null;
           title?: string | null;
+          // 参加に対応したサーバーだけ（#356）
+          join?: JoinAvailability;
       }
     // 見ているセッションの録音の状態が変わった（#238）
     | { type: 'recordingState'; session: string; state: WatchedState }
@@ -137,7 +174,9 @@ export type ErrorCode =
     // 最終の要約を作る途中で、思わぬエラーになった
     | 'summary_failed'
     // 最終の文字起こしを作り直せなかった（#124）
-    | 'final_transcript_failed';
+    | 'final_transcript_failed'
+    // 録音中のセッションに参加できない（#356）
+    | 'cannot_join';
 
 // GET /api/settings/options
 export type SettingsOptions = {

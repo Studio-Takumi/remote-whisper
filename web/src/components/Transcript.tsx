@@ -15,25 +15,27 @@ export type Playback = { index: number | null; playing: boolean; seeks: number }
 export function Transcript({
     sessionId,
     lines,
-    partial,
+    partials,
     follow = true,
     onSeek,
     playback,
 }: {
     sessionId: string;
     lines: TranscriptLine[];
-    partial: LivePartial | null;
+    // 文字起こし中の区間。音源が 2 つ以上なら音源ごとに 1 つ（#356）
+    partials: LivePartial[];
     follow?: boolean;
     // 行の時刻を押したとき（録音を再生できるときだけ渡す）
     onSeek?: (time: string) => void;
     // 録音を再生しているとき、その位置の行を目立たせて追う（#122）
     playback?: Playback | null;
 }) {
-    const committed = useTypewriter(partial?.committed ?? '', partial?.segment ?? -1);
-    // 文字送りが追いついていない分は、未確定の部分と同じく薄く出す
-    const pending = (partial?.committed ?? '').slice(committed.length) + (partial?.tentative ?? '');
-    useStickToBottom(`${lines.length}:${committed}:${pending}`, follow);
-    const { outer, inner } = useKeepHeight(sessionId, `${lines.length}:${committed}:${pending}`);
+    // 文字送りで伸びた分も追う（PartialLine が伸びるたびに知らせる）
+    const [typed, setTyped] = useState(0);
+    const onTyped = useCallback(() => setTyped((n) => n + 1), []);
+    const partialKey = partials.map((p) => `${p.segment}:${p.committed}:${p.tentative}`).join('|');
+    useStickToBottom(`${lines.length}:${partialKey}:${typed}`, follow);
+    const { outer, inner } = useKeepHeight(sessionId, `${lines.length}:${partialKey}:${typed}`);
     const active = playback?.index ?? null;
     const { activeRow, following, followAgain } = useFollowPlayback(active, playback?.seeks ?? 0, !!playback?.playing);
 
@@ -51,18 +53,9 @@ export function Transcript({
                         onSeek={onSeek}
                     />
                 ))}
-                {partial && (
-                    <div className='flex gap-3'>
-                        {/* 時刻の列と幅をそろえるため、見えない時刻を置く */}
-                        <span aria-hidden className='invisible shrink-0 font-mono text-xs leading-6'>
-                            00:00:00
-                        </span>
-                        <p className='leading-6'>
-                            {committed}
-                            <span className='text-muted-foreground/70'>{pending}</span>
-                        </p>
-                    </div>
-                )}
+                {partials.map((partial) => (
+                    <PartialLine key={partial.source ?? 0} partial={partial} onTyped={onTyped} />
+                ))}
             </div>
             {active !== null && !following && (
                 // 自分でスクロールして再生位置から離れたとき。本文の列の中央、下のマイクのボタンより上に貼り付ける
@@ -73,6 +66,27 @@ export function Transcript({
                     </Button>
                 </div>
             )}
+        </div>
+    );
+}
+
+// 文字起こし中の区間。確定した部分を文字送りで出し、追いついていない分は未確定の部分と同じく薄く出す
+function PartialLine({ partial, onTyped }: { partial: LivePartial; onTyped: () => void }) {
+    const committed = useTypewriter(partial.committed, partial.segment);
+    const pending = partial.committed.slice(committed.length) + partial.tentative;
+    useEffect(() => {
+        onTyped();
+    }, [committed, onTyped]);
+    return (
+        <div className='flex gap-3'>
+            {/* 時刻の列と幅をそろえるため、見えない時刻を置く */}
+            <span aria-hidden className='invisible shrink-0 font-mono text-xs leading-6'>
+                00:00:00
+            </span>
+            <p className='leading-6'>
+                {committed}
+                <span className='text-muted-foreground/70'>{pending}</span>
+            </p>
         </div>
     );
 }

@@ -10,9 +10,10 @@
 
 import asyncio
 import contextlib
+import itertools
 import logging
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -57,9 +58,23 @@ class LiveTranscriber:
         vad: Probabilities | None = None,
         session: str | None = None,
         offset: float = 0.0,
+        source: int = 1,
+        numbering: Iterator[int] | None = None,
     ):
         # session は GPU キューの一覧に出すためのもの
         self.session = session
+        # 音源 ID（#241・#356）。音源が 2 つ以上のセッションでは partial・final に付ける
+        self.source = source
+        # partial・final に source を付けるか（録音しているセッションが差し替える）
+        self.tag_source: Callable[[], bool] = lambda: False
+        # partial を積んでよいか（ほかの音源は、GPU キューが詰まっていたら積まない。#356）
+        self.partial_allowed: Callable[[], bool] = lambda: True
+        # 「文字起こしが止まっている」を知らせるか（ほかの音源では知らせない）
+        self.watch_stall = True
+        # チャンクの番号（segment）。音源をまたいだセッション全体の通し番号にする
+        # （話し始めた順。#356）。区切りの中の番号 → 通し番号
+        self._numbering = numbering if numbering is not None else itertools.count()
+        self._numbers: dict[int, int] = {}
         # 時刻に足す秒数。途中で終わったセッションの続きを録音するとき、前の録音の長さ（#101）
         self.offset = offset
         self.whisper = whisper
@@ -101,13 +116,35 @@ class LiveTranscriber:
 
     def feed(self, pcm: bytes) -> None:
         for segment in self.segmenter.feed(pcm):
+            self._number(segment.index)
             self._submit_final(segment)
+        if self.segmenter.in_speech:
+            # 話し始めたら番号を振る（ほかの音源と、話し始めた順の通し番号にするため）
+            self._number(self.segmenter.index)
 
     def flush(self) -> None:
         """録音を終えた。話している途中の区間があれば、そこまでを final にする"""
         segment = self.segmenter.flush()
         if segment is not None:
+            self._number(segment.index)
             self._submit_final(segment)
+
+    def _number(self, index: int) -> int:
+        """区切りの中の番号に、セッション全体の通し番号を振る（振ってあればそれを返す）。
+        音源が 1 つなら 0, 1, 2, … のまま（区切りの番号と同じ）"""
+        number = self._numbers.get(index)
+        if number is None:
+            number = self._numbers[index] = next(self._numbering)
+            # 終わった区間の番号は、final を送るときまで使うだけなので、古いものは捨てる
+            for old in [i for i in self._numbers if i < index - 64]:
+                del self._numbers[old]
+        return number
+
+    def _tagged(self, message: dict[str, Any]) -> dict[str, Any]:
+        """音源が 2 つ以上なら source を付ける（1 つなら今までと同じメッセージ）"""
+        if self.tag_source():
+            message["source"] = self.source
+        return message
 
     async def wait(self) -> None:
         """積んだ final がすべて終わるまで待つ"""
@@ -130,7 +167,7 @@ class LiveTranscriber:
         if self._partial is not None and not self._partial.done():
             self._partial.cancel()
         future = self.gpu.submit(
-            Priority.TRANSCRIBE, lambda: self._final(segment), session=self.session
+            Priority.TRANSCRIBE, lambda: self._final(segment), session=self.session, label="final"
         )
         future.add_done_callback(_consume)
         self._finals = [f for f in self._finals if not f.done()] + [future]
@@ -180,13 +217,15 @@ class LiveTranscriber:
 
     async def _send_final(self, segment: Segment, text: str) -> None:
         await self.send(
-            {
-                "type": "final",
-                "segment": segment.index,
-                "start": round(segment.start + self.offset, 2),
-                "end": round(segment.end + self.offset, 2),
-                "text": text,
-            }
+            self._tagged(
+                {
+                    "type": "final",
+                    "segment": self._number(segment.index),
+                    "start": round(segment.start + self.offset, 2),
+                    "end": round(segment.end + self.offset, 2),
+                    "text": text,
+                }
+            )
         )
 
     # --- partial ---
@@ -202,6 +241,8 @@ class LiveTranscriber:
             # 新しい音声がない、まだ短すぎるときは出さない
             if samples <= self._partial_samples or current.end - current.start < MIN_PARTIAL_SEC:
                 continue
+            if not self.partial_allowed():
+                continue
             self._partial_samples = samples
             self._partial = self.gpu.submit(
                 Priority.TRANSCRIBE, lambda c=current: self._run_partial(c), session=self.session
@@ -210,6 +251,8 @@ class LiveTranscriber:
 
     async def _check_stalled(self) -> None:
         """声くらいの音が STALL_LOUD_SEC 届いたのに文字が出ていなければ、画面に知らせる（#120）"""
+        if not self.watch_stall:
+            return
         if self.stalled or self.segmenter.loud_sec - self._loud_at_text < STALL_LOUD_SEC:
             return
         self.stalled = True
@@ -236,12 +279,14 @@ class LiveTranscriber:
             _join(_drop_hallucinations(result, segment, "partial"))
         )
         await self.send(
-            {
-                "type": "partial",
-                "segment": segment.index,
-                "committed": committed,
-                "tentative": tentative,
-            }
+            self._tagged(
+                {
+                    "type": "partial",
+                    "segment": self._number(segment.index),
+                    "committed": committed,
+                    "tentative": tentative,
+                }
+            )
         )
 
 
