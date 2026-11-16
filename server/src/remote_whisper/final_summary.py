@@ -36,7 +36,7 @@ from remote_whisper.prompts import (
     DEFAULT_DENSITY,
     TITLE_MAX,
     final_summary_messages,
-    make_title,
+    make_title_description,
     overview_messages,
     part_summary_messages,
     reduce_summary_messages,
@@ -236,16 +236,16 @@ class FinalSummarizer:
         clock = time.monotonic()
         report_progress("title")
         try:
-            title = await make_title(self.ollama, models.title, gist)
+            title, description = await make_title_description(self.ollama, models.title, gist)
             if title:
                 log.info("title of %s done in %.1fs", writer.id, time.monotonic() - clock)
         except LlmUnavailable as e:
             log.warning("title of %s failed: %s", writer.id, e)
-            title = None
+            title = description = None
         except Exception:
             # 本文はもうできているので、タイトルだけの失敗で捨てない（#118）
             log.exception("title of %s failed", writer.id)
-            title = None
+            title = description = None
         # 作れなければ、仮のタイトルか要約の最初の行を使う
         title = title or writer.meta.title or fallback_title(gist)
         try:
@@ -275,7 +275,7 @@ class FinalSummarizer:
             )
             return None
         try:
-            writer.copy_summary(gid)
+            writer.copy_summary(gid, description)
         except OSError as e:
             # コピーできなくても、データのルートには保存できている
             log.warning("failed to copy the summary of %s: %s", writer.id, e)
