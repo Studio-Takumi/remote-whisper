@@ -93,6 +93,7 @@ class GpuStats:
         self._task: asyncio.Task | None = None
         # Intel の GPU（#374）。あれば NVML の代わりに使う
         self._counters: WindowsGpuCounters | None = None
+        self._counters_active: Callable[[], bool] = lambda: True
 
     def _open(self) -> bool:
         """NVML を使えるようにする。使えなければ False"""
@@ -124,11 +125,18 @@ class GpuStats:
             "memTotalMb": int(mem.total // (1024 * 1024)),
         }
 
-    def use_windows_counters(self, luid: str | None, total_mb: int | None) -> None:
+    def use_windows_counters(
+        self,
+        luid: str | None,
+        total_mb: int | None,
+        active: Callable[[], bool] = lambda: True,
+    ) -> None:
         """NVML の代わりに、Windows の性能カウンターから Intel の GPU の値を取る（#374）。
-        LUID か VRAM の大きさが分からない・Windows でないときは何もしない（今までどおり）"""
+        LUID か VRAM の大きさが分からない・Windows でないときは何もしない（今までどおり）。
+        active が False の間（設定 whisper.intelGpu が off）は null を送る"""
         if sys.platform == "win32" and luid and total_mb:
             self._counters = WindowsGpuCounters(luid, total_mb)
+            self._counters_active = active
 
     def start(self) -> None:
         if self._task is None and (self._counters is not None or self._open()):
@@ -137,7 +145,10 @@ class GpuStats:
     async def _watch(self) -> None:
         while True:
             try:
-                if self._counters is not None:
+                if self._counters is not None and not self._counters_active():
+                    # 設定で Intel の GPU を使わないとき（CPU で起こしている）は出さない
+                    stats = None
+                elif self._counters is not None:
                     # typeperf は 1 秒ほどかかるので、イベントループを止めないようにスレッドで
                     stats = await asyncio.to_thread(self._counters.read)
                 else:

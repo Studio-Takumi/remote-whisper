@@ -213,7 +213,11 @@ def create_app(
         # OpenVINO で動かす（#374。extra `openvino` が入っているときだけ。設定 whisper.intelGpu）
         arc = openvino_whisper.detect() if backend == "faster-whisper" else None
         if arc is not None:
-            gpu_stats.use_windows_counters(arc.luid, arc.total_mb)
+            gpu_stats.use_windows_counters(
+                arc.luid,
+                arc.total_mb,
+                active=lambda: ctx.settings.get().whisper.intel_gpu == "auto",
+            )
         openvino_device = arc.name if arc is not None else None
         ctx.whisper = WhisperWorker(
             ctx.hub, ctx.settings, backend=backend, openvino_device=openvino_device

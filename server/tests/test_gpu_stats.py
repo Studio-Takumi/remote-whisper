@@ -136,6 +136,30 @@ def test_windows_counters_are_used_instead_of_nvml(monkeypatch):
     assert sent[0] == {"util": 71, "memUsedMb": 1800, "memTotalMb": 3935}
 
 
+def test_windows_counters_send_null_while_the_intel_gpu_is_off(monkeypatch):
+    # 設定で Intel の GPU を使わない（CPU で起こしている）ときは、Arc の値を出さない
+    import remote_whisper.gpu_stats as gs
+
+    monkeypatch.setattr(gs.sys, "platform", "win32")
+
+    async def main():
+        sent = []
+
+        async def on_change(stats):
+            sent.append(stats)
+
+        stats = GpuStats(on_change, interval=0.01, nvml=FakeNvml(fail_init=True))
+        stats.use_windows_counters(ARC, 3935, active=lambda: False)
+        stats._counters._run = lambda paths: TYPEPERF
+        stats.start()
+        await asyncio.sleep(0.05)
+        await stats.close()
+        return sent
+
+    sent = run(main())
+    assert sent and all(s is None for s in sent)
+
+
 def test_windows_counters_are_not_used_without_the_luid_or_off_windows(monkeypatch):
     import remote_whisper.gpu_stats as gs
 
