@@ -382,3 +382,30 @@ def test_first_sentence_and_tags():
         "d",
         "e",
     ]
+
+
+def test_index_tolerates_non_string_title_and_description(project):
+    store, pid, _ = project
+    w, gid = _summarized(project)
+    meetings = Path(w.meta.project)
+    _set_summary_dir(store, pid, "summary")
+    (meetings / "summary").mkdir()
+    (meetings / "summary" / "summary-odd.md").write_text(
+        "---\ntype: Summary\ntitle: 123\ndescription: [a, b]\n---\n", encoding="utf-8"
+    )
+    w.copy_summary(gid, "説明です。")
+    text = (meetings / "summary" / "index.md").read_text(encoding="utf-8")
+    assert "* [summary-odd](summary-odd.md)\n" in text
+    assert "説明です。" in text
+
+
+def test_index_failure_does_not_stop_the_copy(project, monkeypatch):
+    store, pid, _ = project
+    w, gid = _summarized(project)
+    _set_summary_dir(store, pid, "summary")
+
+    def broken(directory):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(okf, "update_index", broken)
+    assert w.copy_summary(gid).is_file()
