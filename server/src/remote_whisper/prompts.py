@@ -39,6 +39,22 @@ TITLE_FORMAT: dict[str, Any] = {
     "required": ["title"],
 }
 
+# 最終要約のコピー（OKF。#343）のために、タイトルと一緒に 1 文の説明も作らせる。
+# LLM を呼ぶ回数を増やさない。タイトルを先に書かせて、タイトルの質を保つ
+DESCRIPTION_MAX = 120
+TITLE_DESCRIPTION_SYSTEM = (
+    TITLE_SYSTEM + "あわせて、要約の内容を 1 文で表した説明も日本語で書いてください。"
+    f"{DESCRIPTION_MAX}文字以内にしてください。"
+)
+TITLE_DESCRIPTION_FORMAT: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "title": {"type": "string", "maxLength": TITLE_MAX},
+        "description": {"type": "string", "maxLength": DESCRIPTION_MAX},
+    },
+    "required": ["title", "description"],
+}
+
 
 # 要約度（要約の細かさ。1〜5、既定は 3。spec/README.md 3・spec/files.md 5.3）。#100
 DEFAULT_DENSITY = 3
@@ -276,6 +292,34 @@ def parse_title(reply: str) -> str | None:
         return None
     title = " ".join(title.split()).strip("「」『』\"' ")
     return title[:TITLE_MAX] or None
+
+
+def parse_description(reply: str) -> str | None:
+    """`{"description": "..."}` から説明を取り出す。取り出せなければ None（タイトルとは別に扱う）"""
+    try:
+        description = json.loads(reply)["description"]
+    except (ValueError, KeyError, TypeError):
+        return None
+    if not isinstance(description, str):
+        return None
+    return " ".join(description.split())[:DESCRIPTION_MAX] or None
+
+
+async def make_title_description(
+    ollama: LlmClient, model: str, summary: str, think: bool = False
+) -> tuple[str | None, str | None]:
+    """要約からタイトルと 1 文の説明を 1 回の呼び出しで作る（#343）。作れなかったほうは None"""
+    reply = await ollama.chat(
+        model,
+        [
+            {"role": "system", "content": TITLE_DESCRIPTION_SYSTEM},
+            {"role": "user", "content": summary.strip()},
+        ],
+        think=think,
+        format=TITLE_DESCRIPTION_FORMAT,
+        options={"num_ctx": NUM_CTX},
+    )
+    return parse_title(reply), parse_description(reply)
 
 
 async def make_title(
