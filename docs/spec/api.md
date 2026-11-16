@@ -33,6 +33,7 @@
 | GET | `/api/fs?path=…` | 許可したルートの中のディレクトリの中身を返す |
 | GET | `/api/projects/{pid}/context-sets` | 参考資料の一覧 |
 | POST | `/api/projects/{pid}/context-sets` | 参考資料ファイルを指定して、参考資料の作成を始める |
+| PATCH | `/api/projects/{pid}` | プロジェクトの設定を変える（#341。今は最終要約のコピーの置き場所 `summaryDir` だけ。files.md 5.4 節）。本文は `{ "summaryDir": "summary" }`（省いたものは今のまま）。そろえた値で保存し、プロジェクト（一覧の 1 件と同じ形）を返す。不正なパスは `422`、ないプロジェクトは `404`。録音中もトンネルからも変えられる |
 | PATCH | `/api/projects/{pid}/selection` | 使う参考資料と、用語リスト・コンテキストそれぞれを使うかどうか、録音中に用語を拾うか（`pickTerms`）を設定する。録音中は `409` |
 | GET | `/api/version` | サーバーのバージョン（`{"version": "2b23d9b"}`。5.5 節の `appVersion` と同じ値） |
 | GET | `/api/push/key` | 最終要約の通知（#245。6.14 節）の VAPID の公開鍵（`{"publicKey": "<base64url>"}`）。秘密鍵は返さない |
