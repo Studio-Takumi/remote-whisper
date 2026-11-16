@@ -253,6 +253,65 @@ def test_m4a_recording_is_served_as_mp4(client, project):
     assert client.get(f"{base(pid)}/{SID}/recording").headers["content-type"] == "audio/mp4"
 
 
+def test_get_source_recording(client, project):
+    # 音源を指定して、その音源の録音を返す（#371）。Range にも対応する。1 と省いたときは主の音源
+    pid, d = project
+    (d / f"recording-{SID}.mp3").write_bytes(b"main")
+    (d / f"recording-{SID}-2.m4a").write_bytes(bytes(range(50)))
+    url = f"{base(pid)}/{SID}/recording"
+    assert client.get(url).content == b"main"
+    assert client.get(url, params={"source": 1}).content == b"main"
+    other = client.get(url, params={"source": 2})
+    assert other.status_code == 200
+    assert other.headers["content-type"] == "audio/mp4"
+    assert other.content == bytes(range(50))
+    part = client.get(url, params={"source": 2}, headers={"Range": "bytes=5-9"})
+    assert part.status_code == 206
+    assert part.content == bytes(range(5, 10))
+    assert part.headers["content-range"] == "bytes 5-9/50"
+
+
+def test_source_recording_is_404_when_missing(client, project):
+    pid, d = project
+    url = f"{base(pid)}/{SID}/recording"
+    for source in (3, 0, 17, -1):
+        assert client.get(url, params={"source": source}).status_code == 404
+    assert client.get(url, params={"source": "../x"}).status_code == 422
+    # 主の音源が消えていても、ほかの音源の録音は返す（主の音源にすり替えない）
+    (d / f"recording-{SID}.mp3").unlink()
+    (d / f"recording-{SID}-2.mp3").write_bytes(b"two")
+    assert client.get(url).status_code == 404
+    assert client.get(url, params={"source": 2}).content == b"two"
+
+
+def test_source_recording_prefers_the_unconverted_wav(client, project):
+    # 変換前（続きを録音できる間。#174）は .tmp の WAV を返す（主の音源と同じ）
+    pid, d = project
+    (d / f"recording-{SID}-2.mp3").write_bytes(b"old")
+    tmp = d / ".tmp" / SID
+    tmp.mkdir(parents=True)
+    (tmp / "audio-2.wav").write_bytes(b"RIFFwav")
+    res = client.get(f"{base(pid)}/{SID}/recording", params={"source": 2})
+    assert res.headers["content-type"] == "audio/wav"
+    assert res.content == b"RIFFwav"
+
+
+def test_files_lists_source_recordings(client, project):
+    # ほかの音源の録音があるときだけ files.sourceRecordings を付ける（#371。画面が対応を見分ける）
+    pid, d = project
+    assert "sourceRecordings" not in client.get(base(pid)).json()[0]["files"]
+    (d / f"recording-{SID}-3.mp3").write_bytes(b"\0")
+    (d / f"recording-{SID}-x.mp3").write_bytes(b"\0")
+    tmp = d / ".tmp" / SID
+    tmp.mkdir(parents=True)
+    (tmp / "audio-2.wav").write_bytes(b"\0")
+    (tmp / "audio-99.wav").write_bytes(b"\0")
+    files = client.get(f"{base(pid)}/{SID}").json()["files"]
+    assert files["sourceRecordings"] == [1, 2, 3]
+    (d / f"recording-{SID}.mp3").unlink()
+    assert client.get(f"{base(pid)}/{SID}").json()["files"]["sourceRecordings"] == [2, 3]
+
+
 def test_invalid_session_id(client, project):
     pid, _ = project
     assert client.get(f"{base(pid)}/not-an-id").status_code == 404

@@ -24,6 +24,7 @@ from remote_whisper.session_move import move_session
 from remote_whisper.session_writer import SessionWriter
 from remote_whisper.sessions import (
     ID_RE,
+    MAX_SOURCE_ID,
     SessionFiles,
     correct_final_body,
     parse_transcript_lines,
@@ -534,15 +535,25 @@ _AUDIO_TYPES = {".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".wav": "audio/wav"}
 
 
 @router.get("/{sid}/recording")
-def get_recording(pid: Pid, sid: str, ctx: Ctx) -> FileResponse:
+def get_recording(
+    pid: Pid, sid: str, ctx: Ctx, source: Annotated[int | None, Query()] = None
+) -> FileResponse:
     """録音ファイル（mp3）。ブラウザで再生する
 
     好きな位置から聞けるよう、Range リクエストに対応する（FileResponse が返す）。
     ファイルがない（保存期間を過ぎた・録音中）ときは 404。録音を終えて mp3 に変換する前
     （続きを録音できる間。#174）は WAV を返す（続きを録音したあとの mp3 は前の部分だけのことがある）
+    source は音源 ID（#371）。ほかの音源の録音 `recording-<ID>-<音源 ID>.<拡張子>` を返す
+    （ない・音源 ID が 1〜16 でないときは 404。省いたときと 1 は主の音源）
     """
     entry, files = _session(ctx, pid, sid)
-    path = files.recording() if entry.status == "recording" else files.audio()
+    if source is not None and not 1 <= source <= MAX_SOURCE_ID:
+        raise HTTPException(status_code=404, detail="録音ファイルはありません")
+    n = source or 1
+    if entry.status == "recording":
+        path = files.source_recording(n)
+    else:
+        path = files.source_audio(n)
     if path is None:
         raise HTTPException(status_code=404, detail="録音ファイルはありません")
     return FileResponse(path, media_type=_AUDIO_TYPES.get(path.suffix, "application/octet-stream"))

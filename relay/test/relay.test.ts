@@ -29,6 +29,13 @@ beforeEach(() => {
                 headers: { 'Set-Cookie': '__Host-rw_session=evil; Path=/; Secure' },
             });
         }
+        if (new URL(req.url).pathname.endsWith('/recording')) {
+            // 録音ファイルの一部（Range の返事）
+            return new Response('part', {
+                status: 206,
+                headers: { 'Content-Type': 'audio/mp4', 'Content-Range': 'bytes 5-8/50', 'Accept-Ranges': 'bytes' },
+            });
+        }
         if (new URL(req.url).pathname === '/api/redirect') {
             return new Response(null, { status: 302, headers: { Location: 'https://evil.example/' } });
         }
@@ -183,6 +190,25 @@ describe('中継', () => {
         });
         expect(res.status).toBe(200);
         expect(bodies[0]).toBe('{"name":"x"}');
+    });
+
+    it('音源を指定した録音（#371）は、クエリと Range をそのまま送り、206 をそのまま返す', async () => {
+        const { userId, cookie } = await newUser();
+        const { hostId, tunnel } = await newHost(userId);
+        const path = '/api/projects/p/sessions/20261009-143012/recording?source=2';
+        const res = await call(`/h/${hostId}${path}`, { cookie, headers: { Range: 'bytes=5-8' } });
+        expect(res.status).toBe(206);
+        expect((await res.arrayBuffer()).byteLength).toBe(4);
+        expect(res.headers.get('Content-Range')).toBe('bytes 5-8/50');
+        expect(res.headers.get('Content-Type')).toBe('audio/mp4');
+        // 音声はダウンロードにしない（audio で再生できるように）
+        expect(res.headers.get('Content-Disposition')).toBeNull();
+        const req = forwarded[0];
+        expect(req.url).toBe(`https://${tunnel}${path}`);
+        expect(req.headers.get('Range')).toBe('bytes=5-8');
+        const header = req.headers.get('X-RW-Relay') ?? '';
+        const ts = Number(/;ts=(\d+);/.exec(header)?.[1]);
+        expect(header).toBe(await signRelay(RELAY_KEY, userId, hostId, ts, 'GET', path));
     });
 
     it('WebSocket はつなぐときに確かめて、101 をそのまま返す', async () => {
