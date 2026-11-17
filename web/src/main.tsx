@@ -4,11 +4,11 @@ import { createRoot } from 'react-dom/client';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { ThemeProvider } from 'next-themes';
 
+import { queryClient } from '@/app/query';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { answerViewQueries, resyncPush } from '@/push';
-import { queryClient } from '@/query';
+import { answerViewQueries, resyncPush } from '@/features/settings/push';
 
-import App from './App.tsx';
+import App from './app/App.tsx';
 import './index.css';
 
 // 最終要約の通知（#245）。service worker に開いている画面を答え（そのセッションを開いていれば出さない）、

@@ -58,7 +58,7 @@
 5. **Analytics Engine**: アカウントで有効にしてあれば、`env.production` の `analytics_engine_datasets` を戻す（有効でないとデプロイが code 10089 で落ちる）
 6. **最初のデプロイ**: Actions → Deploy → Run workflow で、main・行き先 `production` を選ぶ。カスタムドメイン `rw.studio-takumi.dev` は `routes` の `custom_domain` で Worker が付ける（DNS のレコードを手で作らなくてよい。デプロイ用のトークンに Zone ／ Workers Routes ／ Edit が要る。断られたら DNS の権限も見る）。`https://rw.studio-takumi.dev/healthz` が `{"ok":true,"env":"production",...}` を返すのを確かめる
 7. **自動デプロイを本番に替える**: GitHub → Settings → Secrets and variables → Actions → Variables に `PRODUCTION_READY` = `true` を足す
-8. **ホストの既定の接続先を本番にする**: `server/src/remote_whisper/settings.py` の `DEFAULT_RELAY_URL` と `web/src/settings.ts` の既定の `relayUrl` を `https://rw.studio-takumi.dev` にして PR を出す（すでに staging に登録したホストは、cloud.json の `relayUrl` を使い続ける）
+8. **ホストの既定の接続先を本番にする**: `server/src/remote_whisper/settings.py` の `DEFAULT_RELAY_URL` と `web/src/features/settings/settings.ts` の既定の `relayUrl` を `https://rw.studio-takumi.dev` にして PR を出す（すでに staging に登録したホストは、cloud.json の `relayUrl` を使い続ける）
 
 ## WAF のレート制限（#166）
 
@@ -87,7 +87,7 @@ Worker の中の回数の制限（申請・ポーリング・`/pair/tunnel`・�
 
 2. 読み方
     - `disposition` が `enforce` の行は、ブラウザが止めたもの（画面の何かが動いていないかもしれない）。デプロイの直後に増えたら、まずその版を疑う（下の「戻し方」）
-    - `blocked` が `inline` で `directive` が `script-src-elem` なら、index.html のインラインのスクリプトのハッシュが合っていない（`web/src/headers.test.ts` が通っているかを見る）か、Cloudflare のゾーンの機能が HTML にインラインのスクリプトを差し込んでいる。Bot Fight Mode・JavaScript detections（`/cdn-cgi/challenge-platform/`）・Email Address Obfuscation・Rocket Loader・Web Analytics などで、どれも同じ行になる。ハッシュが合っていれば、`studio-takumi.dev` のゾーンの設定（Security・Scrape Shield・Speed）で、`rw-dev`・`rw` に効いている機能を見る
+    - `blocked` が `inline` で `directive` が `script-src-elem` なら、index.html のインラインのスクリプトのハッシュが合っていない（`web/src/app/headers.test.ts` が通っているかを見る）か、Cloudflare のゾーンの機能が HTML にインラインのスクリプトを差し込んでいる。Bot Fight Mode・JavaScript detections（`/cdn-cgi/challenge-platform/`）・Email Address Obfuscation・Rocket Loader・Web Analytics などで、どれも同じ行になる。ハッシュが合っていれば、`studio-takumi.dev` のゾーンの設定（Security・Scrape Shield・Speed）で、`rw-dev`・`rw` に効いている機能を見る
     - `blocked` が `self:wss` で `directive` が `connect-src` なら、そのブラウザが `connect-src 'self'` を同じホストの `wss:` に当てていない（Safari の古い版など）。`_headers` の `connect-src` に `wss://<ホスト名>` を足すことを考える
     - `blocked` が `https://static.cloudflareinsights.com/...` なら、Cloudflare の Web Analytics（RUM）が画面にスクリプトを自動で差し込んでいる。CSP は自分のオリジンのスクリプトしか許さないので、ブラウザが止める（画面の動きには関係ない）。使わないので、Cloudflare → Web Analytics（または `studio-takumi.dev` → Speed → Settings）で、`rw-dev.studio-takumi.dev`・`rw.studio-takumi.dev` の自動の差し込みを切る（#253 の時点で staging に入っていた）。使うことにするなら、`_headers` の `script-src` に `https://static.cloudflareinsights.com`、`connect-src` に `https://cloudflareinsights.com` を足す（仕様の 10.9 節の「数値だけ」とも照らす）
     - `blocked` が `chrome-extension`・`moz-extension`・`safari-web-extension` などは、ユーザーの拡張機能が差し込んだもの。こちらでは直さない
