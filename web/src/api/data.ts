@@ -52,8 +52,9 @@ function toSession(json: SessionJson): Session {
 export type ProjectInfo = Omit<Project, 'sessions'>;
 
 // プロジェクトの一覧・セッションの一覧・参考資料セットの一覧は、画面で見ている部品がなくても、
-// ストアが WebSocket の通知で書き換えて使う。既定（5 分）で捨てられないようにする（量は少ない）
-const KEEP = { gcTime: Infinity } as const;
+// ストアが WebSocket の通知で書き換えて使う。既定（5 分）で捨てられないようにする（量は少ない）。
+// セッションの中身も、開き直したときに読み込み直さないように捨てない（#361。前はストアに持ち続けていた）
+export const KEEP = { gcTime: Infinity } as const;
 
 // プロジェクトの一覧（queryKeys.projects()）。並びはサーバーが返したまま（設定の projectOrder の順）
 export const projectsQuery = queryOptions({
@@ -113,6 +114,7 @@ export function toSelection(json: ProjectJson['selection']): ContextSelection {
 // 文字起こし（queryKeys.transcript()）。録音中・語の変更・置き換えで変わる
 export const transcriptQuery = (projectId: string, sessionId: string) =>
     queryOptions({
+        ...KEEP,
         queryKey: queryKeys.transcript(projectId, sessionId),
         queryFn: () => api.get<TranscriptJson>(`/api/projects/${projectId}/sessions/${sessionId}/transcript`),
     });
@@ -120,6 +122,7 @@ export const transcriptQuery = (projectId: string, sessionId: string) =>
 // 最終の文字起こしの世代の一覧（queryKeys.finalTranscripts()。#124。古いものから）。作り直すと増える
 export const finalTranscriptsQuery = (projectId: string, sessionId: string) =>
     queryOptions({
+        ...KEEP,
         queryKey: queryKeys.finalTranscripts(projectId, sessionId),
         queryFn: async (): Promise<FinalTranscriptInfo[]> => {
             const list = await api.get<FinalTranscriptJson['meta'][]>(
@@ -134,6 +137,7 @@ export const finalTranscriptsQuery = (projectId: string, sessionId: string) =>
 // サーバーが置き換え（#176）を当てて返すので、置き換えが変わったらキャッシュから消す（forgetTranscripts）
 export const finalTranscriptQuery = (projectId: string, sessionId: string, gid: string) =>
     queryOptions({
+        ...KEEP,
         queryKey: queryKeys.finalTranscript(projectId, sessionId, gid),
         queryFn: async (): Promise<FinalTranscript> => {
             const json = await api.get<FinalTranscriptJson>(
@@ -190,6 +194,7 @@ export async function forgetTranscripts(
 // 最終の要約の一覧（queryKeys.summaries()。版 ID・モデル・生成日時）。作り直すと増える
 export const summariesQuery = (projectId: string, sessionId: string) =>
     queryOptions({
+        ...KEEP,
         queryKey: queryKeys.summaries(projectId, sessionId),
         queryFn: () => api.get<SummaryInfoJson[]>(`/api/projects/${projectId}/sessions/${sessionId}/summaries`),
     });
@@ -197,6 +202,7 @@ export const summariesQuery = (projectId: string, sessionId: string) =>
 // 最終の要約の 1 つの版（queryKeys.summary()）。版のファイルは書き換わらないので、一度取ったらキャッシュのものを使う
 export const summaryQuery = (projectId: string, sessionId: string, gid: string) =>
     queryOptions({
+        ...KEEP,
         queryKey: queryKeys.summary(projectId, sessionId, gid),
         queryFn: () => api.get<SummaryJson>(`/api/projects/${projectId}/sessions/${sessionId}/summaries/${gid}`),
         staleTime: Infinity,
@@ -206,6 +212,7 @@ export const summaryQuery = (projectId: string, sessionId: string, gid: string) 
 // 録音中に作り直されるので、キャッシュのものは使わずに毎回取り直す
 export const liveSummaryQuery = (projectId: string, sessionId: string) =>
     queryOptions({
+        ...KEEP,
         queryKey: queryKeys.summary(projectId, sessionId, 'latest'),
         queryFn: () => api.get<SummaryJson>(`/api/projects/${projectId}/sessions/${sessionId}/summaries/latest`),
         staleTime: 0,

@@ -1,5 +1,6 @@
 // セッションの中身をキャッシュ（#330）から読む・書き戻す（#361）。サーバーのデータはキャッシュにだけ持つ
 import {
+    KEEP,
     finalTranscriptQuery,
     finalTranscriptsQuery,
     liveSummaryQuery,
@@ -23,6 +24,12 @@ const ROW_KEYS = [
     'files',
     'summaryFailed',
 ] as const;
+
+// 中身をキャッシュに直接入れるときも、取ったものと同じく捨てない設定（KEEP）で作る
+function keep<T extends readonly unknown[]>(queryKey: T): T {
+    queryClient.getQueryCache().build(queryClient, { ...KEEP, queryKey });
+    return queryKey;
+}
 
 export function cachedParts(projectId: string, sessionId: string, gid: string | undefined): SessionParts {
     const summaryInfos = queryClient.getQueryData(summariesQuery(projectId, sessionId).queryKey);
@@ -60,7 +67,7 @@ function writeTranscript(projectId: string, before: Session, after: Session) {
     if (!lines && !terms) {
         return;
     }
-    queryClient.setQueryData(transcriptQuery(projectId, after.id).queryKey, (t) => {
+    queryClient.setQueryData(keep(transcriptQuery(projectId, after.id).queryKey), (t) => {
         const { lineSources, ...rest } = t?.meta ?? {};
         return {
             lines: lines ? after.transcript : (t?.lines ?? []),
@@ -81,14 +88,17 @@ export function writeSessionToCache(projectId: string, before: Session, after: S
     writeTranscript(projectId, before, after);
     const sid = after.id;
     if (after.finalTranscripts && after.finalTranscripts !== before.finalTranscripts) {
-        queryClient.setQueryData(finalTranscriptsQuery(projectId, sid).queryKey, after.finalTranscripts);
+        queryClient.setQueryData(keep(finalTranscriptsQuery(projectId, sid).queryKey), after.finalTranscripts);
     }
     const final = after.finalTranscript;
     if (final && final !== before.finalTranscript) {
-        queryClient.setQueryData(finalTranscriptQuery(projectId, sid, final.generationId).queryKey, final);
+        queryClient.setQueryData(keep(finalTranscriptQuery(projectId, sid, final.generationId).queryKey), final);
     }
     if (after.liveSummary !== undefined && after.liveSummary !== before.liveSummary) {
-        queryClient.setQueryData(liveSummaryQuery(projectId, sid).queryKey, { kind: 'live', text: after.liveSummary });
+        queryClient.setQueryData(keep(liveSummaryQuery(projectId, sid).queryKey), {
+            kind: 'live',
+            text: after.liveSummary,
+        });
     }
 }
 
@@ -98,7 +108,7 @@ export function moveSessionCache(sessionId: string, fromId: string, toId: string
     for (const q of queryClient.getQueryCache().findAll({ queryKey: prefix })) {
         if (q.state.data !== undefined) {
             const rest = q.queryKey.slice(prefix.length);
-            queryClient.setQueryData([...queryKeys.sessions(toId), sessionId, ...rest], q.state.data);
+            queryClient.setQueryData(keep([...queryKeys.sessions(toId), sessionId, ...rest]), q.state.data);
         }
     }
     queryClient.removeQueries({ queryKey: prefix });

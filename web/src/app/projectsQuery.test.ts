@@ -234,7 +234,7 @@ describe('セッションの一覧・参考資料セットの一覧', () => {
         expect(queryClient.getQueryData(sessionsQuery('b').queryKey)?.map((x) => x.title)).toEqual(['情報理論']);
         expect(queryClient.getQueryData(contextSetsQuery('a').queryKey)).toEqual([]);
         expect(cachedContextSets('b').map((x) => x.id)).toEqual(['c1']);
-        // この 3 つは見ている部品がなくても捨てない。ほかは既定（5 分）のまま
+        // 一覧とセッションの中身（#361）は見ている部品がなくても捨てない。クエリごとに付け、全体の既定は変えない
         for (const key of [projectsQuery.queryKey, sessionsQuery('a').queryKey, contextSetsQuery('a').queryKey]) {
             expect(queryClient.getQueryCache().find({ queryKey: key, exact: true })?.gcTime).toBe(Infinity);
         }
@@ -331,6 +331,23 @@ describe('文字起こし・最終の文字起こし', () => {
         expect(opened().finalTranscript?.lines[0].text).toBe('新しい版');
         expect(calls(get, `${base}/final-transcripts/g1`)).toBe(1);
         expect(calls(get, `${base}/final-transcripts/g2`)).toBe(1);
+    });
+
+    it('5 分以上ほかを見てから戻っても、読み込み直さず、選んでいた世代のまま', async () => {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+        try {
+            const get = await open();
+            await useAppStore.getState().showFinalTranscript('s1', 'g1');
+            useAppStore.getState().newSession('a');
+            vi.advanceTimersByTime(6 * 60 * 1000);
+            useAppStore.getState().selectSession('a', 's1');
+            expect(opened().loaded).toBe(true);
+            expect(opened().transcript[0].text).toBe('こんにちわ');
+            expect(opened().finalTranscript?.lines[0].text).toBe('古い版');
+            expect(calls(get, `${base}/transcript`)).toBe(1);
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('corrections: 文字起こしと出している世代を取り直し、ほかの世代も次に出すときに取り直す', async () => {
