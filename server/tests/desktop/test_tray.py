@@ -347,33 +347,33 @@ class FakeTray:
 
 
 def test_mac_server_stopping_removes_the_menu_bar():
-    from remote_whisper.__main__ import _serve_with_tray_on_main_thread
+    from remote_whisper.tray_serve import serve_with_tray_on_main_thread
 
     icon = FakeTray()
-    _serve_with_tray_on_main_thread(FakeServer(stop_by_itself=True), icon)
+    serve_with_tray_on_main_thread(FakeServer(stop_by_itself=True), icon)
     assert icon.stopped.is_set()
 
 
 def test_mac_quit_from_the_menu_bar_waits_for_the_server():
     import threading
 
-    from remote_whisper.__main__ import _serve_with_tray_on_main_thread
+    from remote_whisper.tray_serve import serve_with_tray_on_main_thread
 
     server, icon = FakeServer(), FakeTray()
     # メニューバーの「終了」: サーバーに止めるよう伝え、メニューバーを消す
     threading.Timer(0.1, lambda: (setattr(server, "should_exit", True), icon.stop())).start()
-    _serve_with_tray_on_main_thread(server, icon)
+    serve_with_tray_on_main_thread(server, icon)
     assert server.should_exit and server.ran > 0
 
 
 def test_mac_server_keeps_running_without_a_menu_bar():
     import threading
 
-    from remote_whisper.__main__ import _serve_with_tray_on_main_thread
+    from remote_whisper.tray_serve import serve_with_tray_on_main_thread
 
     server = FakeServer()
     threading.Timer(0.3, lambda: setattr(server, "should_exit", True)).start()
-    _serve_with_tray_on_main_thread(server, FakeTray(fail=True))
+    serve_with_tray_on_main_thread(server, FakeTray(fail=True))
     # メニューバーが出せなくても、止められるまで動いていた
     assert server.ran >= 0.25
 
