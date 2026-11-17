@@ -254,6 +254,37 @@ def test_the_intel_gpu_is_passed_only_when_found_and_allowed(home, session_files
     assert "openvino" not in job()
 
 
+def test_build_job_from_the_settings_and_the_session(home, session_files, tmp_path):
+    files, meta = session_files
+    whisper = SettingsStore(home).get().whisper
+    out = tmp_path / "out.json"
+    job, sources = final_transcriber.build_job(
+        files, meta, files.recording(), out, "large-v3-turbo", True, whisper, None
+    )
+    assert job == {
+        "audio": str(files.recording()),
+        "out": str(out),
+        "model": "large-v3-turbo",
+        "computeType": whisper.compute_type,
+        "language": "ja",
+        "diarize": True,
+        "diarizationModel": final_transcriber.DIARIZATION_MODEL,
+        "batchSize": final_transcriber.BATCH_SIZE,
+        "hotwords": None,
+        "initialPrompt": final_transcriber.INITIAL_PROMPT["ja"],
+    }
+    # 音源が 1 つなら sources は渡さない
+    assert sources == [{"id": 1, "audio": str(files.recording()), "roughOffsetSec": 0.0}]
+
+
+def test_worker_timeout_grows_with_the_audio_and_the_sources():
+    base = final_transcriber.TIMEOUT_BASE_SEC
+    assert final_transcriber.worker_timeout(600, 1) == base + 600
+    assert final_transcriber.worker_timeout(600, 3) == base + 1800
+    # 長さが分からなければ 1 時間とみなす。音源が 0 でも 1 つ分
+    assert final_transcriber.worker_timeout(None, 0) == base + 3600
+
+
 def test_progress_of_the_worker_goes_to_the_gpu_job(home, session_files, fake_worker, caplog):
     # 子が出した進み具合の行は、ログに書かずに GPU キューのジョブの進み具合にする（#340）
     files, meta = session_files

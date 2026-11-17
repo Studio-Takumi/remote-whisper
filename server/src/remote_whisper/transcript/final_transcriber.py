@@ -246,40 +246,12 @@ class FinalTranscriber:
         # 子が動き出すまで（VRAM を空ける・torch を読み込む）も「モデルの読み込み」にする（#340）
         report_progress("load", 0, len(STEPS) if diarize else len(STEPS) - 1)
         await self._free_vram()
-        work = files.dir / ".tmp" / files.id
-        work.mkdir(parents=True, exist_ok=True)
-        out = work / "final-transcript.json"
-        out.unlink(missing_ok=True)
-        job = {
-            "audio": str(audio),
-            "out": str(out),
-            "model": model,
-            "computeType": whisper.compute_type,
-            "language": meta.language,
-            "diarize": diarize,
-            "diarizationModel": DIARIZATION_MODEL,
-            "batchSize": BATCH_SIZE,
-            "hotwords": _hotwords(files, meta),
-            "initialPrompt": INITIAL_PROMPT.get(meta.language),
-        }
-        if self.openvino_device is not None and whisper.intel_gpu == "auto":
-            # 浄書は fp16（#347。録音は終わっているので VRAM に余裕がある）
-            precision = openvino_whisper.FINAL_PRECISION
-            job["openvino"] = {
-                "device": self.openvino_device,
-                "model": openvino_whisper.repo_for(model, precision),
-            }
-        sources = _job_sources(files, meta, audio)
-        if len(sources) > 1:
-            job["sources"] = sources
+        work, out = _result_path(files)
+        openvino = self.openvino_device if whisper.intel_gpu == "auto" else None
+        job, sources = build_job(files, meta, audio, out, model, diarize, whisper, openvino)
         if self._preempted:
             raise _Preempted
-        # 固まっても GPU キューを止めたままにしないよう、録音の長さに応じた時間で打ち切る
-        # （複数の音源は、文字起こしと位置合わせを音源の数だけ行う）
-        timeout = TIMEOUT_BASE_SEC + TIMEOUT_PER_SEC * (meta.duration_sec or 3600) * max(
-            1, len(sources)
-        )
-        timed_out = False
+        timeout = worker_timeout(meta.duration_sec, len(sources))
         clock = time.monotonic()
         log.info(
             "final transcript of %s started with %s (diarize=%s, %.0fs of audio)",
@@ -288,6 +260,28 @@ class FinalTranscriber:
             diarize,
             meta.duration_sec or 0,
         )
+        code, timed_out = await self._run_worker(job, timeout)
+        result = self._read_result(files, work, out, code, timed_out)
+        if result is None:
+            return None
+        lines, body, speakers = await _render(files, meta, result, sources)
+        gid = _save(files, meta, model, started, result, body, speakers, audio, lines, sources)
+        log.info(
+            "final transcript of %s saved as %s in %.0fs (diarization %s, %d speakers)",
+            files.id,
+            gid,
+            time.monotonic() - clock,
+            result.get("diarization") or "off",
+            speakers,
+        )
+        await self.hub.broadcast(
+            {"type": "finalTranscript", "session": files.id, "generationId": gid}
+        )
+        return gid
+
+    async def _run_worker(self, job: dict[str, Any], timeout: float) -> tuple[int | None, bool]:
+        """子プロセスに指示を渡して終わるのを待つ。終了コードと、打ち切ったかを返す"""
+        timed_out = False
         output: asyncio.Task | None = None
         try:
             # 子の出力（ログ）は親が受け取って、サーバーのログに書く（#134）
@@ -328,6 +322,12 @@ class FinalTranscriber:
                 # 子が終われば出力も閉じるので、残りを書き終えるのを待つ
                 with contextlib.suppress(Exception):
                     await asyncio.wait_for(output, 5)
+        return code, timed_out
+
+    def _read_result(
+        self, files: SessionFiles, work: Path, out: Path, code: int | None, timed_out: bool
+    ) -> dict[str, Any] | None:
+        """子が書いた結果を読んで消す。作れなかったら None、録音が始まって止めたなら _Preempted"""
         if self._preempted:
             out.unlink(missing_ok=True)
             raise _Preempted
@@ -349,31 +349,7 @@ class FinalTranscriber:
                 work.rmdir()
         if result.get("diarizationError"):
             log.warning("diarization of %s skipped: %s", files.id, result["diarizationError"])
-        diarized = result.get("diarization") == "done"
-        # 形態素解析と話者の割り当てで 1 時間の録音なら数秒かかるので、別のスレッドで
-        turns = result.get("turns") if diarized else None
-        segments = result.get("segments") or []
-        if len(sources) > 1:
-            lines = await asyncio.to_thread(
-                _multi_source_lines, segments, turns, meta.language, result.get("dominant") or []
-            )
-            _record_alignment(files, meta, result.get("sources") or [])
-        else:
-            lines = await asyncio.to_thread(sentences, segments, turns, meta.language)
-        body, speakers = render(lines, diarized)
-        gid = _save(files, meta, model, started, result, body, speakers, audio, lines, sources)
-        log.info(
-            "final transcript of %s saved as %s in %.0fs (diarization %s, %d speakers)",
-            files.id,
-            gid,
-            time.monotonic() - clock,
-            result.get("diarization") or "off",
-            speakers,
-        )
-        await self.hub.broadcast(
-            {"type": "finalTranscript", "session": files.id, "generationId": gid}
-        )
-        return gid
+        return result
 
     async def _free_vram(self) -> None:
         """録音中の文字起こしの Whisper と Ollama のモデルを下ろす。下ろせなくても作る"""
@@ -397,6 +373,79 @@ def _hotwords(files: SessionFiles, meta: TranscriptMeta) -> str | None:
     return combine_hotwords(
         load_hotwords(files.dir, meta.context_set), meta.picked_terms, meta.manual_terms
     )
+
+
+def build_job(
+    files: SessionFiles,
+    meta: TranscriptMeta,
+    audio: Path,
+    out: Path,
+    model: str,
+    diarize: bool,
+    whisper: Any,
+    openvino_device: str | None,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """子プロセスに渡す指示と、使う音源。whisper は設定の whisper"""
+    job: dict[str, Any] = {
+        "audio": str(audio),
+        "out": str(out),
+        "model": model,
+        "computeType": whisper.compute_type,
+        "language": meta.language,
+        "diarize": diarize,
+        "diarizationModel": DIARIZATION_MODEL,
+        "batchSize": BATCH_SIZE,
+        "hotwords": _hotwords(files, meta),
+        "initialPrompt": INITIAL_PROMPT.get(meta.language),
+    }
+    if openvino_device is not None:
+        # 浄書は fp16（#347。録音は終わっているので VRAM に余裕がある）
+        precision = openvino_whisper.FINAL_PRECISION
+        job["openvino"] = {
+            "device": openvino_device,
+            "model": openvino_whisper.repo_for(model, precision),
+        }
+    sources = _job_sources(files, meta, audio)
+    if len(sources) > 1:
+        job["sources"] = sources
+    return job, sources
+
+
+def _result_path(files: SessionFiles) -> tuple[Path, Path]:
+    """子が結果を書くファイル（前の回のものは消す）と、その置き場所"""
+    work = files.dir / ".tmp" / files.id
+    work.mkdir(parents=True, exist_ok=True)
+    out = work / "final-transcript.json"
+    out.unlink(missing_ok=True)
+    return work, out
+
+
+def worker_timeout(duration_sec: float | None, sources: int) -> float:
+    """子プロセスを打ち切るまでの秒数。固まっても GPU キューを止めたままにしないよう、録音の長さに
+    応じた時間にする（複数の音源は、文字起こしと位置合わせを音源の数だけ行う）"""
+    return TIMEOUT_BASE_SEC + TIMEOUT_PER_SEC * (duration_sec or 3600) * max(1, sources)
+
+
+async def _render(
+    files: SessionFiles,
+    meta: TranscriptMeta,
+    result: dict[str, Any],
+    sources: list[dict[str, Any]],
+) -> tuple[list[Sentence], str, int]:
+    """子の結果を文ごとの行にして、本文と話者の数を返す。複数の音源なら測ったずれも書く"""
+    diarized = result.get("diarization") == "done"
+    # 形態素解析と話者の割り当てで 1 時間の録音なら数秒かかるので、別のスレッドで
+    turns = result.get("turns") if diarized else None
+    segments = result.get("segments") or []
+    if len(sources) > 1:
+        lines = await asyncio.to_thread(
+            _multi_source_lines, segments, turns, meta.language, result.get("dominant") or []
+        )
+        _record_alignment(files, meta, result.get("sources") or [])
+    else:
+        lines = await asyncio.to_thread(sentences, segments, turns, meta.language)
+    body, speakers = render(lines, diarized)
+    return lines, body, speakers
 
 
 def _forward_progress(line: str) -> bool:
