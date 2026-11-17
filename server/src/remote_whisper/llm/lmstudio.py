@@ -96,7 +96,9 @@ class LMStudioClient:
     async def supports_vision(self, model: str) -> bool:
         return await self.model_list.supports_vision(model)
 
-    async def chat_stream(self, model: str, messages: list[dict[str, Any]], **kwargs: Any):
+    async def chat_stream(
+        self, model: str, messages: list[dict[str, Any]], **kwargs: Any
+    ) -> AsyncIterator[str]:
         # 呼んだ側が途中でやめても、すぐ生成の後始末（タイマーの数え直し）に届くように閉じる
         async with contextlib.aclosing(
             self.generation.chat_stream(model, messages, **kwargs)

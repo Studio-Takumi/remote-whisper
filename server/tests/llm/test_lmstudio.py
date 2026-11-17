@@ -1017,6 +1017,20 @@ def test_idle_instances_are_unloaded_after_keep_alive(timed, fake, clock):
     run(go())
 
 
+def test_closing_a_stream_early_lets_the_timer_unload(timed, fake, clock):
+    async def go():
+        parts = timed.chat_stream(GEMMA, MESSAGES)
+        await anext(parts)
+        assert timed.vram._active == 1
+        await parts.aclose()
+        await settle()
+        assert timed.vram._active == 0
+        await clock.advance(600)
+        assert loaded_ids(fake) == []
+
+    run(go())
+
+
 def test_using_again_restarts_the_count(timed, fake, clock):
     async def go():
         await timed.chat(GEMMA, MESSAGES)
