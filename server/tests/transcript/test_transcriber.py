@@ -13,10 +13,10 @@ from remote_whisper.gpu.gpu_queue import GpuQueue
 from remote_whisper.hub import Hub
 from remote_whisper.settings import SettingsStore
 from remote_whisper.storage.documents import FinalTranscriptMeta, TranscriptMeta, read_doc
-from remote_whisper.storage.sessions import SessionFiles
-from remote_whisper.transcript import final_transcript_job
-from remote_whisper.transcript.final_transcribe_steps import Progress, parse_progress
-from remote_whisper.transcript.final_transcriber import FinalTranscriber
+from remote_whisper.storage.session_reader import SessionFiles
+from remote_whisper.transcript import worker_job
+from remote_whisper.transcript.transcriber import FinalTranscriber
+from remote_whisper.transcript.worker_steps import Progress, parse_progress
 
 # WhisperX の子プロセスの代わり。決まった結果を書く。
 # 呼ばれた回数を数え、slow が 1 回目なら長く待つ（止められるかを確かめるため）
@@ -258,7 +258,7 @@ def test_build_job_from_the_settings_and_the_session(home, session_files, tmp_pa
     files, meta = session_files
     whisper = SettingsStore(home).get().whisper
     out = tmp_path / "out.json"
-    job, sources = final_transcript_job.build_job(
+    job, sources = worker_job.build_job(
         files, meta, files.recording(), out, "large-v3-turbo", True, whisper, None
     )
     assert job == {
@@ -268,21 +268,21 @@ def test_build_job_from_the_settings_and_the_session(home, session_files, tmp_pa
         "computeType": whisper.compute_type,
         "language": "ja",
         "diarize": True,
-        "diarizationModel": final_transcript_job.DIARIZATION_MODEL,
-        "batchSize": final_transcript_job.BATCH_SIZE,
+        "diarizationModel": worker_job.DIARIZATION_MODEL,
+        "batchSize": worker_job.BATCH_SIZE,
         "hotwords": None,
-        "initialPrompt": final_transcript_job.INITIAL_PROMPT["ja"],
+        "initialPrompt": worker_job.INITIAL_PROMPT["ja"],
     }
     # 音源が 1 つなら sources は渡さない
     assert sources == [{"id": 1, "audio": str(files.recording()), "roughOffsetSec": 0.0}]
 
 
 def test_worker_timeout_grows_with_the_audio_and_the_sources():
-    base = final_transcript_job.TIMEOUT_BASE_SEC
-    assert final_transcript_job.worker_timeout(600, 1) == base + 600
-    assert final_transcript_job.worker_timeout(600, 3) == base + 1800
+    base = worker_job.TIMEOUT_BASE_SEC
+    assert worker_job.worker_timeout(600, 1) == base + 600
+    assert worker_job.worker_timeout(600, 3) == base + 1800
     # 長さが分からなければ 1 時間とみなす。音源が 0 でも 1 つ分
-    assert final_transcript_job.worker_timeout(None, 0) == base + 3600
+    assert worker_job.worker_timeout(None, 0) == base + 3600
 
 
 def test_progress_of_the_worker_goes_to_the_gpu_job(home, session_files, fake_worker, caplog):
@@ -353,8 +353,8 @@ def test_a_failed_worker_makes_nothing(home, session_files, fake_worker):
 
 def test_a_stuck_worker_is_stopped(home, session_files, fake_worker, monkeypatch):
     # 固まったら打ち切る（GPU キューを止めたままにしない）
-    monkeypatch.setattr(final_transcript_job, "TIMEOUT_BASE_SEC", 1.0)
-    monkeypatch.setattr(final_transcript_job, "TIMEOUT_PER_SEC", 0.0)
+    monkeypatch.setattr(worker_job, "TIMEOUT_BASE_SEC", 1.0)
+    monkeypatch.setattr(worker_job, "TIMEOUT_PER_SEC", 0.0)
     files, meta = session_files
     assert run_final(home, fake_worker("slow"), files, meta) is None
     assert files.final_transcripts() == []

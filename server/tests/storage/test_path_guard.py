@@ -1,6 +1,6 @@
 import pytest
 
-from remote_whisper.storage.fsaccess import real_path
+from remote_whisper.storage.path_guard import real_path
 
 
 @pytest.fixture

@@ -28,7 +28,7 @@ from remote_whisper.storage.documents import (
     read_doc,
 )
 from remote_whisper.storage.projects import ProjectError, ProjectFile, ProjectStore
-from remote_whisper.storage.sessions import ID_RE, SessionFiles
+from remote_whisper.storage.session_reader import ID_RE, SessionFiles
 from remote_whisper.storage.timeutil import now
 
 log = logging.getLogger(__name__)

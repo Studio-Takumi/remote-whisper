@@ -2,7 +2,7 @@ import pytest
 
 from remote_whisper.storage.documents import SummaryMeta, TranscriptMeta, WhisperUsed, write_doc
 from remote_whisper.storage.projects import SessionEntry
-from remote_whisper.storage.sessions import parse_transcript_lines, pick_latest
+from remote_whisper.storage.session_reader import parse_transcript_lines, pick_latest
 
 TS = "2026-10-09T{}+09:00".format
 SID = "20261009-143012"

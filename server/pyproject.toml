@@ -83,7 +83,7 @@ select = ["E", "F", "I", "UP", "B"]
 [tool.ruff.lint.per-file-ignores]
 # helpers の fixture を import して使うため
 "tests/summary/test_final_summary.py" = ["F811"]
-"tests/transcript/test_final_transcriber.py" = ["F811"]
+"tests/transcript/test_transcriber.py" = ["F811"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

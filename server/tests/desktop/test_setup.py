@@ -757,7 +757,7 @@ def test_final_worker_reads_audio_without_the_ffmpeg_command(tmp_path, monkeypat
 
     import numpy as np
 
-    from remote_whisper.transcript.final_transcribe_steps import load_audio
+    from remote_whisper.transcript.worker_steps import load_audio
 
     # PATH に ffmpeg がなくても読める
     monkeypatch.setenv("PATH", str(tmp_path))

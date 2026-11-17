@@ -14,6 +14,7 @@ import logging
 import os
 from pathlib import Path
 
+from remote_whisper.storage.atomic_write import atomic_write_text
 from remote_whisper.storage.documents import (
     FINAL_TRANSCRIPT_RE,
     RECORDING_RE,
@@ -24,7 +25,6 @@ from remote_whisper.storage.documents import (
     parse,
     transcript_name,
 )
-from remote_whisper.storage.fsutil import atomic_write_text
 from remote_whisper.storage.projects import (
     ContextSetEntry,
     ProjectError,

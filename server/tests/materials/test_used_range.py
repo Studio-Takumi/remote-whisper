@@ -11,9 +11,9 @@ from helpers.recorder import receive_until
 from helpers.uploads import upload, wait_done, write_audio
 
 from remote_whisper.app import create_app
-from remote_whisper.materials import material_range
-from remote_whisper.materials.material_range import excerpt, normalize_ranges
-from remote_whisper.materials.material_toc import MaterialToc, TocEntry, build_toc, range_text
+from remote_whisper.materials import used_range
+from remote_whisper.materials.toc import MaterialToc, TocEntry, build_toc, range_text
+from remote_whisper.materials.used_range import excerpt, normalize_ranges
 from remote_whisper.recording.live_transcriber import load_hotwords
 from remote_whisper.storage.documents import (
     ContextMeta,
@@ -123,7 +123,7 @@ def _material(root, chapters=CHAPTERS):
 def setup(client, tmp_path, fake_ollama, monkeypatch):
     """大きい資料（10 章）の参考資料セットを選んだプロジェクト"""
     # テストの文字起こし（偽の Whisper）は短いので、判断する下限をなくす
-    monkeypatch.setattr(material_range, "MIN_EXCERPT_CHARS", 0)
+    monkeypatch.setattr(used_range, "MIN_EXCERPT_CHARS", 0)
     root = tmp_path / "work"
     (root / "meetings").mkdir(parents=True)
     client.patch("/api/settings", json={"materials": {"roots": [str(root)]}})

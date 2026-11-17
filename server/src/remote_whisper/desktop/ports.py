@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import IO, Any
 
 from remote_whisper.cloud.tunnel import TUNNEL_PORT
-from remote_whisper.storage.fsutil import atomic_write_json
+from remote_whisper.storage.atomic_write import atomic_write_json
 
 log = logging.getLogger("remote_whisper")
 

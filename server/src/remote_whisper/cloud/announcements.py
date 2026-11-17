@@ -22,7 +22,7 @@ from typing import Any
 import httpx
 
 from remote_whisper.cloud.credentials import load_credentials
-from remote_whisper.storage.fsutil import atomic_write_json
+from remote_whisper.storage.atomic_write import atomic_write_json
 
 log = logging.getLogger(__name__)
 

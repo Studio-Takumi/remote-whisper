@@ -93,7 +93,7 @@ def _convert_right_away(monkeypatch):
     録音を終えてすぐの録音ファイルを確かめるテストのため。続きを確かめるテストは、録音マネージャの
     continue_window を自分で決める"""
     monkeypatch.setattr(
-        "remote_whisper.recording.recorder.RecordingManager.default_continue_window", 0.0
+        "remote_whisper.recording.manager.RecordingManager.default_continue_window", 0.0
     )
 
 

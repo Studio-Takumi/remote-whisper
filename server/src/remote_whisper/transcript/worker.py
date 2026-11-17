@@ -1,6 +1,6 @@
 """最終の文字起こしの子プロセス（#121）
 
-`python -m remote_whisper.transcript.final_transcribe_worker` で動かす。
+`python -m remote_whisper.transcript.worker` で動かす。
 
 録音を終えたあと、保存した録音全体を WhisperX で起こし直す。
 faster-whisper でまとめて文字起こし → wav2vec2 で単語の時刻 → pyannote で話者分け、の順に
@@ -33,10 +33,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from remote_whisper.transcript import final_transcribe_steps as steps
-from remote_whisper.transcript.final_transcribe_multi import run_multi
+from remote_whisper.transcript import worker_steps as steps
+from remote_whisper.transcript.worker_multi import run_multi
 
-log = logging.getLogger("remote_whisper.transcript.final_transcribe_worker")
+log = logging.getLogger("remote_whisper.transcript.worker")
 
 EXIT_NOT_INSTALLED = 3
 

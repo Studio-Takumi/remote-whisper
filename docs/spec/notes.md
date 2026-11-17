@@ -99,7 +99,7 @@
 
 | モジュール | 置くもの |
 |---|---|
-| `recorder.py` | `RecordingManager`（開始・続き・再開・最終の要約を積む）と、録音を終えた WAV の mp3 への変換 |
+| `manager.py` | `RecordingManager`（開始・続き・再開・最終の要約を積む）と、録音を終えた WAV の mp3 への変換 |
 | `session.py` | `RecordingSession`。主の音源の受け取り・一時停止・切断と再開・録音の終わり |
 | `wav_appender.py` | 録音の WAV への追記（書くたびにヘッダーを直す） |
 | `session_live.py` | 録音中の文字起こし・途中の要約・用語拾いの起動と、確定した区間の受け渡し |
@@ -153,15 +153,30 @@
 | `cloud/credentials.py` | Ed25519 の鍵・署名（`canonical_string`）・`cloud.json` の読み書き |
 | `storage/owner_only.py` | 本人だけが読めるファイルの書き込み（`write_owner_only`） |
 | `cloud/errors.py` | `CloudError`・`RegistrationGone`・`CloudRefused` |
-- 浄書と最終要約の長い関数を段階ごとに分けた（#390）。出力（保存するファイル・送るメッセージ・子プロセスの入口と標準出力）は分ける前と同じ。依存は一方向（子プロセスは `final_transcribe_worker` → `final_transcribe_multi` → `final_transcribe_steps`、worker も steps を読む。親の `final_transcriber` は steps の進み具合の行と worker の終了コードを読む）
+- 浄書と最終要約の長い関数を段階ごとに分けた（#390）。出力（保存するファイル・送るメッセージ・子プロセスの入口と標準出力）は分ける前と同じ。依存は一方向（子プロセスは `worker` → `worker_multi` → `worker_steps`、worker も steps を読む。親の `transcriber` は steps の進み具合の行と worker の終了コードを読む）
 
 | モジュール | 置くもの |
 |---|---|
-| `transcript/final_transcribe_worker.py` | 浄書の子プロセスの入口（`python -m`）・終了コード・1 音源の `run` |
-| `transcript/final_transcribe_steps.py` | 進み具合の行（`Progress`・`parse_progress`）と WhisperX の段階（`begin`・`run_steps`・`load_audio`） |
-| `transcript/final_transcribe_multi.py` | 子プロセスの複数の音源（時刻合わせ・`merge_segments`・`hint_conflicts`・`run_multi`） |
-| `transcript/final_transcriber.py` | `FinalTranscriber`（GPU キュー・録音での中断・子プロセスの起動と結果の読み込み） |
-| `transcript/final_transcript_job.py` | 子に渡す指示（`build_job`）と打ち切るまでの時間（`worker_timeout`）、用語リスト |
-| `transcript/final_transcript_save.py` | 子の結果を文ごとの行にして保存する（`render_result`・`save_result`） |
+| `transcript/worker.py` | 浄書の子プロセスの入口（`python -m`）・終了コード・1 音源の `run` |
+| `transcript/worker_steps.py` | 進み具合の行（`Progress`・`parse_progress`）と WhisperX の段階（`begin`・`run_steps`・`load_audio`） |
+| `transcript/worker_multi.py` | 子プロセスの複数の音源（時刻合わせ・`merge_segments`・`hint_conflicts`・`run_multi`） |
+| `transcript/transcriber.py` | `FinalTranscriber`（GPU キュー・録音での中断・子プロセスの起動と結果の読み込み） |
+| `transcript/worker_job.py` | 子に渡す指示（`build_job`）と打ち切るまでの時間（`worker_timeout`）、用語リスト |
+| `transcript/result_save.py` | 子の結果を文ごとの行にして保存する（`render_result`・`save_result`） |
 | `summary/final_summary.py` | `FinalSummarizer`（読み込み・モデル・タイトル・保存の流れ） |
 | `summary/final_summary_body.py` | `SummaryBody`（一度に・部分ごと・まとめ・概要・参考資料のページ）、`Density` |
+- モジュールの名前を役割に合わせて付け直した（#389）。名前だけで、中身・クラス名・関数名は同じ。ログの名前（`getLogger(__name__)`）はモジュールの名前に従って変わる。浄書の子プロセスは `python -m remote_whisper.transcript.worker`
+- 子プロセスで動く：`worker`・`worker_steps`・`worker_multi`・`multisource`／親で動く：`transcriber`・`worker_job`・`result_save`・`lines`（すべて `transcript/`）
+
+| 今の名前 | 役割 |
+|---|---|
+| `transcript/transcriber.py`（`FinalTranscriber`） | 親。子プロセスを起こして結果を読む |
+| `transcript/worker.py`・`worker_steps.py`・`worker_multi.py`・`worker_job.py` | 子プロセスの入口・段階・複数の音源・親から渡す指示 |
+| `transcript/result_save.py` | 子の結果の保存 |
+| `transcript/lines.py` | WhisperX の結果を文ごとの行にする |
+| `materials/figures.py`・`pages.py`・`toc.py`・`used_range.py` | 図・ページ・目次・今回扱った範囲（`materials/` の中なので `material_` を外した） |
+| `recording/manager.py` | `RecordingManager`（`recorder.py` から） |
+| `recording/errors.py` | `RecordingError`・`check_continuable`（`recording.py` から） |
+| `storage/session_reader.py` | セッションのファイルを読む（`session_writer.py` と対にした。`sessions.py` から） |
+| `storage/path_guard.py` | ルートの中に限るパスの確かめ（`fsaccess.py` から） |
+| `storage/atomic_write.py` | 一時ファイルに書いてから rename する（`fsutil.py` から） |

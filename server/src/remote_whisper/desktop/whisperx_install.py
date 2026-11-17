@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from remote_whisper.desktop.setup_error import SetupError
-from remote_whisper.storage.fsutil import atomic_write_json, atomic_write_text
+from remote_whisper.storage.atomic_write import atomic_write_json, atomic_write_text
 
 log = logging.getLogger(__name__)
 

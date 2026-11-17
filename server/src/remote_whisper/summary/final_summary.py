@@ -31,10 +31,10 @@ from typing import Any
 from remote_whisper.gpu.gpu_queue import report_progress
 from remote_whisper.llm.llm import LlmClient, LlmUnavailable, backend_of
 from remote_whisper.llm.ollama import ollama_error
-from remote_whisper.materials.material_pages import Page, load_pages
+from remote_whisper.materials.pages import Page, load_pages
 from remote_whisper.settings import FinalModels, SettingsStore
+from remote_whisper.storage.session_reader import summary_body
 from remote_whisper.storage.session_writer import SessionWriter
-from remote_whisper.storage.sessions import summary_body
 from remote_whisper.storage.timeutil import now
 from remote_whisper.summary.final_summary_body import Density, SummaryBody, needs_overview
 from remote_whisper.summary.live_summary import load_context

@@ -25,8 +25,8 @@ from remote_whisper.materials.context_sets import (
     join_materials,
     limit_hotwords,
 )
-from remote_whisper.materials.material_toc import MaterialRange, MaterialToc, range_text
 from remote_whisper.materials.materials import ExtractError, extract_text
+from remote_whisper.materials.toc import MaterialRange, MaterialToc, range_text
 from remote_whisper.settings import SettingsStore
 from remote_whisper.storage.documents import (
     ContextMeta,

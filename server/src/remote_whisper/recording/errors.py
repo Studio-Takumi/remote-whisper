@@ -1,4 +1,4 @@
-"""録音まわりで共通に使うもの"""
+"""録音のエラー（RecordingError）と、続きを録音できるかの判定"""
 
 from datetime import datetime
 

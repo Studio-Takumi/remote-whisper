@@ -2,8 +2,8 @@ import importlib.util
 
 import pytest
 
-from remote_whisper.transcript import final_transcript
-from remote_whisper.transcript.final_transcript import Sentence, render, sentences
+from remote_whisper.transcript import lines
+from remote_whisper.transcript.lines import Sentence, render, sentences
 
 # 形態素解析はサーバーの extra `final` に入っている。なければ、それを使うテストは飛ばす
 needs_morphology = pytest.mark.skipif(
@@ -41,7 +41,7 @@ def texts(items):
 
 @pytest.fixture
 def no_morphology(monkeypatch):
-    monkeypatch.setattr(final_transcript, "_morphology", lambda text: None)
+    monkeypatch.setattr(lines, "_morphology", lambda text: None)
 
 
 def test_splits_at_sentence_ends():
@@ -207,10 +207,10 @@ def test_a_turn_in_the_middle_of_a_sentence_splits_it():
 
 def test_word_speakers_fills_the_gaps_from_the_neighbours():
     words = chars("あいうえ", 0.0, step=1.0)
-    turns = [final_transcript._Turn(1.0, 2.0, "A"), final_transcript._Turn(3.0, 4.0, "B")]
+    turns = [lines._Turn(1.0, 2.0, "A"), lines._Turn(3.0, 4.0, "B")]
     # 1 文字ずつを語とみなす（形態素解析なし）
-    tokens = final_transcript._tokens(words, [1, 2, 3, 4], None)
-    assert final_transcript.word_speakers(words, tokens, turns) == ["A", "A", "A", "B"]
+    tokens = lines._tokens(words, [1, 2, 3, 4], None)
+    assert lines.word_speakers(words, tokens, turns) == ["A", "A", "A", "B"]
 
 
 def test_no_speaker_when_no_word_overlaps_the_turns():
@@ -221,7 +221,7 @@ def test_no_speaker_when_no_word_overlaps_the_turns():
 
 def test_speakers_without_morphology(monkeypatch):
     # 形態素解析がなければ 1 文字ずつを語とみなして、話者を付ける
-    monkeypatch.setattr(final_transcript, "_morphology", lambda text: None)
+    monkeypatch.setattr(lines, "_morphology", lambda text: None)
     words = chars("あいうえお", 0.0, step=0.5) + chars("かきくけこ", 2.5, step=0.5)
     turns = [turn(0.0, 2.5, "A"), turn(2.5, 5.0, "B")]
     assert texts(sentences([seg(words)], turns)) == [
@@ -240,14 +240,14 @@ def test_a_short_fragment_between_the_same_speaker_wins_over_the_edge_rule():
 
 def test_a_sentence_of_two_short_fragments_takes_the_longer_speaker(monkeypatch):
     # 短い断片 2 つだけの文は、長く話した方の話者にする
-    monkeypatch.setattr(final_transcript, "_morphology", lambda text: None)
+    monkeypatch.setattr(lines, "_morphology", lambda text: None)
     words = chars("はい", 0.0, step=0.4) + chars("え", 0.8, step=0.2)
     turns = [turn(0.0, 0.8, "A"), turn(0.8, 1.0, "B")]
     assert texts(sentences([seg(words)], turns)) == [(0.0, "はいえ", "A")]
 
 
 def test_smoothing_stops_on_alternating_fragments(monkeypatch):
-    monkeypatch.setattr(final_transcript, "_morphology", lambda text: None)
+    monkeypatch.setattr(lines, "_morphology", lambda text: None)
     words = chars("あいうえおかきくけこさしすせそ", 0.0, step=0.3)
     turns = [turn(i * 0.3, (i + 1) * 0.3, "A" if i % 2 else "B") for i in range(15)]
     items = sentences([seg(words)], turns)

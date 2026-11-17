@@ -10,7 +10,7 @@ from remote_whisper.gpu import openvino_whisper
 from remote_whisper.gpu.whisper_worker import ModelSpec, WhisperWorker, _transcribe
 from remote_whisper.hub import Hub
 from remote_whisper.settings import SettingsStore
-from remote_whisper.transcript import final_transcribe_steps
+from remote_whisper.transcript import worker_steps
 
 SR = 16000
 
@@ -321,7 +321,7 @@ def test_worker_child_loads_openvino_for_an_openvino_spec(monkeypatch):
     assert conn.sent == [("ok", None), ("ok", [{"text": "pipe"}])]
 
 
-# --- 浄書（final_transcribe_worker） ---
+# --- 浄書（transcript.worker） ---
 
 
 def test_final_worker_transcribes_with_openvino(monkeypatch):
@@ -341,7 +341,7 @@ def test_final_worker_transcribes_with_openvino(monkeypatch):
         "openvino": {"device": "GPU.1", "model": "OpenVINO/whisper-large-v3-turbo-fp16-ov"},
     }
     whisperx = types.SimpleNamespace(load_model=lambda *a, **k: pytest.fail("WhisperX で起こした"))
-    model = final_transcribe_steps._load_asr(job, whisperx, "cpu", "int8")
+    model = worker_steps._load_asr(job, whisperx, "cpu", "int8")
     progress = []
     result = model.transcribe(
         np.zeros(SR), batch_size=8, language="ja", progress_callback=progress.append
@@ -365,7 +365,7 @@ def test_final_worker_uses_whisperx_without_openvino():
 
     whisperx = types.SimpleNamespace(load_model=load_model)
     job = {"model": "large-v3-turbo", "language": "ja", "hotwords": "用語A"}
-    model = final_transcribe_steps._load_asr(job, whisperx, "cuda", "float16")
+    model = worker_steps._load_asr(job, whisperx, "cuda", "float16")
     assert model == "whisperx-model"
     assert seen == {
         "model": "large-v3-turbo",

@@ -11,7 +11,7 @@ from remote_whisper.storage.documents import (
     TranscriptMeta,
     write_doc,
 )
-from remote_whisper.storage.fsaccess import is_within, real_path
+from remote_whisper.storage.path_guard import is_within, real_path
 from remote_whisper.storage.projects import (
     ContextSetEntry,
     ProjectError,

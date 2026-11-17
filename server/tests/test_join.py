@@ -340,14 +340,14 @@ def test_line_sources_are_recovered_at_startup(client, project):
 
 def test_leftover_source_wavs_are_converted_at_startup(client, project, monkeypatch):
     # 変換に失敗して WAV が残った（サーバーが落ちたときも同じ）。次の起動時に音源ごとに変換する
-    from remote_whisper.recording import recorder, recovery
+    from remote_whisper.recording import manager, recovery
 
     def fail(*args):
         raise RuntimeError("変換しない（テスト用）")
 
     pid, d = project
-    original = recorder.convert_wav
-    monkeypatch.setattr(recorder, "convert_wav", fail)
+    original = manager.convert_wav
+    monkeypatch.setattr(manager, "convert_wav", fail)
     with client.websocket_connect("/ws") as rec, client.websocket_connect("/ws") as a:
         rec.receive_json()
         a.receive_json()
@@ -366,7 +366,7 @@ def test_leftover_source_wavs_are_converted_at_startup(client, project, monkeypa
     client.portal.call(session.wait_converted)
     wait_for(lambda: sid not in client.app.state.ctx.hub.status.summarizing)
     assert (d / ".tmp" / sid / "audio-2.wav").is_file()
-    monkeypatch.setattr(recorder, "convert_wav", original)
+    monkeypatch.setattr(manager, "convert_wav", original)
 
     store = client.app.state.ctx.projects
     recovery.fix_leftovers(store, recovery.find_leftovers(store))

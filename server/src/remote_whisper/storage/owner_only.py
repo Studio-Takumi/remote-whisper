@@ -7,7 +7,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from remote_whisper.storage.fsutil import atomic_write_text
+from remote_whisper.storage.atomic_write import atomic_write_text
 
 
 class OwnerOnlyError(OSError):

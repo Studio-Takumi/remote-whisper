@@ -31,8 +31,8 @@ from remote_whisper.recording.live_transcriber import load_hotwords
 from remote_whisper.settings import SettingsStore
 from remote_whisper.storage.documents import SourceInfo, parse, recording_name, transcript_name
 from remote_whisper.storage.projects import ProjectStore
+from remote_whisper.storage.session_reader import summary_source
 from remote_whisper.storage.session_writer import SessionWriter
-from remote_whisper.storage.sessions import summary_source
 from remote_whisper.storage.timeutil import make_id, now
 from remote_whisper.transcript.term_picker import combine_hotwords
 

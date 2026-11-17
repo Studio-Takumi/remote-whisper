@@ -11,7 +11,7 @@ from typing import Any
 
 from remote_whisper.gpu.gpu_queue import report_progress
 from remote_whisper.llm.llm import LlmClient
-from remote_whisper.materials.material_pages import Page, annotate_detail
+from remote_whisper.materials.pages import Page, annotate_detail
 from remote_whisper.settings import FinalModels
 from remote_whisper.summary.prompts import (
     DEFAULT_DENSITY,
