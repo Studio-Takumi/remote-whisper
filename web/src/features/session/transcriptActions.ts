@@ -5,7 +5,7 @@ import { type CorrectionsJson, type TermsJson, api } from '@/api/api';
 import { isDemo } from '@/api/data';
 import type { ActionContext } from '@/app/actionContext';
 import { runMutation } from '@/app/query';
-import { type Correction, applyCorrectionLocally } from '@/features/session/corrections';
+import { type Correction, applyCorrectionLocally, revertCorrection } from '@/features/session/corrections';
 
 export async function rejectTerm(ctx: ActionContext, sessionId: string, term: string) {
     const projectId = ctx.sessions.projectIdOf(sessionId);
@@ -96,7 +96,8 @@ export async function addCorrection(ctx: ActionContext, sessionId: string, corre
             onMutate: () => {
                 const before = ctx.sessions.findSession(sessionId);
                 ctx.sessions.patchSession(sessionId, (x) => applyCorrectionLocally(x, correction));
-                return before;
+                const applied = ctx.sessions.findSession(sessionId);
+                return before && applied ? { before, applied } : undefined;
             },
             mutationFn: async () =>
                 isDemo
@@ -111,19 +112,14 @@ export async function addCorrection(ctx: ActionContext, sessionId: string, corre
                     await ctx.sessions.refreshTranscripts(sessionId);
                 }
             },
-            // 戻す。待っている間に届いた行（録音中）は残す
-            onError: (e, _v, before) => {
+            // 戻す。置き換えた行のうち、待っている間にほかで変わっていないものだけを戻す（届いた行・ほかで変わった行は残す）
+            onError: (e, _v, change) => {
                 toast.error(`置き換えられません: ${e.message}`);
-                if (before) {
+                if (change) {
                     ctx.sessions.patchSession(sessionId, (x) => ({
-                        ...x,
-                        transcript: [...before.transcript, ...x.transcript.slice(before.transcript.length)],
-                        finalTranscript:
-                            x.finalTranscript?.generationId === before.finalTranscript?.generationId
-                                ? before.finalTranscript
-                                : x.finalTranscript,
-                        manualTerms: before.manualTerms,
-                        corrections: before.corrections,
+                        ...revertCorrection(x, change.before, change.applied),
+                        manualTerms: change.before.manualTerms,
+                        corrections: change.before.corrections,
                     }));
                 }
             },

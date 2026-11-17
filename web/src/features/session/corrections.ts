@@ -126,6 +126,37 @@ export function applyCorrectionLocally<T extends CorrectableSession>(session: T,
     };
 }
 
+type Line = { time: string; text: string };
+
+// 置き換えた行（applied）のうち、今もそのままの行だけを置き換える前（before）に戻す
+function revertLines<L extends Line>(now: L[], before: Line[], applied: Line[]): L[] {
+    return now.map((line, i) =>
+        before[i] && applied[i] && applied[i].text !== before[i].text && line.text === applied[i].text
+            ? { ...line, text: before[i].text }
+            : line,
+    );
+}
+
+// 置き換え（手元で当てたもの）を戻す。待っている間に届いた行・ほかの置き換えで変わった行は、そのまま残す（#361）
+export function revertCorrection<T extends CorrectableSession>(now: T, before: T, applied: T): T {
+    const final = now.finalTranscript;
+    const sameFinal =
+        final &&
+        final.generationId === before.finalTranscript?.generationId &&
+        final.generationId === applied.finalTranscript?.generationId;
+    return {
+        ...now,
+        transcript: now.transcript && revertLines(now.transcript, before.transcript ?? [], applied.transcript ?? []),
+        finalTranscript:
+            sameFinal && before.finalTranscript && applied.finalTranscript
+                ? {
+                      ...final,
+                      lines: revertLines(final.lines, before.finalTranscript.lines, applied.finalTranscript.lines),
+                  }
+                : final,
+    };
+}
+
 // 用語の欄に出す説明（「この行だけ」のときは、どの行か）
 export function describeCorrection(c: Correction): string {
     const where = c.line

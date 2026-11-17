@@ -161,7 +161,7 @@ describe('並べ替えを続けて 2 回して、1 回目だけ失敗する', ()
 });
 
 describe('置き換えの巻き戻し', () => {
-    it.fails('待っている間にほかから書き換わった行は、戻さない', async () => {
+    it('待っている間にほかから書き換わった行は、戻さない', async () => {
         await useAppStore.getState().loadProjects();
         useAppStore.getState().selectSession('a', 's1');
         await vi.waitFor(() => expect(opened().loaded).toBe(true));
