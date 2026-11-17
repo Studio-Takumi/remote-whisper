@@ -25,9 +25,6 @@ async function setup(projects: Project[], selection: { projectId: string; sessio
     store.getState().connectServer();
 }
 
-// 待っている処理（await の続き）を進める
-const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
-
 function receive(message: ServerMessage) {
     ws.receive(message);
 }
@@ -53,8 +50,11 @@ async function reconnectAndResume(ackedSeq: number) {
     ws.reconnect();
     await vi.waitFor(() => expect(ws.log()).toContain('resume'));
     receive({ type: 'started', session: SESSION, resumed: true });
-    await settle();
-    receive({ type: 'ack', session: SESSION, seq: ackedSeq });
+    // started の処理（await の続き）が済むまで ack を送る。同じ連番の ack は何度受けても同じ
+    await vi.waitFor(() => {
+        receive({ type: 'ack', session: SESSION, seq: ackedSeq });
+        expect(ws.log().at(-1)).not.toBe('resume');
+    });
 }
 
 beforeEach(() => {
@@ -121,10 +121,31 @@ describe('録音（自分の端末）', () => {
         const done = store.getState();
         expect(done.recordingState).toBe('idle');
         expect(done.recordingSessionId).toBeNull();
-        expect(session()).toMatchObject({ status: 'done', durationSec: done.elapsed });
+        // 経過時間は送ったサンプルの数から出す（16000 + 4000 + 8000 + 2000 = 1.875 秒）
+        expect(done.elapsed).toBe(1);
+        expect(session()).toMatchObject({ status: 'done', durationSec: 1 });
         expect(session()?.endedAt).toBeTruthy();
         expect(done.generating?.sessionId).toBe(SESSION);
         expect(mic.closed).toBe(1);
+    });
+
+    it('録音中の terms・途中の要約を出し、録音を終えたあとの途中の要約は出さない', async () => {
+        await startRecording();
+        receive({ type: 'terms', session: SESSION, terms: ['Whisper'], rejected: [] });
+        expect(session()).toMatchObject({ pickedTerms: ['Whisper'] });
+
+        receive({ type: 'summary.delta', session: SESSION, kind: 'live', text: '断片' });
+        expect(store.getState().liveDraft).toBeNull();
+        receive({ type: 'summary.delta', session: SESSION, kind: 'live', text: 'まとめ', replace: true });
+        receive({ type: 'summary.delta', session: SESSION, kind: 'live', text: 'の続き' });
+        expect(store.getState().liveDraft).toEqual({ sessionId: SESSION, text: 'まとめの続き' });
+        receive({ type: 'summary.done', session: SESSION, kind: 'live' });
+        expect(store.getState().liveDraft).toBeNull();
+        expect(session()?.liveSummary).toBe('まとめの続き');
+
+        await store.getState().stopRecording();
+        receive({ type: 'summary.delta', session: SESSION, kind: 'live', text: '遅れた要約', replace: true });
+        expect(store.getState().liveDraft).toBeNull();
     });
 
     it('録音中に切れる → つながり直して resume → 届かなかった音声を送り直す', async () => {
@@ -277,6 +298,22 @@ describe('ほかの端末の録音を見る（watch）', () => {
         receive({ type: 'partial', session: 'other', segment: 0, committed: 'ほ', tentative: 'か' });
         expect(store.getState().partials).toHaveLength(0);
         expect(session(WATCHED)?.transcript).toEqual([]);
+    });
+
+    it('watching が idle なら見るのをやめ、そのあとの final は出さない', async () => {
+        await startWatching();
+        receive({ type: 'watching', session: WATCHED, state: 'recording', transcript: [] });
+        receive({ type: 'watching', session: WATCHED, state: 'idle' });
+        expect(store.getState().watching).toBeNull();
+        receive({ type: 'final', session: WATCHED, segment: 0, start: 0, end: 1, text: '届かない' });
+        expect(session(WATCHED)?.transcript).toEqual([]);
+    });
+
+    it('title が届いたら、仮のタイトルとして出す', async () => {
+        await startWatching();
+        receive({ type: 'watching', session: WATCHED, state: 'recording', transcript: [] });
+        receive({ type: 'title', session: WATCHED, title: '線形代数の講義', provisional: true });
+        expect(session(WATCHED)).toMatchObject({ title: '線形代数の講義', provisionalTitle: true });
     });
 
     it('つながり直したら watch を送り直す', async () => {
