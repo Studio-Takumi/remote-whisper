@@ -19,6 +19,7 @@ import type { Settings } from '@/features/settings/settings';
 import {
     type LmStudioSettings,
     type UpdateSection,
+    cleanForSave,
     defaultLmStudio,
     keepLocked,
 } from '@/features/settings/settingsDraft';
@@ -55,20 +56,6 @@ export function SettingsForm({
     // LM Studio の設定（古いサーバーにはないので、既定値に重ねる）
     function updateLmStudio(patch: Partial<LmStudioSettings>) {
         setDraft((d) => ({ ...d, lmstudio: { ...defaultLmStudio, ...d.lmstudio, ...patch } }));
-    }
-
-    function save() {
-        // 拡張子は入力途中の空要素を落とし、先頭の . をそろえてから保存する
-        const extensions = draft.materials.extensions
-            .map((e) => e.trim())
-            .filter((e) => e !== '')
-            .map((e) => (e.startsWith('.') ? e : `.${e}`));
-        const roots = draft.materials.roots.map((r) => r.trim()).filter((r) => r !== '');
-        // 開ける名前も、入力途中の空要素を落とす（#249）。古いサーバー（network がない）には送らない
-        const network = draft.network && {
-            allowedHosts: draft.network.allowedHosts.map((h) => h.trim()).filter((h) => h !== ''),
-        };
-        onSave({ ...draft, materials: { ...draft.materials, roots, extensions }, ...(network && { network }) });
     }
 
     return (
@@ -135,7 +122,7 @@ export function SettingsForm({
                 <DialogClose asChild>
                     <Button variant='outline'>キャンセル</Button>
                 </DialogClose>
-                <Button onClick={save}>保存</Button>
+                <Button onClick={() => onSave(cleanForSave(draft))}>保存</Button>
             </DialogFooter>
         </>
     );

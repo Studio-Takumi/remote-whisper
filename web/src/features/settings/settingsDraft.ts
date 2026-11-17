@@ -21,3 +21,17 @@ export function keepLocked(draft: Settings, current: Settings): Settings {
         recording: { ...draft.recording, noiseSuppression, autoGainControl, echoCancellation },
     };
 }
+
+// 保存する前に、入力途中の空要素を落とす。拡張子は先頭の . をそろえる。
+// 開ける名前（#249）は、古いサーバー（network がない）には送らない
+export function cleanForSave(draft: Settings): Settings {
+    const extensions = draft.materials.extensions
+        .map((e) => e.trim())
+        .filter((e) => e !== '')
+        .map((e) => (e.startsWith('.') ? e : `.${e}`));
+    const roots = draft.materials.roots.map((r) => r.trim()).filter((r) => r !== '');
+    const network = draft.network && {
+        allowedHosts: draft.network.allowedHosts.map((h) => h.trim()).filter((h) => h !== ''),
+    };
+    return { ...draft, materials: { ...draft.materials, roots, extensions }, ...(network && { network }) };
+}
