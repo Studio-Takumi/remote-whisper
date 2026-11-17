@@ -163,7 +163,7 @@ def _load_asr(job: dict[str, Any], whisperx: Any, device: str, compute_type: str
     )
 
 
-def _segments_json(segments: list[dict[str, Any]], source: int | None = None) -> list[dict]:
+def segments_json(segments: list[dict[str, Any]], source: int | None = None) -> list[dict]:
     out = []
     for s in segments:
         item = {
@@ -203,7 +203,7 @@ def _percent(progress: Progress, index: int, count: int) -> Callable[[float], No
 
 
 @dataclass
-class _Worker:
+class Worker:
     """読み込んだ torch・WhisperX と、指示から決まる実行の条件"""
 
     job: dict[str, Any]
@@ -215,7 +215,7 @@ class _Worker:
     language: str
 
 
-def _begin(job: dict[str, Any]) -> _Worker:
+def begin(job: dict[str, Any]) -> Worker:
     """モデルの読み込みの段階を出し始めて、torch と WhisperX を読み込む"""
     progress = Progress(bool(job.get("diarize")))
     progress.start("load")
@@ -227,10 +227,10 @@ def _begin(job: dict[str, Any]) -> _Worker:
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     compute_type = job.get("computeType", "float16") if device == "cuda" else "int8"
-    return _Worker(job, progress, torch, whisperx, device, compute_type, job.get("language", "ja"))
+    return Worker(job, progress, torch, whisperx, device, compute_type, job.get("language", "ja"))
 
 
-def _transcribe(w: _Worker, audios: list[Any]) -> list[dict[str, Any]]:
+def _transcribe(w: Worker, audios: list[Any]) -> list[dict[str, Any]]:
     """音源ごとに文字起こしする。使い終わったモデルは下ろす"""
     t = time.monotonic()
     model = _load_asr(w.job, w.whisperx, w.device, w.compute_type)
@@ -256,7 +256,7 @@ def _transcribe(w: _Worker, audios: list[Any]) -> list[dict[str, Any]]:
 
 
 def _align(
-    w: _Worker, results: list[dict[str, Any]], audios: list[Any]
+    w: Worker, results: list[dict[str, Any]], audios: list[Any]
 ) -> tuple[list[dict[str, Any]], str | None]:
     """音源ごとに単語の時刻を合わせる。位置合わせのモデルの名前も返す"""
     t = time.monotonic()
@@ -282,7 +282,7 @@ def _align(
 
 
 def _diarize(
-    w: _Worker, audio: Any, results: list[dict[str, Any]]
+    w: Worker, audio: Any, results: list[dict[str, Any]]
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """話者分けを 1 回して、各結果の単語に話者を付ける。使えなければ飛ばす"""
     t = time.monotonic()
@@ -310,8 +310,8 @@ def _diarize(
     return results, state
 
 
-def _pipeline(
-    w: _Worker, audios: list[Any], joined: Any
+def run_steps(
+    w: Worker, audios: list[Any], joined: Any
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """文字起こし → 位置合わせ → 話者分け（するときだけ。joined の 1 本で）
 
@@ -323,117 +323,16 @@ def _pipeline(
     return results, {**state, "alignModel": align_name, "device": w.device}
 
 
-def _align_sources(sources: list[dict[str, Any]]) -> tuple[Any, list[dict[str, Any]]]:
-    """ほかの音源を主の音源の時刻に並べ直して、文字起こし用と話者分け用の音を作る"""
-    import numpy as np
-
-    from remote_whisper.transcript import multisource
-
-    t = time.monotonic()
-    main = load_audio(sources[0]["audio"])
-    aligned = [main]
-    present = [np.ones(len(main), dtype=bool)]
-    alignments: list[dict[str, Any]] = [
-        {"id": int(sources[0]["id"]), "offsetSec": 0.0, "driftPpm": 0.0, "windows": None}
-    ]
-    for s in sources[1:]:
-        other = load_audio(s["audio"])
-        a = multisource.align(main, other, float(s.get("roughOffsetSec") or 0.0))
-        aligned.append(multisource.to_main_time(other, a, len(main)))
-        mark = multisource.to_main_time(np.ones(len(other), dtype=np.float32), a, len(main))
-        present.append(mark > 0.5)
-        alignments.append(_alignment_json(int(s["id"]), a))
-        log.info(
-            "source %s: offset %.3fs, drift %.1fppm (%d windows)",
-            s["id"],
-            a.offset_sec,
-            a.drift_ppm,
-            a.windows,
-        )
-        del other
-    prepared = multisource.prepare(aligned, present)
-    del aligned, present
-    log.info("prepared %d sources in %.0fs", len(sources), time.monotonic() - t)
-    return prepared, alignments
-
-
-def _alignment_json(source: int, a: Any) -> dict[str, Any]:
-    return {
-        "id": source,
-        "offsetSec": round(a.offset_sec, 3),
-        "driftPpm": round(a.drift_ppm, 1),
-        "windows": a.windows,
-    }
-
-
-def merge_segments(ids: list[int], results: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """音源ごとの結果を、音源の ID を付けて始まりの時刻の順に並べる"""
-    segments: list[dict[str, Any]] = []
-    for source, r in zip(ids, results, strict=True):
-        segments += _segments_json(r["segments"], source)
-    segments.sort(key=lambda s: s["start"] if s["start"] is not None else 0.0)
-    return segments
-
-
-def run_multi(job: dict[str, Any]) -> dict[str, Any]:
-    """複数の音源（#241。spec/flows.md 6.16）
-
-    音源ごとに、その音源が一番大きい区間だけを残した音を文字起こし・位置合わせし、
-    話者分けは各時点で一番大きい音源をつないだ 1 本で 1 回だけ行う。時刻は主の音源の時刻にそろえる
-    """
-    from remote_whisper.transcript import multisource
-
-    w = _begin(job)
-    ids = [int(s["id"]) for s in job["sources"]]
-    prepared, alignments = _align_sources(job["sources"])
-    results, common = _pipeline(w, prepared.gated, prepared.joined)
-    segments = merge_segments(ids, results)
-    hint = hint_conflicts(segments, prepared.choice, prepared.margin, ids)
-    if hint is not None:
-        log.info("source hint: %d of %d decisive words disagree with the speaker", *hint)
-    return {
-        "segments": segments,
-        **common,
-        "sources": alignments,
-        "dominant": multisource.runs(prepared.choice, ids),
-        "hintConflicts": hint[0] if hint is not None else None,
-    }
-
-
-def hint_conflicts(
-    segments: list[dict[str, Any]], choice: Any, margin: Any, ids: list[int]
-) -> tuple[int, int] | None:
-    """音源のヒント（spec/flows.md 6.16）: どの音源の声かがはっきりしている語のうち、
-    その話者がふだん話している音源と違う音源から出たものの数（見直しの候補）と、はっきりした語の数"""
-    from collections import Counter
-
-    from remote_whisper.transcript.multisource import DECISIVE_DB, HOP, SR
-
-    decisive: list[tuple[str, int]] = []
-    for s in segments:
-        for w in s["words"]:
-            if w.get("start") is None or not w.get("speaker"):
-                continue
-            k = int(w["start"] * SR / HOP)
-            if k >= len(choice) or margin[k] < DECISIVE_DB:
-                continue
-            decisive.append((w["speaker"], ids[int(choice[k])]))
-    if not decisive:
-        return None
-    usual = {
-        speaker: Counter(src for sp, src in decisive if sp == speaker).most_common(1)[0][0]
-        for speaker in {sp for sp, _ in decisive}
-    }
-    return sum(1 for sp, src in decisive if usual[sp] != src), len(decisive)
-
-
 def run(job: dict[str, Any]) -> dict[str, Any]:
     if len(job.get("sources") or []) > 1:
+        # 複数の音源の部分は、こちらを読み込んだあとに読む（互いに読み合うため）
+        from remote_whisper.transcript.final_transcribe_multi import run_multi
+
         return run_multi(job)
-    w = _begin(job)
+    w = begin(job)
     audio = load_audio(job["audio"])
-    results, common = _pipeline(w, [audio], audio)
-    return {"segments": _segments_json(results[0]["segments"]), **common}
+    results, common = run_steps(w, [audio], audio)
+    return {"segments": segments_json(results[0]["segments"]), **common}
 
 
 def main() -> None:

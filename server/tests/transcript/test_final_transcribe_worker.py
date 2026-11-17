@@ -8,6 +8,7 @@ from collections import namedtuple
 import numpy as np
 import pytest
 
+from remote_whisper.transcript import final_transcribe_multi as multi
 from remote_whisper.transcript import final_transcribe_worker as worker
 from remote_whisper.transcript import multisource
 
@@ -301,7 +302,7 @@ def test_merge_segments_tags_the_source_and_sorts_by_start():
         {"segments": [{"start": 2.0, "end": 3.0, "text": "後"}, {"start": None, "text": "?"}]},
         {"segments": [{"start": 1.0, "end": 1.5, "text": "先", "words": [{"word": "先"}]}]},
     ]
-    merged = worker.merge_segments([1, 7], results)
+    merged = multi.merge_segments([1, 7], results)
     assert [(s["text"], s["source"]) for s in merged] == [("?", 1), ("先", 7), ("後", 1)]
     assert merged[1]["words"] == [{"word": "先", "start": None, "end": None, "speaker": None}]
 
@@ -313,5 +314,5 @@ def test_hint_conflicts_counts_words_from_an_unusual_source():
         {"words": [word("あ", 0.1, "A"), word("い", 0.2, "A"), word("う", 1.2, "A")]},
         {"words": [word("え", 1.5, "B"), {"word": "お", "start": None, "speaker": "B"}]},
     ]
-    assert worker.hint_conflicts(segments, choice, margin, [1, 2]) == (1, 4)
-    assert worker.hint_conflicts(segments, choice, np.zeros(20), [1, 2]) is None
+    assert multi.hint_conflicts(segments, choice, margin, [1, 2]) == (1, 4)
+    assert multi.hint_conflicts(segments, choice, np.zeros(20), [1, 2]) is None
