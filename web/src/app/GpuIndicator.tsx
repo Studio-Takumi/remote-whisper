@@ -3,8 +3,7 @@ import { useState } from 'react';
 import { CpuIcon } from 'lucide-react';
 
 import { GpuJobList } from '@/app/GpuJobList';
-import type { JobSession } from '@/app/GpuJobRow';
-import { routePath } from '@/app/router';
+import { findJobSession, gpuTriggerLabel, waitingCount } from '@/app/gpuJobs';
 import { useProjectList } from '@/app/sessionHooks';
 import { useAppStore } from '@/app/store';
 import { useNow } from '@/app/useNow';
@@ -21,33 +20,12 @@ export function GpuIndicator() {
     const [open, setOpen] = useState(false);
     const now = useNow(open);
 
-    const waitingCount = jobs.waiting.reduce((n, w) => n + w.count, 0);
+    const waiting = waitingCount(jobs);
     const busy = jobs.running !== null;
     // サーバーが送った時点の秒数に、受け取ってからの時間を足す
     const since = Math.max(0, (now - jobsAt) / 1000);
-    // ジョブのセッション（ID）から、タイトルと飛び先を引く。セッションがなければ（消えた・まだ読み込んでいない）リンクにしない
-    const sessionOf = (id: string | null): JobSession | null => {
-        if (!id) {
-            return null;
-        }
-        for (const p of projects) {
-            const session = p.sessions.find((x) => x.id === id);
-            if (session) {
-                return {
-                    title: session.title,
-                    href: routePath({ kind: 'session', key: session.uuid ?? session.id }),
-                    projectId: p.id,
-                    sessionId: session.id,
-                };
-            }
-        }
-        return { title: id, href: null };
-    };
-    // 画面に出ない使用率とキュー数も、読み上げと title で分かるようにする
-    const details = [gpu ? `使用率 ${gpu.util}%` : null, waitingCount > 0 ? `待ち ${waitingCount} 件` : null].filter(
-        Boolean,
-    );
-    const triggerLabel = `GPU の状態とジョブの一覧${details.length > 0 ? `（${details.join('、')}）` : ''}`;
+    const sessionOf = (id: string | null) => findJobSession(projects, id);
+    const triggerLabel = gpuTriggerLabel(gpu, waiting);
     const openSession = (projectId: string, sessionId: string) => {
         selectSession(projectId, sessionId);
         setOpen(false);
@@ -72,16 +50,16 @@ export function GpuIndicator() {
                     <CpuIcon className='size-3.5' />
                     {/* スマホの幅では、点とアイコンだけにする（使用率とキュー数は一覧と読み上げで分かる） */}
                     <span className='hidden md:inline'>{gpu ? `${gpu.util}%` : 'GPU'}</span>
-                    {waitingCount > 0 && (
+                    {waiting > 0 && (
                         <>
                             <span className='hidden rounded-full bg-amber-500/15 px-1.5 text-amber-700 md:inline dark:text-amber-300'>
-                                待ち {waitingCount}
+                                待ち {waiting}
                             </span>
                             <span
                                 aria-hidden
                                 className='absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] leading-none font-medium text-amber-950 md:hidden'
                             >
-                                {waitingCount > 99 ? '99+' : waitingCount}
+                                {waiting > 99 ? '99+' : waiting}
                             </span>
                         </>
                     )}
