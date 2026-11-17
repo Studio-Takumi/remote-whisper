@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { ChevronDownIcon, FileTextIcon, PlusIcon } from 'lucide-react';
 
 import { type ContextSet, contextSetName } from '@/api/types';
-import { currentProject } from '@/app/selectors';
+import { useCurrentProject } from '@/app/sessionHooks';
 import { useAppStore } from '@/app/store';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -24,7 +24,7 @@ const statusLabel: Record<ContextSet['status'], string> = {
 // 参考資料セットを選ぶ。右上では モデルのボタンと同じ見た目で、押すと右から Sheet が開く
 // セットと選択はプロジェクトごとに持つ
 export function ContextSetSheet() {
-    const project = useAppStore(currentProject);
+    const project = useCurrentProject();
     const sets = useCurrentContextSets();
     const selection = useCurrentContextSelection(sets);
     const extensions = useAppStore((s) => s.settings.materials.extensions);

@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ServerMessage } from '@/api/protocol';
-import type { Project } from '@/api/types';
+import type { Project, Session } from '@/api/types';
 import type { useAppStore as Store } from '@/app/store';
 import { type FakeConnection, fakeConnection } from '@/test/fakeConnection';
 import { type FakeMicrophone, fakeMicrophone } from '@/test/fakeMicrophone';
+import { seedProjects, sessionReader } from '@/test/seedProjects';
 
 // store の録音の流れ（#378）。store を分ける（#331）前に、今の動きを固定する。
 // store は録音の状態をモジュールの変数に持つので、テストごとに読み込み直す
@@ -21,7 +22,10 @@ async function setup(projects: Project[], selection: { projectId: string; sessio
     ws = fakeConnection(connection);
     mic = fakeMicrophone(Microphone);
     ({ useAppStore: store } = await import('@/app/store'));
-    store.setState({ projects, selection, projectsLoaded: true });
+    // 一覧と中身はキャッシュに入れる（#361）
+    await seedProjects(store, projects);
+    readSession = await sessionReader(store);
+    store.setState({ selection, projectsLoaded: true });
     store.getState().connectServer();
 }
 
@@ -29,11 +33,10 @@ function receive(message: ServerMessage) {
     ws.receive(message);
 }
 
+let readSession: (id: string) => Session | undefined;
+
 function session(id = SESSION) {
-    return store
-        .getState()
-        .projects.flatMap((p) => p.sessions)
-        .find((x) => x.id === id);
+    return readSession(id);
 }
 
 // 新しいセッションの画面から録音を始め、サーバーが started を返す

@@ -1,13 +1,14 @@
 // 録音中・見ている録音に届く、セッションの中身を変えるメッセージ（partial・final・terms・途中の要約。spec/api.md 7.2）。
 // 自分の録音（subscribeRecording）と watch（receiveWatched）で同じものを使う
 import type { ServerMessage } from '@/api/protocol';
-import type { Project } from '@/api/types';
-import { updateSession } from '@/features/projects/updateSession';
+import type { Session } from '@/api/types';
 import { type LivePartial, dropPartial, upsertPartial } from '@/features/session/livePartials';
 import { formatClock } from '@/lib/time';
 
 export type LiveDraft = { sessionId: string; text: string };
-export type LiveState = { projects: Project[]; partials: LivePartial[]; liveDraft: LiveDraft | null };
+export type LiveState = { partials: LivePartial[]; liveDraft: LiveDraft | null };
+// 変わる部分。session はメッセージのセッションの書き換え（手元のセッションかキャッシュかは呼ぶ側が決める。#361）
+export type LiveChange = Partial<LiveState> & { session?: (session: Session) => Session };
 
 type Live<T extends ServerMessage['type']> = Extract<ServerMessage, { type: T }>;
 export type LiveMessage = Live<'partial' | 'final' | 'terms' | 'summary.delta' | 'summary.done'>;
@@ -42,19 +43,15 @@ function lineFrom(m: Live<'final'>) {
 }
 
 // final は区間全体の文字起こしで、partial を置き換える。text が空なら文字にならなかった区間なので、partial を消すだけ（#89）
-function applyFinal(s: LiveState, m: Live<'final'>): Partial<LiveState> {
+function applyFinal(s: LiveState, m: Live<'final'>): LiveChange {
     const line = lineFrom(m);
-    return {
-        projects: m.text
-            ? updateSession(s.projects, m.session, (x) => ({ ...x, transcript: [...x.transcript, line] }))
-            : s.projects,
-        partials: dropPartial(s.partials, m.session, m.segment),
-    };
+    const partials = dropPartial(s.partials, m.session, m.segment);
+    return m.text ? { session: (x) => ({ ...x, transcript: [...x.transcript, line] }), partials } : { partials };
 }
 
 // 途中の要約は毎回まるごと作り直される。replace（前置き・できあがった全体）は下書きを置き換える（#123）。
 // 回の始まりを受けていない続き（つながり直した直後など）は、断片だけが出ないように捨てる
-function applyDelta(s: LiveState, m: Live<'summary.delta'>): Partial<LiveState> | null {
+function applyDelta(s: LiveState, m: Live<'summary.delta'>): LiveChange | null {
     const same = s.liveDraft?.sessionId === m.session;
     if (!m.replace && !same) {
         return null;
@@ -64,19 +61,16 @@ function applyDelta(s: LiveState, m: Live<'summary.delta'>): Partial<LiveState> 
 }
 
 // 下書きをセッションに入れて消す。下書きがほかのセッションのもの（録音しながら見ているもの）なら残す
-function applyDone(s: LiveState, m: Live<'summary.done'>): Partial<LiveState> {
+function applyDone(s: LiveState, m: Live<'summary.done'>): LiveChange {
     const draft = s.liveDraft;
     if (draft?.sessionId !== m.session) {
-        return { projects: s.projects, liveDraft: draft };
+        return { liveDraft: draft };
     }
-    return {
-        projects: updateSession(s.projects, m.session, (x) => ({ ...x, liveSummary: draft.text })),
-        liveDraft: null,
-    };
+    return { session: (x) => ({ ...x, liveSummary: draft.text }), liveDraft: null };
 }
 
 // 今の状態とメッセージから、変わる部分を返す。何も変えないときは null
-export function applyLiveMessage(s: LiveState, m: LiveMessage): Partial<LiveState> | null {
+export function applyLiveMessage(s: LiveState, m: LiveMessage): LiveChange | null {
     switch (m.type) {
         case 'partial':
             return { partials: upsertPartial(s.partials, partialFrom(m)) };
@@ -85,11 +79,7 @@ export function applyLiveMessage(s: LiveState, m: LiveMessage): Partial<LiveStat
         case 'terms':
             // 録音中に拾った語が変わった（#103）
             return {
-                projects: updateSession(s.projects, m.session, (x) => ({
-                    ...x,
-                    pickedTerms: m.terms,
-                    manualTerms: m.manual ?? x.manualTerms,
-                })),
+                session: (x) => ({ ...x, pickedTerms: m.terms, manualTerms: m.manual ?? x.manualTerms }),
             };
         case 'summary.delta':
             return m.kind === 'live' ? applyDelta(s, m) : null;

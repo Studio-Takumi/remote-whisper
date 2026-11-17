@@ -3,7 +3,7 @@
 import { toast } from 'sonner';
 
 import { connection } from '@/api/connection';
-import { updateSession } from '@/features/projects/updateSession';
+import { patchLocal } from '@/features/projects/localSessions';
 import { closeRecording } from '@/features/recording/recorder';
 import type { ErrorMessage, Recorder, StartedMessage } from '@/features/recording/recorderState';
 import { formatDateTime } from '@/lib/time';
@@ -94,7 +94,7 @@ function interruptRecording(r: Recorder, sessionId: string) {
         pendingAudio: 0,
         partials: [],
         liveDraft: null,
-        projects: updateSession(s.projects, sessionId, (x) => ({
+        localSessions: patchLocal(s.localSessions, sessionId, (x) => ({
             ...x,
             status: 'interrupted',
             endedAt: formatDateTime(),

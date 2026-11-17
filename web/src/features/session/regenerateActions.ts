@@ -4,7 +4,6 @@ import { toast } from 'sonner';
 import { ApiError, api } from '@/api/api';
 import { fetchFinalTranscript, isDemo } from '@/api/data';
 import type { ActionContext } from '@/app/actionContext';
-import { updateSession } from '@/features/projects/updateSession';
 import { recordingLocks } from '@/features/recording/recording';
 import { finalModelLabel, llmModels } from '@/features/settings/settings';
 
@@ -18,17 +17,17 @@ export async function regenerateFinalTranscript(ctx: ActionContext, sessionId: s
         toast.warning(recordingLocks.regenerate);
         return;
     }
-    const project = get().projects.find((p) => p.sessions.some((x) => x.id === sessionId));
-    if (!project) {
+    const projectId = ctx.sessions.projectIdOf(sessionId);
+    if (!projectId) {
         return;
     }
     // 返事より先に結果（失敗の error）が届くこともあるので、頼む前に覚えておく
-    ctx.sessions.regeneratingTranscripts.add(sessionId);
+    ctx.sessions.expectFinalTranscript(sessionId);
     try {
         // 結果は WebSocket（finalTranscript か error）で届く。作っている間は status の transcribing に入る
-        await api.post(`/api/projects/${project.id}/sessions/${sessionId}/final-transcripts`);
+        await api.post(`/api/projects/${projectId}/sessions/${sessionId}/final-transcripts`);
     } catch (e) {
-        ctx.sessions.regeneratingTranscripts.delete(sessionId);
+        ctx.sessions.forgetFinalTranscript(sessionId);
         if (e instanceof ApiError && e.status === 409) {
             toast.error('録音中または録音を終えた直後です。少し待ってから再生成してください');
         } else if (e instanceof ApiError && e.status === 410) {
@@ -40,16 +39,13 @@ export async function regenerateFinalTranscript(ctx: ActionContext, sessionId: s
 }
 
 export async function showFinalTranscript(ctx: ActionContext, sessionId: string, generationId: string) {
-    const { getState: get, setState: set } = ctx.store;
-    const project = get().projects.find((p) => p.sessions.some((x) => x.id === sessionId));
-    if (!project) {
+    const projectId = ctx.sessions.projectIdOf(sessionId);
+    if (!projectId) {
         return;
     }
     try {
-        const finalTranscript = await fetchFinalTranscript(project.id, sessionId, generationId);
-        set((s) => ({
-            projects: updateSession(s.projects, sessionId, (x) => ({ ...x, finalTranscript })),
-        }));
+        const finalTranscript = await fetchFinalTranscript(projectId, sessionId, generationId);
+        ctx.sessions.patchSession(sessionId, (x) => ({ ...x, finalTranscript }));
     } catch (e) {
         toast.error(`文字起こしを読み込めません: ${(e as Error).message}`);
     }
@@ -65,14 +61,14 @@ export async function regenerateSummary(ctx: ActionContext, sessionId: string) {
         toast.warning(recordingLocks.regenerate);
         return;
     }
-    const project = get().projects.find((p) => p.sessions.some((x) => x.id === sessionId));
-    if (!project) {
+    const projectId = ctx.sessions.projectIdOf(sessionId);
+    if (!projectId) {
         return;
     }
-    ctx.status.finishedSummaries.delete(sessionId);
+    ctx.status.forgetFinishedSummary(sessionId);
     try {
         const reply = await api.post<{ model: string; overviewModel?: string }>(
-            `/api/projects/${project.id}/sessions/${sessionId}/summaries`,
+            `/api/projects/${projectId}/sessions/${sessionId}/summaries`,
         );
         // 全体概要と要約詳細のモデル（#178。古いサーバーは model だけ）
         const model = finalModelLabel({
@@ -80,7 +76,7 @@ export async function regenerateSummary(ctx: ActionContext, sessionId: string) {
             detail: reply.model,
             overview: reply.overviewModel ?? reply.model,
         });
-        if (ctx.status.finishedSummaries.has(sessionId)) {
+        if (ctx.status.summaryFinished(sessionId)) {
             // 返事より先に作り終えていた（「作成中」にすると、消すきっかけがもう来ない）
             void ctx.sessions.reloadAfterFinalSummary(sessionId);
             return;

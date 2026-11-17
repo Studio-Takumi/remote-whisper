@@ -3,7 +3,7 @@
 import { isDemo } from '@/api/data';
 import type { ServerMessage } from '@/api/protocol';
 import type { AppState, AppStore } from '@/app/appState';
-import type { Recorder } from '@/features/recording/recorderState';
+import { type Recorder, offlineStoppedSession } from '@/features/recording/recorderState';
 
 type StatusMessage = Extract<ServerMessage, { type: 'status' }>;
 
@@ -39,7 +39,7 @@ export class StatusReceiver {
     // 切れている間に作り終えたことが含まれる（title を取りこぼしていても、ここで気づける）
     private fresh = false;
     // summarizing から外れた（作り終えた）セッション。作り直しの返事より先に作り終えたときに使う
-    readonly finishedSummaries = new Set<string>();
+    private readonly finishedSummaries = new Set<string>();
 
     private readonly store: AppStore;
     private readonly recorder: Recorder;
@@ -49,6 +49,16 @@ export class StatusReceiver {
         this.store = store;
         this.recorder = recorder;
         this.reloadAfterFinalSummary = reloadAfterFinalSummary;
+    }
+
+    // 最終の要約の作り直しを頼む。前に作り終えた記録は消し、返事を待つ間に作り終えたかを見られるようにする
+    forgetFinishedSummary(sessionId: string) {
+        this.finishedSummaries.delete(sessionId);
+    }
+
+    // 作り直しを頼んでから、もう作り終えていたか
+    summaryFinished(sessionId: string) {
+        return this.finishedSummaries.has(sessionId);
     }
 
     // つながった。最初に届く status で、切れている間に最終の要約ができていないかを確かめる
@@ -95,7 +105,7 @@ export class StatusReceiver {
         const s = this.store.getState();
         const id = s.generating?.sessionId;
         // 作っている途中か、まだ始まっていない（録音中・切れている間に止めて、stop をまだ送っていない）
-        if (!id || now.has(id) || id === s.recordingSessionId || id === this.recorder.stoppedWhileOffline) {
+        if (!id || now.has(id) || id === s.recordingSessionId || id === offlineStoppedSession(this.recorder)) {
             return;
         }
         // 作っていたのに外れた・つながり直したらもう作っていなかった。

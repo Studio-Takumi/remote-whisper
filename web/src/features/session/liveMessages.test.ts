@@ -1,33 +1,31 @@
 import { describe, expect, it } from 'vitest';
 
-import type { Project } from '@/api/types';
-import { type LiveState, applyLiveMessage, isLiveMessage } from '@/features/session/liveMessages';
+import type { Session } from '@/api/types';
+import { type LiveChange, type LiveState, applyLiveMessage, isLiveMessage } from '@/features/session/liveMessages';
 
 const S = 'S1';
 const OTHER = 'S2';
 
 function state(over: Partial<LiveState> = {}): LiveState {
-    const projects: Project[] = [
-        {
-            id: 'p1',
-            name: 'p1',
-            path: '/p1',
-            sessions: [S, OTHER].map((id) => ({
-                id,
-                title: id,
-                startedAt: '2026-11-17 10:00',
-                status: 'recording' as const,
-                transcript: [{ time: '00:00:00', text: '前の行' }],
-                summaries: [],
-                manualTerms: ['手入力'],
-            })),
-        },
-    ];
-    return { projects, partials: [], liveDraft: null, ...over };
+    return { partials: [], liveDraft: null, ...over };
 }
 
-function sessionOf(s: Partial<LiveState> | null, id = S) {
-    return s?.projects?.flatMap((p) => p.sessions).find((x) => x.id === id);
+function base(id: string): Session {
+    return {
+        id,
+        title: id,
+        startedAt: '2026-11-17 10:00',
+        status: 'recording',
+        transcript: [{ time: '00:00:00', text: '前の行' }],
+        summaries: [],
+        manualTerms: ['手入力'],
+    };
+}
+
+// 返ってきた書き換えを当てたもの。#361 から書き換えは関数で返り、メッセージのセッションにだけ当てるのは
+// 呼ぶ側（applyLive。recordingMessages.test で確かめる）
+function sessionOf(s: LiveChange | null) {
+    return s?.session ? s.session(base(S)) : base(S);
 }
 
 describe('isLiveMessage', () => {
@@ -80,13 +78,12 @@ describe('applyLiveMessage', () => {
             { time: '00:00:00', text: '前の行' },
             { time: '00:01:05', text: '続き' },
         ]);
-        expect(sessionOf(next, OTHER)?.transcript).toHaveLength(1);
     });
 
     it('text が空の final は行にせず、partial を消すだけ', () => {
         const before = state({ partials: [{ sessionId: S, segment: 0, committed: '', tentative: 'えー' }] });
         const next = applyLiveMessage(before, { type: 'final', session: S, segment: 0, start: 0, end: 1, text: '' });
-        expect(next?.projects).toBe(before.projects);
+        expect(next?.session).toBeUndefined();
         expect(next?.partials).toEqual([]);
     });
 
@@ -155,7 +152,7 @@ describe('applyLiveMessage', () => {
     it('done はほかのセッションの下書きを使わず、そのまま残す', () => {
         const before = state({ liveDraft: { sessionId: OTHER, text: 'ほか' } });
         const next = applyLiveMessage(before, { type: 'summary.done', session: S, kind: 'live' });
-        expect(next).toEqual({ projects: before.projects, liveDraft: before.liveDraft });
+        expect(next).toEqual({ liveDraft: before.liveDraft });
     });
 
     it('最終の要約（kind: final）は扱わない', () => {

@@ -4,7 +4,7 @@ import { MicIcon, MicOffIcon, PauseIcon, PlayIcon, PlusIcon, RadioIcon, SquareIc
 import { toast } from 'sonner';
 
 import type { Session } from '@/api/types';
-import { currentProject, currentSession } from '@/app/selectors';
+import { useCurrentProject, useCurrentSession, useSessionTitle } from '@/app/sessionHooks';
 import { useAppStore } from '@/app/store';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { continueLeftSec, describeLeft } from '@/features/recording/continueWindow';
@@ -89,8 +89,10 @@ type MicTarget = { kind: 'none' } | { kind: 'new' } | { kind: 'session'; project
 export function MicButton() {
     const state = useAppStore((s) => s.recordingState);
     const elapsed = useAppStore((s) => s.elapsed);
-    const projectName = useAppStore((s) => currentProject(s)?.name);
-    const hasSession = useAppStore((s) => currentSession(s) !== undefined);
+    const projectName = useCurrentProject()?.name;
+    // 開いているセッションを、録音を終えてからしばらくは続きから録音できる（#174）
+    const session = useCurrentSession();
+    const hasSession = session !== undefined;
     const onStart = useAppStore((s) => s.startRecording);
     const onStop = useAppStore((s) => s.stopRecording);
     const onPause = useAppStore((s) => s.pauseRecording);
@@ -101,13 +103,9 @@ export function MicButton() {
     const elsewhere = useAppStore(
         (s) => s.recordingSessionId !== null && s.selection.sessionId !== s.recordingSessionId,
     );
-    const recordingTitle = useAppStore(
-        (s) => s.projects.flatMap((p) => p.sessions).find((x) => x.id === s.recordingSessionId)?.title,
-    );
+    const recordingTitle = useSessionTitle(useAppStore((s) => s.recordingSessionId));
     const onBack = useAppStore((s) => s.showRecordingSession);
     const onContinue = useAppStore((s) => s.continueRecording);
-    // 開いているセッションを、録音を終えてからしばらくは続きから録音できる（#174）
-    const session = useAppStore(currentSession);
     const windowMin = useAppStore((s) => s.settings.recording.continueWindowMin);
     const continueLeft = useContinueLeft(session, windowMin, state === 'idle');
     // 開いているセッションを、ほかの端末で録音している（#238）

@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ServerMessage } from '@/api/protocol';
-import type { Project } from '@/api/types';
+import type { Project, Session } from '@/api/types';
 import type { useAppStore as Store } from '@/app/store';
 import type { UnsentSession } from '@/features/recording/audio/unsentStore';
 import { type FakeConnection, fakeConnection } from '@/test/fakeConnection';
 import { type FakeMicrophone, fakeMicrophone } from '@/test/fakeMicrophone';
+import { seedProjects, sessionReader } from '@/test/seedProjects';
 
 // 届かなかった音声の扱い（#380）。store から録音を出す前に、今の動きを固定する
 const SESSION = '2026-11-17_10-00-00';
@@ -36,7 +37,10 @@ async function setup(projects: Project[], unsent: UnsentSession[] = []) {
     ws = fakeConnection(connection);
     mic = fakeMicrophone(Microphone);
     ({ useAppStore: store } = await import('@/app/store'));
-    store.setState({ projects, selection: { projectId: 'p1', sessionId: null }, projectsLoaded: true });
+    // 一覧と中身はキャッシュに入れる（#361）
+    await seedProjects(store, projects);
+    readSession = await sessionReader(store);
+    store.setState({ selection: { projectId: 'p1', sessionId: null }, projectsLoaded: true });
     store.getState().connectServer();
 }
 
@@ -44,11 +48,10 @@ function receive(message: ServerMessage) {
     ws.receive(message);
 }
 
+let readSession: (id: string) => Session | undefined;
+
 function session() {
-    return store
-        .getState()
-        .projects.flatMap((p) => p.sessions)
-        .find((x) => x.id === SESSION);
+    return readSession(SESSION);
 }
 
 const interrupted = {

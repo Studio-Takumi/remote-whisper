@@ -14,6 +14,7 @@ import {
 import type { ServerMessage } from '@/api/protocol';
 import type { ContextSet } from '@/api/types';
 import { queryClient, queryKeys } from '@/app/query';
+import { readProjects, readSession } from '@/app/sessionData';
 import { useAppStore } from '@/app/store';
 import { cachedContextSets } from '@/features/materials/contextSetCache';
 import { defaultSettings } from '@/features/settings/settings';
@@ -32,6 +33,9 @@ const session = (id: string, title: string): SessionJson => ({
     contextSet: null,
     files: { recording: true, transcript: true, summaries: 0, liveSummary: false },
 });
+
+// 画面に出すプロジェクトの一覧（#361 からキャッシュとストアの手元のセッションから作る）
+const shownProjects = () => readProjects(useAppStore.getState());
 
 // キャッシュにあるプロジェクトの一覧の ID
 const cachedIds = () => queryClient.getQueryData(projectsQuery.queryKey)?.map((p) => p.id);
@@ -103,7 +107,8 @@ beforeAll(() => {
 beforeEach(() => {
     queryClient.clear();
     useAppStore.setState({
-        projects: [],
+        localSessions: [],
+        loadedSessions: {},
         projectsLoaded: false,
         selection: { projectId: null, sessionId: null },
         contextSelections: {},
@@ -129,7 +134,7 @@ describe('プロジェクトの一覧', () => {
         mockServer();
         await useAppStore.getState().loadProjects();
         expect(cachedIds()).toEqual(['a', 'b']);
-        expect(useAppStore.getState().projects.map((p) => p.id)).toEqual(['a', 'b']);
+        expect(shownProjects().map((p) => p.id)).toEqual(['a', 'b']);
         expect(useAppStore.getState().projectsLoaded).toBe(true);
     });
 
@@ -145,7 +150,7 @@ describe('プロジェクトの一覧', () => {
         projects = [project('a'), project('b'), project('c')];
         await useAppStore.getState().loadProjects();
         expect(projectListCalls(get)).toBe(2);
-        expect(useAppStore.getState().projects.map((p) => p.id)).toEqual(['a', 'b', 'c']);
+        expect(shownProjects().map((p) => p.id)).toEqual(['a', 'b', 'c']);
     });
 
     it('ホストが落ちていたら、今までどおりエラーを出して前の一覧のまま', async () => {
@@ -155,7 +160,7 @@ describe('プロジェクトの一覧', () => {
         down = true;
         await useAppStore.getState().loadProjects();
         expect(error).toHaveBeenCalledWith('プロジェクトを読み込めません: ホストにつながりません');
-        expect(useAppStore.getState().projects.map((p) => p.id)).toEqual(['a', 'b']);
+        expect(shownProjects().map((p) => p.id)).toEqual(['a', 'b']);
         // 取り直しを重ねない
         expect(queryClient.getQueryState(queryKeys.projects())?.status).toBe('error');
         error.mockRestore();
@@ -170,7 +175,7 @@ describe('WebSocket の通知', () => {
         receive({ type: 'projectOrder' });
         await flush();
         expect(cachedIds()).toEqual(['b', 'a']);
-        expect(useAppStore.getState().projects.map((p) => p.id)).toEqual(['b', 'a']);
+        expect(shownProjects().map((p) => p.id)).toEqual(['b', 'a']);
         expect(projectListCalls(get)).toBe(1);
     });
 
@@ -182,7 +187,7 @@ describe('WebSocket の通知', () => {
         receive({ type: 'projectOrder' });
         await vi.waitFor(() => expect(projectListCalls(get)).toBe(2));
         await vi.waitFor(() => expect(cachedIds()).toEqual(['c', 'a', 'b']));
-        await vi.waitFor(() => expect(useAppStore.getState().projects.map((p) => p.id)).toEqual(['c', 'a', 'b']));
+        await vi.waitFor(() => expect(shownProjects().map((p) => p.id)).toEqual(['c', 'a', 'b']));
     });
 
     it('title: キャッシュのセッションの一覧のタイトルも書き換える（取り直さない）', async () => {
@@ -191,7 +196,7 @@ describe('WebSocket の通知', () => {
         await useAppStore.getState().loadProjects();
         receive({ type: 'title', session: 's1', title: '週次の定例', provisional: true });
         expect(queryClient.getQueryData(sessionsQuery('a').queryKey)?.[0].title).toBe('週次の定例');
-        expect(useAppStore.getState().projects[0].sessions[0].title).toBe('週次の定例');
+        expect(shownProjects()[0].sessions[0].title).toBe('週次の定例');
         expect(calls(get, '/api/projects/a/sessions')).toBe(1);
     });
 
@@ -229,15 +234,12 @@ describe('セッションの一覧・参考資料セットの一覧', () => {
         expect(queryClient.getQueryData(sessionsQuery('b').queryKey)?.map((x) => x.title)).toEqual(['情報理論']);
         expect(queryClient.getQueryData(contextSetsQuery('a').queryKey)).toEqual([]);
         expect(cachedContextSets('b').map((x) => x.id)).toEqual(['c1']);
-        // この 3 つは見ている部品がなくても捨てない。ほかは既定（5 分）のまま
+        // 一覧とセッションの中身（#361）は見ている部品がなくても捨てない。クエリごとに付け、全体の既定は変えない
         for (const key of [projectsQuery.queryKey, sessionsQuery('a').queryKey, contextSetsQuery('a').queryKey]) {
             expect(queryClient.getQueryCache().find({ queryKey: key, exact: true })?.gcTime).toBe(Infinity);
         }
         expect(queryClient.getDefaultOptions().queries?.gcTime).toBeUndefined();
-        expect(useAppStore.getState().projects.map((p) => p.sessions.map((x) => x.title))).toEqual([
-            ['週次の定例'],
-            ['情報理論'],
-        ]);
+        expect(shownProjects().map((p) => p.sessions.map((x) => x.title))).toEqual([['週次の定例'], ['情報理論']]);
     });
 
     it('参考資料セットの一覧を取れなければ、前の一覧のまま', async () => {
@@ -263,7 +265,7 @@ describe('セッションの一覧・参考資料セットの一覧', () => {
             .changeContextSelection({ setId: 'c1', useHotwords: true, useContext: true, pickTerms: false });
         const cached = queryClient.getQueryData(projectsQuery.queryKey)?.find((p) => p.id === 'a');
         expect(cached?.selection).toEqual({ setId: 'c1', useHotwords: true, useContext: true, pickTerms: false });
-        expect(useAppStore.getState().projects[0].selection?.setId).toBe('c1');
+        expect(shownProjects()[0].selection?.setId).toBe('c1');
         expect(useAppStore.getState().contextSelections).toEqual({});
         vi.mocked(api.patch).mockRestore();
     });
@@ -297,7 +299,7 @@ describe('文字起こし・最終の文字起こし', () => {
         };
     });
 
-    const opened = () => useAppStore.getState().projects[0].sessions[0];
+    const opened = () => readSession(useAppStore.getState(), 's1')!;
 
     async function open() {
         const get = mockServer();
@@ -329,6 +331,23 @@ describe('文字起こし・最終の文字起こし', () => {
         expect(opened().finalTranscript?.lines[0].text).toBe('新しい版');
         expect(calls(get, `${base}/final-transcripts/g1`)).toBe(1);
         expect(calls(get, `${base}/final-transcripts/g2`)).toBe(1);
+    });
+
+    it('5 分以上ほかを見てから戻っても、読み込み直さず、選んでいた世代のまま', async () => {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+        try {
+            const get = await open();
+            await useAppStore.getState().showFinalTranscript('s1', 'g1');
+            useAppStore.getState().newSession('a');
+            vi.advanceTimersByTime(6 * 60 * 1000);
+            useAppStore.getState().selectSession('a', 's1');
+            expect(opened().loaded).toBe(true);
+            expect(opened().transcript[0].text).toBe('こんにちわ');
+            expect(opened().finalTranscript?.lines[0].text).toBe('古い版');
+            expect(calls(get, `${base}/transcript`)).toBe(1);
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('corrections: 文字起こしと出している世代を取り直し、ほかの世代も次に出すときに取り直す', async () => {

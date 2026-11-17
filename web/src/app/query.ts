@@ -1,6 +1,10 @@
 // サーバーから取ったデータのキャッシュ（TanStack Query。#330）。
 // 取るのは api.request()（api.ts）のまま。画面からは useQuery で、ストアからは queryClient で使う
-import { MutationObserver, type MutationOptions, QueryClient } from '@tanstack/react-query';
+import { MutationObserver, type MutationOptions, QueryClient, notifyManager } from '@tanstack/react-query';
+
+// キャッシュの変化を、既定の setTimeout ではなくマイクロタスクで画面に知らせる。セッションの中身はキャッシュに、
+// partial はストアにあるので（#361）、同じメッセージでの両方の変化が、描く前にそろうようにする
+notifyManager.setScheduler(queueMicrotask);
 
 export const queryClient = new QueryClient({
     defaultOptions: {

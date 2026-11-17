@@ -5,12 +5,11 @@ import { type CorrectionsJson, type TermsJson, api } from '@/api/api';
 import { isDemo } from '@/api/data';
 import type { ActionContext } from '@/app/actionContext';
 import { runMutation } from '@/app/query';
-import { type Correction, applyCorrectionLocally } from '@/features/session/corrections';
+import { type Correction, applyCorrectionLocally, revertCorrection } from '@/features/session/corrections';
 
 export async function rejectTerm(ctx: ActionContext, sessionId: string, term: string) {
-    const get = ctx.store.getState;
-    const project = get().projects.find((p) => p.sessions.some((x) => x.id === sessionId));
-    if (!project) {
+    const projectId = ctx.sessions.projectIdOf(sessionId);
+    if (!projectId) {
         return;
     }
     const drop = (terms?: string[]) => terms?.filter((t) => t !== term);
@@ -31,7 +30,7 @@ export async function rejectTerm(ctx: ActionContext, sessionId: string, term: st
                 isDemo
                     ? null
                     : api.delete<TermsJson>(
-                          `/api/projects/${project.id}/sessions/${sessionId}/terms?${new URLSearchParams({ term }).toString()}`,
+                          `/api/projects/${projectId}/sessions/${sessionId}/terms?${new URLSearchParams({ term }).toString()}`,
                       ),
             onSuccess: (res) => {
                 if (res) {
@@ -52,9 +51,8 @@ export async function rejectTerm(ctx: ActionContext, sessionId: string, term: st
 }
 
 export async function addTerm(ctx: ActionContext, sessionId: string, term: string) {
-    const get = ctx.store.getState;
-    const project = get().projects.find((p) => p.sessions.some((x) => x.id === sessionId));
-    if (!project) {
+    const projectId = ctx.sessions.projectIdOf(sessionId);
+    if (!projectId) {
         return false;
     }
     // 足せるか（不正な語・上限）はサーバーが決めるので、先には足さない
@@ -71,7 +69,7 @@ export async function addTerm(ctx: ActionContext, sessionId: string, term: strin
                           ),
                           rejectedTerms: [],
                       }
-                    : api.post<TermsJson>(`/api/projects/${project.id}/sessions/${sessionId}/terms`, { term }),
+                    : api.post<TermsJson>(`/api/projects/${projectId}/sessions/${sessionId}/terms`, { term }),
             onSuccess: (res) =>
                 ctx.sessions.patchSession(sessionId, (x) => ({
                     ...x,
@@ -88,9 +86,8 @@ export async function addTerm(ctx: ActionContext, sessionId: string, term: strin
 }
 
 export async function addCorrection(ctx: ActionContext, sessionId: string, correction: Correction) {
-    const get = ctx.store.getState;
-    const project = get().projects.find((p) => p.sessions.some((x) => x.id === sessionId));
-    if (!project) {
+    const projectId = ctx.sessions.projectIdOf(sessionId);
+    if (!projectId) {
         return false;
     }
     return runMutation(
@@ -99,13 +96,14 @@ export async function addCorrection(ctx: ActionContext, sessionId: string, corre
             onMutate: () => {
                 const before = ctx.sessions.findSession(sessionId);
                 ctx.sessions.patchSession(sessionId, (x) => applyCorrectionLocally(x, correction));
-                return before;
+                const applied = ctx.sessions.findSession(sessionId);
+                return before && applied ? { before, applied } : undefined;
             },
             mutationFn: async () =>
                 isDemo
                     ? null
                     : api.post<CorrectionsJson>(
-                          `/api/projects/${project.id}/sessions/${sessionId}/corrections`,
+                          `/api/projects/${projectId}/sessions/${sessionId}/corrections`,
                           correction,
                       ),
             onSuccess: async (res) => {
@@ -114,19 +112,14 @@ export async function addCorrection(ctx: ActionContext, sessionId: string, corre
                     await ctx.sessions.refreshTranscripts(sessionId);
                 }
             },
-            // 戻す。待っている間に届いた行（録音中）は残す
-            onError: (e, _v, before) => {
+            // 戻す。置き換えた行のうち、待っている間にほかで変わっていないものだけを戻す（届いた行・ほかで変わった行は残す）
+            onError: (e, _v, change) => {
                 toast.error(`置き換えられません: ${e.message}`);
-                if (before) {
+                if (change) {
                     ctx.sessions.patchSession(sessionId, (x) => ({
-                        ...x,
-                        transcript: [...before.transcript, ...x.transcript.slice(before.transcript.length)],
-                        finalTranscript:
-                            x.finalTranscript?.generationId === before.finalTranscript?.generationId
-                                ? before.finalTranscript
-                                : x.finalTranscript,
-                        manualTerms: before.manualTerms,
-                        corrections: before.corrections,
+                        ...revertCorrection(x, change.before, change.applied),
+                        manualTerms: change.before.manualTerms,
+                        corrections: change.before.corrections,
                     }));
                 }
             },
@@ -139,9 +132,8 @@ export async function addCorrection(ctx: ActionContext, sessionId: string, corre
 }
 
 export async function removeCorrection(ctx: ActionContext, sessionId: string, correction: Correction) {
-    const get = ctx.store.getState;
-    const project = get().projects.find((p) => p.sessions.some((x) => x.id === sessionId));
-    if (!project) {
+    const projectId = ctx.sessions.projectIdOf(sessionId);
+    if (!projectId) {
         return;
     }
     const same = (c: Correction) => c.from === correction.from && c.to === correction.to;
@@ -160,7 +152,7 @@ export async function removeCorrection(ctx: ActionContext, sessionId: string, co
                 isDemo
                     ? null
                     : api.delete<CorrectionsJson>(
-                          `/api/projects/${project.id}/sessions/${sessionId}/corrections?${new URLSearchParams({ from: correction.from, to: correction.to })}`,
+                          `/api/projects/${projectId}/sessions/${sessionId}/corrections?${new URLSearchParams({ from: correction.from, to: correction.to })}`,
                       ),
             onSuccess: async (res) => {
                 if (res) {

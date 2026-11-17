@@ -5,17 +5,15 @@ import { connection } from '@/api/connection';
 import { isDemo } from '@/api/data';
 import { isCloud } from '@/api/endpoint';
 import type { ServerMessage } from '@/api/protocol';
+import { queryClient } from '@/app/query';
 import { type MessageContext, receiveServerMessage } from '@/app/serverMessages';
 import type { StatusReceiver } from '@/app/serverStatus';
+import { readProjectInfos } from '@/app/sessionData';
 import type { VersionJson } from '@/app/version';
 import { refreshContextSets } from '@/features/materials/contextSetCache';
 import { recordingConnectionChanged } from '@/features/recording/reconnect';
 import { loadUnsent } from '@/features/recording/unsentRecovery';
 import type { Watcher } from '@/features/recording/watcher';
-
-// セッションの中身を変える通知（受け取ったら、キャッシュにも入れる）。
-// title・finalTranscript・corrections・sessionMoved などは、それぞれの処理でキャッシュを書き換える・取り直す
-const SESSION_MESSAGES = new Set<ServerMessage['type']>(['final', 'terms', 'summary.done', 'watching']);
 
 export type ServerContext = MessageContext & { watcher: Watcher; status: StatusReceiver };
 
@@ -43,7 +41,7 @@ function connectionChanged(ctx: ServerContext, connected: boolean) {
     }
     if (connected && !isDemo) {
         // 切れている間に届かなかった contextSet（作成の終わり）を取りこぼさないように、一覧を取り直す
-        void refreshContextSets(store.getState().projects.map((p) => p.id));
+        void refreshContextSets(readProjectInfos().map((p) => p.id));
         void loadServerVersion(store);
     }
     // 録音中に切れていたら、続きから録音する
@@ -52,12 +50,6 @@ function connectionChanged(ctx: ServerContext, connected: boolean) {
 
 function receive(ctx: ServerContext, m: ServerMessage) {
     ctx.watcher.receive(m);
-    // セッションの中身を変える通知（録音中・見ている録音の行・語・途中の要約）は、受け取った
-    // ほかのリスナー（録音の購読）がストアを書き換えたあとで、キャッシュにも入れる
-    if (SESSION_MESSAGES.has(m.type) && 'session' in m && m.session) {
-        const sessionId = m.session;
-        queueMicrotask(() => ctx.sessions.syncSessionToCache(sessionId));
-    }
     if (m.type === 'status') {
         ctx.status.receive(m);
     }
@@ -76,8 +68,9 @@ export function connectServer(ctx: ServerContext) {
     if (!isDemo) {
         // 前にページを開いていたときに、サーバーに届かなかった音声が残っていないか（#102）
         void loadUnsent(recorder);
-        // 開いているセッションがほかのクライアントで録音中なら見る（#238）
+        // 開いているセッションがほかのクライアントで録音中なら見る（#238）。一覧はキャッシュにあるので、両方を見る
         store.subscribe(() => ctx.watcher.sync());
+        queryClient.getQueryCache().subscribe(() => ctx.watcher.sync());
     }
     connection.onStateChange((connected) => connectionChanged(ctx, connected));
     connection.subscribe((m) => receive(ctx, m));

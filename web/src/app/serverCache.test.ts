@@ -15,7 +15,9 @@ import {
 } from '@/api/data';
 import type { ServerMessage } from '@/api/protocol';
 import { queryClient } from '@/app/query';
+import { readProjects, readSession } from '@/app/sessionData';
 import { useAppStore } from '@/app/store';
+import { patchLocal } from '@/features/projects/localSessions';
 import { defaultSettings } from '@/features/settings/settings';
 
 // #330 の 4 段目: 要約のキャッシュ・WebSocket の通知をキャッシュに入れる・操作（mutation）の楽観的更新と巻き戻し
@@ -78,7 +80,8 @@ beforeAll(() => {
 beforeEach(() => {
     queryClient.clear();
     useAppStore.setState({
-        projects: [],
+        localSessions: [],
+        loadedSessions: {},
         projectsLoaded: false,
         selection: { projectId: null, sessionId: null },
         settings: { ...defaultSettings, projectOrder: [] },
@@ -106,7 +109,9 @@ afterEach(() => {
     vi.spyOn(connection, 'send').mockImplementation(() => {});
 });
 
-const opened = () => useAppStore.getState().projects.find((p) => p.id === 'a')!.sessions[0];
+// 開いているセッション（#361 からキャッシュとストアの手元のセッションから作る）
+const opened = () => readSession(useAppStore.getState(), 's1')!;
+const shownProjects = () => readProjects(useAppStore.getState());
 
 async function open() {
     const get = mockServer();
@@ -130,9 +135,7 @@ describe('要約', () => {
         ]);
         expect(queryClient.getQueryData(summaryQuery('a', 's1', 'm1').queryKey)?.text).toBe('## 決まったこと');
         // 読み直しても、版は取り直さない（一覧は取り直す）
-        useAppStore.setState((s) => ({
-            projects: s.projects.map((p) => ({ ...p, sessions: p.sessions.map((x) => ({ ...x, loaded: false })) })),
-        }));
+        useAppStore.setState({ loadedSessions: {} });
         useAppStore.getState().selectSession('a', 's1');
         await vi.waitFor(() => expect(opened().loaded).toBe(true));
         expect(calls(get, `${base}/summaries`)).toBe(2);
@@ -223,12 +226,12 @@ describe('操作の楽観的更新と巻き戻し', () => {
         let reject: (e: Error) => void = () => {};
         vi.spyOn(api, 'patch').mockImplementation(() => new Promise((_r, j) => (reject = j)));
         const done = useAppStore.getState().reorderProjects(['b', 'a']);
-        expect(useAppStore.getState().projects.map((p) => p.id)).toEqual(['b', 'a']);
+        expect(shownProjects().map((p) => p.id)).toEqual(['b', 'a']);
         expect(queryClient.getQueryData(projectsQuery.queryKey)?.map((p) => p.id)).toEqual(['b', 'a']);
         await vi.waitFor(() => expect(api.patch).toHaveBeenCalled());
         reject(new ApiError(0, 'ホストにつながりません'));
         await done;
-        expect(useAppStore.getState().projects.map((p) => p.id)).toEqual(['a', 'b']);
+        expect(shownProjects().map((p) => p.id)).toEqual(['a', 'b']);
         expect(queryClient.getQueryData(projectsQuery.queryKey)?.map((p) => p.id)).toEqual(['a', 'b']);
         expect(useAppStore.getState().settings.projectOrder).toEqual([]);
         expect(toast.error).toHaveBeenCalledWith('プロジェクトの並びを保存できません: ホストにつながりません');
@@ -241,9 +244,8 @@ describe('操作の楽観的更新と巻き戻し', () => {
         vi.spyOn(api, 'post').mockImplementation(() => new Promise((_r, j) => (reject = j)));
         const done = useAppStore.getState().moveSession('a', 's1', 'b');
         const ids = (pid: string) =>
-            useAppStore
-                .getState()
-                .projects.find((p) => p.id === pid)!
+            shownProjects()
+                .find((p) => p.id === pid)!
                 .sessions.map((x) => x.id);
         expect(ids('b')).toEqual(['s1']);
         expect(queryClient.getQueryData(sessionsQuery('b').queryKey)?.map((x) => x.id)).toEqual(['s1']);
@@ -275,14 +277,35 @@ describe('操作の楽観的更新と巻き戻し', () => {
         vi.spyOn(api, 'post').mockImplementation(() => new Promise((_r, j) => (reject = j)));
         const done = useAppStore.getState().addCorrection('s1', { from: 'りりーす', to: 'リリース', line: null });
         expect(opened().transcript[0].text).toBe('リリース計画');
-        // 待っている間に行が届いた（録音中）
+        // 待っている間に行が届いた（見ている録音。中身はキャッシュにある）
+        queryClient.setQueryData(
+            transcriptQuery('a', 's1').queryKey,
+            (t) => t && { ...t, lines: [...t.lines, { time: '00:00:09', text: '届いた行' }] },
+        );
+        await vi.waitFor(() => expect(api.post).toHaveBeenCalled());
+        reject(new ApiError(400, '置き換えられない語です'));
+        expect(await done).toBe(false);
+        expect(opened().transcript.map((x) => x.text)).toEqual(['りりーす計画', '始めます', '届いた行']);
+        expect(opened().corrections).toEqual([]);
+        expect(toast.error).toHaveBeenCalledWith('置き換えられません: 置き換えられない語です');
+    });
+
+    it('置き換え（自分の録音）: できなければ戻す。待っている間に届いた行は残す', async () => {
+        await open();
+        // 自分で録音しているセッションは、中身を手元（ストア）に積む（#361）
+        useAppStore.setState({
+            localSessions: [{ projectId: 'a', session: { ...opened(), status: 'recording' } }],
+            recordingSessionId: 's1',
+        });
+        let reject: (e: Error) => void = () => {};
+        vi.spyOn(api, 'post').mockImplementation(() => new Promise((_r, j) => (reject = j)));
+        const done = useAppStore.getState().addCorrection('s1', { from: 'りりーす', to: 'リリース', line: null });
+        expect(opened().transcript[0].text).toBe('リリース計画');
+        // 待っている間に行が届いた
         useAppStore.setState((s) => ({
-            projects: s.projects.map((p) => ({
-                ...p,
-                sessions: p.sessions.map((x) => ({
-                    ...x,
-                    transcript: [...x.transcript, { time: '00:00:09', text: '届いた行' }],
-                })),
+            localSessions: patchLocal(s.localSessions, 's1', (x) => ({
+                ...x,
+                transcript: [...x.transcript, { time: '00:00:09', text: '届いた行' }],
             })),
         }));
         await vi.waitFor(() => expect(api.post).toHaveBeenCalled());
@@ -290,7 +313,7 @@ describe('操作の楽観的更新と巻き戻し', () => {
         expect(await done).toBe(false);
         expect(opened().transcript.map((x) => x.text)).toEqual(['りりーす計画', '始めます', '届いた行']);
         expect(opened().corrections).toEqual([]);
-        expect(toast.error).toHaveBeenCalledWith('置き換えられません: 置き換えられない語です');
+        useAppStore.setState({ localSessions: [], recordingSessionId: null });
     });
 
     it('置き換えを外す: 先に一覧から外し、外せなければ戻す', async () => {

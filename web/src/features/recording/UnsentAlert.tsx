@@ -1,5 +1,6 @@
 import { HardDriveUploadIcon } from 'lucide-react';
 
+import { useSessionTitle } from '@/app/sessionHooks';
 import { useAppStore } from '@/app/store';
 import { Button } from '@/components/ui/button';
 
@@ -8,9 +9,7 @@ import { Button } from '@/components/ui/button';
 export function UnsentAlert() {
     const unsent = useAppStore((s) => s.unsent);
     const idle = useAppStore((s) => s.recordingState === 'idle');
-    const title = useAppStore(
-        (s) => s.projects.flatMap((p) => p.sessions).find((x) => x.id === s.unsent?.sessionId)?.title,
-    );
+    const title = useSessionTitle(unsent?.sessionId);
     const recover = useAppStore((s) => s.recoverUnsent);
     const discard = useAppStore((s) => s.discardUnsent);
 

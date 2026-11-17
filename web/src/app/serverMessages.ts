@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { isDemo } from '@/api/data';
 import type { ServerMessage } from '@/api/protocol';
 import type { AppStore } from '@/app/appState';
+import { readProjectInfos } from '@/app/sessionData';
 import type { SessionSync } from '@/app/sessionSync';
 import { cachedContextSets, refreshContextSets, updateCachedContextSets } from '@/features/materials/contextSetCache';
 import type { Recorder } from '@/features/recording/recorderState';
@@ -41,7 +42,8 @@ function receiveProjectOrder({ store, sessions }: MessageContext) {
         .loadSettings()
         .then(() => {
             const ids = get().settings.projectOrder;
-            if (ids.some((id) => !get().projects.some((p) => p.id === id))) {
+            const known = readProjectInfos();
+            if (ids.some((id) => !known.some((p) => p.id === id))) {
                 // 知らないプロジェクト（ほかの端末で作ったもの）があれば、一覧ごと取り直す
                 void get().loadProjects();
             } else {
@@ -90,7 +92,7 @@ function receiveSessionError({ store, recorder, sessions }: MessageContext, m: M
     const session = m.session;
     if (m.code === 'final_transcript_failed') {
         // 知らせは、ほかの error と同じくトーストに出す
-        sessions.regeneratingTranscripts.delete(session);
+        sessions.forgetFinalTranscript(session);
     }
     const summaryFailed = llmFailed(m.code) || m.code === 'summary_skipped' || m.code === 'summary_failed';
     if (summaryFailed) {

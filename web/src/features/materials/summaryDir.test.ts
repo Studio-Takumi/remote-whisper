@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, type ProjectJson, api } from '@/api/api';
 import { projectsQuery } from '@/api/data';
 import { queryClient } from '@/app/query';
+import { readProjects } from '@/app/sessionData';
 import { useAppStore } from '@/app/store';
 import { saveSummaryDir } from '@/features/materials/summaryDir';
 
@@ -20,8 +21,11 @@ const project = (id: string, summaryDir?: string): ProjectJson => ({
 
 beforeEach(() => {
     queryClient.clear();
-    useAppStore.setState({ projects: [] });
+    useAppStore.setState({ localSessions: [] });
 });
+
+// 画面に出すプロジェクトの一覧（#361 からキャッシュから作る）
+const shownProjects = () => readProjects(useAppStore.getState());
 
 afterEach(() => {
     vi.restoreAllMocks();
@@ -39,12 +43,6 @@ describe('summaryDir', () => {
             { id: 'a', name: 'a', path: '/work/a', summaryDir: '' },
             { id: 'b', name: 'b', path: '/work/b', summaryDir: 'x' },
         ]);
-        useAppStore.setState({
-            projects: [
-                { id: 'a', name: 'a', path: '/work/a', sessions: [], summaryDir: '' },
-                { id: 'b', name: 'b', path: '/work/b', sessions: [], summaryDir: 'x' },
-            ],
-        });
         const patch = vi.spyOn(api, 'patch').mockResolvedValue(project('a', 'notes/summary'));
 
         expect(await saveSummaryDir('a', '.\\notes\\summary\\')).toBe('notes/summary');
@@ -53,16 +51,16 @@ describe('summaryDir', () => {
             'notes/summary',
             'x',
         ]);
-        expect(useAppStore.getState().projects.map((p) => p.summaryDir)).toEqual(['notes/summary', 'x']);
+        expect(shownProjects().map((p) => p.summaryDir)).toEqual(['notes/summary', 'x']);
     });
 
     it('弾かれたら（422）、何も変えずにエラーを投げる', async () => {
-        useAppStore.setState({
-            projects: [{ id: 'a', name: 'a', path: '/work/a', sessions: [], summaryDir: 'summary' }],
-        });
+        queryClient.setQueryData(projectsQuery.queryKey, [
+            { id: 'a', name: 'a', path: '/work/a', summaryDir: 'summary' },
+        ]);
         vi.spyOn(api, 'patch').mockRejectedValue(new ApiError(422, '`..` は使えません'));
 
         await expect(saveSummaryDir('a', '../x')).rejects.toThrow('`..` は使えません');
-        expect(useAppStore.getState().projects[0].summaryDir).toBe('summary');
+        expect(shownProjects()[0].summaryDir).toBe('summary');
     });
 });

@@ -9,6 +9,7 @@ import { DevPanel } from '@/app/DevPanel';
 import { PwaUpdater } from '@/app/PwaUpdater';
 import { TopBar } from '@/app/TopBar';
 import { startRouter } from '@/app/router';
+import { routerStore } from '@/app/routerStore';
 import { useAppStore } from '@/app/store';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { Toaster } from '@/components/ui/sonner';
@@ -57,25 +58,7 @@ function AppMain() {
     const createProject = useAppStore((s) => s.createProject);
 
     // 画面の URL（#177）。開いているセッションと設定モーダルを URL に出し、URL から開く
-    useEffect(
-        () =>
-            startRouter({
-                getState: useAppStore.getState,
-                subscribe: useAppStore.subscribe,
-                setState: useAppStore.setState,
-                open: ({ projectId, sessionId }) => {
-                    const s = useAppStore.getState();
-                    if (projectId && sessionId) {
-                        s.selectSession(projectId, sessionId);
-                    } else if (projectId) {
-                        s.newSession(projectId);
-                    } else {
-                        useAppStore.setState({ selection: { projectId: null, sessionId: null } });
-                    }
-                },
-            }),
-        [],
-    );
+    useEffect(() => startRouter(routerStore), []);
 
     useEffect(() => {
         loadOptions();
