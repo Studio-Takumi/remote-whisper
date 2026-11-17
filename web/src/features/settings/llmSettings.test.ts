@@ -4,7 +4,7 @@ import { type Root, createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { initialServerStatus, llmUnavailable, summaryStatus } from '@/api/status';
-import { LlmSection } from '@/features/settings/SettingsDialog';
+import { LlmSection } from '@/features/settings/LlmSection';
 import { type Settings, defaultSettings } from '@/features/settings/settings';
 
 // 設定モーダルの「要約」ページの上の、要約に使うアプリと接続先（#327）
