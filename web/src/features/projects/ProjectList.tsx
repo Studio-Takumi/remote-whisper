@@ -1,8 +1,7 @@
-import { type ReactNode, useState } from 'react';
+import { useState } from 'react';
 
 import {
     type Announcements,
-    type CollisionDetection,
     DndContext,
     type DragEndEvent,
     DragOverlay,
@@ -10,66 +9,26 @@ import {
     KeyboardSensor,
     MouseSensor,
     TouchSensor,
-    closestCenter,
-    rectIntersection,
-    useDraggable,
-    useDroppable,
     useSensor,
     useSensors,
 } from '@dnd-kit/core';
-import {
-    SortableContext,
-    sortableKeyboardCoordinates,
-    useSortable,
-    verticalListSortingStrategy,
-} from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
-import { FileAudioIcon, GripVerticalIcon, PlusIcon } from 'lucide-react';
+import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy } from '@dnd-kit/sortable';
 
 import type { Project, Session } from '@/api/types';
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
-import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Accordion, AccordionContent } from '@/components/ui/accordion';
+import { SidebarMenu } from '@/components/ui/sidebar';
 import { connectedHostId } from '@/features/cloud/hosts';
+import { ProjectGroup } from '@/features/projects/ProjectGroup';
+import { SessionItem } from '@/features/projects/SessionItem';
 import { moveTarget } from '@/features/projects/move';
+import {
+    type Dragging,
+    type ProjectDrag,
+    collisionDetection,
+    screenReaderInstructions,
+} from '@/features/projects/projectDrag';
 import { closedIds, loadClosed, openIds, saveClosed } from '@/features/projects/projectFold';
 import { projectIdOf, reorderedIds, sortableId } from '@/features/projects/projectOrder';
-import { formatElapsed, formatShortDateTime, sessionDuration } from '@/lib/time';
-
-// 録音日時と長さ（例: 10/11 14:05 · 1:23:45）。録音中は長さの代わりに「録音中」
-function sessionMeta(session: Session) {
-    const started = formatShortDateTime(session.startedAt);
-    if (session.status === 'recording') {
-        return `${started} · 録音中`;
-    }
-    const duration = sessionDuration(session);
-    return duration === undefined ? started : `${started} · ${formatElapsed(Math.round(duration))}`;
-}
-
-const screenReaderInstructions = {
-    draggable: 'プロジェクトの並び順は、Space で持ち上げ、上下の矢印で動かし、Space で置きます。Esc でやめます',
-};
-
-// ドラッグしているセッション。data.type でプロジェクトの並び替え（#173）のドラッグと見分ける
-type Dragging = { type: 'session'; sessionId: string; projectId: string; title: string };
-
-// プロジェクトの見出しのドラッグ（並び替え）の data
-type ProjectDrag = { type: 'project'; projectId: string };
-
-// 同じ DndContext の中に、セッションを別のプロジェクトへ移すドラッグ（離す先はプロジェクトの枠）と、
-// プロジェクトの並び替え（離す先はほかのプロジェクトの見出し）がある。どちらの枠が相手になるかは
-// 枠を有効にするかで分けている（ProjectGroup）ので、判定の方法だけドラッグの種類で変える
-const collisionDetection: CollisionDetection = (args) =>
-    args.active.data.current?.type === 'project' ? closestCenter(args) : rectIntersection(args);
-
-// useDraggable / useSortable の listeners からキーボードの操作を除いたもの。
-// キーボードで始められるのは見出しの握りだけにする（セッションのボタンで Space を押したときに、選ぶ代わりに
-// ドラッグが始まらないように）
-function pointerOnly(listeners: Record<string, unknown> | undefined) {
-    const { onKeyDown, ...rest } = listeners ?? {};
-    void onKeyDown;
-    return rest;
-}
 
 // サイドバーのプロジェクト一覧。基本は全部開いておく。閉じることもでき、閉じたものはこの端末に覚える（#318）。
 // セッションをほかのプロジェクト（見出しか一覧の中）へドラッグすると移せる（#172）。
@@ -258,159 +217,5 @@ export function ProjectList({
                 )}
             </DragOverlay>
         </DndContext>
-    );
-}
-
-// 1 つのプロジェクト（見出しとセッションの一覧）。
-// ここにセッションを離すと、このプロジェクトへ移す（#172）。見出しをドラッグすると、プロジェクトを並び替える（#173）
-function ProjectGroup({
-    project,
-    dropping,
-    sessionDragging,
-    reordering,
-    active,
-    onNewSession,
-    children,
-}: {
-    project: Project;
-    // ほかのプロジェクトのセッションをドラッグしている（ここに離せる）
-    dropping: boolean;
-    // どこかのセッションをドラッグしている
-    sessionDragging: boolean;
-    // プロジェクトを並び替えている
-    reordering: boolean;
-    // このプロジェクトの新しいセッションの画面を開いている
-    active: boolean;
-    onNewSession: () => void;
-    children: ReactNode;
-}) {
-    // セッションを離す枠。プロジェクトを並び替えている間は、並び替えの枠と重ならないよう無効にする
-    const drop = useDroppable({ id: project.id, disabled: reordering });
-    // 並び替えの枠。セッションをドラッグしている間は無効にする（セッションは並び替えない）
-    const sort = useSortable({
-        id: sortableId(project.id),
-        data: { type: 'project', projectId: project.id } satisfies ProjectDrag,
-        disabled: sessionDragging,
-    });
-    const setRef = (node: HTMLElement | null) => {
-        drop.setNodeRef(node);
-        sort.setNodeRef(node);
-    };
-    return (
-        <AccordionItem
-            ref={setRef}
-            value={project.id}
-            data-drop-target={dropping ? (drop.isOver ? 'over' : 'ready') : undefined}
-            data-sorting={sort.isDragging ? 'true' : undefined}
-            style={{ transform: CSS.Translate.toString(sort.transform), transition: sort.transition }}
-            className={`relative rounded-md border-none transition-colors ${dropping && drop.isOver ? 'bg-sidebar-accent ring-2 ring-primary/40' : ''} ${sort.isDragging ? 'z-10 bg-sidebar opacity-90 shadow-md' : ''}`}
-        >
-            {/* 「握り・名前 ⌄ ……… ＋」の並びにする（#234）。長押しで文字の選択やメニューが出ないようにする */}
-            <div
-                className='group/head flex items-center pr-1 select-none [-webkit-touch-callout:none]'
-                // マウスと指で見出しのどこからでもドラッグできる。キーボードは握りだけ
-                {...pointerOnly(sort.listeners)}
-            >
-                {/* キーボードで並び替える握り（Space で持ち上げ、矢印で動かし、Space で離す）。マウスの上とフォーカスしたときだけ見せる。
-                    見えないときも幅は取ったままにして、名前の位置がずれないようにする */}
-                <button
-                    type='button'
-                    ref={sort.setActivatorNodeRef}
-                    className='-ml-0.5 flex size-4 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/50 opacity-0 group-hover/head:opacity-100 hover:text-sidebar-accent-foreground focus-visible:opacity-100'
-                    aria-label={`${project.name}の並び順を変える`}
-                    onKeyDown={sort.listeners?.onKeyDown as React.KeyboardEventHandler | undefined}
-                    {...sort.attributes}
-                    role={undefined}
-                    aria-disabled={undefined}
-                >
-                    <GripVerticalIcon size={14} />
-                </button>
-                <AccordionTrigger className='flex-none justify-start gap-1 py-1.5 text-xs text-sidebar-foreground/70 hover:no-underline **:data-[slot=accordion-trigger-icon]:ml-0'>
-                    {project.name}
-                </AccordionTrigger>
-                <button
-                    className={`ml-auto flex size-6 items-center justify-center rounded-md text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground ${active ? 'bg-sidebar-accent text-sidebar-accent-foreground' : ''}`}
-                    aria-label={`${project.name}で新しく録音`}
-                    onClick={onNewSession}
-                >
-                    <PlusIcon size={16} />
-                </button>
-            </div>
-            {children}
-        </AccordionItem>
-    );
-}
-
-function SessionItem({
-    project,
-    session,
-    active,
-    showMeta,
-    blocker,
-    dragging,
-    onSelect,
-}: {
-    project: Project;
-    session: Session;
-    active: boolean;
-    showMeta: boolean;
-    blocker: string | null;
-    dragging: boolean;
-    onSelect: () => void;
-}) {
-    const data: Dragging = { type: 'session', sessionId: session.id, projectId: project.id, title: session.title };
-    const { setNodeRef, attributes, listeners } = useDraggable({
-        // セッションの ID はプロジェクトをまたぐと重なることがあるので、プロジェクトの ID を付ける
-        id: `${project.id}:${session.id}`,
-        data,
-        // 移せないセッションはドラッグを始められない（理由は Tooltip で出す）
-        disabled: blocker !== null,
-    });
-    const button = (
-        <SidebarMenuButton
-            isActive={active}
-            // 2行にするときは、高さを中身に合わせる。長押しで文字の選択やメニューが出ないようにする
-            className={`select-none [-webkit-touch-callout:none] ${showMeta ? 'h-auto py-1.5' : ''} ${dragging ? 'opacity-40' : ''}`}
-            onClick={onSelect}
-            {...attributes}
-            {...pointerOnly(listeners)}
-            // dnd-kit の attributes は role="button" を付けるが、もともと button なので要らない。
-            // 移せないときに付く aria-disabled も外す（サイドバーのボタンは aria-disabled だと押せなくなる）
-            role={undefined}
-            aria-disabled={undefined}
-        >
-            {showMeta ? (
-                // 録音日時と長さを、タイトルの下に小さく出す
-                <span className='flex min-w-0 flex-col'>
-                    <span className='truncate'>{session.title}</span>
-                    <span className='truncate text-xs text-muted-foreground tabular-nums'>{sessionMeta(session)}</span>
-                </span>
-            ) : (
-                <span className='truncate'>{session.title}</span>
-            )}
-            {/* 音声ファイルから作ったセッションには、録音したものと見分けられる印を付ける */}
-            {session.uploaded && (
-                <FileAudioIcon
-                    className='ml-auto size-3.5 shrink-0 text-muted-foreground'
-                    aria-label='音声ファイルから作成'
-                />
-            )}
-            {/* 録音中（ほかの端末のものも含む）のセッションには赤い点を付ける */}
-            {session.status === 'recording' && (
-                <span className='ml-auto size-2 shrink-0 rounded-full bg-red-500' aria-label='録音中' />
-            )}
-        </SidebarMenuButton>
-    );
-    return (
-        <SidebarMenuItem ref={setNodeRef}>
-            {blocker ? (
-                <Tooltip>
-                    <TooltipTrigger asChild>{button}</TooltipTrigger>
-                    <TooltipContent side='right'>{blocker}</TooltipContent>
-                </Tooltip>
-            ) : (
-                button
-            )}
-        </SidebarMenuItem>
     );
 }
