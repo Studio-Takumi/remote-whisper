@@ -12,8 +12,9 @@ import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from remote_whisper.materials.material_toc import MaterialRange
+from remote_whisper.materials.toc import MaterialRange
 from remote_whisper.settings import Settings
+from remote_whisper.storage.atomic_write import atomic_write_text
 from remote_whisper.storage.documents import (
     SourceInfo,
     SummaryMeta,
@@ -26,8 +27,7 @@ from remote_whisper.storage.documents import (
     transcript_name,
     write_doc,
 )
-from remote_whisper.storage.fsaccess import is_within, real_path
-from remote_whisper.storage.fsutil import atomic_write_text
+from remote_whisper.storage.path_guard import is_within, real_path
 from remote_whisper.storage.projects import (
     ProjectError,
     ProjectFile,
@@ -35,7 +35,7 @@ from remote_whisper.storage.projects import (
     SessionEntry,
     normalize_summary_dir,
 )
-from remote_whisper.storage.sessions import SessionFiles, summary_source
+from remote_whisper.storage.session_reader import SessionFiles, summary_source
 from remote_whisper.storage.timeutil import iso, make_id, now
 from remote_whisper.summary import okf
 from remote_whisper.transcript.corrections import Correction, replace

@@ -24,8 +24,8 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
 from remote_whisper.llm.llm import LlmClient, LlmUnavailable
-from remote_whisper.materials.material_toc import section_texts
 from remote_whisper.materials.materials import ExtractError
+from remote_whisper.materials.toc import section_texts
 from remote_whisper.storage.documents import ContextMeta, context_name, read_doc
 from remote_whisper.summary.summary_parts import NUM_CTX
 

@@ -15,8 +15,8 @@ from remote_whisper.llm.llm_switch import LlmSwitch
 from remote_whisper.llm.lmstudio import LMStudioClient
 from remote_whisper.llm.ollama import OllamaClient
 from remote_whisper.materials.context_sets import ContextSetService, OllamaGenerator
-from remote_whisper.materials.material_figures import FigureReader
-from remote_whisper.materials.material_range import RangeService
+from remote_whisper.materials.figures import FigureReader
+from remote_whisper.materials.used_range import RangeService
 from remote_whisper.mock import (
     MockContextGenerator,
     MockFinalSummarizer,
@@ -25,13 +25,13 @@ from remote_whisper.mock import (
     mock_script_lines,
 )
 from remote_whisper.push import PushService
-from remote_whisper.recording.recorder import RecordingManager
+from remote_whisper.recording.manager import RecordingManager
 from remote_whisper.recording.uploads import UploadService
 from remote_whisper.settings import SettingsStore
 from remote_whisper.storage.janitor import Janitor
 from remote_whisper.storage.projects import ProjectStore
 from remote_whisper.summary.final_summary import FinalSummarizer
-from remote_whisper.transcript.final_transcriber import FinalTranscriber, installed
+from remote_whisper.transcript.transcriber import FinalTranscriber, installed
 
 
 @dataclass

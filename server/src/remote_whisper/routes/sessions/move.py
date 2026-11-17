@@ -12,7 +12,7 @@ from remote_whisper.recording.recovery import convert_leftover
 from remote_whisper.routes.sessions.common import Ctx, load_session, session_json, still_finishing
 from remote_whisper.storage.projects import ProjectError, SessionEntry
 from remote_whisper.storage.session_move import move_session
-from remote_whisper.storage.sessions import SessionFiles
+from remote_whisper.storage.session_reader import SessionFiles
 
 log = logging.getLogger(__name__)
 

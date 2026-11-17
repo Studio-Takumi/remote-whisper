@@ -17,8 +17,8 @@ from remote_whisper.gpu.whisper_worker import WhisperWorker
 from remote_whisper.hub import Hub
 from remote_whisper.llm.llm import LlmClient
 from remote_whisper.recording.audio_convert import convert_wav
+from remote_whisper.recording.errors import RecordingError, check_continuable
 from remote_whisper.recording.live_transcriber import load_hotwords
-from remote_whisper.recording.recording import RecordingError, check_continuable
 from remote_whisper.recording.session import RecordingSession
 from remote_whisper.settings import SettingsStore
 from remote_whisper.storage.documents import TranscriptMeta, recording_name

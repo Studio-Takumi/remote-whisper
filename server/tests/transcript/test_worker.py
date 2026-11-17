@@ -1,4 +1,4 @@
-"""浄書の子プロセス（final_transcribe_worker.run）の結果と呼ぶ順番。WhisperX と torch は偽物"""
+"""浄書の子プロセス（worker.run）の結果と呼ぶ順番。WhisperX と torch は偽物"""
 
 import json
 import sys
@@ -8,10 +8,9 @@ from collections import namedtuple
 import numpy as np
 import pytest
 
-from remote_whisper.transcript import final_transcribe_multi as multi
-from remote_whisper.transcript import final_transcribe_steps as steps
-from remote_whisper.transcript import final_transcribe_worker as worker
-from remote_whisper.transcript import multisource
+from remote_whisper.transcript import multisource, worker
+from remote_whisper.transcript import worker_multi as multi
+from remote_whisper.transcript import worker_steps as steps
 
 Turn = namedtuple("Turn", "start end speaker")
 

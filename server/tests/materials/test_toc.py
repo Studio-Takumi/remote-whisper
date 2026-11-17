@@ -1,6 +1,6 @@
 from helpers.material_pdf import make_pdf
 
-from remote_whisper.materials.material_toc import CHUNK_CHARS, LARGE_CHARS, build_toc
+from remote_whisper.materials.toc import CHUNK_CHARS, LARGE_CHARS, build_toc
 
 
 def test_pdf_with_outline_uses_the_bookmarks(tmp_path):

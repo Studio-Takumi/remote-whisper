@@ -10,7 +10,7 @@ from pathlib import Path
 from fastapi import FastAPI
 
 from remote_whisper.logs import traffic
-from remote_whisper.recording.recorder import RecordingManager
+from remote_whisper.recording.manager import RecordingManager
 from remote_whisper.recording.recovery import Leftovers, find_leftovers, fix_leftovers
 from remote_whisper.version import app_version
 from remote_whisper.wiring import Parts

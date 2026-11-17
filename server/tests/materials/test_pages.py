@@ -11,7 +11,7 @@ from helpers.material_pdf import make_pdf
 
 from remote_whisper.hub import Hub
 from remote_whisper.llm.ollama import OllamaClient
-from remote_whisper.materials.material_pages import (
+from remote_whisper.materials.pages import (
     Page,
     annotate_detail,
     apply_refs,
@@ -22,7 +22,7 @@ from remote_whisper.materials.material_pages import (
     parse_refs,
     ref_label,
 )
-from remote_whisper.materials.material_toc import MaterialRange
+from remote_whisper.materials.toc import MaterialRange
 from remote_whisper.settings import SettingsStore
 from remote_whisper.storage.documents import ContextMeta, MaterialRef, context_name, write_doc
 from remote_whisper.summary import final_summary_body

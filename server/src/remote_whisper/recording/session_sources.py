@@ -8,9 +8,9 @@ from typing import TYPE_CHECKING, Any
 from fastapi import WebSocket
 
 from remote_whisper.hub import send
+from remote_whisper.recording.errors import RecordingError
 from remote_whisper.recording.live_sources import LiveMixer, measure
 from remote_whisper.recording.live_transcriber import LiveTranscriber
-from remote_whisper.recording.recording import RecordingError
 from remote_whisper.recording.source_records import SourceRecords
 from remote_whisper.recording.wav_appender import SAMPLE_RATE, SAMPLE_WIDTH, WavAppender
 from remote_whisper.storage.documents import SourceInfo

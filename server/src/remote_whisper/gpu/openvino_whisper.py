@@ -2,7 +2,7 @@
 
 CUDA（NVIDIA の GPU）がなく、OpenVINO が単体の Intel の GPU（`FULL_DEVICE_NAME` に `(dGPU)`）を
 見つけたときだけ使う。録音中の文字起こし（whisper_worker）と、浄書の文字起こし
-（final_transcribe_worker）で使う。浄書の位置合わせと話者分けは CPU のまま（#347）。
+（worker）で使う。浄書の位置合わせと話者分けは CPU のまま（#347）。
 
 faster-whisper と違うところ:
 - ビームサーチは GPU で動かない（`Not Implemented`）ので greedy にする
@@ -291,7 +291,7 @@ def windows(spans: list[tuple[int, int]], limit_sec: float = CHUNK_SEC) -> list[
 
 
 def transcribe_long(pipe: Any, audio: Any, options: dict, progress: Any = None) -> list[dict]:
-    """浄書の文字起こし（final_transcribe_worker）。録音全体を VAD で話している範囲に分け、
+    """浄書の文字起こし（worker）。録音全体を VAD で話している範囲に分け、
     30 秒までのまとまりごとに文字起こしする。progress には %（0〜100）を渡す
 
     繰り返しで埋まった区間（`compression_ratio` が大きい）は捨てる（hallucination.py と同じ基準）

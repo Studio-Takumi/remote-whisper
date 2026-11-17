@@ -22,7 +22,7 @@ from remote_whisper.transcript.corrections import Correction
 from remote_whisper.transcript.term_picker import TermPicker
 
 if TYPE_CHECKING:
-    from remote_whisper.recording.recorder import RecordingManager
+    from remote_whisper.recording.manager import RecordingManager
 
 log = logging.getLogger(__name__)
 

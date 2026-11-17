@@ -13,6 +13,7 @@ from typing import Literal, TypeVar
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from pydantic.alias_generators import to_camel
 
+from remote_whisper.storage.atomic_write import atomic_write_json
 from remote_whisper.storage.documents import (
     CONTEXT_RE,
     HOTWORDS_RE,
@@ -23,8 +24,7 @@ from remote_whisper.storage.documents import (
     TranscriptMeta,
     read_doc,
 )
-from remote_whisper.storage.fsaccess import is_within_roots, real_path
-from remote_whisper.storage.fsutil import atomic_write_json
+from remote_whisper.storage.path_guard import is_within_roots, real_path
 from remote_whisper.storage.timeutil import make_id, now
 
 log = logging.getLogger(__name__)

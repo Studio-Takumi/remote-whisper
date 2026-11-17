@@ -7,7 +7,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from remote_whisper.context import AppContext, get_ctx
-from remote_whisper.storage.fsaccess import is_within_roots, real_path
+from remote_whisper.storage.path_guard import is_within_roots, real_path
 
 router = APIRouter(prefix="/api/fs")
 

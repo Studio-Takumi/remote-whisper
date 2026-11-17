@@ -1,6 +1,6 @@
 """浄書の子プロセスの、複数の音源（#241）。spec/flows.md 6.16
 
-時刻合わせ・音源ごとの結果のまとめ・音源のヒント。WhisperX の段階は final_transcribe_steps と共通
+時刻合わせ・音源ごとの結果のまとめ・音源のヒント。WhisperX の段階は worker_steps と共通
 """
 
 import time
@@ -9,8 +9,8 @@ from typing import Any
 
 import numpy as np
 
-from remote_whisper.transcript import final_transcribe_steps as steps
 from remote_whisper.transcript import multisource
+from remote_whisper.transcript import worker_steps as steps
 from remote_whisper.transcript.multisource import DECISIVE_DB, HOP, SR
 
 log = steps.log

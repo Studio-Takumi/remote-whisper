@@ -6,7 +6,7 @@ from fastapi import Depends, HTTPException
 
 from remote_whisper.context import AppContext, get_ctx
 from remote_whisper.storage.projects import ProjectError, ProjectFile, SessionEntry
-from remote_whisper.storage.sessions import ID_RE, SessionFiles
+from remote_whisper.storage.session_reader import ID_RE, SessionFiles
 
 Ctx = Annotated[AppContext, Depends(get_ctx)]
 

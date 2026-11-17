@@ -20,7 +20,7 @@ from remote_whisper.routes.sessions.common import (
 )
 from remote_whisper.storage.documents import FinalTranscriptMeta, SummaryMeta, read_doc
 from remote_whisper.storage.projects import ProjectError
-from remote_whisper.storage.sessions import (
+from remote_whisper.storage.session_reader import (
     ID_RE,
     MAX_SOURCE_ID,
     SessionFiles,

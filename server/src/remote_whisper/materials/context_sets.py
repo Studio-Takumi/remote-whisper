@@ -23,9 +23,9 @@ from typing import Any, Protocol, TypeVar
 from remote_whisper.gpu.gpu_queue import GpuQueue, Priority
 from remote_whisper.hub import Hub
 from remote_whisper.llm.llm import LlmClient, LlmUnavailable, backend_of
-from remote_whisper.materials.material_figures import FigureReader, Run, pdf_texts, with_figures
-from remote_whisper.materials.material_toc import LARGE_CHARS, MaterialToc, build_toc
+from remote_whisper.materials.figures import FigureReader, Run, pdf_texts, with_figures
 from remote_whisper.materials.materials import ExtractError, extract_text
+from remote_whisper.materials.toc import LARGE_CHARS, MaterialToc, build_toc
 from remote_whisper.settings import OllamaModels, SettingsStore
 from remote_whisper.storage.documents import (
     ContextMeta,
@@ -36,7 +36,7 @@ from remote_whisper.storage.documents import (
     read_doc,
     write_doc,
 )
-from remote_whisper.storage.fsaccess import is_within_roots, real_path
+from remote_whisper.storage.path_guard import is_within_roots, real_path
 from remote_whisper.storage.projects import ContextSetEntry, ProjectError, ProjectFile, ProjectStore
 from remote_whisper.storage.timeutil import iso, make_id, now
 from remote_whisper.summary.prompts import (

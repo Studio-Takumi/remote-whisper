@@ -7,13 +7,13 @@ from pathlib import Path
 from typing import Any
 
 from remote_whisper.storage.documents import FinalTranscriptMeta, TranscriptMeta, parse, write_doc
+from remote_whisper.storage.session_reader import SessionFiles
 from remote_whisper.storage.session_writer import transcript_lock
-from remote_whisper.storage.sessions import SessionFiles
 from remote_whisper.storage.timeutil import iso, make_id
-from remote_whisper.transcript.final_transcript import Sentence, merge_sources, render, sentences
+from remote_whisper.transcript.lines import Sentence, merge_sources, render, sentences
 from remote_whisper.version import app_version
 
-log = logging.getLogger("remote_whisper.transcript.final_transcriber")
+log = logging.getLogger("remote_whisper.transcript.transcriber")
 
 
 async def render_result(

@@ -4,8 +4,8 @@ import json
 import logging
 from pathlib import Path
 
+from remote_whisper.storage.atomic_write import atomic_write_text
 from remote_whisper.storage.documents import SourceInfo
-from remote_whisper.storage.fsutil import atomic_write_text
 from remote_whisper.storage.session_writer import SessionWriter
 
 log = logging.getLogger(__name__)

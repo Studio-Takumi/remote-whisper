@@ -11,7 +11,7 @@ from helpers.recorder import audio_seconds, chunk, finished, of_type, receive_un
 from remote_whisper.app import create_app
 from remote_whisper.gpu.gpu_queue import Priority
 from remote_whisper.storage.documents import TranscriptMeta, read_doc
-from remote_whisper.storage.sessions import SessionFiles
+from remote_whisper.storage.session_reader import SessionFiles
 
 
 @pytest.fixture

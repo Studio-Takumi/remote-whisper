@@ -54,7 +54,7 @@ def keep_wav(monkeypatch):
     def fail(*args):
         raise RuntimeError("変換しない（テスト用）")
 
-    monkeypatch.setattr("remote_whisper.recording.recorder.convert_wav", fail)
+    monkeypatch.setattr("remote_whisper.recording.manager.convert_wav", fail)
 
 
 def test_records_audio_to_wav(client, project, keep_wav):

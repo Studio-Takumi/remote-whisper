@@ -17,8 +17,8 @@ from remote_whisper.routes.sessions.common import (
     still_finishing,
 )
 from remote_whisper.storage.documents import TranscriptMeta
+from remote_whisper.storage.session_reader import read_transcript
 from remote_whisper.storage.session_writer import SessionWriter
-from remote_whisper.storage.sessions import read_transcript
 
 log = logging.getLogger(__name__)
 

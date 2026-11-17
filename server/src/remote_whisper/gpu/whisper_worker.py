@@ -66,7 +66,7 @@ def _add_cuda_dll_dirs() -> None:
 def _device_for(cuda_devices: int, compute_type: str) -> tuple[str, str]:
     """使う device と compute_type。CUDA がなければ CPU と int8 にする（#274。Mac など）
 
-    考え方は final_transcribe_worker に合わせる。設定の compute_type は CUDA のときだけ使う
+    考え方は worker に合わせる。設定の compute_type は CUDA のときだけ使う
     """
     if cuda_devices > 0:
         return "cuda", compute_type

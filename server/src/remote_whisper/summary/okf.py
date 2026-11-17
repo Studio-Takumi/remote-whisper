@@ -16,8 +16,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
+from remote_whisper.storage.atomic_write import atomic_write_text
 from remote_whisper.storage.documents import FrontmatterError, parse
-from remote_whisper.storage.fsutil import atomic_write_text
 
 log = logging.getLogger(__name__)
 

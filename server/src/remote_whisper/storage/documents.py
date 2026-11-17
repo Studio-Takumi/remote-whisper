@@ -11,8 +11,8 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
-from remote_whisper.materials.material_toc import MaterialRange, MaterialToc
-from remote_whisper.storage.fsutil import atomic_write_text
+from remote_whisper.materials.toc import MaterialRange, MaterialToc
+from remote_whisper.storage.atomic_write import atomic_write_text
 from remote_whisper.transcript.corrections import Correction
 
 # --- ファイル名 ---

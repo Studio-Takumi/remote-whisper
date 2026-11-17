@@ -1,4 +1,4 @@
-"""浄書の子プロセス（final_transcribe_worker）に渡す指示と、打ち切るまでの時間（#121）。
+"""浄書の子プロセス（worker）に渡す指示と、打ち切るまでの時間（#121）。
 spec/flows.md 6.9
 """
 
@@ -9,10 +9,10 @@ from typing import Any
 from remote_whisper.gpu import openvino_whisper
 from remote_whisper.recording.live_transcriber import load_hotwords
 from remote_whisper.storage.documents import TranscriptMeta
-from remote_whisper.storage.sessions import SessionFiles
+from remote_whisper.storage.session_reader import SessionFiles
 from remote_whisper.transcript.term_picker import combine_hotwords
 
-log = logging.getLogger("remote_whisper.transcript.final_transcriber")
+log = logging.getLogger("remote_whisper.transcript.transcriber")
 
 # 話者分けのモデル。pyannote.audio 4 は 3.1 を使うときにもこのモデルのファイルを読むので、これにする
 DIARIZATION_MODEL = "pyannote/speaker-diarization-community-1"

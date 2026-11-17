@@ -26,12 +26,12 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from remote_whisper.recording.audio_convert import convert_wav
-from remote_whisper.recording.recorder import convert_source_wavs, refresh_source_recordings
+from remote_whisper.recording.manager import convert_source_wavs, refresh_source_recordings
 from remote_whisper.storage.documents import TranscriptMeta, read_doc
 from remote_whisper.storage.janitor import expired
 from remote_whisper.storage.projects import ProjectError, ProjectStore
+from remote_whisper.storage.session_reader import ID_RE, SessionFiles, parse_transcript_lines
 from remote_whisper.storage.session_writer import SessionWriter
-from remote_whisper.storage.sessions import ID_RE, SessionFiles, parse_transcript_lines
 from remote_whisper.storage.timeutil import now
 
 log = logging.getLogger(__name__)

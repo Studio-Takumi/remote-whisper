@@ -14,7 +14,7 @@ from remote_whisper.materials.context_sets import (
     join_materials,
     split_materials,
 )
-from remote_whisper.materials.material_figures import (
+from remote_whisper.materials.figures import (
     FigureReader,
     clean_description,
     figure_pages,

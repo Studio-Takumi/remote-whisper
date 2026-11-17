@@ -1,7 +1,7 @@
 """録音後に、保存した録音全体から最終の文字起こしを作る（#121）。spec/flows.md 6.9
 
 - 録音を終えて mp3 に変換したあと、最終の要約の前に作る（最終の要約は、できたものから作る）
-- GPU キュー（優先度 3）で、WhisperX の子プロセス（final_transcribe_worker）を動かす。
+- GPU キュー（優先度 3）で、WhisperX の子プロセス（worker）を動かす。
   VRAM（6GB）を空けるため、前に録音中の文字起こしの Whisper と Ollama のモデルを下ろす
 - 録音中は作らない。作っている途中で録音が始まったら、子プロセスを止めて（VRAM がすぐ空く）、
   録音がすべて終わってから作り直す（録音中の文字起こしの邪魔をしないように）
@@ -26,20 +26,20 @@ from remote_whisper.gpu.gpu_queue import GpuQueue, Priority, report_progress
 from remote_whisper.hub import Hub
 from remote_whisper.settings import SettingsStore
 from remote_whisper.storage.documents import TranscriptMeta
-from remote_whisper.storage.sessions import SessionFiles
+from remote_whisper.storage.session_reader import SessionFiles
 from remote_whisper.storage.timeutil import now
-from remote_whisper.transcript.final_transcribe_steps import STEPS, parse_progress
-from remote_whisper.transcript.final_transcribe_worker import EXIT_NOT_INSTALLED
-from remote_whisper.transcript.final_transcript_job import build_job, result_path, worker_timeout
-from remote_whisper.transcript.final_transcript_save import render_result, save_result
+from remote_whisper.transcript.result_save import render_result, save_result
+from remote_whisper.transcript.worker import EXIT_NOT_INSTALLED
+from remote_whisper.transcript.worker_job import build_job, result_path, worker_timeout
+from remote_whisper.transcript.worker_steps import STEPS, parse_progress
 
 log = logging.getLogger(__name__)
-# 子プロセス（final_transcribe_worker）が書いたもの
-worker_log = logging.getLogger("remote_whisper.transcript.final_transcribe_worker")
+# 子プロセス（worker）が書いたもの
+worker_log = logging.getLogger("remote_whisper.transcript.worker")
 
 # 録音が始まって止めたら、録音が終わってから作り直す。何度も止められたらあきらめる
 MAX_TRIES = 3
-WORKER = [sys.executable, "-m", "remote_whisper.transcript.final_transcribe_worker"]
+WORKER = [sys.executable, "-m", "remote_whisper.transcript.worker"]
 
 
 class _Preempted(Exception):
