@@ -1,68 +1,16 @@
-import { useEffect, useRef, useState } from 'react';
-
 import { MicIcon, MicOffIcon, PauseIcon, PlayIcon, PlusIcon, RadioIcon, SquareIcon, Undo2Icon } from 'lucide-react';
 import { toast } from 'sonner';
 
-import type { Session } from '@/api/types';
 import { useCurrentProject, useCurrentSession, useSessionTitle } from '@/app/sessionHooks';
 import { useAppStore } from '@/app/store';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { continueLeftSec, describeLeft } from '@/features/recording/continueWindow';
+import { describeLeft } from '@/features/recording/continueWindow';
 import { type Joined, joinUnavailable } from '@/features/recording/join';
+import { useContinueLeft } from '@/features/recording/useContinueLeft';
+import { useMicShortcut } from '@/features/recording/useMicShortcut';
 import { describeWatched, recordedElsewhere } from '@/features/recording/watch';
-import {
-    DEFAULT_MIC_SHORTCUT,
-    ariaShortcut,
-    formatShortcut,
-    shouldHandleMicShortcut,
-} from '@/features/settings/shortcut';
+import { DEFAULT_MIC_SHORTCUT, ariaShortcut, formatShortcut } from '@/features/settings/shortcut';
 import { formatElapsed } from '@/lib/time';
-
-// 開いているセッションの続きから録音できる残りの秒数（#174）。続けられないなら null。
-// 続けられる間だけ 5 秒ごとに時計を進める（時間を過ぎてもしばらく「続きから録音」のまま、に
-// ならないよう短めにする。ずっと前に終えたセッションでは動かさない）
-function useContinueLeft(session: Session | undefined, windowMin: number, idle: boolean) {
-    const [now, setNow] = useState(() => Date.now());
-    const left = session && idle ? continueLeftSec(session, windowMin, now) : null;
-    const active = left !== null;
-    useEffect(() => {
-        if (!active) {
-            return;
-        }
-        const tick = () => setNow(Date.now());
-        // 止まっていた間に古くなった時刻は、すぐ取り直す
-        const first = setTimeout(tick, 0);
-        const timer = setInterval(tick, 5000);
-        return () => {
-            clearTimeout(first);
-            clearInterval(timer);
-        };
-    }, [active]);
-    return left;
-}
-
-// マイクボタンのキーボードのショートカット（#236）。押すとマイクボタンを押したのと同じ動きにする。
-// 文字を入力している途中・モーダルを開いているときは効かない（shortcut.ts）
-function useMicShortcut(combo: string, onPress: () => void) {
-    const press = useRef(onPress);
-    useEffect(() => {
-        press.current = onPress;
-    });
-    useEffect(() => {
-        if (combo === '') {
-            return;
-        }
-        const onKeyDown = (e: KeyboardEvent) => {
-            if (!shouldHandleMicShortcut(e, combo)) {
-                return;
-            }
-            e.preventDefault();
-            press.current();
-        };
-        window.addEventListener('keydown', onKeyDown);
-        return () => window.removeEventListener('keydown', onKeyDown);
-    }, [combo]);
-}
 
 // 参加している間に出す「参加中」（#357）。つなぎ直している間・返事待ちはそう出す
 function describeJoined(joined: Joined) {
