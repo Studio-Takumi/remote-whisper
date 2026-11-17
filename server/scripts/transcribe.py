@@ -8,7 +8,7 @@ import sys
 import time
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]  # server/
 os.environ.setdefault("HF_HOME", str(ROOT / "hf"))  # C: の空きが少ないのでモデルは D: に置く
 
 # pip で入れた cuBLAS / cuDNN の DLL を見つけられるようにする
