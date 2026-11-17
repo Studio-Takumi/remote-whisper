@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from remote_whisper.context import AppContext, get_ctx
 from remote_whisper.hub import OllamaState, WhisperState
-from remote_whisper.timeutil import make_id, now
+from remote_whisper.storage.timeutil import make_id, now
 
 router = APIRouter(prefix="/api/mock")
 

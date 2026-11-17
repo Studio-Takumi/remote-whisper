@@ -1,0 +1,503 @@
+"""録音後に、保存した録音全体から最終の文字起こしを作る（#121）。spec/flows.md 6.9
+
+- 録音を終えて mp3 に変換したあと、最終の要約の前に作る（最終の要約は、できたものから作る）
+- GPU キュー（優先度 3）で、WhisperX の子プロセス（final_transcribe_worker）を動かす。
+  VRAM（6GB）を空けるため、前に録音中の文字起こしの Whisper と Ollama のモデルを下ろす
+- 録音中は作らない。作っている途中で録音が始まったら、子プロセスを止めて（VRAM がすぐ空く）、
+  録音がすべて終わってから作り直す（録音中の文字起こしの邪魔をしないように）
+- WhisperX が入っていない（`uv sync --extra final` していない）・設定で切っているときは作らない
+- 結果は `transcript-final-<ID>-<生成 ID>.md`。できたら `finalTranscript` を全員に送る
+"""
+
+import asyncio
+import contextlib
+import importlib.util
+import json
+import logging
+import os
+import sys
+import time
+from collections.abc import Callable
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Any
+
+from remote_whisper import logs
+from remote_whisper.gpu import openvino_whisper
+from remote_whisper.gpu.gpu_queue import GpuQueue, Priority, report_progress
+from remote_whisper.hub import Hub
+from remote_whisper.recording.live_transcriber import load_hotwords
+from remote_whisper.settings import SettingsStore
+from remote_whisper.storage.documents import FinalTranscriptMeta, TranscriptMeta, parse, write_doc
+from remote_whisper.storage.session_writer import transcript_lock
+from remote_whisper.storage.sessions import SessionFiles
+from remote_whisper.storage.timeutil import iso, make_id, now
+from remote_whisper.transcript.final_transcribe_worker import (
+    EXIT_NOT_INSTALLED,
+    STEPS,
+    parse_progress,
+)
+from remote_whisper.transcript.final_transcript import Sentence, merge_sources, render, sentences
+from remote_whisper.transcript.term_picker import combine_hotwords
+from remote_whisper.version import app_version
+
+log = logging.getLogger(__name__)
+# 子プロセス（final_transcribe_worker）が書いたもの
+worker_log = logging.getLogger("remote_whisper.transcript.final_transcribe_worker")
+
+# 話者分けのモデル。pyannote.audio 4 は 3.1 を使うときにもこのモデルのファイルを読むので、これにする
+DIARIZATION_MODEL = "pyannote/speaker-diarization-community-1"
+BATCH_SIZE = 8
+# Whisper に渡す句読点つきの例文（#141）。large-v3-turbo は日本語で「。」をあまり打たず、
+# 行を文ごとに分けにくい。例文があると打つようになる（認識の精度は変わらなかった）
+INITIAL_PROMPT = {
+    "ja": (
+        "こんにちは。今日は、言葉の話をしましょう。えっと、そうですね。はい、よろしくお願いします。"
+    )
+}
+# 録音が始まって止めたら、録音が終わってから作り直す。何度も止められたらあきらめる
+MAX_TRIES = 3
+# 子プロセスを打ち切るまでの時間（秒）: TIMEOUT_BASE_SEC + 録音の長さ × TIMEOUT_PER_SEC。
+# RTX 2060 で 60 分の録音が 450 秒、10 分が 204 秒（モデルの読み込みを含む）だったので、
+# 十分に長くとる
+TIMEOUT_BASE_SEC = 900
+TIMEOUT_PER_SEC = 1.0
+WORKER = [sys.executable, "-m", "remote_whisper.transcript.final_transcribe_worker"]
+
+
+class _Preempted(Exception):
+    """録音が始まったので止めた"""
+
+
+def installed() -> bool:
+    """WhisperX が入っているか（サーバーの extra `final`）"""
+    return importlib.util.find_spec("whisperx") is not None
+
+
+class FinalTranscriber:
+    def __init__(
+        self,
+        settings: SettingsStore,
+        hub: Hub,
+        gpu: GpuQueue,
+        whisper: Any = None,
+        ollama: Any = None,
+        recording: Callable[[], bool] = lambda: False,
+        command: list[str] | None = None,
+        available: Callable[[], bool] = installed,
+        extra_env: Callable[[], dict[str, str]] = dict,
+        openvino_device: str | None = None,
+    ):
+        """command はテスト用（子プロセスの代わりに動かすもの）。
+        extra_env は子プロセスに足す環境変数（HuggingFace のトークン。#291）。
+        openvino_device は Intel の GPU のデバイス（#374）。設定の whisper.intelGpu が auto なら、
+        文字起こしだけ OpenVINO でする"""
+        self.settings = settings
+        self.extra_env = extra_env
+        self.openvino_device = openvino_device
+        self.hub = hub
+        self.gpu = gpu
+        self.whisper = whisper
+        self.ollama = ollama
+        self.recording = recording
+        self.command = command or WORKER
+        self._available = available
+        self._lock = asyncio.Lock()
+        self._proc: asyncio.subprocess.Process | None = None
+        # ジョブを動かしている間（子プロセスを起こす前も含む）。録音が始まったら _preempted を立てる
+        self._running = False
+        self._preempted = False
+        # 録音していないとき set。録音中は待つ
+        self._idle = asyncio.Event()
+        self._idle.set()
+        # 作り直し（結果を待たない）のタスク
+        self._tasks: set[asyncio.Task] = set()
+
+    def available(self) -> bool:
+        """WhisperX が入っていて作れるか（設定は見ない。作り直しは設定を切っていても作る）"""
+        return self._available()
+
+    def enabled(self) -> bool:
+        """録音を終えたときに作るか"""
+        return self.settings.get().whisper.final_transcript and self._available()
+
+    def regenerate(
+        self, files: SessionFiles, meta: TranscriptMeta, model: str, diarize: bool
+    ) -> None:
+        """作り直す（#124）。結果は待たない
+
+        作れなかったら error（final_transcript_failed）を全員に送る
+        """
+        # 作っている途中に入れるのは、タスクが動き始める前
+        # （返事のすぐあとに重ねて頼まれても断れるように）
+        end = self.hub.begin_final_transcript(files.id)
+        task = asyncio.create_task(self._regenerate(files, meta, model, diarize))
+        task.add_done_callback(lambda _: end())
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
+    async def _regenerate(
+        self, files: SessionFiles, meta: TranscriptMeta, model: str, diarize: bool
+    ) -> None:
+        try:
+            gid = await self.run(files, meta, model, diarize)
+        except Exception:  # noqa: BLE001
+            log.exception("regenerating the final transcript of %s failed", files.id)
+            gid = None
+        if gid is None:
+            await self.hub.broadcast(
+                {
+                    "type": "error",
+                    "code": "final_transcript_failed",
+                    "session": files.id,
+                    "message": "浄書できませんでした（ホストのログを見てください）",
+                }
+            )
+
+    async def close(self) -> None:
+        """サーバーを止めるとき。作り直しの途中のものを止める"""
+        for task in list(self._tasks):
+            task.cancel()
+        if self._tasks:
+            await asyncio.gather(*self._tasks, return_exceptions=True)
+
+    def recordings_changed(self, count: int) -> None:
+        """録音中のセッションの数が変わった。録音が始まったら、作っている途中のものを止める"""
+        if count > 0:
+            self._idle.clear()
+            if self._running:
+                # 子プロセスを起こす前（VRAM を空けている途中など）でも、起こしたらすぐ止める
+                self._preempted = True
+                self._kill("a recording started")
+        else:
+            self._idle.set()
+
+    async def run(
+        self,
+        files: SessionFiles,
+        meta: TranscriptMeta,
+        model: str | None = None,
+        diarize: bool | None = None,
+    ) -> str | None:
+        """最終の文字起こしを作って保存する。生成 ID を返す（作れなければ None）
+
+        model・diarize を省くと、作り始める時点の全体設定のものを使う
+        """
+        # 作り終えるまで status の transcribing に入れる（録音が終わるのを待っている間も。#124）
+        end = self.hub.begin_final_transcript(files.id)
+        try:
+            return await self._run(files, meta, model, diarize)
+        finally:
+            end()
+
+    async def _run(
+        self, files: SessionFiles, meta: TranscriptMeta, model: str | None, diarize: bool | None
+    ) -> str | None:
+        async with self._lock:
+            for attempt in range(MAX_TRIES):
+                await self._idle.wait()
+                try:
+                    return await self.gpu.run(
+                        Priority.BACKGROUND,
+                        lambda: self._job(files, meta, model, diarize),
+                        kind="finalTranscript",
+                        session=files.id,
+                    )
+                except _Preempted:
+                    log.info(
+                        "final transcript of %s stopped by a recording (%d/%d)",
+                        files.id,
+                        attempt + 1,
+                        MAX_TRIES,
+                    )
+            log.warning("gave up the final transcript of %s", files.id)
+            return None
+
+    def _kill(self, reason: str) -> None:
+        if self._proc is not None and self._proc.returncode is None:
+            log.info("stopping the final transcript: %s", reason)
+            with contextlib.suppress(ProcessLookupError):
+                self._proc.kill()
+
+    async def _job(
+        self, files: SessionFiles, meta: TranscriptMeta, model: str | None, diarize: bool | None
+    ) -> str | None:
+        self._running = True
+        self._preempted = self.recording()
+        try:
+            return await self._make(files, meta, model, diarize)
+        finally:
+            self._running = False
+
+    async def _make(
+        self, files: SessionFiles, meta: TranscriptMeta, model: str | None, diarize: bool | None
+    ) -> str | None:
+        if self._preempted:
+            raise _Preempted
+        # WAV があればそちら（続きを録音したあとの mp3 は、前の部分だけのことがある。#174）
+        audio = files.audio()
+        if audio is None:
+            log.warning("no recording to make the final transcript of %s", files.id)
+            return None
+        whisper = self.settings.get().whisper
+        model = model or whisper.model
+        diarize = whisper.diarize if diarize is None else diarize
+        started = now()
+        # 子が動き出すまで（VRAM を空ける・torch を読み込む）も「モデルの読み込み」にする（#340）
+        report_progress("load", 0, len(STEPS) if diarize else len(STEPS) - 1)
+        await self._free_vram()
+        work = files.dir / ".tmp" / files.id
+        work.mkdir(parents=True, exist_ok=True)
+        out = work / "final-transcript.json"
+        out.unlink(missing_ok=True)
+        job = {
+            "audio": str(audio),
+            "out": str(out),
+            "model": model,
+            "computeType": whisper.compute_type,
+            "language": meta.language,
+            "diarize": diarize,
+            "diarizationModel": DIARIZATION_MODEL,
+            "batchSize": BATCH_SIZE,
+            "hotwords": _hotwords(files, meta),
+            "initialPrompt": INITIAL_PROMPT.get(meta.language),
+        }
+        if self.openvino_device is not None and whisper.intel_gpu == "auto":
+            # 浄書は fp16（#347。録音は終わっているので VRAM に余裕がある）
+            precision = openvino_whisper.FINAL_PRECISION
+            job["openvino"] = {
+                "device": self.openvino_device,
+                "model": openvino_whisper.repo_for(model, precision),
+            }
+        sources = _job_sources(files, meta, audio)
+        if len(sources) > 1:
+            job["sources"] = sources
+        if self._preempted:
+            raise _Preempted
+        # 固まっても GPU キューを止めたままにしないよう、録音の長さに応じた時間で打ち切る
+        # （複数の音源は、文字起こしと位置合わせを音源の数だけ行う）
+        timeout = TIMEOUT_BASE_SEC + TIMEOUT_PER_SEC * (meta.duration_sec or 3600) * max(
+            1, len(sources)
+        )
+        timed_out = False
+        clock = time.monotonic()
+        log.info(
+            "final transcript of %s started with %s (diarize=%s, %.0fs of audio)",
+            files.id,
+            model,
+            diarize,
+            meta.duration_sec or 0,
+        )
+        output: asyncio.Task | None = None
+        try:
+            # 子の出力（ログ）は親が受け取って、サーバーのログに書く（#134）
+            self._proc = await asyncio.create_subprocess_exec(
+                *self.command,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                # extra_env は画面から保存した HuggingFace のトークン（#291）。ログには書かない
+                env={**os.environ, **self.extra_env(), "PYTHONIOENCODING": "utf-8"},
+            )
+            assert self._proc.stdin is not None and self._proc.stdout is not None
+            # 子が出す進み具合の行は、ログに書かずにジョブの進み具合にする（#340）
+            output = asyncio.create_task(
+                logs.forward_output(self._proc.stdout, worker_log, _forward_progress)
+            )
+            if self._preempted:
+                # 起こしている間に録音が始まった
+                self._kill("a recording started")
+            try:
+                with contextlib.suppress(BrokenPipeError, ConnectionResetError):
+                    self._proc.stdin.write(json.dumps(job, ensure_ascii=False).encode("utf-8"))
+                    await self._proc.stdin.drain()
+                    self._proc.stdin.close()
+                await asyncio.wait_for(self._proc.wait(), timeout)
+            except TimeoutError:
+                timed_out = True
+                self._kill(f"no result in {timeout:.0f}s")
+                await self._proc.wait()
+            code = self._proc.returncode
+        except asyncio.CancelledError:
+            # サーバーを止めるときなど。子プロセスを残さない
+            self._kill("cancelled")
+            raise
+        finally:
+            self._proc = None
+            if output is not None:
+                # 子が終われば出力も閉じるので、残りを書き終えるのを待つ
+                with contextlib.suppress(Exception):
+                    await asyncio.wait_for(output, 5)
+        if self._preempted:
+            out.unlink(missing_ok=True)
+            raise _Preempted
+        if timed_out:
+            log.warning("the final transcript of %s timed out", files.id)
+            out.unlink(missing_ok=True)
+            return None
+        if code == EXIT_NOT_INSTALLED:
+            log.warning("WhisperX is not installed; the final transcript is not made")
+            return None
+        if code != 0 or not out.is_file():
+            log.warning("the final transcript of %s failed (exit code %s)", files.id, code)
+            return None
+        try:
+            result = json.loads(out.read_text(encoding="utf-8"))
+        finally:
+            out.unlink(missing_ok=True)
+            with contextlib.suppress(OSError):
+                work.rmdir()
+        if result.get("diarizationError"):
+            log.warning("diarization of %s skipped: %s", files.id, result["diarizationError"])
+        diarized = result.get("diarization") == "done"
+        # 形態素解析と話者の割り当てで 1 時間の録音なら数秒かかるので、別のスレッドで
+        turns = result.get("turns") if diarized else None
+        segments = result.get("segments") or []
+        if len(sources) > 1:
+            lines = await asyncio.to_thread(
+                _multi_source_lines, segments, turns, meta.language, result.get("dominant") or []
+            )
+            _record_alignment(files, meta, result.get("sources") or [])
+        else:
+            lines = await asyncio.to_thread(sentences, segments, turns, meta.language)
+        body, speakers = render(lines, diarized)
+        gid = _save(files, meta, model, started, result, body, speakers, audio, lines, sources)
+        log.info(
+            "final transcript of %s saved as %s in %.0fs (diarization %s, %d speakers)",
+            files.id,
+            gid,
+            time.monotonic() - clock,
+            result.get("diarization") or "off",
+            speakers,
+        )
+        await self.hub.broadcast(
+            {"type": "finalTranscript", "session": files.id, "generationId": gid}
+        )
+        return gid
+
+    async def _free_vram(self) -> None:
+        """録音中の文字起こしの Whisper と Ollama のモデルを下ろす。下ろせなくても作る"""
+        if self.whisper is not None:
+            try:
+                await self.whisper.unload()
+            except Exception:  # noqa: BLE001
+                log.exception("failed to unload whisper before the final transcript")
+        if self.ollama is not None:
+            try:
+                await self.ollama.unload_all()
+            except Exception:  # noqa: BLE001
+                log.exception("failed to unload ollama models before the final transcript")
+
+
+def _hotwords(files: SessionFiles, meta: TranscriptMeta) -> str | None:
+    """録音のときと同じ用語リスト（手で足した語、参考資料セットの用語、録音中に拾った語）"""
+    # 手で足した語（#175）は、参考資料セットを使わないときも使う
+    if not meta.use_hotwords:
+        return combine_hotwords(None, [], meta.manual_terms)
+    return combine_hotwords(
+        load_hotwords(files.dir, meta.context_set), meta.picked_terms, meta.manual_terms
+    )
+
+
+def _forward_progress(line: str) -> bool:
+    """子の進み具合の行（PROGRESS）を、GPU キューのジョブの進み具合にする。そうならば True"""
+    data = parse_progress(line)
+    if data is None:
+        return False
+    done, total, percent = data.get("done"), data.get("total"), data.get("percent")
+    report_progress(
+        data["step"],
+        done if isinstance(done, int) else None,
+        total if isinstance(total, int) else None,
+        float(percent) if isinstance(percent, (int, float)) else None,
+    )
+    return True
+
+
+def _save(
+    files: SessionFiles,
+    meta: TranscriptMeta,
+    model: str,
+    started: datetime,
+    result: dict[str, Any],
+    body: str,
+    speakers: int,
+    audio: Path,
+    lines: list[Sentence] | None = None,
+    sources: list[dict[str, Any]] | None = None,
+) -> str:
+    multi = sources is not None and len(sources) > 1
+    gid = make_id(started)
+    # 同じ秒に作り直したときは、1秒ずつずらす
+    while files.final_transcript(gid).exists():
+        started += timedelta(seconds=1)
+        gid = make_id(started)
+    write_doc(
+        files.final_transcript(gid),
+        FinalTranscriptMeta(
+            id=files.id,
+            generation_id=gid,
+            project=meta.project,
+            model=model,
+            generated_at=iso(started),
+            recording=audio.name,
+            align_model=result.get("alignModel"),
+            diarization=result.get("diarization") or "off",
+            speakers=speakers,
+            app_version=app_version(),
+            sources=[int(s["id"]) for s in sources] if multi and sources else None,
+            line_sources=[s.source or 1 for s in lines or []] if multi else None,
+        ),
+        body,
+    )
+    return gid
+
+
+def _job_sources(files: SessionFiles, meta: TranscriptMeta, audio: Path) -> list[dict[str, Any]]:
+    """子に渡す音源（#241）。音源が 1 つなら主の音源だけ。録音ファイルが消えた音源は使わない"""
+    out: list[dict[str, Any]] = [{"id": 1, "audio": str(audio), "roughOffsetSec": 0.0}]
+    for s in (meta.sources or [])[1:]:
+        # 録音中に参加した音源は、続きを録音できる間は WAV のまま（主の音源と同じ。#356）
+        wav = files.dir / ".tmp" / files.id / f"audio-{s.id}.wav"
+        path = wav if wav.is_file() else files.source_recording(s.id)
+        if path is None:
+            log.warning("no recording of source %d of %s; it is skipped", s.id, files.id)
+            continue
+        out.append({"id": s.id, "audio": str(path), "roughOffsetSec": s.offset_sec})
+    return out
+
+
+def _multi_source_lines(
+    segments: list[dict[str, Any]],
+    turns: list[dict[str, Any]] | None,
+    language: str,
+    dominant: list[list[float]],
+) -> list[Sentence]:
+    """音源ごとに文に分けてから、時刻で並べて二重の行を消す（spec/flows.md 6.16）"""
+    by_source: dict[int, list[dict[str, Any]]] = {}
+    for s in segments:
+        by_source.setdefault(int(s.get("source") or 1), []).append(s)
+    per_source = {
+        source: sentences(segs, turns, language) for source, segs in sorted(by_source.items())
+    }
+    return merge_sources(per_source, dominant)
+
+
+def _record_alignment(
+    files: SessionFiles, meta: TranscriptMeta, measured: list[dict[str, Any]]
+) -> None:
+    """測ったずれ・ドリフトを、文字起こしのフロントマターの音源に書く（再生で音源を切り替えるため）"""
+    if not meta.sources or not measured:
+        return
+    by_id = {int(m["id"]): m for m in measured}
+    for s in meta.sources:
+        m = by_id.get(s.id)
+        if m is not None:
+            s.offset_sec = float(m.get("offsetSec") or 0.0)
+            s.drift_ppm = float(m.get("driftPpm") or 0.0)
+    try:
+        with transcript_lock(files.transcript):
+            _, body = parse(files.transcript.read_text(encoding="utf-8"))
+            write_doc(files.transcript, meta, body)
+    except (OSError, ValueError):
+        log.exception("failed to record the source alignment of %s", files.id)

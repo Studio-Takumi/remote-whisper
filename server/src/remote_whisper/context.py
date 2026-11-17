@@ -6,10 +6,10 @@ from typing import Annotated, Any
 
 from fastapi import Depends, HTTPException, Request
 
-from remote_whisper.gpu_queue import GpuQueue
+from remote_whisper.gpu.gpu_queue import GpuQueue
 from remote_whisper.hub import Hub
-from remote_whisper.projects import ProjectError, ProjectStore
 from remote_whisper.settings import SettingsStore
+from remote_whisper.storage.projects import ProjectError, ProjectStore
 
 
 @dataclass

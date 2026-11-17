@@ -3,7 +3,7 @@
 
     pwsh packaging/build.ps1 [-OutDir packaging/out] [-Version <文字列>]
 
-  <OutDir>/app に、Python ごと同梱したフォルダができる（構成は server/src/remote_whisper/bundle.py）。
+  <OutDir>/app に、Python ごと同梱したフォルダができる（構成は server/src/remote_whisper/desktop/bundle.py）。
   これを packaging/installer.iss でインストーラにする。ビルドは GitHub Actions（package.yml）で回す。
   数 GB のダウンロードと展開があるので、手元の PC では普通は回さない。
 

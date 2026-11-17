@@ -13,8 +13,8 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from pydantic.alias_generators import to_camel
 
-from remote_whisper.fsutil import atomic_write_json
 from remote_whisper.host_check import is_valid_allowed_host
+from remote_whisper.storage.fsutil import atomic_write_json
 
 SETTINGS_VERSION = 1
 

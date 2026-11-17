@@ -13,14 +13,14 @@ from typing import Any
 
 from fastapi import WebSocket
 
-from remote_whisper.corrections import Correction, apply_all, replace
 from remote_whisper.hub import Hub
-from remote_whisper.ollama import OllamaUnavailable, ollama_error
-from remote_whisper.projects import ProjectError, ProjectStore
-from remote_whisper.recording import RecordingError, check_continuable
-from remote_whisper.session_writer import SessionWriter
+from remote_whisper.llm.ollama import OllamaUnavailable, ollama_error
+from remote_whisper.recording.recording import RecordingError, check_continuable
 from remote_whisper.settings import FinalModels, OllamaModels, SettingsStore
-from remote_whisper.timeutil import make_id, now
+from remote_whisper.storage.projects import ProjectError, ProjectStore
+from remote_whisper.storage.session_writer import SessionWriter
+from remote_whisper.storage.timeutil import make_id, now
+from remote_whisper.transcript.corrections import Correction, apply_all, replace
 
 log = logging.getLogger(__name__)
 

@@ -10,9 +10,9 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from remote_whisper.context import AppContext
 from remote_whisper.hub import send
 from remote_whisper.logs import traffic
-from remote_whisper.projects import UUID_RE, ProjectError
-from remote_whisper.recording import RecordingError
-from remote_whisper.sessions import parse_transcript_lines, read_transcript
+from remote_whisper.recording.recording import RecordingError
+from remote_whisper.storage.projects import UUID_RE, ProjectError
+from remote_whisper.storage.sessions import parse_transcript_lines, read_transcript
 
 log = logging.getLogger(__name__)
 

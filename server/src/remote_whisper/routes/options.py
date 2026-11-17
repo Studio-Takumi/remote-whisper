@@ -5,7 +5,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends
 
 from remote_whisper.context import AppContext, get_ctx
-from remote_whisper.llm import LlmUnavailable, backend_of
+from remote_whisper.llm.llm import LlmUnavailable, backend_of
 from remote_whisper.mock import MOCK_LMSTUDIO_MODELS, MOCK_OLLAMA_MODELS
 from remote_whisper.settings import has_model
 

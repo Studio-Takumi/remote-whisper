@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from test_recorder import chunk, finished, of_type, receive_until, start, wait_for
 
 from remote_whisper.app import create_app
-from remote_whisper.documents import TranscriptMeta, read_doc
+from remote_whisper.storage.documents import TranscriptMeta, read_doc
 
 LOUD, QUIET = 3000, 30
 
@@ -263,8 +263,8 @@ def test_sources_json_is_written_while_recording(client, project):
 
 
 def test_line_sources_are_recovered_at_startup(client, project):
-    from remote_whisper import recovery
-    from remote_whisper.session_writer import SessionWriter
+    from remote_whisper.recording import recovery
+    from remote_whisper.storage.session_writer import SessionWriter
 
     pid, d = project
     with client.websocket_connect("/ws") as rec:
@@ -289,7 +289,7 @@ def test_line_sources_are_recovered_at_startup(client, project):
 
 def test_leftover_source_wavs_are_converted_at_startup(client, project, monkeypatch):
     # 変換に失敗して WAV が残った（サーバーが落ちたときも同じ）。次の起動時に音源ごとに変換する
-    from remote_whisper import recorder, recovery
+    from remote_whisper.recording import recorder, recovery
 
     def fail(*args):
         raise RuntimeError("変換しない（テスト用）")

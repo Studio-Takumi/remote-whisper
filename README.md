@@ -124,7 +124,7 @@ Windows では、タスクトレイ（右下）にアイコンが出ます。ア
 ### 動作確認（ファイルの文字起こし）
 
 ```bash
-uv run python transcribe.py sample.wav
+uv run python scripts/transcribe.py sample.wav
 ```
 
 モデルの既定は `large-v3-turbo` です。large-v3 と同程度の精度で、2倍以上速く動きます。日本語向けのモデル [`kotoba-tech/kotoba-whisper-v2.0-faster`](https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0-faster) も試しましたが、turbo のほうが誤変換が少なくなりました。モデルは初回実行時にダウンロードされ、`server/hf/` に保存されます（環境変数 `HF_HOME` で場所を変えられます）。

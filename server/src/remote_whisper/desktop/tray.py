@@ -1,0 +1,621 @@
+"""タスクトレイ（Windows。#135）・メニューバー（Mac。#136）にサーバーの状態を出す。spec/ui.md 8
+
+- 中身（状態の色・文・メニュー）は tray_state.py で決める。ここは pystray でアイコンを出す部分と、
+  OS ごとに違う部分（確認のダイアログ・フォルダを開く・状態の行）
+- 状態はサーバーの中（Hub の status）から直接読む。1 秒ごとに見て、変わったらアイコンと文を変える
+- 左クリックで画面をブラウザで開く。右クリックのメニューは
+  「画面を開く / ログのフォルダを開く / クラウドの状態の行・クラウド版にログイン（など） / 終了」。
+  クラウドの項目（#158）は、登録していなければ「クラウド版にログイン」、登録中は「登録をやめる」、
+  登録済みなら「クラウド版から外す」だけを出す。登録コードと結果は通知（Mac は osascript）でも出す。
+  Mac の配布版（#292）では、終了の上に「ログイン時に起動」（チェックの付く項目。login_item.py）
+  も出す
+- Mac ではクリックでメニューが開き、マウスを乗せたときの文が出ないことがあるので、
+  メニューの一番上に状態の行を出す。アイコンはテンプレート画像にしない（カーソルの色が見えるように）
+- pystray と Pillow は Windows と Mac だけの依存。ないときは available() が False になり、
+  トレイなしで動く
+"""
+
+import contextlib
+import importlib.util
+import logging
+import os
+import subprocess
+import sys
+import threading
+import time
+import webbrowser
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any
+
+from remote_whisper.cloud.announcements import AnnouncementWatcher
+from remote_whisper.cloud.cloud import CloudHost, CloudView
+from remote_whisper.desktop import bundle, login_item
+from remote_whisper.desktop.tray_state import (
+    APP_NAME,
+    CLOUD_UNPAIR_CONFIRM,
+    DOT_COLORS,
+    MENU_CLOUD_CANCEL,
+    MENU_CLOUD_LOGIN,
+    MENU_CLOUD_UNPAIR,
+    MENU_LOGIN_ITEM,
+    MENU_LOGS,
+    MENU_OPEN,
+    MENU_QUIT,
+    Color,
+    TrayState,
+    cloud_menu,
+    quit_confirmation,
+    tray_state,
+)
+from remote_whisper.hub import ServerStatus
+
+log = logging.getLogger(__name__)
+
+# トレイ用のアイコンの大きさ（px）。OS の表示スケールに合わせて、縮めさせずにそのまま渡す
+# （Windows は 100% で 16、125% で 20、150% で 24、200% で 32。Mac のメニューバーは 18pt の 1x・2x）
+WINDOWS_ICON_SIZES = (16, 20, 24, 32, 48)
+MAC_ICON_PT = 18
+# アイコンはロゴ（#284）の「>」とカーソルだけ。波形の棒は 16px では潰れるので省き、
+# カーソルの色で状態を示す。以下はどれもアイコンの大きさに対する割合
+# カーソル: 幅・高さ・右の余白（16px でも 4px・12px・2px になる）
+CURSOR_WIDTH = 0.26
+CURSOR_HEIGHT = 0.76
+CURSOR_MARGIN = 0.12
+# 「>」: 線の太さ・高さの半分・カーソルとの間・傾き（高さに対する横幅。ロゴと同じ角度）
+CHEVRON_STROKE = 0.14
+CHEVRON_HALF = 0.28
+CHEVRON_GAP = 0.1
+CHEVRON_SLANT = 0.88
+# 小さい画像は、境目がにじまないよう何倍かで描いてから縮める
+SUPERSAMPLE = 8
+# Mac のライト・ダークの判定を使い回す秒数と、その答え（[調べた時刻, 明るいか]）
+MAC_THEME_CACHE_SEC = 5.0
+_mac_theme_cache: list[Any] = [-MAC_THEME_CACHE_SEC - 1, False]
+MARK_LIGHT, MARK_DARK = (255, 255, 255, 255), (32, 32, 32, 255)
+# 状態を見に行く間隔（秒）
+REFRESH_SEC = 1.0
+
+
+def available() -> bool:
+    """トレイ（メニューバー）を出せるか（Windows と Mac。pystray が入っているか）"""
+    return sys.platform in ("win32", "darwin") and importlib.util.find_spec("pystray") is not None
+
+
+def must_run_on_main_thread() -> bool:
+    """Mac の pystray（AppKit）はメインスレッドで動かす必要がある。Windows は別のスレッドでよい"""
+    return sys.platform == "darwin"
+
+
+def shows_status_line() -> bool:
+    """メニューの一番上に状態の行を出すか（Mac。Windows はマウスを乗せたときの文で見る）"""
+    return sys.platform == "darwin"
+
+
+def icon_image(color: Color, size: int = 32, light: bool = False) -> Any:
+    """size px 四方の、背景が透明なアイコン。ロゴの「>」と、状態の色のカーソル（縦の棒）を描く
+
+    小さいほど潰れやすいので、カーソルの位置と大きさは px の格子に合わせる（にじませない）。
+    light は背景（タスクバー・メニューバー）が明るいとき。「>」を暗い色にして、見えるようにする
+    """
+    from PIL import Image, ImageDraw
+
+    k = SUPERSAMPLE
+    image = Image.new("RGBA", (size * k, size * k), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    # カーソル: 右に寄せる。高さは size と偶奇をそろえて、上下が半 px ずれないようにする
+    width = max(3, round(size * CURSOR_WIDTH))
+    height = max(4, round(size * CURSOR_HEIGHT / 2) * 2)
+    right = size - max(1, round(size * CURSOR_MARGIN))
+    left = right - width
+    top = (size - height) // 2
+    draw.rounded_rectangle(
+        (left * k, top * k, right * k - 1, (top + height) * k - 1),
+        radius=max(1.0, size * 0.04) * k,
+        fill=DOT_COLORS[color],
+    )
+    # 「>」: カーソルの左に、先を縦の真ん中に合わせて描く。線の端と折れ目は丸める
+    stroke = max(2, round(size * CHEVRON_STROKE))
+    half = size * CHEVRON_HALF
+    tip = left - size * CHEVRON_GAP - stroke / 2
+    back = tip - half * CHEVRON_SLANT
+    middle = size / 2
+    points = [
+        (back * k, (middle - half) * k),
+        (tip * k, middle * k),
+        (back * k, (middle + half) * k),
+    ]
+    mark = MARK_DARK if light else MARK_LIGHT
+    draw.line(points, fill=mark, width=stroke * k, joint="curve")
+    r = stroke * k / 2
+    for x, y in (points[0], points[-1]):
+        draw.ellipse((x - r, y - r, x + r, y + r), fill=mark)
+    return image.resize((size, size), Image.BOX)
+
+
+def icon_images(color: Color, light: bool = False) -> Any:
+    """OS に渡すアイコン。Windows は複数サイズ入りの ICO にできるよう、小さい画像も付ける
+
+    返すのは一番大きい画像で、全部のサイズは tray_frames に入れてある
+    """
+    sizes = WINDOWS_ICON_SIZES if sys.platform == "win32" else (MAC_ICON_PT * 2,)
+    frames = [icon_image(color, size, light) for size in sizes]
+    largest = frames[-1]
+    largest.tray_frames = frames
+    return largest
+
+
+def taskbar_is_light() -> bool:
+    """タスクバー（Windows）・メニューバー（Mac）が明るい配色か。分からなければ暗いとみなす"""
+    try:
+        if sys.platform == "win32":
+            import winreg
+
+            key = r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key) as handle:
+                return winreg.QueryValueEx(handle, "SystemUsesLightTheme")[0] == 1
+        if sys.platform == "darwin":
+            # 1 秒ごとに外のコマンドを呼ばないよう、数秒は前の答えを使う
+            now = time.monotonic()
+            if now - _mac_theme_cache[0] > MAC_THEME_CACHE_SEC:
+                # ダークのときだけ "Dark" と出る（ライトのときは項目がなく、エラーで終わる）
+                result = subprocess.run(  # noqa: S603, S607
+                    ["defaults", "read", "-g", "AppleInterfaceStyle"],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=2,
+                )
+                _mac_theme_cache[:] = [now, "Dark" not in result.stdout]
+            return bool(_mac_theme_cache[1])
+    except Exception:  # noqa: BLE001 見た目の判定に失敗しても、暗い配色のままで出す
+        log.debug("failed to detect the taskbar theme", exc_info=True)
+    return False
+
+
+def small_icon_size() -> int:
+    """Windows のトレイに出すアイコンの大きさ（px）。表示スケールに合わせる。分からなければ 16
+
+    サーバーは DPI 非対応のプロセスで、GetSystemMetrics は常に 16 を返す。調べている間だけ
+    スレッドを DPI 対応にして、システムの DPI でのサイズ（SM_CXSMICON）を聞く
+    """
+    try:
+        import ctypes
+
+        user32 = ctypes.windll.user32
+        user32.SetThreadDpiAwarenessContext.restype = ctypes.c_void_p
+        user32.SetThreadDpiAwarenessContext.argtypes = [ctypes.c_void_p]
+        # -4 は DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
+        previous = user32.SetThreadDpiAwarenessContext(ctypes.c_void_p(-4))
+        try:
+            dpi = user32.GetDpiForSystem()
+            size = user32.GetSystemMetricsForDpi(49, dpi)  # SM_CXSMICON
+        finally:
+            user32.SetThreadDpiAwarenessContext(ctypes.c_void_p(previous))
+        if 16 <= size <= 64:
+            return int(size)
+    except Exception:  # noqa: BLE001 取れなければ 16 に戻す
+        log.debug("failed to get the small icon size", exc_info=True)
+    return 16
+
+
+def pystray_icon_class() -> Any:
+    """pystray のアイコン。OS に縮めさせず、用意した大きさの画像をそのまま使うよう差し替える
+
+    - Windows: pystray は 1 枚の画像から ICO を作り、大きい方（32px）で読み込んでシェルに
+      縮めさせる。複数サイズ入りの ICO を作り、小さいアイコンの大きさ（SM_CXSMICON）で読む
+    - Mac: pystray はメニューバーの高さ（22）に縮めるので、36px の画像を 18pt として使う
+      （Retina でぼやけない）
+    """
+    import pystray
+
+    class Icon(pystray.Icon):
+        # 差し替えた処理が失敗しても、トレイのせいでサーバーを落とさない。pystray 標準に戻す
+        def _assert_icon_handle(self) -> None:  # Windows
+            frames = getattr(self.icon, "tray_frames", None)
+            if self._icon_handle or not frames:
+                return super()._assert_icon_handle()
+            try:
+                self._icon_handle = self._load_icon_handle(frames)
+            except Exception:  # noqa: BLE001
+                log.warning("failed to load the tray icon at the exact size", exc_info=True)
+                self._icon_handle = None
+                super()._assert_icon_handle()
+
+        def _load_icon_handle(self, frames: list[Any]) -> Any:
+            import tempfile
+
+            from pystray._util import win32
+
+            fd, path = tempfile.mkstemp(".ico")
+            try:
+                with os.fdopen(fd, "wb") as f:
+                    sizes = [frame.size for frame in frames]
+                    frames[-1].save(f, format="ICO", sizes=sizes, append_images=frames[:-1])
+                size = small_icon_size()
+                handle = win32.LoadImage(
+                    None, path, win32.IMAGE_ICON, size, size, win32.LR_LOADFROMFILE
+                )
+            finally:
+                os.unlink(path)
+            if not handle:
+                raise OSError("LoadImage returned NULL")
+            return handle
+
+        def _assert_image(self) -> None:  # Mac
+            if self._icon_image is not None and getattr(self, "_icon_source", None) is self.icon:
+                return
+            try:
+                import io
+
+                import AppKit
+                import Foundation
+
+                buffer = io.BytesIO()
+                self.icon.save(buffer, "png")
+                data = Foundation.NSData(buffer.getvalue())
+                image = AppKit.NSImage.alloc().initWithData_(data)
+                image.setSize_((MAC_ICON_PT, MAC_ICON_PT))
+                self._status_item.button().setImage_(image)
+                self._icon_image = image
+                self._icon_source = self.icon
+            except Exception:  # noqa: BLE001
+                log.warning("failed to set the menu bar icon at the exact size", exc_info=True)
+                super()._assert_image()
+
+    return Icon
+
+
+# --- OS ごとに違う部分 ---
+
+
+def confirm(message: str, ok_label: str = "終了") -> bool:
+    """はい・いいえを聞く。はいなら True。ok_label は Mac のはいのボタンの文"""
+    if sys.platform == "win32":
+        import ctypes
+
+        mb_yesno, mb_iconwarning, mb_topmost, mb_setforeground = 0x4, 0x30, 0x40000, 0x10000
+        flags = mb_yesno | mb_iconwarning | mb_topmost | mb_setforeground
+        return ctypes.windll.user32.MessageBoxW(0, message, APP_NAME, flags) == 6  # IDYES
+    if sys.platform == "darwin":
+        quote = message.replace("\\", "\\\\").replace('"', '\\"')
+        script = (
+            f'display dialog "{quote}" with title "{APP_NAME}" with icon caution '
+            f'buttons {{"キャンセル", "{ok_label}"}} default button "キャンセル" '
+            'cancel button "キャンセル"'
+        )
+        # キャンセルなら osascript は失敗で終わる
+        result = subprocess.run(  # noqa: S603, S607
+            ["osascript", "-e", script], capture_output=True, text=True, check=False
+        )
+        return result.returncode == 0 and ok_label in result.stdout
+    return True
+
+
+def show_message(message: str) -> None:
+    """知らせを出す（OK だけ）。アイコンを出す前に、起動をやめるときに使う。出せなくても止めない"""
+    try:
+        if sys.platform == "win32":
+            import ctypes
+
+            mb_ok, mb_iconerror, mb_topmost, mb_setforeground = 0x0, 0x10, 0x40000, 0x10000
+            flags = mb_ok | mb_iconerror | mb_topmost | mb_setforeground
+            ctypes.windll.user32.MessageBoxW(0, message, APP_NAME, flags)
+        elif sys.platform == "darwin":
+            quote = message.replace("\\", "\\\\").replace('"', '\\"')
+            script = (
+                f'display dialog "{quote}" with title "{APP_NAME}" with icon stop '
+                'buttons {"OK"} default button "OK"'
+            )
+            subprocess.run(["osascript", "-e", script], capture_output=True, check=False)  # noqa: S603, S607
+    except Exception:  # noqa: BLE001
+        log.warning("failed to show a message", exc_info=True)
+
+
+def notify_mac(message: str) -> None:
+    """Mac の通知（pystray の Mac 版は通知を出せないので、osascript で出す）"""
+    quote = message.replace("\\", "\\\\").replace('"', '\\"')
+    subprocess.Popen(  # noqa: S603, S607
+        ["osascript", "-e", f'display notification "{quote}" with title "{APP_NAME}"'],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+# NSApplication の delegate は弱い参照なので、ここで持っておく
+_reopen_delegate: Any = None
+
+
+def install_reopen_handler(on_reopen: Callable[[], None]) -> None:
+    """Mac の配布版（#292）: 動いている .app を Finder などからもう一度開いたら、画面を開く
+
+    LaunchServices は、動いている .app をもう一度開くと、2 つ目を起動せずに「開き直す」イベント
+    （applicationShouldHandleReopen）を送るだけなので、それを受けて画面を開く。
+    メインスレッドで呼ぶ（Tray.run の中、icon.run の前）。ほかのスレッドからは何もしない
+    """
+    global _reopen_delegate
+    if threading.current_thread() is not threading.main_thread():
+        log.warning("the reopen handler must be installed on the main thread; skipped")
+        return
+    try:
+        import AppKit
+        import Foundation
+
+        class ReopenDelegate(Foundation.NSObject):
+            def applicationShouldHandleReopen_hasVisibleWindows_(self, app, flag):  # noqa: N802
+                try:
+                    on_reopen()
+                except Exception:  # noqa: BLE001
+                    log.warning("failed to open the web UI on reopen", exc_info=True)
+                return False
+
+        _reopen_delegate = ReopenDelegate.alloc().init()
+        AppKit.NSApplication.sharedApplication().setDelegate_(_reopen_delegate)
+    except Exception:  # noqa: BLE001 開き直しで画面が開かないだけ（メニューからは開ける）
+        log.warning("failed to install the reopen handler", exc_info=True)
+
+
+def open_folder(path: Path) -> None:
+    path.mkdir(parents=True, exist_ok=True)
+    if sys.platform == "win32":
+        os.startfile(path)  # noqa: S606 自分のログのフォルダを開くだけ
+    elif sys.platform == "darwin":
+        subprocess.Popen(["open", str(path)])  # noqa: S603, S607
+    else:
+        subprocess.Popen(["xdg-open", str(path)])  # noqa: S603, S607
+
+
+# --- pystray ---
+
+
+class Tray:
+    def __init__(
+        self,
+        status: Callable[[], ServerStatus],
+        url: str,
+        log_dir: Path,
+        on_quit: Callable[[], None],
+        cloud: CloudHost | None = None,
+        announcements: AnnouncementWatcher | None = None,
+        notice: str | None = None,
+        backend: Callable[[], str] = lambda: "ollama",
+    ):
+        """status はサーバーの今の状態を返すもの、on_quit はサーバーを止めるもの
+
+        cloud はクラウド版のホストの登録（#158）。None ならクラウドの行と項目を出さない
+        announcements は運営からのお知らせ（#164）。登録しているときだけ新しい版を通知する
+        notice はアイコンが出たときに 1 回だけ出す通知（別の番号で起動したとき。#290）
+        backend は設定で選んでいる LLM（llm.backend）を返すもの。その状態だけを出す（#327）
+        """
+        self.backend = backend
+        self.notice = notice
+        self.announcements = announcements
+        self.status = status
+        self.url = url
+        self.log_dir = log_dir
+        self.on_quit = on_quit
+        self.cloud = cloud
+        if cloud is not None:
+            cloud.on_notice = self._notify
+        # Mac の配布版の .app（#292）。あれば「ログイン時に起動」を出す
+        self.app_bundle = bundle.app_bundle()
+        self._icon: Any = None
+        self._shown: TrayState | None = None
+        self._light = False
+        self._stopped = threading.Event()
+        self._update_lock = threading.Lock()
+
+    def run(self) -> None:
+        """アイコンを出して、止めるまで戻らない
+
+        Windows では別のスレッドで呼んでよい。Mac はメインスレッドで（must_run_on_main_thread）
+        """
+        import pystray
+
+        state = self._state()
+        # メニューの状態の行は、作るときにもこれを読む
+        self._shown = state
+        items = [
+            # default は左クリックで実行する項目
+            pystray.MenuItem(MENU_OPEN, self._open, default=True),
+            pystray.MenuItem(MENU_LOGS, self._open_logs),
+            pystray.Menu.SEPARATOR,
+        ]
+        if self.cloud is not None:
+            # クラウドの状態の行（登録中は登録コードも）と、今の状態で押せる項目だけを出す。
+            # 状態が変わったら update_menu で出し直す
+            items += [
+                pystray.MenuItem(self._cloud_text, None, enabled=False),
+                pystray.MenuItem(
+                    MENU_CLOUD_LOGIN, self._cloud_login, visible=lambda _: self._menu().login
+                ),
+                pystray.MenuItem(
+                    MENU_CLOUD_CANCEL, self._cloud_cancel, visible=lambda _: self._menu().cancel
+                ),
+                pystray.MenuItem(
+                    MENU_CLOUD_UNPAIR, self._cloud_unpair, visible=lambda _: self._menu().unpair
+                ),
+                pystray.Menu.SEPARATOR,
+            ]
+        if self.app_bundle is not None and login_item.supported(self.app_bundle):
+            # Mac の配布版（#292）: ログイン時に起動するかを切り替える
+            items += [
+                pystray.MenuItem(
+                    MENU_LOGIN_ITEM,
+                    self._toggle_login_item,
+                    checked=lambda _: login_item.is_enabled(self.app_bundle),
+                ),
+                pystray.Menu.SEPARATOR,
+            ]
+        items.append(pystray.MenuItem(MENU_QUIT, self._quit))
+        if shows_status_line():
+            # 押せない行として、今の状態を出す（変わったら update_menu で書き直す）
+            status_line = pystray.MenuItem(self._status_text, None, enabled=False)
+            items = [status_line, pystray.Menu.SEPARATOR, *items]
+        self._light = taskbar_is_light()
+        menu = pystray.Menu(*items)
+        try:
+            self._icon = pystray_icon_class()(
+                APP_NAME, icon=icon_images(state.color, self._light), title=state.tooltip, menu=menu
+            )
+        except Exception:  # noqa: BLE001 差し替えが効かなくても、素の pystray で出す
+            log.warning("failed to build the tray icon, using the plain one", exc_info=True)
+            self._icon = pystray.Icon(
+                APP_NAME,
+                icon=icon_image(state.color, 32, self._light),
+                title=state.tooltip,
+                menu=menu,
+            )
+        # 作っている間にサーバーが止まった（ポートが使われていたなど）なら、出さずに戻る
+        if self._stopped.is_set():
+            return
+        if sys.platform == "darwin" and self.app_bundle is not None:
+            # AppKit はメインスレッドでしか触れない。pystray の setup（_setup）は別のスレッドで
+            # 動くので、ここ（Mac ではメインスレッド。NSApplication は Icon を作ったときに
+            # できている）で入れる
+            install_reopen_handler(self._open)
+        self._icon.run(setup=self._setup)
+
+    def stop(self) -> None:
+        self._stopped.set()
+        if self.announcements is not None:
+            self.announcements.stop()
+        if self._icon is not None:
+            with contextlib.suppress(Exception):
+                self._icon.stop()
+
+    def _setup(self, icon: Any) -> None:
+        # run() の直前に止められて、その stop() が空振りしていたら、ここで止める
+        # （止めないと icon.run() が戻らず、プロセスが終わらない）
+        if self._stopped.is_set():
+            icon.stop()
+            return
+        icon.visible = True
+        if self.notice:
+            self._notify(self.notice)
+        if self.announcements is not None:
+            self.announcements.start()
+        threading.Thread(target=self._refresh, name="tray-refresh", daemon=True).start()
+        if sys.platform == "darwin":
+            threading.Thread(target=self._catch_signals, name="tray-signals", daemon=True).start()
+
+    def _catch_signals(self) -> None:
+        """Mac: Ctrl+C・kill で、サーバーの後片付けを経てから止める
+
+        pystray は Ctrl+C を受けると NSApp.terminate_ でプロセスごと終わらせる（後片付けを
+        しない）。メインスレッドは AppKit が持っていて Python のシグナルハンドラーが動かないので、
+        pystray と同じ MachSignals で、pystray が入れたものを差し替える
+        """
+        import signal
+
+        from PyObjCTools import MachSignals
+
+        # pystray が run の中で SIGINT のハンドラーを入れ終えるのを待つ
+        time.sleep(0.5)
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            MachSignals.signal(sig, lambda *_: self.on_quit())
+
+    def _refresh(self) -> None:
+        while not self._stopped.wait(REFRESH_SEC):
+            try:
+                self.update(self._state(), taskbar_is_light())
+            except Exception:  # noqa: BLE001 表示の失敗でサーバーを止めない
+                log.exception("failed to update the tray icon")
+
+    def update(self, state: TrayState, light: bool | None = None) -> None:
+        """変わっていれば、アイコンと文を変える。light は背景の明るさ（切り替えたら絵を描き直す）
+
+        1 秒ごとの見直しと、クラウドの登録のスレッド・メニューの操作から呼ばれるので、1 つずつ進める
+        """
+        with self._update_lock:
+            self._update(state, light)
+
+    def _update(self, state: TrayState, light: bool | None) -> None:
+        if self._icon is None:
+            return
+        light_changed = light is not None and light != self._light
+        if state == self._shown and not light_changed:
+            return
+        if light is not None:
+            self._light = light
+        if self._shown is None or state.color != self._shown.color or light_changed:
+            self._icon.icon = icon_images(state.color, self._light)
+        self._icon.title = state.tooltip
+        cloud_changed = self._shown is not None and state.cloud != self._shown.cloud
+        self._shown = state
+        # クラウドの項目はどの OS でもメニューに出すので、変わったら出し直す
+        if shows_status_line() or cloud_changed:
+            self._icon.update_menu()
+
+    def _state(self) -> TrayState:
+        return tray_state(self.status(), self._cloud_view(), self.backend())
+
+    def _cloud_view(self) -> CloudView | None:
+        return self.cloud.view if self.cloud is not None else None
+
+    def _menu(self) -> Any:
+        return cloud_menu(self._cloud_view())
+
+    def _status_text(self, *_: Any) -> str:
+        return self._shown.text if self._shown is not None else ""
+
+    def _cloud_text(self, *_: Any) -> str:
+        return self._shown.cloud if self._shown is not None else ""
+
+    def _notify(self, message: str) -> None:
+        """登録コードや失敗を知らせる。出せなくても止めない（メニューの行とログでも分かる）"""
+        try:
+            if sys.platform == "darwin":
+                notify_mac(message)
+            elif self._icon is not None and getattr(self._icon, "HAS_NOTIFICATION", False):
+                self._icon.notify(message, APP_NAME)
+        except Exception:  # noqa: BLE001
+            log.warning("failed to show a notification", exc_info=True)
+        # 状態（コード・登録済み）をすぐメニューに出す
+        try:
+            self.update(self._state())
+        except Exception:  # noqa: BLE001
+            log.warning("failed to update the tray", exc_info=True)
+
+    def _cloud_login(self, *_: Any) -> None:
+        if self.cloud is not None:
+            self.cloud.start_pairing()
+            self.update(self._state())
+
+    def _cloud_cancel(self, *_: Any) -> None:
+        if self.cloud is not None:
+            self.cloud.cancel_pairing()
+
+    def _cloud_unpair(self, *_: Any) -> None:
+        if self.cloud is None or not confirm(CLOUD_UNPAIR_CONFIRM, "外す"):
+            return
+        self.cloud.unpair()
+        self.update(self._state())
+
+    def _toggle_login_item(self, *_: Any) -> None:
+        try:
+            if login_item.is_enabled(self.app_bundle):
+                login_item.disable()
+            elif self.app_bundle is not None:
+                login_item.enable(self.app_bundle)
+        except OSError:
+            log.exception("failed to change launching at login")
+            self._notify("ログイン時に起動の設定を変えられませんでした")
+            return
+        if self._icon is not None:
+            with contextlib.suppress(Exception):
+                self._icon.update_menu()
+
+    def _open(self, *_: Any) -> None:
+        webbrowser.open(self.url)
+
+    def _open_logs(self, *_: Any) -> None:
+        open_folder(self.log_dir)
+
+    def _quit(self, *_: Any) -> None:
+        message = quit_confirmation(self.status())
+        if message is not None and not confirm(message):
+            return
+        log.info("quitting from the tray")
+        self.on_quit()
+        self.stop()

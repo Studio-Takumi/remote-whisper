@@ -7,8 +7,8 @@ from fastapi.testclient import TestClient
 from test_mock import FAST, receive_until
 
 from remote_whisper.app import create_app
-from remote_whisper.documents import TranscriptMeta, write_doc
-from remote_whisper.projects import (
+from remote_whisper.storage.documents import TranscriptMeta, write_doc
+from remote_whisper.storage.projects import (
     UUID_RE,
     ProjectFile,
     ProjectStore,

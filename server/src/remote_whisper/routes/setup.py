@@ -12,7 +12,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from remote_whisper.context import AppContext, get_ctx
-from remote_whisper.setup import SetupError, delete_hf_token, save_hf_token
+from remote_whisper.desktop.setup import SetupError, delete_hf_token, save_hf_token
 
 TUNNEL_REFUSED = "クラウド版からはできません（ホストで直接開いた画面から操作してください）"
 

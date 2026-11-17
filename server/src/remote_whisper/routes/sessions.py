@@ -14,15 +14,20 @@ from pydantic import BaseModel, ConfigDict, Field
 from starlette.requests import ClientDisconnect
 
 from remote_whisper.context import AppContext, Pid, get_ctx
-from remote_whisper.corrections import Correction, CorrectionLine
-from remote_whisper.documents import FinalTranscriptMeta, SummaryMeta, TranscriptMeta, read_doc
-from remote_whisper.gpu_queue import Priority
-from remote_whisper.llm import backend_of
-from remote_whisper.projects import ProjectError, ProjectFile, SessionEntry
-from remote_whisper.recovery import convert_leftover
-from remote_whisper.session_move import move_session
-from remote_whisper.session_writer import SessionWriter
-from remote_whisper.sessions import (
+from remote_whisper.gpu.gpu_queue import Priority
+from remote_whisper.llm.llm import backend_of
+from remote_whisper.recording.recovery import convert_leftover
+from remote_whisper.recording.uploads import UploadError
+from remote_whisper.storage.documents import (
+    FinalTranscriptMeta,
+    SummaryMeta,
+    TranscriptMeta,
+    read_doc,
+)
+from remote_whisper.storage.projects import ProjectError, ProjectFile, SessionEntry
+from remote_whisper.storage.session_move import move_session
+from remote_whisper.storage.session_writer import SessionWriter
+from remote_whisper.storage.sessions import (
     ID_RE,
     MAX_SOURCE_ID,
     SessionFiles,
@@ -32,8 +37,8 @@ from remote_whisper.sessions import (
     read_transcript,
     session_corrections,
 )
-from remote_whisper.term_picker import MANUAL_MAX_CHARS, manual_terms_fit, terms_message
-from remote_whisper.uploads import UploadError
+from remote_whisper.transcript.corrections import Correction, CorrectionLine
+from remote_whisper.transcript.term_picker import MANUAL_MAX_CHARS, manual_terms_fit, terms_message
 
 # 置き換えの直す文字列（選んだ文字列）の長さの上限（#176）
 CORRECTION_MAX_CHARS = 80

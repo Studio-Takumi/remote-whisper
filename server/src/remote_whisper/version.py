@@ -9,7 +9,7 @@ import logging
 import subprocess
 from pathlib import Path
 
-from remote_whisper import bundle
+from remote_whisper.desktop import bundle
 
 log = logging.getLogger(__name__)
 

@@ -7,8 +7,8 @@ from fake_ollama import FakeOllama
 from fastapi.testclient import TestClient
 
 from remote_whisper.app import create_app
-from remote_whisper.ollama import OllamaClient
-from remote_whisper.vad_segmenter import CONTEXT
+from remote_whisper.llm.ollama import OllamaClient
+from remote_whisper.recording.vad_segmenter import CONTEXT
 
 
 def _make_dir_link(link, target):
@@ -55,11 +55,11 @@ def _simple_vad(request, monkeypatch):
     前後の余白も足さない（区間の時刻を音量で切り出したときと同じに保つ）。
     VadSegmenter そのもののテストでは差し替えない。
     """
-    monkeypatch.setattr("remote_whisper.vad_segmenter.SileroVad", LoudIsSpeech)
+    monkeypatch.setattr("remote_whisper.recording.vad_segmenter.SileroVad", LoudIsSpeech)
     if request.module.__name__ == "test_vad_segmenter":
         return
     for name in ("MIN_SEGMENT_SEC", "PAD_BEFORE_SEC", "PAD_AFTER_SEC"):
-        monkeypatch.setattr(f"remote_whisper.vad_segmenter.{name}", 0.0)
+        monkeypatch.setattr(f"remote_whisper.recording.vad_segmenter.{name}", 0.0)
 
 
 class LoudIsSpeech:
@@ -92,7 +92,9 @@ def _convert_right_away(monkeypatch):
     """普通に録音を終えたあと、続きを録音できる時間（#174）を置かずに、すぐ mp3 に変換する。
     録音を終えてすぐの録音ファイルを確かめるテストのため。続きを確かめるテストは、録音マネージャの
     continue_window を自分で決める"""
-    monkeypatch.setattr("remote_whisper.recorder.RecordingManager.default_continue_window", 0.0)
+    monkeypatch.setattr(
+        "remote_whisper.recording.recorder.RecordingManager.default_continue_window", 0.0
+    )
 
 
 @pytest.fixture

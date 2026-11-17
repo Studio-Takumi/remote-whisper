@@ -24,13 +24,15 @@ from typing import Any
 
 import uvicorn
 
-from remote_whisper import cloud, logs, ports, tray
-from remote_whisper.announcements import AnnouncementWatcher
+from remote_whisper import logs
 from remote_whisper.app import create_app
-from remote_whisper.cloudflared import CloudflaredRunner
+from remote_whisper.cloud import cloud
+from remote_whisper.cloud.announcements import AnnouncementWatcher
+from remote_whisper.cloud.cloudflared import CloudflaredRunner
+from remote_whisper.cloud.tunnel import TunnelPort
+from remote_whisper.desktop import ports, tray
 from remote_whisper.mock import MockTiming
 from remote_whisper.settings import default_home
-from remote_whisper.tunnel import TunnelPort
 
 log = logging.getLogger("remote_whisper")
 
