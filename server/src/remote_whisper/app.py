@@ -15,19 +15,21 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import Response
 from starlette.types import Scope
 
-from remote_whisper import bundle, openvino_whisper
 from remote_whisper.context import AppContext
-from remote_whisper.context_sets import ContextSetService, OllamaGenerator
-from remote_whisper.final_summary import FinalSummarizer
-from remote_whisper.final_transcriber import FinalTranscriber, installed
-from remote_whisper.gpu_stats import GpuStats
+from remote_whisper.desktop import bundle
+from remote_whisper.desktop.ports import INSTANCE_ID
+from remote_whisper.desktop.setup import SetupService, worker_env
+from remote_whisper.gpu import openvino_whisper
+from remote_whisper.gpu.gpu_stats import GpuStats
+from remote_whisper.gpu.whisper_worker import WhisperWorker, default_backend
 from remote_whisper.host_check import HostCheckMiddleware
-from remote_whisper.janitor import Janitor
-from remote_whisper.llm_switch import LlmSwitch
-from remote_whisper.lmstudio import LMStudioClient
+from remote_whisper.llm.llm_switch import LlmSwitch
+from remote_whisper.llm.lmstudio import LMStudioClient
+from remote_whisper.llm.ollama import OllamaClient
 from remote_whisper.logs import traffic
-from remote_whisper.material_figures import FigureReader
-from remote_whisper.material_range import RangeService
+from remote_whisper.materials.context_sets import ContextSetService, OllamaGenerator
+from remote_whisper.materials.material_figures import FigureReader
+from remote_whisper.materials.material_range import RangeService
 from remote_whisper.mock import (
     MockContextGenerator,
     MockFinalSummarizer,
@@ -35,12 +37,10 @@ from remote_whisper.mock import (
     MockTiming,
     mock_script_lines,
 )
-from remote_whisper.ollama import OllamaClient
-from remote_whisper.ports import INSTANCE_ID
-from remote_whisper.projects import ProjectStore
 from remote_whisper.push import PushService
-from remote_whisper.recorder import RecordingManager
-from remote_whisper.recovery import Leftovers, find_leftovers, fix_leftovers
+from remote_whisper.recording.recorder import RecordingManager
+from remote_whisper.recording.recovery import Leftovers, find_leftovers, fix_leftovers
+from remote_whisper.recording.uploads import UploadService
 from remote_whisper.routes import fs as fs_routes
 from remote_whisper.routes import mock as mock_routes
 from remote_whisper.routes import options as options_routes
@@ -52,10 +52,11 @@ from remote_whisper.routes import setup as setup_routes
 from remote_whisper.routes import version as version_routes
 from remote_whisper.routes import ws as ws_routes
 from remote_whisper.settings import SettingsStore, default_home
-from remote_whisper.setup import SetupService, worker_env
-from remote_whisper.uploads import UploadService
+from remote_whisper.storage.janitor import Janitor
+from remote_whisper.storage.projects import ProjectStore
+from remote_whisper.summary.final_summary import FinalSummarizer
+from remote_whisper.transcript.final_transcriber import FinalTranscriber, installed
 from remote_whisper.version import app_version
-from remote_whisper.whisper_worker import WhisperWorker, default_backend
 
 # server/src/remote_whisper/app.py から見たリポジトリの web/dist。
 # リポジトリから動かす（uv run）前提。wheel で入れた場合は REMOTE_WHISPER_WEB_DIST で指定する

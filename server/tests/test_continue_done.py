@@ -9,9 +9,9 @@ from fastapi.testclient import TestClient
 from test_recorder import audio_seconds, chunk, finished, of_type, receive_until, start, wait_for
 
 from remote_whisper.app import create_app
-from remote_whisper.documents import TranscriptMeta, read_doc
-from remote_whisper.gpu_queue import Priority
-from remote_whisper.sessions import SessionFiles
+from remote_whisper.gpu.gpu_queue import Priority
+from remote_whisper.storage.documents import TranscriptMeta, read_doc
+from remote_whisper.storage.sessions import SessionFiles
 
 
 @pytest.fixture

@@ -15,8 +15,8 @@ from starlette.websockets import WebSocketDisconnect
 
 from remote_whisper import host_check
 from remote_whisper.app import create_app
+from remote_whisper.cloud.tunnel import RELAY_HEADER, RelayAuthApp, sign_relay
 from remote_whisper.host_check import HostPolicy, is_valid_allowed_host, split_host
-from remote_whisper.tunnel import RELAY_HEADER, RelayAuthApp, sign_relay
 
 # この PC の名前（テストでは決め打ちにする）
 PC_NAME = "gpu-box"

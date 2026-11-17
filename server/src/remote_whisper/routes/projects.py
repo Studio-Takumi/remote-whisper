@@ -7,8 +7,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
 from remote_whisper.context import AppContext, Pid, get_ctx
-from remote_whisper.context_sets import ContextSetError, ContextSetService
-from remote_whisper.projects import (
+from remote_whisper.materials.context_sets import ContextSetError, ContextSetService
+from remote_whisper.storage.projects import (
     SUMMARY_DIR_MAX,
     ProjectError,
     ProjectFile,

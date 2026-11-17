@@ -73,7 +73,7 @@ class _CrashingConn:
 
 def test_whisper_child_crash_reaches_the_log(logging_setup):
     # 捕まえていない例外の Traceback も親のログに残る（stderr は親に届く前に閉じられるので）
-    from remote_whisper.whisper_worker import _child_main
+    from remote_whisper.gpu.whisper_worker import _child_main
 
     mp = multiprocessing.get_context("spawn")
     child = mp.Process(target=_child_main, args=(_CrashingConn(), "fake", logs.child_queue()))

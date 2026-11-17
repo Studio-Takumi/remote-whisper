@@ -3,7 +3,6 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from remote_whisper.projects import order_projects
 from remote_whisper.settings import (
     Settings,
     SettingsError,
@@ -11,6 +10,7 @@ from remote_whisper.settings import (
     deep_merge,
     default_home,
 )
+from remote_whisper.storage.projects import order_projects
 
 
 def test_default_home(monkeypatch, tmp_path):
@@ -510,7 +510,7 @@ def test_cloud_and_materials_cannot_be_changed_through_the_tunnel(app, home):
     """トンネル（8001 番）からは、クラウドの設定と参考資料のフォルダ・拡張子を変えさせない（#166）"""  # noqa: E501
     from starlette.testclient import TestClient
 
-    from remote_whisper.tunnel import RELAY_HEADER, RelayAuthApp, sign_relay
+    from remote_whisper.cloud.tunnel import RELAY_HEADER, RelayAuthApp, sign_relay
 
     host_id, key, now = "11111111-2222-4333-8444-555555555555", bytes(range(32)), 1800000000
     tunnel = TestClient(RelayAuthApp(app, lambda: (host_id, key), clock=lambda: now))

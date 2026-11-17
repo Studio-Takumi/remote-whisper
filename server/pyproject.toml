@@ -82,3 +82,16 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# テストどうしで部品（test_recorder の start など）を import し合うので、フォルダを全部パスに入れる
+pythonpath = [
+    "tests",
+    "tests/cloud",
+    "tests/desktop",
+    "tests/gpu",
+    "tests/llm",
+    "tests/materials",
+    "tests/recording",
+    "tests/storage",
+    "tests/summary",
+    "tests/transcript",
+]

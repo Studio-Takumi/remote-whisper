@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 from test_mock import FAST, of_type, receive_until, start
 
 from remote_whisper.app import create_app
-from remote_whisper.cloud import OwnerOnlyError
+from remote_whisper.cloud.cloud import OwnerOnlyError
 from remote_whisper.push import (
     KEY_FILE,
     NOTIFICATION_TITLE,
@@ -281,10 +281,10 @@ def test_real_summarizer_notifies_after_recording_but_not_on_regenerate(home, tm
     from fake_ollama import FakeOllama
     from test_final_summary import StubWriter
 
-    from remote_whisper.final_summary import FinalSummarizer
     from remote_whisper.hub import Hub
-    from remote_whisper.ollama import OllamaClient
+    from remote_whisper.llm.ollama import OllamaClient
     from remote_whisper.settings import SettingsStore
+    from remote_whisper.summary.final_summary import FinalSummarizer
 
     fake = FakeOllama()
     settings = SettingsStore(home)

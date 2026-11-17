@@ -69,13 +69,13 @@ ok "cloudflared runs ($cf_version)"
 
 # 設定が空なら同梱の cloudflared を使う。配布版（mac-bundle）と判定され、WhisperX を同梱の
 # Python と固定の一覧で入れられる（#291）。.app を「ログイン時に起動」の対象にできる
-found="$("$python" -I -c "from remote_whisper import bundle; print(bundle.bundled_cloudflared())")"
+found="$("$python" -I -c "from remote_whisper.desktop import bundle; print(bundle.bundled_cloudflared())")"
 [ "$found" = "$cloudflared" ] || fail "the bundled cloudflared is the default ($found)"
 ok "the bundled cloudflared is the default"
-setup="$("$python" -I -c "from remote_whisper import bundle; print(bundle.runtime(), bundle.bundled_python(), bundle.bundled_whisperx_requirements())")"
+setup="$("$python" -I -c "from remote_whisper.desktop import bundle; print(bundle.runtime(), bundle.bundled_python(), bundle.bundled_whisperx_requirements())")"
 [ "$setup" = "mac-bundle $python $app/whisperx-requirements.txt" ] || fail "the setup guide sees the bundle ($setup)"
 ok "the setup guide sees the bundle ($setup)"
-found_app="$("$python" -I -c "from remote_whisper import bundle, login_item; print(bundle.app_bundle(), login_item.supported())")"
+found_app="$("$python" -I -c "from remote_whisper.desktop import bundle, login_item; print(bundle.app_bundle(), login_item.supported())")"
 [ "$found_app" = "$app_bundle True" ] || fail "the app bundle is found for the login item ($found_app)"
 ok "the login item can be turned on"
 
