@@ -16,7 +16,7 @@ import { pickFinalTranscript } from '@/api/data';
 import { apiUrl } from '@/api/endpoint';
 import { llmUnavailable, makingFinalTranscript, summaryStatus, transcriptStatus } from '@/api/status';
 import type { FinalTranscriptInfo, Generating, Session, Summary, TranscriptLine } from '@/api/types';
-import { currentProject, currentSession, visibleProjects } from '@/app/selectors';
+import { useCurrentProject, useCurrentSession, useProjects } from '@/app/sessionHooks';
 import { useAppStore } from '@/app/store';
 import { Markdown } from '@/components/Markdown';
 import { copyText } from '@/components/copyMarkdown';
@@ -57,10 +57,10 @@ const NO_PARTIALS: LivePartial[] = [];
 
 // メイン画面の中身。何も選んでいない・新しいセッション・既存のセッションの3つを出し分ける
 export function SessionView() {
-    const hasProjects = useAppStore((s) => visibleProjects(s).length > 0);
+    const hasProjects = useProjects().length > 0;
     const notFound = useAppStore((s) => s.notFound);
-    const project = useAppStore(currentProject);
-    const session = useAppStore(currentSession);
+    const project = useCurrentProject();
+    const session = useCurrentSession();
     const showPickedTerms = useAppStore((s) => s.settings.display.showPickedTerms ?? false);
     const recordingState = useAppStore((s) => s.recordingState);
     const server = useAppStore((s) => s.server);

@@ -3,7 +3,7 @@
 import { create } from 'zustand';
 
 import { connection } from '@/api/connection';
-import { contextSetsQuery, isDemo } from '@/api/data';
+import { contextSetsQuery, isDemo, projectsQuery } from '@/api/data';
 import { demoProjects, fallbackOptions, initialContextSets } from '@/api/mock';
 import { initialServerStatus } from '@/api/status';
 import type { ActionContext } from '@/app/actionContext';
@@ -13,9 +13,9 @@ import { connectServer } from '@/app/serverConnection';
 import { StatusReceiver } from '@/app/serverStatus';
 import { SessionSync } from '@/app/sessionSync';
 import { changeContextSelection, createContextSet } from '@/features/materials/contextSetActions';
+import { loadProjects } from '@/features/projects/loadProjects';
 import {
     createProject,
-    loadProjects,
     moveSession,
     reorderProjects,
     selectSession,
@@ -50,7 +50,7 @@ export type { LivePartial } from '@/features/session/livePartials';
 function createContext(store: ActionContext['store']): ActionContext & { watcher: Watcher } {
     const recorder = createRecorder(store);
     const sessions = new SessionSync(store, recorder.metrics);
-    const watcher = new Watcher(store, sessions.refreshTranscripts);
+    const watcher = new Watcher(store, sessions);
     const status = new StatusReceiver(store, recorder, sessions.reloadAfterFinalSummary);
     // 開発中は、マイクが止まったときの動きを確かめられるようにする（#102）
     if (import.meta.env.DEV) {
@@ -66,7 +66,10 @@ export const useAppStore = create<AppState>()((set, _get, store) => {
     let serverSubscribed = false;
 
     return {
-        projects: isDemo ? demoProjects : [],
+        localSessions: isDemo
+            ? demoProjects.flatMap((p) => p.sessions.map((session) => ({ projectId: p.id, session })))
+            : [],
+        loadedSessions: {},
         selection: { projectId: null, sessionId: null },
         recordingState: 'idle',
         recordingSessionId: null,
@@ -163,8 +166,11 @@ export const useAppStore = create<AppState>()((set, _get, store) => {
     };
 });
 
-// デモではダミーの参考資料セットを最初からキャッシュに入れておく（サーバーにつなぐときは、プロジェクトの一覧と一緒に取る）
+// デモではダミーのプロジェクトの一覧と参考資料セットを最初からキャッシュに入れておく（サーバーにつなぐときは、
+// プロジェクトの一覧と一緒に取る）。セッションはサーバーに保存しないので、手元のセッションとして持つ
 if (isDemo) {
+    const infos = demoProjects.map(({ sessions: _sessions, ...p }) => p);
+    void queryClient.prefetchQuery({ ...projectsQuery, queryFn: () => infos });
     for (const [pid, sets] of Object.entries(initialContextSets)) {
         // setQueryData だと既定の gcTime（5 分）で作られて捨てられるので、contextSetsQuery の設定で入れる
         void queryClient.prefetchQuery({ ...contextSetsQuery(pid), queryFn: () => sets });

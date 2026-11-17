@@ -38,6 +38,11 @@ export type Recorder = {
     recordedSamples: number;
 };
 
+// 切れている間に録音を終えて、まだ stop を送っていないセッション（ストアの外から見るとき）
+export function offlineStoppedSession(r: Recorder) {
+    return r.stoppedWhileOffline;
+}
+
 export function createRecorder(store: AppStore): Recorder {
     return {
         store,

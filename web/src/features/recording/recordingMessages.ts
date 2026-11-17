@@ -3,17 +3,28 @@ import { toast } from 'sonner';
 
 import { connection } from '@/api/connection';
 import type { AppStore } from '@/app/appState';
+import { patchSessionData } from '@/app/sessionData';
+import { findLocal, patchLocal } from '@/features/projects/localSessions';
 import { SAMPLE_RATE } from '@/features/recording/audio/microphone';
 import { stalledMessage } from '@/features/recording/micMessages';
 import type { Recorder } from '@/features/recording/recorderState';
 import { type LiveMessage, applyLiveMessage, isLiveMessage } from '@/features/session/liveMessages';
 
-// 録音中・見ている録音の行・語・途中の要約を、ストアに入れる
+// 録音中・見ている録音の行・語・途中の要約を入れる。手元のセッションはストアに、それ以外はキャッシュに入れる（#361）
 export function applyLive(store: AppStore, m: LiveMessage) {
-    const change = applyLiveMessage(store.getState(), m);
-    if (change) {
-        store.setState(change);
+    const s = store.getState();
+    const change = applyLiveMessage(s, m);
+    if (!change) {
+        return;
     }
+    const { session, ...rest } = change;
+    if (session && !findLocal(s.localSessions, m.session)) {
+        patchSessionData(store, m.session, session);
+    }
+    store.setState((st) => ({
+        ...rest,
+        ...(session && { localSessions: patchLocal(st.localSessions, m.session, session) }),
+    }));
 }
 
 // 録音の購読で受け取るもの。途中の要約は録音中のセッションだけ（終えた後に届いたものは出さない）。

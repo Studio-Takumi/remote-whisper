@@ -3,7 +3,7 @@ import { toast } from 'sonner';
 
 import { AudioSender, connection } from '@/api/connection';
 import { getHostId } from '@/api/endpoint';
-import { updateSession } from '@/features/projects/updateSession';
+import { holdSession } from '@/app/sessionData';
 import { SAMPLE_RATE } from '@/features/recording/audio/microphone';
 import {
     type UnsentSession,
@@ -60,7 +60,7 @@ function recordResumed(r: Recorder, entry: UnsentSession, reply: StartedMessage)
     r.unsentEntry = null;
     r.store.setState((s) => ({
         unsent: null,
-        projects: updateSession(s.projects, sessionId, (x) => ({ ...x, status: 'recording' })),
+        localSessions: holdSession(s, sessionId, (x) => ({ ...x, status: 'recording' })),
         selection: { projectId, sessionId },
         recordingState: 'recording',
         recordingSessionId: sessionId,

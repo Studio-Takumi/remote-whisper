@@ -5,7 +5,8 @@ import { toast } from 'sonner';
 import { connection } from '@/api/connection';
 import type { ServerMessage, WatchedState } from '@/api/protocol';
 import type { AppStore } from '@/app/appState';
-import { updateSession } from '@/features/projects/updateSession';
+import { readProjects } from '@/app/sessionData';
+import type { SessionSync } from '@/app/sessionSync';
 import { SourceJoin, forgetJoin, recalledJoin } from '@/features/recording/join';
 import { applyLive } from '@/features/recording/recordingMessages';
 import { watchTarget } from '@/features/recording/watch';
@@ -29,12 +30,12 @@ export class Watcher {
     private watched: string | null = null;
 
     private readonly store: AppStore;
-    // 録音を終えたセッションの音源の一覧を取り直す（#357）
-    private readonly refreshTranscripts: (sessionId: string) => Promise<void>;
+    // 見ているセッションの中身を書き換える・録音を終えたセッションの音源の一覧を取り直す（#357）
+    private readonly sessions: SessionSync;
 
-    constructor(store: AppStore, refreshTranscripts: (sessionId: string) => Promise<void>) {
+    constructor(store: AppStore, sessions: SessionSync) {
         this.store = store;
-        this.refreshTranscripts = refreshTranscripts;
+        this.sessions = sessions;
     }
 
     async join(sessionId: string) {
@@ -53,7 +54,7 @@ export class Watcher {
     sync() {
         const s = this.store.getState();
         const connected = s.server.connection === 'connected';
-        const target = connected ? watchTarget(s.projects, s.selection, s.recordingSessionId) : null;
+        const target = connected ? watchTarget(readProjects(s), s.selection, s.recordingSessionId) : null;
         if (!connected) {
             this.watched = null;
         }
@@ -109,7 +110,7 @@ export class Watcher {
                 }
                 // サーバーは抜けた接続の「見ている」登録を消すので、まだ録音中なら見直して送り直す
                 this.watched = null;
-                set((s) => ({ projects: [...s.projects], micLevel: 0 }));
+                set({ micLevel: 0 });
             },
             // マイクの音量（マイクボタンの輪に出す。#357）。参加している間は録音していないので、録音のものと重ならない
             (level) => {
@@ -135,15 +136,15 @@ export class Watcher {
             return;
         }
         // そこまでの文字起こし・リアルタイム要約・タイトルで置き換え、続きはこのあとのメッセージで足す
+        this.sessions.patchSession(m.session, (x) => ({
+            ...x,
+            transcript: m.transcript ?? x.transcript,
+            liveSummary: m.liveSummary ?? x.liveSummary,
+            title: m.title || x.title,
+            loaded: true,
+        }));
         this.store.setState((s) => ({
             watching: { sessionId: m.session, state: m.state as WatchedState, join: m.join },
-            projects: updateSession(s.projects, m.session, (x) => ({
-                ...x,
-                transcript: m.transcript ?? x.transcript,
-                liveSummary: m.liveSummary ?? x.liveSummary,
-                title: m.title || x.title,
-                loaded: true,
-            })),
             liveDraft: s.liveDraft?.sessionId === m.session ? null : s.liveDraft,
         }));
         // 読み込み直す前に参加していたら、同じ音源としてつなぎ直す（#356）
@@ -185,6 +186,6 @@ export class Watcher {
         const multi = (get().liveSources[m.session]?.length ?? 0) >= 2;
         void get()
             .loadProjects()
-            .then(() => (multi ? this.refreshTranscripts(m.session) : undefined));
+            .then(() => (multi ? this.sessions.refreshTranscripts(m.session) : undefined));
     }
 }

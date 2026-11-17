@@ -3,7 +3,8 @@ import type { StoreApi } from 'zustand';
 
 import type { LiveSource, SettingsOptions } from '@/api/protocol';
 import type { ServerStatus } from '@/api/status';
-import type { ContextSelection, Generating, Project } from '@/api/types';
+import type { ContextSelection, Generating } from '@/api/types';
+import type { LocalSession } from '@/features/projects/localSessions';
 import type { MicState } from '@/features/recording/audio/microphone';
 import type { UnsentElsewhere } from '@/features/recording/audio/unsentStore';
 import type { Joined } from '@/features/recording/join';
@@ -12,12 +13,17 @@ import type { Watching } from '@/features/recording/watch';
 import type { Correction } from '@/features/session/corrections';
 import type { LiveDraft } from '@/features/session/liveMessages';
 import type { LivePartial } from '@/features/session/livePartials';
+import type { LoadedSession } from '@/features/session/sessionDetail';
 import type { Settings } from '@/features/settings/settings';
 
 export type Selection = { projectId: string | null; sessionId: string | null };
 
 export type AppState = {
-    projects: Project[];
+    // プロジェクトとセッションの一覧・中身はキャッシュ（#330）にだけ持つ（#361）。ここに持つのは、手元で中身を
+    // 積み上げているセッション（自分の録音中・最終の要約を待っているもの。サーバーより先に進んでいる）だけ
+    localSessions: LocalSession[];
+    // 中身（文字起こし・要約）を取ったセッションと、出している最終の文字起こしの世代。セッション ID ごと
+    loadedSessions: Record<string, LoadedSession>;
     selection: Selection;
     recordingState: RecordingState;
     // 録音中のセッション。録音を始めたときに作る（spec/files.md 5.2・spec/flows.md 6.2）

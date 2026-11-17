@@ -1,5 +1,5 @@
 // サーバーの REST API から、画面で使う形（types.ts）のデータを作る
-import { queryOptions } from '@tanstack/react-query';
+import { hashKey, queryOptions } from '@tanstack/react-query';
 
 import {
     type FinalTranscriptJson,
@@ -110,45 +110,6 @@ export function toSelection(json: ProjectJson['selection']): ContextSelection {
     };
 }
 
-// 前に取った文字起こしと要約は、同じセッションならそのまま使う（セッションを開くたびに取り直さないように）
-// keep は、手元で中身を積み上げているセッション（自分が録音中・最終の要約を待っているもの）。
-// それらは手元の中身を残し、サーバーの一覧にまだなければ手元のものを足す
-export function mergeProjects(previous: Project[], next: Project[], keep: Set<string>): Project[] {
-    const loaded = new Map(previous.flatMap((p) => p.sessions).map((s) => [s.id, s]));
-    return next.map((p) => {
-        const kept = previous
-            .find((q) => q.id === p.id)
-            ?.sessions.filter((s) => keep.has(s.id) && !p.sessions.some((x) => x.id === s.id));
-        return { ...p, sessions: [...(kept ?? []), ...p.sessions.map((s) => mergeSession(loaded.get(s.id), s, keep))] };
-    });
-}
-
-function mergeSession(old: Session | undefined, s: Session, keep: Set<string>): Session {
-    // 手元で積み上げているものは、手元のまま
-    if (old && keep.has(s.id)) {
-        return old;
-    }
-    // 録音中だったものや、ファイルが増えた・消えたものは取り直す
-    if (
-        !old?.loaded ||
-        old.status === 'recording' ||
-        old.files?.summaries !== s.files?.summaries ||
-        old.files?.transcript !== s.files?.transcript ||
-        old.files?.finalTranscripts !== s.files?.finalTranscripts
-    ) {
-        return s;
-    }
-    return {
-        ...s,
-        loaded: true,
-        transcript: old.transcript,
-        finalTranscript: old.finalTranscript,
-        finalTranscripts: old.finalTranscripts,
-        summaries: old.summaries,
-        liveSummary: old.liveSummary,
-    };
-}
-
 // 文字起こし（queryKeys.transcript()）。録音中・語の変更・置き換えで変わる
 export const transcriptQuery = (projectId: string, sessionId: string) =>
     queryOptions({
@@ -203,19 +164,24 @@ export function fetchFinalTranscripts(projectId: string, sessionId: string) {
     return queryClient.fetchQuery({ ...finalTranscriptsQuery(projectId, sessionId), staleTime: 0 });
 }
 
-// 置き換え（#176）が変わった。そのセッションの文字起こしと、最終の文字起こしの全部の世代をキャッシュから消す
-// （次に取るときに取り直す）。
+// 置き換え（#176）が変わった。そのセッションの文字起こしと最終の文字起こしの世代を、キャッシュから消す（次に取るときに
+// 取り直す）。keep は画面に出していて、すぐ取り直すもの（消すと取れるまで画面から消えるので、消さずに上書きする）。
 // 無効にする（invalidate）だけだと、置き換える前に取り始めていたものがあとで届いたときに、古い中身が新しいものとして
 // 残る（世代は staleTime: Infinity なので取り直されない）。そのため、取っている途中のものは届くのを待ってから消す。
 // 止めて（cancel）すぐ消すと、それを待っている呼び出し（世代の切り替えなど）がエラーになるので止めない。
 // 待っている間に新しく取り始めたもの（置き換えのあとに頼んだもの）は新しい中身なので、消さない
-export async function forgetTranscripts(projectId: string, sessionId: string) {
+export async function forgetTranscripts(
+    projectId: string,
+    sessionId: string,
+    keep: readonly (readonly unknown[])[] = [],
+) {
     const prefixes = [queryKeys.transcript(projectId, sessionId), queryKeys.finalTranscripts(projectId, sessionId)];
     const cache = queryClient.getQueryCache();
     const queries = prefixes.flatMap((queryKey) => cache.findAll({ queryKey }));
     await Promise.allSettled(queries.map((q) => q.promise));
+    const kept = new Set(keep.map((key) => hashKey(key)));
     for (const q of queries) {
-        if (q.state.fetchStatus === 'idle') {
+        if (q.state.fetchStatus === 'idle' && !kept.has(q.queryHash)) {
             cache.remove(q);
         }
     }
@@ -251,60 +217,53 @@ export function pickFinalTranscript(infos: FinalTranscriptInfo[], model: string)
     return infos.findLast((x) => x.model === model) ?? infos.at(-1);
 }
 
-// セッションの文字起こしと要約。ファイルが消えているもの（期限切れ）は取らない
-// whisperModel は今の全体設定の Whisper のモデル（表示する最終の文字起こしの世代を選ぶ）
-export async function fetchSessionDetail(projectId: string, session: Session, whisperModel = '') {
-    const base = `/api/projects/${projectId}/sessions/${session.id}`;
+// 最終の要約の版を、画面で持つ形にする
+export function toSummary(info: SummaryInfoJson, text: string | undefined): Summary {
+    return {
+        generationId: info.generationId,
+        model: info.model,
+        overviewModel: info.overviewModel ?? info.model,
+        generatedAt: displayTime(info.generatedAt) ?? '',
+        text,
+    };
+}
+
+// キャッシュから消す（ファイルがないものを、前に取ったもので出さないように）
+function forget(queryKey: readonly unknown[]) {
+    queryClient.removeQueries({ queryKey, exact: true });
+}
+
+// セッションの文字起こしと要約をキャッシュに入れる。ファイルが消えているもの（期限切れ）は取らずに消す。
+// whisperModel は今の全体設定の Whisper のモデル。どのファイルがあるかと、出す最終の文字起こしの世代を返す
+export async function loadSessionDetail(projectId: string, session: Session, whisperModel = '') {
+    const sid = session.id;
     // どのファイルがあるか分からない（手元で作ったセッション）ときは、先にサーバーに聞く
-    const files = session.files ?? (await api.get<SessionJson>(base)).files;
-    const transcriptJson = files?.transcript ? await fetchTranscript(projectId, session.id) : null;
-    const transcript = withLineSources(transcriptJson?.lines ?? [], transcriptJson?.meta?.lineSources);
-    // 音源（#357）。音源が 1 つのセッションは持たない
-    const sources = (transcriptJson?.meta?.sources?.length ?? 0) >= 2 ? transcriptJson?.meta?.sources : undefined;
-    const pickedTerms = transcriptJson?.meta?.pickedTerms ?? [];
-    const manualTerms = transcriptJson?.meta?.manualTerms ?? [];
-    const materialRange = transcriptJson?.meta?.materialRange ?? undefined;
-    const corrections = transcriptJson?.meta?.corrections ?? [];
+    const files = session.files ?? (await api.get<SessionJson>(`/api/projects/${projectId}/sessions/${sid}`)).files;
+    if (files?.transcript) {
+        await fetchTranscript(projectId, sid);
+    } else {
+        forget(queryKeys.transcript(projectId, sid));
+    }
     // 取れなくても（消えた直後など）、録音中の文字起こしと要約は出す
     const finalTranscripts = files?.finalTranscripts
-        ? await fetchFinalTranscripts(projectId, session.id).catch(() => undefined)
+        ? await fetchFinalTranscripts(projectId, sid).catch(() => undefined)
         : undefined;
     const picked = finalTranscripts && pickFinalTranscript(finalTranscripts, whisperModel);
-    const finalTranscript = picked
-        ? await fetchFinalTranscript(projectId, session.id, picked.generationId).catch(() => undefined)
-        : undefined;
-    const infos = files?.summaries
-        ? await queryClient.fetchQuery({ ...summariesQuery(projectId, session.id), staleTime: 0 })
-        : [];
-    const summaries: Summary[] = await Promise.all(
-        infos.map(async (info) => {
-            const json = await queryClient.fetchQuery(summaryQuery(projectId, session.id, info.generationId));
-            return {
-                generationId: info.generationId,
-                model: info.model,
-                overviewModel: info.overviewModel ?? info.model,
-                generatedAt: displayTime(info.generatedAt) ?? '',
-                text: json.text,
-            };
-        }),
-    );
-    // 最終の要約がまだなければ、途中の要約を代わりに出す
-    let liveSummary: string | undefined;
-    if (summaries.length === 0 && files?.liveSummary) {
-        const json = await queryClient.fetchQuery(liveSummaryQuery(projectId, session.id));
-        liveSummary = json.kind === 'live' ? json.text : undefined;
+    if (picked) {
+        await fetchFinalTranscript(projectId, sid, picked.generationId).catch(() => undefined);
     }
-    return {
-        files,
-        transcript,
-        finalTranscript,
-        finalTranscripts,
-        summaries,
-        liveSummary,
-        pickedTerms,
-        manualTerms,
-        materialRange,
-        corrections,
-        sources,
-    };
+    const infos = files?.summaries
+        ? await queryClient.fetchQuery({ ...summariesQuery(projectId, sid), staleTime: 0 })
+        : [];
+    if (!files?.summaries) {
+        forget(queryKeys.summaries(projectId, sid));
+    }
+    await Promise.all(infos.map((info) => queryClient.fetchQuery(summaryQuery(projectId, sid, info.generationId))));
+    // 最終の要約がまだなければ、途中の要約を代わりに出す
+    if (infos.length === 0 && files?.liveSummary) {
+        await queryClient.fetchQuery(liveSummaryQuery(projectId, sid));
+    } else {
+        forget(liveSummaryQuery(projectId, sid).queryKey);
+    }
+    return { files, finalTranscript: picked?.generationId };
 }

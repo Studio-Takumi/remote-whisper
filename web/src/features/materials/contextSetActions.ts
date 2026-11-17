@@ -42,16 +42,13 @@ export async function changeContextSelection(ctx: ActionContext, next: ContextSe
                     pickTerms: next.pickTerms,
                 }),
             // 保存できたら、サーバーの選択（project.selection）を正にして、手元の上書きは消す
-            // （ほかの端末で変えた選択も、取り直しで出るように）。キャッシュのプロジェクトの一覧も合わせる
+            // （ほかの端末で変えた選択も、取り直しで出るように）。キャッシュのプロジェクトの一覧に入れる
             onSuccess: (saved) => {
                 const selection = toSelection(saved);
                 queryClient.setQueryData(projectsQuery.queryKey, (list) =>
                     list?.map((p) => (p.id === pid ? { ...p, selection } : p)),
                 );
-                set((s) => ({
-                    projects: s.projects.map((p) => (p.id === pid ? { ...p, selection } : p)),
-                    contextSelections: clearOverride(s, pid),
-                }));
+                set((s) => ({ contextSelections: clearOverride(s, pid) }));
             },
             // 保存できなければ、上書きを消して元（サーバーの選択）に戻す
             onError: (e) => {

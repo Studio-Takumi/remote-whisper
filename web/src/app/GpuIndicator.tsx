@@ -5,6 +5,7 @@ import { CpuIcon } from 'lucide-react';
 import type { GpuJobs } from '@/api/protocol';
 import { jobKindLabel, jobProgress } from '@/api/status';
 import { routePath } from '@/app/router';
+import { useProjectList } from '@/app/sessionHooks';
 import { useAppStore } from '@/app/store';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { formatElapsed } from '@/lib/time';
@@ -15,7 +16,7 @@ export function GpuIndicator() {
     const jobs = useAppStore((s) => s.server.jobs);
     const jobsAt = useAppStore((s) => s.server.jobsAt);
     const gpu = useAppStore((s) => s.server.gpu);
-    const projects = useAppStore((s) => s.projects);
+    const projects = useProjectList();
     const selectSession = useAppStore((s) => s.selectSession);
     const [open, setOpen] = useState(false);
     const now = useNow(open);

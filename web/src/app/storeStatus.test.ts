@@ -4,6 +4,7 @@ import type { ServerMessage } from '@/api/protocol';
 import type { useAppStore as Store } from '@/app/store';
 import { type FakeConnection, fakeConnection } from '@/test/fakeConnection';
 import { type FakeMicrophone, fakeMicrophone } from '@/test/fakeMicrophone';
+import { seedProjects } from '@/test/seedProjects';
 
 // status と最終の要約の受け取り（#380）。connectServer を分ける前に、今の動きを固定する
 const SESSION = '2026-11-17_10-00-00';
@@ -32,11 +33,9 @@ async function setup() {
     ws = fakeConnection(connection);
     mic = fakeMicrophone(Microphone);
     ({ useAppStore: store } = await import('@/app/store'));
-    store.setState({
-        projects: [{ id: 'p1', name: 'p1', path: '/p1', sessions: [] }],
-        selection: { projectId: 'p1', sessionId: null },
-        projectsLoaded: true,
-    });
+    // 一覧はキャッシュに入れる（#361）
+    await seedProjects(store, [{ id: 'p1', name: 'p1', path: '/p1', sessions: [] }]);
+    store.setState({ selection: { projectId: 'p1', sessionId: null }, projectsLoaded: true });
     store.getState().connectServer();
 }
 

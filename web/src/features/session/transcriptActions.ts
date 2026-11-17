@@ -8,9 +8,8 @@ import { runMutation } from '@/app/query';
 import { type Correction, applyCorrectionLocally } from '@/features/session/corrections';
 
 export async function rejectTerm(ctx: ActionContext, sessionId: string, term: string) {
-    const get = ctx.store.getState;
-    const project = get().projects.find((p) => p.sessions.some((x) => x.id === sessionId));
-    if (!project) {
+    const projectId = ctx.sessions.projectIdOf(sessionId);
+    if (!projectId) {
         return;
     }
     const drop = (terms?: string[]) => terms?.filter((t) => t !== term);
@@ -31,7 +30,7 @@ export async function rejectTerm(ctx: ActionContext, sessionId: string, term: st
                 isDemo
                     ? null
                     : api.delete<TermsJson>(
-                          `/api/projects/${project.id}/sessions/${sessionId}/terms?${new URLSearchParams({ term }).toString()}`,
+                          `/api/projects/${projectId}/sessions/${sessionId}/terms?${new URLSearchParams({ term }).toString()}`,
                       ),
             onSuccess: (res) => {
                 if (res) {
@@ -52,9 +51,8 @@ export async function rejectTerm(ctx: ActionContext, sessionId: string, term: st
 }
 
 export async function addTerm(ctx: ActionContext, sessionId: string, term: string) {
-    const get = ctx.store.getState;
-    const project = get().projects.find((p) => p.sessions.some((x) => x.id === sessionId));
-    if (!project) {
+    const projectId = ctx.sessions.projectIdOf(sessionId);
+    if (!projectId) {
         return false;
     }
     // 足せるか（不正な語・上限）はサーバーが決めるので、先には足さない
@@ -71,7 +69,7 @@ export async function addTerm(ctx: ActionContext, sessionId: string, term: strin
                           ),
                           rejectedTerms: [],
                       }
-                    : api.post<TermsJson>(`/api/projects/${project.id}/sessions/${sessionId}/terms`, { term }),
+                    : api.post<TermsJson>(`/api/projects/${projectId}/sessions/${sessionId}/terms`, { term }),
             onSuccess: (res) =>
                 ctx.sessions.patchSession(sessionId, (x) => ({
                     ...x,
@@ -88,9 +86,8 @@ export async function addTerm(ctx: ActionContext, sessionId: string, term: strin
 }
 
 export async function addCorrection(ctx: ActionContext, sessionId: string, correction: Correction) {
-    const get = ctx.store.getState;
-    const project = get().projects.find((p) => p.sessions.some((x) => x.id === sessionId));
-    if (!project) {
+    const projectId = ctx.sessions.projectIdOf(sessionId);
+    if (!projectId) {
         return false;
     }
     return runMutation(
@@ -105,7 +102,7 @@ export async function addCorrection(ctx: ActionContext, sessionId: string, corre
                 isDemo
                     ? null
                     : api.post<CorrectionsJson>(
-                          `/api/projects/${project.id}/sessions/${sessionId}/corrections`,
+                          `/api/projects/${projectId}/sessions/${sessionId}/corrections`,
                           correction,
                       ),
             onSuccess: async (res) => {
@@ -139,9 +136,8 @@ export async function addCorrection(ctx: ActionContext, sessionId: string, corre
 }
 
 export async function removeCorrection(ctx: ActionContext, sessionId: string, correction: Correction) {
-    const get = ctx.store.getState;
-    const project = get().projects.find((p) => p.sessions.some((x) => x.id === sessionId));
-    if (!project) {
+    const projectId = ctx.sessions.projectIdOf(sessionId);
+    if (!projectId) {
         return;
     }
     const same = (c: Correction) => c.from === correction.from && c.to === correction.to;
@@ -160,7 +156,7 @@ export async function removeCorrection(ctx: ActionContext, sessionId: string, co
                 isDemo
                     ? null
                     : api.delete<CorrectionsJson>(
-                          `/api/projects/${project.id}/sessions/${sessionId}/corrections?${new URLSearchParams({ from: correction.from, to: correction.to })}`,
+                          `/api/projects/${projectId}/sessions/${sessionId}/corrections?${new URLSearchParams({ from: correction.from, to: correction.to })}`,
                       ),
             onSuccess: async (res) => {
                 if (res) {

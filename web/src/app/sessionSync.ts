@@ -1,32 +1,32 @@
-// ストアのセッションを書き換えてキャッシュ（#330）にも入れる・サーバーから取り直す。
-// WebSocket の通知と、画面の操作の両方から使う
+// セッションを書き換える・サーバーから取り直す。WebSocket の通知と、画面の操作の両方から使う。
+// サーバーのデータはキャッシュに、手元で積み上げているセッションはストアに入れる（#361）
 import { toast } from 'sonner';
 
-import type { CorrectionsJson } from '@/api/api';
+import type { CorrectionsJson, SessionFiles, TranscriptJson } from '@/api/api';
 import {
     fetchFinalTranscript,
     fetchFinalTranscripts,
-    fetchSessionDetail,
     fetchTranscript,
+    finalTranscriptQuery,
     forgetTranscripts,
     isDemo,
-    liveSummaryQuery,
+    loadSessionDetail,
     projectsQuery,
     sessionsQuery,
-    transcriptQuery,
 } from '@/api/data';
 import type { Session } from '@/api/types';
 import type { AppState, AppStore } from '@/app/appState';
-import { queryClient } from '@/app/query';
+import { queryClient, queryKeys } from '@/app/query';
+import { cachedParts, moveSessionCache } from '@/app/sessionCache';
+import { patchSessionData, projectIdOf, readSession, setLoaded } from '@/app/sessionData';
+import { findLocal, patchLocal } from '@/features/projects/localSessions';
 import { sortSessions } from '@/features/projects/move';
 import { sortByIds } from '@/features/projects/projectOrder';
-import { updateSession } from '@/features/projects/updateSession';
 import type { MetricsTracker } from '@/features/recording/metricsTracker';
 import { mergeLiveLines } from '@/features/session/corrections';
+import { type LoadedSession, sessionFrom } from '@/features/session/sessionDetail';
 import { keepLineSources, withLineSources } from '@/features/session/sources';
 import { formatDateTime, newId } from '@/lib/time';
-
-type TranscriptJson = Awaited<ReturnType<typeof fetchTranscript>>;
 
 // デモ（?demo）ではサーバーに保存されないので、届いた最終の要約をそのままセッションに足す
 function finishDemoSummary(s: AppState, sessionId: string): Partial<AppState> {
@@ -37,7 +37,7 @@ function finishDemoSummary(s: AppState, sessionId: string): Partial<AppState> {
     const summary = { generationId: newId(), model, generatedAt: formatDateTime(), text };
     return {
         generating: null,
-        projects: updateSession(s.projects, sessionId, (x) => ({ ...x, summaries: [...x.summaries, summary] })),
+        localSessions: patchLocal(s.localSessions, sessionId, (x) => ({ ...x, summaries: [...x.summaries, summary] })),
     };
 }
 
@@ -69,11 +69,11 @@ function withTranscript(
 
 export class SessionSync {
     // 最終の要約ができて、サーバーに保存されたもので置き換えるセッション（取り直しで手元のものを残さない）
-    releasing: string | null = null;
+    private releasing: string | null = null;
     // 最終の要約ができたので取り直しているセッション（title と status の両方から呼ばれても1回にする）
     private readonly reloadingSummaries = new Set<string>();
     // この画面から最終の文字起こしの作り直しを頼んだセッション（できたら、要約も作り直すかを聞く。#124）
-    readonly regeneratingTranscripts = new Set<string>();
+    private readonly regeneratingTranscripts = new Set<string>();
 
     private readonly store: AppStore;
     private readonly metrics: MetricsTracker;
@@ -84,91 +84,56 @@ export class SessionSync {
     }
 
     findSession(sessionId: string) {
-        return this.store
-            .getState()
-            .projects.flatMap((p) => p.sessions)
-            .find((x) => x.id === sessionId);
+        return readSession(this.store.getState(), sessionId);
     }
 
-    private projectOf(sessionId: string) {
-        return this.store.getState().projects.find((p) => p.sessions.some((x) => x.id === sessionId));
+    projectIdOf(sessionId: string) {
+        return projectIdOf(this.store.getState(), sessionId);
     }
 
-    // プロジェクトの並びが変わった。キャッシュのプロジェクトの一覧と画面の一覧を並べ直す（取り直さない）
+    // 取り直しで、手元のものを残さずにサーバーのもので置き換えている途中か
+    isReleasing(sessionId: string) {
+        return this.releasing === sessionId;
+    }
+
+    // 最終の文字起こしの作り直しを頼んだ・頼めなかった（返事より先に結果が届くこともあるので、頼む前に覚える）
+    expectFinalTranscript(sessionId: string) {
+        this.regeneratingTranscripts.add(sessionId);
+    }
+
+    forgetFinalTranscript(sessionId: string) {
+        this.regeneratingTranscripts.delete(sessionId);
+    }
+
+    // プロジェクトの並びが変わった。キャッシュのプロジェクトの一覧を並べ直す（取り直さない）
     sortProjectsBy = (ids: string[]) => {
         queryClient.setQueryData(projectsQuery.queryKey, (list) => list && sortByIds(list, ids));
-        this.store.setState((s) => ({ projects: sortByIds(s.projects, ids) }));
-    };
-
-    // WebSocket の通知・操作でストアのセッションを書き換えたあとに呼び、サーバーのデータにあたる部分を
-    // キャッシュにも入れる（取り直さない）。キャッシュにまだないもの（取っていない文字起こしなど）は作らない
-    syncSessionToCache = (sessionId: string) => {
-        const pid = this.projectOf(sessionId)?.id;
-        const session = this.findSession(sessionId);
-        if (!pid || !session) {
-            return;
-        }
-        // セッションの一覧（一覧に出す項目）
-        const { title, status, files, summaryFailed } = session;
-        queryClient.setQueryData(sessionsQuery(pid).queryKey, (list) =>
-            list?.map((x) => (x.id === sessionId ? { ...x, title, status, files, summaryFailed } : x)),
-        );
-        // 文字起こし（行と、拾った語・手で足した語・置き換え）
-        queryClient.setQueryData(
-            transcriptQuery(pid, sessionId).queryKey,
-            (t) =>
-                t && {
-                    lines: session.loaded ? session.transcript : t.lines,
-                    meta: {
-                        ...t.meta,
-                        pickedTerms: session.pickedTerms ?? t.meta?.pickedTerms,
-                        manualTerms: session.manualTerms ?? t.meta?.manualTerms,
-                        corrections: session.corrections ?? t.meta?.corrections,
-                    },
-                },
-        );
-        // 途中の要約
-        if (session.liveSummary !== undefined) {
-            queryClient.setQueryData(liveSummaryQuery(pid, sessionId).queryKey, {
-                kind: 'live',
-                text: session.liveSummary,
-            });
-        }
     };
 
     // セッションを画面とキャッシュの上で別のプロジェクトへ移す（サーバーには送らない）。開いていたら、移した先で開いたままにする
     moveLocally(sessionId: string, fromId: string, toId: string) {
-        const session = this.store
-            .getState()
-            .projects.find((p) => p.id === fromId)
-            ?.sessions.find((x) => x.id === sessionId);
-        if (!session) {
+        const row = queryClient.getQueryData(sessionsQuery(fromId).queryKey)?.find((x) => x.id === sessionId);
+        const local = findLocal(this.store.getState().localSessions, sessionId);
+        if (!row && local?.projectId !== fromId) {
             return;
         }
+        queryClient.setQueryData(sessionsQuery(fromId).queryKey, (list) => list?.filter((x) => x.id !== sessionId));
+        if (row) {
+            queryClient.setQueryData(sessionsQuery(toId).queryKey, (list) => list && sortSessions([...list, row]));
+        }
+        moveSessionCache(sessionId, fromId, toId);
         this.store.setState((s) => ({
-            projects: s.projects.map((p) =>
-                p.id === fromId
-                    ? { ...p, sessions: p.sessions.filter((x) => x.id !== sessionId) }
-                    : p.id === toId
-                      ? { ...p, sessions: sortSessions([...p.sessions, session]) }
-                      : p,
-            ),
+            localSessions: s.localSessions.map((x) => (x.session.id === sessionId ? { ...x, projectId: toId } : x)),
             selection:
                 s.selection.sessionId === sessionId && s.selection.projectId === fromId
                     ? { projectId: toId, sessionId }
                     : s.selection,
         }));
-        const cached = queryClient.getQueryData(sessionsQuery(fromId).queryKey)?.find((x) => x.id === sessionId);
-        queryClient.setQueryData(sessionsQuery(fromId).queryKey, (list) => list?.filter((x) => x.id !== sessionId));
-        if (cached) {
-            queryClient.setQueryData(sessionsQuery(toId).queryKey, (list) => list && sortSessions([...list, cached]));
-        }
     }
 
-    // ストアのセッションを書き換えて、キャッシュにも入れる
+    // セッションを書き換える（手元のセッションはストア、それ以外はキャッシュ）
     patchSession = (sessionId: string, change: (session: Session) => Session) => {
-        this.store.setState((s) => ({ projects: updateSession(s.projects, sessionId, change) }));
-        this.syncSessionToCache(sessionId);
+        patchSessionData(this.store, sessionId, change);
     };
 
     // 置き換え（#176）を足した・外したときの返事を、セッションに入れる
@@ -209,10 +174,10 @@ export class SessionSync {
         } finally {
             this.releasing = null;
         }
-        const project = this.projectOf(sessionId);
+        const pid = this.projectIdOf(sessionId);
         const session = this.findSession(sessionId);
-        if (project && session && !session.loaded) {
-            await this.loadSession(project.id, session);
+        if (pid && session && !session.loaded) {
+            await this.loadSession(pid, session);
         } else if (session?.sources === undefined && this.store.getState().liveSources[sessionId]) {
             // 音源が 2 つ以上の録音を終えた（#357）。録音中の音源の一覧を、フロントマターのもの（参加していた時間・
             // 行ごとの音源）に替える
@@ -223,16 +188,16 @@ export class SessionSync {
     // 最終の文字起こしができた（作り直した）。できた世代を出す
     receiveFinalTranscript = async (sessionId: string, gid: string) => {
         const requested = this.regeneratingTranscripts.delete(sessionId);
-        const project = this.projectOf(sessionId);
-        if (!project) {
+        const pid = this.projectIdOf(sessionId);
+        if (!pid) {
             // まだ一覧にない（ほかの端末のセッションなど）
             void this.store.getState().loadProjects();
             return;
         }
         try {
             const [finalTranscripts, finalTranscript] = await Promise.all([
-                fetchFinalTranscripts(project.id, sessionId),
-                fetchFinalTranscript(project.id, sessionId, gid),
+                fetchFinalTranscripts(pid, sessionId),
+                fetchFinalTranscript(pid, sessionId, gid),
             ]);
             this.patchSession(sessionId, (x) => ({
                 ...x,
@@ -270,12 +235,21 @@ export class SessionSync {
     // 置き換えたあと（ほかの端末で置き換えたときも）、読み込み済みのセッションの文字起こし
     // （リアルタイムと、いま出している浄書済みの版）と置き換えの一覧を取り直す
     refreshTranscripts = async (sessionId: string) => {
-        const project = this.projectOf(sessionId);
-        if (!project) {
+        const pid = this.projectIdOf(sessionId);
+        if (!pid) {
             return;
         }
-        // キャッシュにある文字起こしと最終の文字起こしの世代は、置き換える前のもの
-        await forgetTranscripts(project.id, sessionId);
+        // キャッシュにある文字起こしと最終の文字起こしの世代は、置き換える前のもの。出しているものは消さずに取り直す
+        const shown = this.findSession(sessionId);
+        const shownGid = shown?.finalTranscript?.generationId;
+        const keep = shown?.loaded
+            ? [
+                  queryKeys.transcript(pid, sessionId),
+                  queryKeys.finalTranscripts(pid, sessionId),
+                  ...(shownGid ? [queryKeys.finalTranscript(pid, sessionId, shownGid)] : []),
+              ]
+            : [];
+        await forgetTranscripts(pid, sessionId, keep);
         // 待っている間に、世代を切り替えた・読み込み終えたかもしれないので、読み直す
         const session = this.findSession(sessionId);
         if (!session?.loaded) {
@@ -284,32 +258,62 @@ export class SessionSync {
         const gid = session.finalTranscript?.generationId;
         try {
             const [json, finalTranscript] = await Promise.all([
-                fetchTranscript(project.id, sessionId),
-                gid ? fetchFinalTranscript(project.id, sessionId, gid) : Promise.resolve(undefined),
+                fetchTranscript(pid, sessionId),
+                gid
+                    ? queryClient.fetchQuery({ ...finalTranscriptQuery(pid, sessionId, gid), staleTime: 0 })
+                    : Promise.resolve(undefined),
             ]);
-            this.store.setState((s) => ({
-                projects: updateSession(s.projects, sessionId, (x) =>
-                    withTranscript(x, s.recordingSessionId === sessionId, json, finalTranscript, gid),
-                ),
-            }));
-            this.syncSessionToCache(sessionId);
+            this.receiveTranscript(sessionId, session, json, finalTranscript, gid);
         } catch {
             // 取れなければ、次に開いたときに出る
         }
     };
 
+    // 取り直した文字起こしを入れる。キャッシュのセッションはもう入っているので、取り直す前の行の音源だけ残す
+    private receiveTranscript(
+        sessionId: string,
+        before: Session,
+        json: TranscriptJson,
+        finalTranscript: Session['finalTranscript'],
+        gid: string | undefined,
+    ) {
+        if (findLocal(this.store.getState().localSessions, sessionId)) {
+            this.store.setState((s) => ({
+                localSessions: patchLocal(s.localSessions, sessionId, (x) =>
+                    withTranscript(x, s.recordingSessionId === sessionId, json, finalTranscript, gid),
+                ),
+            }));
+            return;
+        }
+        this.patchSession(sessionId, (x) => ({ ...x, transcript: keepLineSources(x.transcript, before.transcript) }));
+    }
+
     // セッションの文字起こしと要約を取ってくる（開いたとき）
     async loadSession(projectId: string, session: Session) {
-        const set = this.store.setState;
         try {
-            const detail = await fetchSessionDetail(projectId, session, this.store.getState().settings.whisper.model);
-            set((s) => ({
-                projects: updateSession(s.projects, session.id, (x) => ({ ...x, ...detail, loaded: true })),
-            }));
+            const whisper = this.store.getState().settings.whisper.model;
+            const { files, finalTranscript } = await loadSessionDetail(projectId, session, whisper);
+            this.markLoaded(projectId, session.id, files, { finalTranscript });
         } catch (e) {
             toast.error(`セッションを読み込めません: ${(e as Error).message}`);
             // 「読み込んでいます…」のままにしない
-            set((s) => ({ projects: updateSession(s.projects, session.id, (x) => ({ ...x, loaded: true })) }));
+            this.markLoaded(projectId, session.id, undefined, { failed: true });
         }
+    }
+
+    // 手元のセッションは取った中身を入れ、キャッシュのセッションは取ったことを覚える
+    private markLoaded(projectId: string, sessionId: string, files: SessionFiles | undefined, loaded: LoadedSession) {
+        if (!findLocal(this.store.getState().localSessions, sessionId)) {
+            setLoaded(this.store, sessionId, loaded);
+            return;
+        }
+        const parts = cachedParts(projectId, sessionId, loaded.finalTranscript);
+        this.store.setState((s) => ({
+            localSessions: patchLocal(s.localSessions, sessionId, (x) =>
+                loaded.failed
+                    ? { ...x, loaded: true }
+                    : sessionFrom({ ...x, files: files ?? x.files }, parts, { failed: true }),
+            ),
+        }));
     }
 }

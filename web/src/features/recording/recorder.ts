@@ -6,7 +6,8 @@ import { getHostId } from '@/api/endpoint';
 import type { Session } from '@/api/types';
 import { replaceUrlNext } from '@/app/router';
 import { currentProject, currentSession } from '@/app/selectors';
-import { updateSession } from '@/features/projects/updateSession';
+import { holdSession, projectIdOf } from '@/app/sessionData';
+import { patchLocal, putLocal } from '@/features/projects/localSessions';
 import { Microphone, MicrophoneError, SAMPLE_RATE } from '@/features/recording/audio/microphone';
 import { clearSession, deleteUpTo, saveChunk } from '@/features/recording/audio/unsentStore';
 import { micStateMessage } from '@/features/recording/micMessages';
@@ -108,7 +109,8 @@ async function openRecording(r: Recorder, projectId: string, continueSessionId?:
 async function beginContinue(r: Recorder, projectId: string, sessionId: string, reply: StartedMessage) {
     r.recordedSamples = Math.round((reply.offsetSec ?? 0) * SAMPLE_RATE);
     r.store.setState((s) => ({
-        projects: updateSession(s.projects, sessionId, (x) => ({
+        // 録音している間は、手元で行を積み上げる（#361）
+        localSessions: holdSession(s, sessionId, (x) => ({
             ...x,
             status: 'recording',
             endedAt: undefined,
@@ -155,10 +157,8 @@ function beginNew(r: Recorder, projectId: string, reply: StartedMessage) {
     // 新規セッション画面の URL を、このセッションの URL に置き換える（履歴は増やさない。#177）
     replaceUrlNext();
     r.store.setState((s) => ({
-        // 先に一覧の取り直しでサーバーのものが入っていることがあるので、同じ ID のものは置き換える
-        projects: s.projects.map((p) =>
-            p.id === projectId ? { ...p, sessions: [created, ...p.sessions.filter((x) => x.id !== created.id)] } : p,
-        ),
+        // 先に一覧の取り直しでサーバーのものが入っていることがあるが、手元のものを先に使う
+        localSessions: putLocal(s.localSessions, { projectId, session: created }),
         selection: { projectId, sessionId: created.id },
         recordingState: 'recording',
         recordingSessionId: created.id,
@@ -230,15 +230,15 @@ export async function startRecording(r: Recorder) {
 // 途中で終わったセッションの続きを、同じセッションのまま録音する（#101）
 export async function continueRecording(r: Recorder, sessionId: string) {
     const s = r.store.getState();
-    const project = s.projects.find((p) => p.sessions.some((x) => x.id === sessionId));
-    if (!project || s.recordingState !== 'idle' || r.starting) {
+    const projectId = projectIdOf(s, sessionId);
+    if (!projectId || s.recordingState !== 'idle' || r.starting) {
         return;
     }
     if (r.stoppedWhileOffline) {
         toast.warning(WAITING_LEFTOVER);
         return;
     }
-    await startOrContinue(r, project.id, sessionId);
+    await startOrContinue(r, projectId, sessionId);
 }
 
 // 一時停止の前までの音声を送り切ってから pause を送る
@@ -287,10 +287,15 @@ export async function stopRecording(r: Recorder) {
         transcriptionStalled: false,
         // 流れている途中で終えると summary.done（live）が来ないので、書きかけの途中の要約は捨てる
         liveDraft: null,
-        projects: sessionId
+        localSessions: sessionId
             ? // 長さはサーバーと同じ時計の経過時間。取り直すまでの間も、サイドバーに秒まで出せるように
-              updateSession(s.projects, sessionId, (x) => ({ ...x, status: 'done', endedAt, durationSec: s.elapsed }))
-            : s.projects,
+              patchLocal(s.localSessions, sessionId, (x) => ({
+                  ...x,
+                  status: 'done',
+                  endedAt,
+                  durationSec: s.elapsed,
+              }))
+            : s.localSessions,
         // 最終の要約はサーバーが作り、summary.delta（final）で届く。届くまでは「作成中」と出す
         generating: sessionId ? { sessionId, model: finalModelLabel(llmModels(s.settings)), text: '' } : s.generating,
     }));

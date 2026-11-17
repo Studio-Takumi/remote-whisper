@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { PlusIcon, SettingsIcon, UserIcon } from 'lucide-react';
 
 import { isCloud } from '@/api/endpoint';
-import { visibleProjects } from '@/app/selectors';
+import { useProjects } from '@/app/sessionHooks';
 import { useAppStore } from '@/app/store';
 import {
     Sidebar,
@@ -25,7 +25,7 @@ import { ThemeToggle } from '@/features/settings/ThemeToggle';
 // 録音中でも、新規プロジェクトの作成・ほかのセッションを開く・設定を開くことはできる（#133）。
 // 録音中のセッションには、マイクのボタン（「録音中のセッションに戻る」）か左メニューの赤い点から戻れる
 export function AppSidebar() {
-    const projects = useAppStore(visibleProjects);
+    const projects = useProjects();
     const selection = useAppStore((s) => s.selection);
     const showMeta = useAppStore((s) => s.settings.display.sessionMeta);
     const selectSession = useAppStore((s) => s.selectSession);
