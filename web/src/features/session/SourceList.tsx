@@ -5,7 +5,7 @@ import type { Session } from '@/api/types';
 import { useAppStore } from '@/app/store';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { SourceBadge } from '@/features/session/Transcript';
+import { SourceBadge } from '@/features/session/SourceBadge';
 import {
     LIVE_STATE_LABELS,
     type ListedSource,
