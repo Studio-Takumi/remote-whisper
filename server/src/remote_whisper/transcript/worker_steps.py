@@ -1,8 +1,4 @@
-"""浄書の子プロセスの段階（#121）。spec/flows.md 6.9・6.16
-
-進み具合の行（親とのやりとり）、WhisperX の読み込み・文字起こし・位置合わせ・話者分け。
-1 音源（transcript.worker）と複数の音源（worker_multi）で共通に使う
-"""
+"""浄書の子プロセスの段階（#121。進み具合の行と WhisperX の各段階）。spec/flows.md 6.9・6.16"""
 
 import gc
 import json
@@ -36,10 +32,8 @@ def parse_progress(line: str) -> dict[str, Any] | None:
 
 
 class Progress:
-    """段階と、段階の中の % を標準出力に出す
-
-    % は 1% 以上進んだときだけ出す（位置合わせは文ごとに呼ばれるので、行を出しすぎないように）
-    """
+    """段階と、段階の中の % を標準出力に出す。
+    % は 1% 以上進んだときだけ（位置合わせは文ごとに呼ばれる）"""
 
     def __init__(self, diarize: bool, out: Any = None):
         self.total = len(STEPS) if diarize else len(STEPS) - 1
@@ -78,11 +72,8 @@ def _free(torch: Any) -> None:
 
 
 def load_audio(path: str) -> Any:
-    """録音を 16kHz・モノラルの float32 で読む（whisperx.load_audio と同じ形）
-
-    whisperx.load_audio は ffmpeg のコマンドを呼ぶが、配布版（#168）には ffmpeg がなく、
-    何も入れていない PC では読めない（#291）。faster-whisper が使う PyAV で読む
-    """
+    """録音を 16kHz・モノラルの float32 で読む。
+    whisperx.load_audio は ffmpeg が要るので、PyAV で読む（配布版に ffmpeg はない。#291）"""
     from faster_whisper.audio import decode_audio
 
     return decode_audio(path, sampling_rate=16000)
@@ -99,11 +90,8 @@ def _asr_options(job: dict[str, Any]) -> dict[str, Any] | None:
 
 
 class _OpenVinoAsr:
-    """文字起こしだけを Intel の GPU（OpenVINO）でする（#374）。WhisperX のモデルと同じ形で呼べる
-
-    指示の `openvino`（`device`・`model`）があるときに使う。位置合わせと話者分けは WhisperX のまま
-    （CPU）。greedy だけで、`hotwords`・`initialPrompt` は渡す
-    """
+    """文字起こしだけを Intel の GPU（OpenVINO）でする（#374）。
+    指示の `openvino` があるときに使い、greedy だけ"""
 
     def __init__(self, job: dict[str, Any]):
         from remote_whisper.gpu import openvino_whisper
@@ -288,9 +276,8 @@ def _diarize(
 def run_steps(
     w: Worker, audios: list[Any], joined: Any
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """文字起こし → 位置合わせ → 話者分け（するときだけ。joined の 1 本で）
-
-    音源ごとの結果と、結果の共通の項目を返す"""
+    """文字起こし → 位置合わせ → 話者分け（するときだけ。joined の 1 本で）。
+    音源ごとの結果と共通の項目を返す"""
     results, align_name = _align(w, _transcribe(w, audios), audios)
     state: dict[str, Any] = {"turns": [], "diarization": "off", "diarizationError": None}
     if w.job.get("diarize"):

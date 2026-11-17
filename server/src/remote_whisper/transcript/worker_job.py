@@ -1,6 +1,5 @@
 """浄書の子プロセス（transcript.worker）に渡す指示と、打ち切るまでの時間（#121）。
-spec/flows.md 6.9
-"""
+spec/flows.md 6.9"""
 
 import logging
 from pathlib import Path
@@ -24,9 +23,8 @@ INITIAL_PROMPT = {
         "こんにちは。今日は、言葉の話をしましょう。えっと、そうですね。はい、よろしくお願いします。"
     )
 }
-# 子プロセスを打ち切るまでの時間（秒）: TIMEOUT_BASE_SEC + 録音の長さ × TIMEOUT_PER_SEC。
-# RTX 2060 で 60 分の録音が 450 秒、10 分が 204 秒（モデルの読み込みを含む）だったので、
-# 十分に長くとる
+# 子プロセスを打ち切るまでの時間（秒）: TIMEOUT_BASE_SEC + 録音の長さ × TIMEOUT_PER_SEC（RTX 2060
+# の実測に余裕を持たせた）
 TIMEOUT_BASE_SEC = 900
 TIMEOUT_PER_SEC = 1.0
 

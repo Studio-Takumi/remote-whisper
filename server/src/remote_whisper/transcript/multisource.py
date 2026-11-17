@@ -1,16 +1,5 @@
-"""複数の音源をまとめる下ごしらえ（#241）。spec/flows.md 6.16
-
-numpy だけで動く（浄書の子プロセスの中で使う。テストは WhisperX なしで回せる）。
-
-- 時刻合わせ: 主の音源との相互相関（GCC-PHAT）を、いくつかの時点の窓で取ってずれを測り、
-  時刻に対するずれの傾きをドリフトにする。主の音源の時刻 = 音源の時刻 × (1 − drift × 10⁻⁶) + offset
-- 一番大きい音源: 0.1 秒ごとに、音源ごとの音量から雑音の床（下から 10%）を引いた高さで比べ、
-  0.7 秒の多数決で平らにする
-- 音源ごとに「その音源が一番大きい区間（前後 0.3 秒の余白つき）」だけを残した音（文字起こし用）と、
-  各時点で一番大きい音源をつないだ 1 本の音（話者分け用）を作る
-
-音はすべて 16kHz・モノラルの float32。
-"""
+"""複数の音源をまとめる下ごしらえ（#241。時刻合わせ・一番大きい音源・音の合成）。
+spec/flows.md 6.16"""
 
 from dataclasses import dataclass
 
@@ -59,10 +48,8 @@ def gcc_phat(a: np.ndarray, b: np.ndarray, max_lag: int) -> tuple[float, float]:
 
 
 def align(main: np.ndarray, other: np.ndarray, rough_offset_sec: float = 0.0) -> Alignment:
-    """other を主の音源（main）の時刻に合わせるための、ずれとドリフトを測る
-
-    rough_offset_sec は大まかなずれ（other の 0 秒が、主の音源の何秒にあたるか）
-    """
+    """other を主の音源（main）の時刻に合わせるためのずれとドリフトを測る。
+    rough_offset_sec は大まかなずれ"""
     win = int(WINDOW_SEC * SR)
     max_lag = int(SEARCH_SEC * SR)
     rough = int(round(rough_offset_sec * SR))
@@ -136,10 +123,7 @@ def _moving_sum(x: np.ndarray, width: int) -> np.ndarray:
 
 
 def dominant(levels: list[np.ndarray], present: list[np.ndarray]) -> np.ndarray:
-    """0.1 秒ごとに一番大きい音源の番号（levels の並び。0 から）
-
-    levels は音源ごとの 0.1 秒の音量（dBFS）、present はその音源に音がある（録音している）枠
-    """
+    """0.1 秒ごとに一番大きい音源の番号（levels の並び。0 から）。present はその音源に音がある枠"""
     n = min(len(x) for x in levels)
     rel = np.full((len(levels), n), -np.inf)
     for i, (d, p) in enumerate(zip(levels, present, strict=True)):
@@ -199,10 +183,8 @@ class Prepared:
 
 
 def prepare(aligned: list[np.ndarray], present: list[np.ndarray]) -> Prepared:
-    """主の音源の時刻に並べた音から、文字起こし用と話者分け用の音を作る
-
-    present は音源ごとの、音がある（録音している）サンプルの印（主の音源の時刻で）
-    """
+    """主の音源の時刻に並べた音から、文字起こし用と話者分け用の音を作る。
+    present は音源ごとの音がある印"""
     length = len(aligned[0])
     levels = [frame_db(x) for x in aligned]
     frames = len(levels[0])

@@ -1,13 +1,5 @@
-"""録音後に、保存した録音全体から最終の文字起こしを作る（#121）。spec/flows.md 6.9
-
-- 録音を終えて mp3 に変換したあと、最終の要約の前に作る（最終の要約は、できたものから作る）
-- GPU キュー（優先度 3）で、WhisperX の子プロセス（transcript.worker）を動かす。
-  VRAM（6GB）を空けるため、前に録音中の文字起こしの Whisper と Ollama のモデルを下ろす
-- 録音中は作らない。作っている途中で録音が始まったら、子プロセスを止めて（VRAM がすぐ空く）、
-  録音がすべて終わってから作り直す（録音中の文字起こしの邪魔をしないように）
-- WhisperX が入っていない（`uv sync --extra final` していない）・設定で切っているときは作らない
-- 結果は `transcript-final-<ID>-<生成 ID>.md`。できたら `finalTranscript` を全員に送る
-"""
+"""録音後に、保存した録音全体から最終の文字起こしを作る（#121）。録音中は作らない。
+spec/flows.md 6.9"""
 
 import asyncio
 import contextlib
@@ -65,10 +57,8 @@ class FinalTranscriber:
         extra_env: Callable[[], dict[str, str]] = dict,
         openvino_device: str | None = None,
     ):
-        """command はテスト用（子プロセスの代わりに動かすもの）。
-        extra_env は子プロセスに足す環境変数（HuggingFace のトークン。#291）。
-        openvino_device は Intel の GPU のデバイス（#374）。設定の whisper.intelGpu が auto なら、
-        文字起こしだけ OpenVINO でする"""
+        """command はテスト用。extra_env は子プロセスの環境変数（HF_TOKEN。#291）。
+        openvino_device は Intel の GPU（#374）"""
         self.settings = settings
         self.extra_env = extra_env
         self.openvino_device = openvino_device
@@ -101,10 +91,8 @@ class FinalTranscriber:
     def regenerate(
         self, files: SessionFiles, meta: TranscriptMeta, model: str, diarize: bool
     ) -> None:
-        """作り直す（#124）。結果は待たない
-
-        作れなかったら error（final_transcript_failed）を全員に送る
-        """
+        """作り直す（#124）。結果は待たない。作れなかったら error（final_transcript_failed）
+        を全員に送る"""
         # 作っている途中に入れるのは、タスクが動き始める前
         # （返事のすぐあとに重ねて頼まれても断れるように）
         end = self.hub.begin_final_transcript(files.id)
@@ -156,10 +144,8 @@ class FinalTranscriber:
         model: str | None = None,
         diarize: bool | None = None,
     ) -> str | None:
-        """最終の文字起こしを作って保存する。生成 ID を返す（作れなければ None）
-
-        model・diarize を省くと、作り始める時点の全体設定のものを使う
-        """
+        """最終の文字起こしを作って保存する。生成 ID を返す（作れなければ None）。
+        model・diarize を省くと全体設定"""
         # 作り終えるまで status の transcribing に入れる（録音が終わるのを待っている間も。#124）
         end = self.hub.begin_final_transcript(files.id)
         try:

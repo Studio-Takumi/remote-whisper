@@ -1,13 +1,4 @@
-"""録音のあとに、今回扱った資料の範囲を判断して、参考資料を作り直す（#182）。spec/flows.md 6.12
-
-大きい資料（目次の large: true。#181）を使ったセッションだけ、録音を終えたあとに 1 回だけ
-「今回どこを扱ったか」を Ollama に判断させ、その範囲のテキストから用語リスト（浄書の前）と
-コンテキスト（浄書の後）を作り直す。判断の結果は両方で使う（判断は 2 回しない）。
-
-作ったものは、そのセッション専用の参考資料セット（新しいセット ID、`session` 付き）として保存し、
-セッションの contextSet をそれに切り替える（元のセットは baseContextSet に残す）。資料全体のセットは
-上書きしない。浄書・最終要約の作り直しは contextSet を見るので、そのまま専用のセットを使う。
-"""
+"""録音のあとに、今回扱った資料の範囲を判断して、参考資料を作り直す（#182）。spec/flows.md 6.12"""
 
 import asyncio
 import logging
@@ -95,12 +86,8 @@ def excerpt(lines: list[str], limit: int = EXCERPT_CHARS) -> str:
 def normalize_ranges(
     raw: list[tuple[int, int]], tocs: list[MaterialToc]
 ) -> list[MaterialRange] | None:
-    """答えの範囲を整える。前後に MARGIN ずつ足し、重なりをまとめる。
-    範囲がない・大きい資料のほぼ全体（WHOLE_RATIO 以上）なら None（作り直さない）
-
-    raw の番号は、tocs（大きい資料だけ）の目次を資料をまたいで 1 から数えた通し番号
-    （プロンプトの目次と同じ）。資料ごとの index に直す
-    """
+    """答えの範囲を整える（前後に MARGIN を足し、重なりをまとめる）。
+    範囲がない・ほぼ全体なら None（作り直さない）"""
     slots = [(m, e.index) for m, toc in enumerate(tocs, 1) for e in toc.entries]
     picked: dict[int, set[int]] = {}
     for start, end in raw:
@@ -234,12 +221,8 @@ class RangeService:
         return normalize_ranges(raw, large)
 
     async def make_set(self, writer: SessionWriter, plan: RangePlan, terms: bool) -> None:
-        """セッション専用のセットを作って、セッションをそれに切り替える
-
-        terms が True なら、範囲のテキストから用語リストを作り直す（浄書の前）。False なら元の
-        用語リストを写す（アップロードしたセッション。浄書はもう終わっている）。コンテキストは
-        元のものを写しておき、make_context で範囲のものに書き換える（作れなければ元のまま）
-        """
+        """セッション専用のセットを作って、セッションをそれに切り替える。
+        terms が False なら元の用語リストを写す"""
         project_dir = self.projects.dir(plan.pid)
         base_meta, base_words = read_doc(project_dir / hotwords_name(plan.base), ContextSetMeta)
         _, base_context = read_doc(project_dir / context_name(plan.base), ContextMeta)

@@ -1,23 +1,4 @@
-"""最終の文字起こしの行を作る（#121・#141）。spec/flows.md 6.9
-
-WhisperX の結果（区間ごとの文と、単語ごとの時刻・話者）を、文ごとの行にする。日本語では「単語」は
-1 文字ずつになる。
-
-1. 文に分ける（話者は見ない）。「。」などで区切るほか、「。」がなくても間が空いたところで区切る。
-   区切るのは形態素解析で語の境目になるところだけ（語の途中で切らない）。「ます」「ね」のような
-   文末らしいところは、短い間でも区切る。長すぎる行は、少しでも間のあるところで区切る
-2. 話者を語ごとに付ける（#148）。形態素解析の語ごとに文字の時刻をまとめて語の区間を作り、
-   話者分けの区間といちばん長く重なる話者にする。重なる区間がない語は、前（なければ後ろ）の語の
-   話者にする。文の中でも、話者が替わる語の境目で必ず行を分ける。文ごとに 1 人に決めると、
-   短い相づちや短い発言での交代が消えるため
-3. 文の中の短い話者の断片（2 語以下で 1 秒以下）は、話者分けの区間の端のずれとみなして、
-   隣の断片にまとめる（_smooth）
-
-形態素解析（fugashi + unidic-lite。サーバーの extra `final`）が入っていなければ、どの文字の境目でも
-区切ってよいことにし、文末らしいところは見ない。
-
-行は `[HH:MM:SS] 文`。話者分けをしたときは `[HH:MM:SS] 話者 1: 文`（話者は出てきた順に番号を振る）。
-"""
+"""最終の文字起こしの行を作る（#121・#141）。WhisperX の結果を文ごとの行にする。spec/flows.md 6.9"""
 
 import logging
 import re
@@ -34,9 +15,8 @@ log = logging.getLogger(__name__)
 SENTENCE_END = "。．！？!?"
 # 句読点（これだけの単語の前では区切らない）
 PUNCTUATION = SENTENCE_END + "、，,"
-# これだけ間が空いたら、文末らしくなくても区切る（秒）。wav2vec2 の時刻合わせでは文字のあいだに
-# 隙間ができず、間の分は前の文字が長く伸びる（文の終わりの「す」「ね」が 1〜2 秒になる）ので、
-# 前の文字の長さも間として見る
+# これだけ間が空いたら文末らしくなくても区切る（秒）。
+# wav2vec2 は間の分だけ前の文字を伸ばすので、前の文字の長さも間に数える
 GAP_SEC = 0.8
 HELD_SEC = 0.9
 # 文末らしいところ（「ます」「です」「ね」など）は、これだけの間で区切る
@@ -92,11 +72,8 @@ def _loudest_at(dominant: list[list[float]], t: float) -> int | None:
 def merge_sources(
     per_source: dict[int, list[Sentence]], dominant: list[list[float]]
 ) -> list[Sentence]:
-    """音源ごとの行を時刻で並べる（#241。spec/flows.md 6.16）
-
-    余白が重なって同じ文が 2 つの音源から出たとき（DUPLICATE_SEC 以内で含有率が
-    DUPLICATE_CONTAINMENT 以上）は、その時点で一番大きい音源の行だけを残す
-    """
+    """音源ごとの行を時刻で並べる（#241。spec/flows.md 6.16）。
+    余白が重なって同じ文が 2 つ出たら、一番大きい音源の行だけ残す"""
     items = sorted(
         (
             Sentence(s.start, s.text, s.speaker, source)
@@ -298,12 +275,8 @@ def word_speakers(
     tokens: list[tuple[int, int]],
     turns: list[_Turn],
 ) -> list[str | None]:
-    """words の 1 つずつに、その語の話者を付ける（#148）。tokens は語ごとの words の範囲（_tokens）
-
-    語の区間（その語の文字の時刻をまとめたもの）といちばん長く重なる話者にする。重なる区間がない
-    （無音と判定されたところ）語は、前の語の話者、先頭なら後ろの語の話者にする。どの語も重ならない
-    ときは、話者なし
-    """
+    """words の 1 つずつに、その語の話者を付ける（#148）。
+    重なる区間がない語は前（先頭なら後ろ）の語の話者、全部なければ話者なし"""
     speakers: list[str | None] = [None] * len(words)
     token_speakers: list[tuple[int, int, str | None]] = []
     for i, j in tokens:
@@ -325,15 +298,7 @@ def _smooth(
     speakers: list[str | None],
     token_of: list[int],
 ) -> list[tuple[int, int]]:
-    """文の中の話者の断片のうち、ずれと思われるものを隣にまとめる（#148）
-
-    短い断片（SMOOTH_WORDS 語以下で SMOOTH_SEC 秒以下）だけを見る。次の順に当てる
-    1. 同じ話者に挟まれた短い断片は、前後にまとめる
-    2. 文の端の短い断片（文末の「ね」が次の話者の区間にかかる、など。話者分けの区間の端は 1〜2 文字
-       ずれることが多い）は、隣の断片が短くなければ、そちらにまとめる
-    3. 短い断片 2 つだけの文は、長く話した方の話者にする
-    文の全体が 1 つの断片（相づちだけの文など）なら、そのまま残る
-    """
+    """文の中の話者の断片のうち、ずれと思われる短いものを隣にまとめる（#148）。spec/flows.md 6.9"""
 
     def duration(p: tuple[int, int]) -> float:
         start, end = _span(words, *p)
@@ -382,11 +347,8 @@ def sentences(
     turns: list[dict[str, Any]] | None = None,
     language: str = "ja",
 ) -> list[Sentence]:
-    """文ごとに分ける
-
-    turns は話者分けの区間（`start`・`end`・`speaker`）。なければ単語に付いた話者を使う。
-    形態素解析（辞書は日本語）は、日本語のときだけ使う
-    """
+    """文ごとに分ける。turns は話者分けの区間（なければ単語に付いた話者）。
+    形態素解析は日本語のときだけ"""
     words = _words(segments)
     if not words:
         return []

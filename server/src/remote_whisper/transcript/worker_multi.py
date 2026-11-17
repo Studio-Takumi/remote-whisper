@@ -1,7 +1,5 @@
-"""浄書の子プロセスの、複数の音源（#241）。spec/flows.md 6.16
-
-時刻合わせ・音源ごとの結果のまとめ・音源のヒント。WhisperX の段階は worker_steps と共通
-"""
+"""浄書の子プロセスの、複数の音源（#241）。spec/flows.md 6.16。
+WhisperX の段階は worker_steps と共通"""
 
 import time
 from collections import Counter
@@ -65,11 +63,8 @@ def merge_segments(ids: list[int], results: list[dict[str, Any]]) -> list[dict[s
 
 
 def run_multi(job: dict[str, Any]) -> dict[str, Any]:
-    """複数の音源（#241。spec/flows.md 6.16）
-
-    音源ごとに、その音源が一番大きい区間だけを残した音を文字起こし・位置合わせし、
-    話者分けは各時点で一番大きい音源をつないだ 1 本で 1 回だけ行う。時刻は主の音源の時刻にそろえる
-    """
+    """複数の音源（#241）。音源ごとに文字起こし・位置合わせし、
+    話者分けは一番大きい音源をつないだ 1 本で 1 回だけ行う"""
     w = steps.begin(job)
     ids = [int(s["id"]) for s in job["sources"]]
     prepared, alignments = _align_sources(job["sources"])

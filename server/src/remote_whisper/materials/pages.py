@@ -1,18 +1,6 @@
 """最終要約の詳細に、参考資料の場所（PDF のページ）を付ける（#237）。spec/flows.md 6.5
 
-設定（ollama.detailMaterialPages）がオンのとき、最終要約の詳細ができたあとに次のことをする。
-全体概要・浄書済み文字起こしには付けない。
-
-1. 参考資料セットの資料のうち、PDF のページごとの本文を読む（範囲を判断したセット（#182）なら、
-   その範囲のページだけ）。PDF 以外（見出し・文字数の区切り）の資料は場所を付けない
-2. 詳細の項目（行の頭の箇条書き）ごとに、文字の 2-gram が多く重なるページを候補に選ぶ
-3. 候補のページの本文に「資料名 p.N」の印を付けて Ollama に渡し、項目ごとに場所を JSON で書かせる
-4. 書かせた場所のうち、そのリクエストで渡したファイル・ページにないものは消す
-   （作った場所を出さない）
-5. 残った場所を、項目の行の終わりに「（〇〇.pdf p.12–13 の内容）」として付ける
-
-付けられなかったとき（Ollama につながらない・形が合わない・資料を読めない）は、
-付けずにそのまま返す。
+設定 ollama.detailMaterialPages がオンのときだけ。付けられなかったときは付けずにそのまま返す。
 """
 
 import json
@@ -167,10 +155,7 @@ def refs_messages(items: list[str], pages: list[Page]) -> list[dict[str, str]]:
 def parse_refs(
     reply: str, count: int, allowed: dict[str, set[int]]
 ) -> dict[int, list[tuple[str, list[int]]]]:
-    """答えを {項目の添え字: [(ファイル名, [ページ])]} にする。渡していないファイル・ページは消す
-
-    count は項目の数、allowed はそのリクエストで渡したファイルごとのページ
-    """
+    """答えを {項目の添え字: [(ファイル名, [ページ])]} にする。渡していないファイル・ページは消す"""
     try:
         refs = json.loads(reply)["refs"]
     except (ValueError, KeyError, TypeError):

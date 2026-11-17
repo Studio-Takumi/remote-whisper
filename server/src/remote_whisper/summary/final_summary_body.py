@@ -1,7 +1,6 @@
 """最終の要約の本文（#92）。spec/flows.md 6.3・6.5
 
-一度に収まれば一度に要約する。収まらなければ部分ごとに要約し、まとめてから全体の概要を作る。
-概要を `summary.delta`（final）で流してから、部分ごとの要約を時間の順に続けて送る
+一度に収まれば一度に、収まらなければ部分ごとに要約して概要を作り、`summary.delta`（final）で送る。
 """
 
 import logging
@@ -37,10 +36,8 @@ OVERVIEW_HEADING = "全体概要"
 
 @dataclass(frozen=True)
 class Density:
-    """最終の要約の要約度（#100）
-
-    overview は概要、detail は部分ごとの要約（一度に収まるときは、その要約）
-    """
+    """最終の要約の要約度（#100）。overview は概要、
+    detail は部分ごとの要約（一度に収まるときはその要約）"""
 
     overview: int = DEFAULT_DENSITY
     detail: int = DEFAULT_DENSITY
@@ -75,12 +72,8 @@ class SummaryBody:
         density: Density | None = None,
         pages: list[Page] | None = None,
     ) -> tuple[str, str]:
-        """要約の本文と、タイトルを作る元（長いときは全体の概要）を返す。どちらも空なら作れなかった
-
-        一度に収まるときは、詳細の要約度で作る（概要は作らない）。
-        部分ごとの要約（と一度に収まるときの要約）は要約詳細のモデル、まとめと概要は全体概要のモデル。
-        pages があれば、詳細の項目に参考資料のページを付ける（#237。概要には付けない）
-        """
+        """要約の本文と、タイトルを作る元（長いときは全体の概要）を返す。
+        どちらも空なら作れなかった"""
         density = density or Density()
         chunks = split_lines(lines, CHUNK_CHARS)
         if len(chunks) == 1:
@@ -197,11 +190,8 @@ class SummaryBody:
         send: Callable[[dict[str, Any]], Awaitable[None]],
         prefix: str = "",
     ) -> str:
-        """流れてくる本文を `summary.delta`（final）で送り、つなげて返す
-
-        prefix は空白でない本文が来たときに、それと一緒に送る（来なければ送らない）。
-        返す本文には含めない
-        """
+        """流れてくる本文を `summary.delta`（final）で送り、つなげて返す。
+        prefix は空白でない本文が来たときに一緒に送る（返す本文には含めない）"""
         out: list[str] = []
         pending = prefix
         async for part in stream:
