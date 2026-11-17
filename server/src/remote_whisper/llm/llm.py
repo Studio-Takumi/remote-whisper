@@ -1,14 +1,5 @@
-"""LLM バックエンドの共通の口。spec/notes.md 9.3
-
-要約・用語・資料などの処理は `LlmClient` だけを見る。Ollama（`ollama.OllamaClient`）が今の実装で、
-ほかのバックエンド（LM Studio など）も同じ形で差し替えられる。
-
-- 失敗は `LlmUnavailable`。つながらない・エラーを返した、のどちらも。バックエンドごとの例外
-  （`OllamaUnavailable` など）はこの子にするので、`except LlmUnavailable` で全部受けられる
-- 画像は、メッセージの `"image"`（base64 の PNG）で渡す。バックエンドの形（Ollama なら
-  `"images": [...]`）への直しは、クライアントの中でやる
-- モデルを取ってくる進み具合は `PullProgress`
-"""
+"""LLM バックエンドの共通の口（Ollama・LM Studio）。処理は `LlmClient` だけを見る。
+spec/notes.md 9.3"""
 
 from collections.abc import AsyncIterator, Callable
 from typing import Any, NotRequired, Protocol, TypedDict
@@ -19,10 +10,8 @@ class LlmUnavailable(Exception):
 
 
 class PullProgress(TypedDict):
-    """モデルを取ってくる進み具合の 1 行
-
-    digest（部分の識別子）と total があるときは、その部分（ファイル・層）の大きさと取り終えた量。
-    ない行は、status（「manifest を取っています」など）だけを伝える"""
+    """モデルを取ってくる進み具合の 1 行。digest と total があれば部分の大きさと取り終えた量、
+    なければ status だけ"""
 
     status: str
     digest: NotRequired[str]
@@ -90,8 +79,7 @@ class LlmClient(Protocol):
 
 
 def backend_of(client: object) -> str | None:
-    """クライアントのバックエンド（"ollama"・"lmstudio"）。処理ごとのモデルをどちらの設定から
-    読むかに使う（`Settings.llm_models`）。分からない（テストの偽物など）ときは None で、
-    設定で選んでいるものになる（#325）"""
+    """クライアントのバックエンド（"ollama"・"lmstudio"）。
+    分からなければ None で、設定で選んでいるもの（#325）"""
     backend = getattr(client, "backend", None)
     return backend if isinstance(backend, str) else None

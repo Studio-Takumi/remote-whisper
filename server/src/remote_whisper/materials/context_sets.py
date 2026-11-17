@@ -1,14 +1,5 @@
-"""参考資料セットの作成。spec/flows.md 6.6・spec/files.md 5.4・5.5
-
-参考資料から、用語リスト（Whisper 用）とコンテキスト（Ollama 用）を1組で作る。
-
-1. 資料は materials.roots の中・materials.extensions の拡張子のものだけ。パスは絶対パスで持つ
-2. 同じ資料の組み合わせ（内容のハッシュが一致）のセットが、できている・作っている途中なら使い回す
-3. なければ project.json に generating で足し、`contextSet` を送り、GPU キュー（優先度 3）に積む
-4. テキストを取り出し、Ollama（思考オン）で用語リストとコンテキストを作り、
-   `hotwords-<ID>.md` と `context-<ID>.md` に保存して ready にする。失敗したら failed
-5. できたセットを使う設定で録音中のセッションがあれば、次の区間から使う
-"""
+"""参考資料セットの作成（用語リストとコンテキストを 1 組で作る）。
+spec/flows.md 6.6・spec/files.md 5.4・5.5"""
 
 import asyncio
 import hashlib
@@ -50,9 +41,8 @@ log = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
-# 1 回の頼みで Ollama に渡す資料のテキストの長さ（文字）。これより長い資料は、この長さずつに
-# 分けて部分ごとに用語とメモを取り出し、まとめる（#271）。
-# これを超える資料は「大きい資料」（目次の large。#181）
+# 1 回の頼みで Ollama に渡す資料の長さ（文字）。超える資料は部分ごとに拾ってまとめる（#271）。
+# 超えたものが「大きい資料」（#181）
 MATERIALS_CHARS = LARGE_CHARS
 # 資料全体で使う長さ（文字）の上限。これより長ければ、それぞれの頭から按分して切る。
 # 部分の数がこの分だけ増える（1 部分で用語とメモの 2 回、数十秒ずつかかる）
@@ -81,10 +71,8 @@ async def direct(job: Callable[[], Awaitable[T]]) -> T:
 
 
 class Generator(Protocol):
-    """資料のテキストから、用語リスト（重要な順）とコンテキストを作るもの
-
-    run は Ollama への 1 回の頼みを GPU キューに積んで動かすもの。頼みごとに積むので、
-    長い資料でも録音中の文字起こしを長く待たせない（#271）"""
+    """資料のテキストから、用語リスト（重要な順）とコンテキストを作るもの。
+    run は頼み 1 回ずつ GPU キューに積む（#271）"""
 
     async def generate(self, materials: str, run: Run = direct) -> tuple[list[str], str]: ...
 
@@ -135,9 +123,7 @@ class OllamaGenerator:
         return words, context
 
     async def terms(self, materials: str, run: Run = direct) -> list[str]:
-        """用語リスト（資料抽出）。範囲で作り直すとき（#182）は、これだけを浄書の前に作る
-
-        長い資料は部分に分けて部分ごとに拾い、多くの部分に出てきた語を前にする（#271）"""
+        """用語リスト（資料抽出）。範囲で作り直すとき（#182）は、これだけを浄書の前に作る（#271）"""
         model = await self.ollama.resolve(self._models().material_terms)
         counts: Counter[str] = Counter()
         order: dict[str, int] = {}
@@ -149,9 +135,7 @@ class OllamaGenerator:
         return sorted(counts, key=lambda w: (-counts[w], order[w]))
 
     async def context(self, materials: str, run: Run = direct) -> str:
-        """コンテキスト。範囲で作り直すとき（#182）は、これだけを浄書の後に作る
-
-        長い資料は部分ごとにメモを作り、メモをまとめてコンテキストにする（#271）"""
+        """コンテキスト。範囲で作り直すとき（#182）は、これだけを浄書の後に作る（#271）"""
         model = await self.ollama.resolve(self._models().context)
         think = await self.ollama.supports_thinking(model)
         self._used = (model, think)
@@ -216,9 +200,8 @@ OMITTED = "\n（以下省略）"
 
 
 def _shares(texts: list[tuple[str, str]], limit: int) -> list[int]:
-    """資料ごとに使う長さ。合計は limit 以下。長さに比例して按分するが、短い資料が按分で
-    消えないように最低限（200 文字。資料が多いときは limit を等分した長さ）は残す。
-    最低限まで引き上げた資料の分を先に取り、残りをほかの資料で按分し直す"""
+    """資料ごとに使う長さ（合計は limit 以下）。
+    長さに比例して按分し、短い資料が消えないよう最低限（200 文字）は残す"""
     floor = min(200, limit // len(texts))
     shares: dict[int, int] = {}
     while True:
@@ -239,10 +222,8 @@ def _shares(texts: list[tuple[str, str]], limit: int) -> list[int]:
 
 
 def join_materials(texts: list[tuple[str, str]], limit: int = MAX_MATERIALS_CHARS) -> str:
-    """資料ごとに見出しを付けてつなぐ。長ければ、それぞれの頭から按分して切る
-
-    見出し・区切り・「（以下省略）」の分を先に引いてから按分し、全体が limit に収まるようにする
-    （超えると、split_materials で端の数文字だけの部分ができてしまう）"""
+    """資料ごとに見出しを付けてつなぐ。長ければ頭から按分して切る（見出し・区切りの分を先に引いて
+    limit に収める）"""
     total = sum(len(t) for _, t in texts) or 1
     overhead = sum(len(f"### {name}\n") + len(OMITTED) + 2 for name, _ in texts)
     if total + overhead > limit:
@@ -380,9 +361,8 @@ class ContextSetService:
         assert created is not None
         entry = created
         await self._send(pid, entry.id, "generating")
-        # 全体を 1 つの GPU ジョブにはしない。図の読み取りと長い資料の部分ごとの頼みで十数分
-        # かかることがあり、その間に始めた録音の文字起こしが待たされるため（実行中のジョブは
-        # 止められない）。Ollama への頼みを 1 回ずつ GPU キューに積む（run）
+        # 全体を 1 つの GPU ジョブにしない（十数分かかり、録音中の文字起こしが待たされる）。
+        # 頼みを 1 回ずつ積む（run）
         task = asyncio.create_task(self._build(pid, entry.id, refs, started))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
@@ -390,9 +370,8 @@ class ContextSetService:
         return {**entry.model_dump(by_alias=True, exclude={"session"}), "reused": False}
 
     async def close(self) -> None:
-        """サーバーを止めるとき（GPU キューを止める前）。作っている途中のセットの処理を止める。
-        止めないと、GPU キューを止めたあとに次の頼みを積んで、キューを動かし直してしまう。
-        セットは generating のまま残り、次の起動で failed に直す（recover）"""
+        """サーバーを止めるとき（GPU キューを止める前）。
+        作っている途中の処理を止める（止めたキューを動かし直さないため）"""
         tasks = list(self._tasks)
         for task in tasks:
             task.cancel()
@@ -500,10 +479,7 @@ class ContextSetService:
 
     async def ensure_toc(self, pid: str, set_id: str) -> list[MaterialToc]:
         """セットの資料の目次。以前に作ったセットには目次がないので、そのとき取り出して書き足す。
-
-        資料が消えている・読めないときは、取り出せた分だけを返し、書き足さない（次に使うとき、
-        資料が戻っていればもう一度取り出す）。セットがなければ ContextSetError。
-        """
+        なければ ContextSetError"""
         path = self.projects.dir(pid) / context_name(set_id)
         try:
             meta, body = read_doc(path, ContextMeta)

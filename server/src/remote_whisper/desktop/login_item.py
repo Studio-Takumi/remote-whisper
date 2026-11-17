@@ -1,12 +1,6 @@
-"""Mac の配布版の「ログイン時に起動」（#292）。メニューバーの項目で切り替える
+"""Mac の配布版の「ログイン時に起動」（#292）。LaunchAgents の plist を置く・消すだけ
 
-~/Library/LaunchAgents/<LABEL>.plist（launchd のユーザーのエージェント）を置く・消すだけ。
-次にログインしたときから効く。置いた plist は、.app の起動用のスクリプトを `--login` 付きで
-動かす（ブラウザは開かない。起動は --auto-port。packaging/mac/launcher.sh）。
-
-切ったときは plist を消すだけで、launchctl bootout はしない（ログイン時の起動で動いている
-サーバーまで止まるため）。Windows はインストーラで選ぶ（installer.iss の Run の値）ので、
-ここは使わない
+切るときに launchctl bootout はしない（動いているサーバーまで止まるため）。spec/ui.md 8
 """
 
 import contextlib
@@ -51,10 +45,8 @@ def agent(app: Path) -> dict:
 
 
 def is_enabled(app: Path | None = None, directory: Path | None = None) -> bool:
-    """ログイン時に起動するか。app を渡したら、plist がその .app を起動するときだけ True
-
-    アプリを別の場所に移したあとは、古い場所を指す plist は有効とみなさない（押すと書き直す）
-    """
+    """ログイン時に起動するか。plist が渡された .app を起動するときだけ True（移したあとの古い
+    plist は無効）"""
     path = plist_path(directory)
     if not path.is_file():
         return False

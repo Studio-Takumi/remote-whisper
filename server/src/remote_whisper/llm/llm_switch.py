@@ -1,26 +1,5 @@
-"""設定で選んでいる LLM バックエンドへの振り分け（#325。spec/files.md 5.3）
-
-`LlmSwitch` 自体が `llm.LlmClient` の形をしていて、要約・用語・資料などの処理はこれを
-（`ctx.ollama` として）持つ。中身は `llm.backend` で選んだ Ollama か LM Studio のクライアント。
-
-- 設定で `llm.backend` を変えたら `sync` で切り替える。録音中なら切り替えず、録音がすべて
-  終わったとき（`recording_ended`）に切り替える。録音中の生成は、録音を始めたときのバックエンドの
-  まま（モデルの名前もそのバックエンドの models から読む。`backend`）
-- 今のバックエンドで生成している途中（`chat_stream`・`chat` の中）なら切り替えず、生成がすべて
-  終わったときに切り替える。生成の途中で、そのバックエンドのモデルを下ろさないように
-  （録音の終わりは、キューの中で最後の区間要約・用語の抽出がまだ動いていることがある）
-- 切り替えは呼び出しの単位。何回も LLM を呼ぶジョブ（参考資料セットの作成・最終要約など）の
-  途中で切り替わると、それより後の呼び出しは新しいバックエンドで動く（モデルは新しいほうの models
-  から代わりを選ぶ。spec/files.md 5.3）
-- 見張る（status を更新する）のは、使っているほうだけ。切り替えたら、前のほうの見張りを止め、
-  前のほうに載っているモデルを下ろす（VRAM を空ける。下ろせなくても切り替えは止めない）。
-  下ろすときに、そのバックエンドにもう戻っていたら下ろさない（すばやく行き来したとき）。
-  下ろしている途中に戻したときは、次のモデルからは下ろさず（unload_all の cancelled）、
-  そのバックエンドでの生成は、下ろしている途中の 1 つが終わるのを待ってから始める
-  （下ろしている最中のモデルを生成に使わないように。#326）
-- クライアントは、初めて使うときに作る
-- サーバーを止めるときは、それぞれの shutdown を呼ぶ（LM Studio は自分が載せたモデルを下ろす）
-"""
+"""設定で選んでいる LLM バックエンドへの振り分け（#325）。録音中・生成中は切り替えを待つ。
+spec/notes.md 9.3"""
 
 import asyncio
 import contextlib
@@ -81,10 +60,8 @@ class LlmSwitch:
     # --- 切り替え ---
 
     async def sync(self) -> None:
-        """設定のバックエンドに切り替える
-
-        録音中は何もしない（recording_ended で切り替える）。今のバックエンドで生成している途中なら
-        何もしない（生成がすべて終わったときに切り替える）"""
+        """設定のバックエンドに切り替える。
+        録音中・今のバックエンドで生成中なら何もしない（終わってから切り替える）"""
         wanted = self.settings.get().llm.backend
         if wanted == self.backend:
             return
@@ -109,10 +86,8 @@ class LlmSwitch:
             self.client().start_monitor(self._monitor_interval)
 
     async def _unload(self, name: str, client: Any) -> None:
-        """前のバックエンドの見張りを止め、モデルを下ろす。もう戻っていたら、見張りも止めず下ろさない
-
-        見張りを止めている間に戻ったときは、見張りをかけ直す（戻したときの sync の
-        start_monitor は、まだ動いていた見張りを見て何もしないため）"""
+        """前のバックエンドの見張りを止め、モデルを下ろす。
+        もう戻っていたら下ろさない（戻ったら見張りをかけ直す）"""
         if name == self.backend:
             log.info("llm backend is %s again; keeping its models", name)
             return
@@ -133,9 +108,8 @@ class LlmSwitch:
 
     @contextlib.asynccontextmanager
     async def _generating(self, name: str) -> AsyncIterator[None]:
-        """生成している途中の数を数える。0 になったら、待たせていた切り替えをする
-
-        そのバックエンドのモデルを下ろしている途中（すぐ戻したとき）なら、終わるのを待つ"""
+        """生成している途中の数を数える。0 になったら、
+        待たせていた切り替えをする（下ろしている途中なら終わるのを待つ）"""
         self._busy[name] = self._busy.get(name, 0) + 1
         try:
             unloading = self._unloading.get(name)

@@ -1,6 +1,5 @@
 """LM Studio のモデルの載せ下ろし（ロック・録音中は 1 つだけ・keepAliveMin のタイマー）。
-
-spec/notes.md 9.3（#326）。自分が載せたインスタンス（`loaded`）を持つのはここだけ"""
+spec/notes.md 9.3（#326）"""
 
 import asyncio
 import contextlib
@@ -55,9 +54,8 @@ class Vram:
 
     @contextlib.contextmanager
     def generating(self) -> Iterator[None]:
-        """生成している間はタイマーで下ろさない。終わったら、そこから keepAliveMin 分を数え直す
-
-        録音中は数えない（録音が終わったとき（recording_ended）に数え始める）"""
+        """生成している間はタイマーで下ろさない。
+        終わったら keepAliveMin 分を数え直す（録音中は数えない）"""
         self._active += 1
         try:
             yield
@@ -67,11 +65,8 @@ class Vram:
                 self._touch()
 
     def _forget_gone(self, llms: dict[str, dict[str, Any]]) -> None:
-        """自分が載せた記録のうち、一覧に載っていないもの・context が食い違うものを忘れる
-
-        自分の `<key>` を手で下ろしたあと、同じモデルを手で載せ直すと、新しいインスタンスも
-        同じ `<key>` になる。記録を残したままだと、手で載せたほうを下ろしてしまうため。
-        同じ context で載せ直されて、その間に一覧を取らなかったときは見分けられない"""
+        """自分が載せた記録のうち、一覧にない・context
+        が食い違うものを忘れる（手で載せ直されたものを下ろさないため）"""
         listed = {iid: ctx for entry in llms.values() for iid, ctx in entry_instances(entry)}
         for iid, ctx in list(self.loaded.items()):
             if iid not in listed:
@@ -89,10 +84,8 @@ class Vram:
             del self.loaded[iid]
 
     async def shutdown(self) -> None:
-        """サーバーを止めるとき。見張りとタイマーを止め、自分が載せたインスタンスを下ろす
-
-        止めたあとはタイマーで下ろせず、VRAM に残り続けるため（手で載せたものは下ろさない）。
-        つながらなければ下ろさずに終える"""
+        """サーバーを止めるとき。見張りとタイマーを止め、
+        自分が載せたインスタンスを下ろす（残ると VRAM を使い続ける）"""
         await self.http.close()
         if self._timer is not None and not self._timer.done():
             self._timer.cancel()
@@ -102,19 +95,8 @@ class Vram:
         await self._unload_mine("the server is stopping")
 
     async def instance(self, model: str) -> tuple[str, int]:
-        """生成に使うインスタンスの（id, context_length）。なければ載せる
-
-        - NUM_CTX 以上で載っているものがあれば、それを使う（NUM_CTX ちょうどを優先）
-        - なければ NUM_CTX で載せる（JIT に任せない。載せたインスタンスを覚えて、後で下ろすため）
-        - 小さい context で載っているもの（手で載せたものなど）は下ろさず、もう 1 つ載せる。
-          VRAM が溢れるかもしれないのでログに書く（#322）
-        - 録音中は、その前に自分が載せたほかのインスタンスを下ろす（_unload_others）
-
-        context_length は必ず NUM_CTX にそろえる。違う値を送ると、2 つ目のインスタンスが載る
-
-        同時に呼ばれても 2 つ載せないよう、また下ろしている途中のものを選ばないよう、
-        載せ下ろしのロックの中で選ぶ
-        """
+        """生成に使うインスタンスの（id, context_length）。
+        なければ NUM_CTX で載せる（JIT に任せない）。spec/notes.md 9.3"""
         async with self._vram:
             llms = await self.models.llms()
             entry = llms.get(model)
@@ -170,11 +152,8 @@ class Vram:
         return model
 
     async def _unload_others(self, llms: dict[str, dict[str, Any]], keep: str | None) -> None:
-        """録音中は、LM Studio のモデルを 1 つだけ載せておく（#178。Ollama の同名のものと同じ）
-
-        自分が載せたインスタンスのうち、これから使う keep 以外を下ろす（録音の前に参考資料などで
-        載せたものも）。手で載せたものは下ろさず、VRAM を使っているかもしれないとログに書く
-        （インスタンスごとに 1 回）。下ろせなくても生成は試す。載せ下ろしのロックの中で呼ぶ"""
+        """録音中は LM Studio のモデルを 1 つだけ載せておく（#178）。
+        自分が載せたほかのインスタンスを下ろす（ロックの中で）"""
         for iid in sorted(set(self.loaded) - {keep}):
             if not await self._unload(iid, "to load another model while recording"):
                 break
@@ -195,9 +174,8 @@ class Vram:
     # --- 下ろす ---
 
     async def _unload(self, iid: str, why: str) -> bool:
-        """自分が載せたインスタンスを 1 つ下ろす。つながらなければ False（記録は残し、次に下ろす）
-
-        断られた（4xx。手で下ろされて、もう載っていないなど）ものは、記録から消す"""
+        """自分が載せたインスタンスを 1 つ下ろす。
+        つながらなければ False（記録は残す）、断られたら記録から消す"""
         try:
             await self.http.request("POST", "/api/v1/models/unload", json={"instance_id": iid})
             log.info("lmstudio unloaded %s (%s)", iid, why)
@@ -211,10 +189,8 @@ class Vram:
     async def _unload_mine(self, why: str, stop: Callable[[], bool] = lambda: False) -> bool:
         """自分が載せたインスタンスをすべて下ろす
 
-        先に一覧で、もう載っていないもの・手で載せ直されたものを忘れる（_forget_gone）。
-        つながらなければ、残りも諦める（記録は残し、次に下ろす。止めるときに LM Studio が
-        応答しないと、インスタンスごとに待たされるため）。stop() が True になったら、そこで
-        やめて False を返す。インスタンスごとに確かめる"""
+        つながらなければ残りも諦める（記録は残す）。stop() が True になったらやめて False を返す。
+        """
         async with self._vram:
             if not self.loaded:
                 return True
@@ -247,10 +223,8 @@ class Vram:
         return self.recording() or self._active > 0
 
     async def _idle(self) -> None:
-        """最後に使ってから keepAliveMin 分たったら、自分が載せたものを下ろす
-
-        録音中・生成の途中なら何もせずに終わる（録音が終わったとき・生成が終わったときに
-        かけ直す）。待っている間に使われたら、そこから数え直す"""
+        """最後に使ってから keepAliveMin 分たったら、自分が載せたものを下ろす。
+        録音中・生成中は何もしない"""
 
         def used_again() -> bool:
             # 下ろすのを待っている間に使われた（生成の途中・録音中・数え直した）
@@ -267,15 +241,8 @@ class Vram:
                 return
 
     async def unload_all(self, cancelled: Callable[[], bool] | None = None) -> None:
-        """このクライアントが載せたインスタンスを下ろして VRAM を空ける（最終の文字起こしの前。
-        #121。バックエンドを切り替えたときにも呼ぶ）
-
-        手で載せたものは下ろさない。残っていれば、文字起こしが遅くなるかもしれないとログに書く。
-        つながらなければ何もしない（記録は残し、次に下ろす）。断られた（4xx。もう載っていない
-        など）ものは記録から消す。cancelled() が True になったら、次のインスタンスからは下ろさない
-        （切り替えたバックエンドにすぐ戻したとき。LlmSwitch）。切り替えのとき（cancelled を
-        渡したとき）は、使わなくなったバックエンドなので、手で載せたものを確かめない
-        """
+        """自分が載せたインスタンスを下ろして VRAM を空ける（最終の文字起こしの前。#121）。
+        spec/notes.md 9.3"""
         done = await self._unload_mine("to free VRAM", stop=cancelled or (lambda: False))
         if not done or cancelled is not None or self.http.is_down:
             return

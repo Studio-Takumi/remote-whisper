@@ -274,11 +274,8 @@ def _snapshot(session: Any) -> dict[str, Any]:
 
 
 async def _watch(ctx: AppContext, ws: WebSocket, key: Any) -> None:
-    """録音中のセッションを、録音していないクライアントで見る（#238。spec/api.md 7.2）
-
-    録音中でなければ state: idle を返して見ない。見始めたら、そこまでの分（_snapshot）を送り、
-    そのあとはセッションのメッセージ（ack・started を除く）と recordingState が届く
-    """
+    """録音中のセッションを、録音していないクライアントで見る（#238。spec/api.md 7.2）。
+    録音中でなければ state: idle"""
     if not isinstance(key, str) or not key:
         raise RecordingError("bad_message", "session を指定してください")
     sid = _session_id(ctx, key)

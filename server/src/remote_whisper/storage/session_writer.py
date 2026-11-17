@@ -1,9 +1,4 @@
-"""録音中のセッションのファイル（文字起こし・要約）と project.json を書く
-
-spec/files.md 5.4・5.5・spec/flows.md 6.2
-
-録音マネージャ（本物とモックの両方）から使う。音声ファイル（WAV・mp3）は扱わない。
-"""
+"""録音中のセッションのファイルと project.json を書く。spec/files.md 5.4・5.5・spec/flows.md 6.2"""
 
 import contextlib
 import logging
@@ -126,11 +121,8 @@ class SessionWriter:
 
     @classmethod
     def existing(cls, store: ProjectStore, pid: str, sid: str) -> "SessionWriter":
-        """録音を終えたセッション（要約の作り直し用）。文字起こしのフロントマターを読む
-
-        コンテキストを使うかは、今のプロジェクトの選択に従う（セットはそのセッションで使ったもの）。
-        文字起こしがなければ OSError、読めなければ ValueError
-        """
+        """録音を終えたセッション（要約の作り直し用）。文字起こしのフロントマターを読む。
+        なければ OSError、読めなければ ValueError"""
         writer = cls.__new__(cls)
         writer.store = store
         writer.pid = pid
@@ -172,10 +164,8 @@ class SessionWriter:
         self.uuid = next(s.uuid for s in project.sessions if s.id == self.id)
 
     def start_upload(self, duration_sec: float, original_name: str, uploaded: datetime) -> None:
-        """音声ファイルをアップロードして作るセッション（#180）。録音は終わっているので done で作る
-
-        開始日時（started）は、ファイルの更新日時から長さを引いたもの（呼ぶ側で決める）
-        """
+        """音声ファイルをアップロードして作るセッション（#180）。done で作る。
+        started は呼ぶ側が決める"""
         self.meta.status = "done"
         self.meta.ended_at = iso(self.started + timedelta(seconds=duration_sec))
         self.meta.duration_sec = int(duration_sec)
@@ -185,10 +175,8 @@ class SessionWriter:
         self.start()
 
     def reopen(self) -> None:
-        """途中で終わったセッションの続きを録音する。状態を recording に戻す（#101）
-
-        終了日時と長さは、続きを録音し終えたときに決め直す
-        """
+        """途中で終わったセッションの続きを録音する。状態を recording に戻す（#101）。
+        終了日時・長さは終えたときに決め直す"""
         with self._lock:
             self.meta.status = "recording"
             self.meta.ended_at = None
@@ -322,12 +310,8 @@ class SessionWriter:
         detail_density: int | None = None,
         overview_model: str | None = None,
     ) -> str:
-        """最終の要約を新しい生成 ID のファイルに保存して、途中の要約を消す。生成 ID を返す
-
-        generated は生成を始めた時刻（生成 ID になる。spec/files.md 5.2）。省略すると今。
-        overview_density・detail_density は使った要約度（#100）。
-        model は要約詳細のモデル、overview_model は全体概要のモデル（#178。省くと model と同じ）
-        """
+        """最終の要約を新しい生成 ID のファイルに保存して、途中の要約を消す。
+        生成 ID を返す（spec/files.md 5.2）"""
         generated = generated or now()
         gid = make_id(generated)
         # 同じ秒に作り直したときは、1秒ずつずらす
@@ -361,17 +345,8 @@ class SessionWriter:
         return gid
 
     def copy_summary(self, gid: str, description: str | None = None) -> Path:
-        """最終の要約を、選んだディレクトリ（プロジェクトの summaryDir があればその下）に
-        コピーする（spec/files.md 5.1）
-
-        名前は `summary-YYYYMMDD-<タイトル>.md`。同じ名前のファイルがあれば `-2` のような
-        番号を付ける（置き場所の中で判定する）。コピーしたパスを返す。置き場所はコピーする
-        時点のプロジェクトの設定に従う（作り直し・セッションの移動のあとも。#341）
-
-        コピーは OKF（#343）に準拠させる（`type: Summary` などを足し、`project` を外す）。
-        description は要約を 1 文で表したもの（タイトルと一緒に作る）。なければ全体概要の
-        1 文目。子ディレクトリ（summaryDir）に置いたときは、その index.md を作り直す
-        """
+        """最終の要約を、選んだディレクトリ（summaryDir の下）にコピーして、パスを返す（OKF。
+        #343）。spec/files.md 5.1"""
         stem = f"summary-{self.id[:8]}-{safe_filename(self.meta.title or 'タイトルなし')}"
         try:
             project = self.store.load(self.pid)
@@ -438,12 +413,8 @@ class SessionWriter:
 
 
 def summary_copy_dir(project_path: str, summary_dir: str) -> Path:
-    """最終要約のコピーを置くディレクトリ（#341）。子ディレクトリがなければ作る
-
-    選んだディレクトリそのものがなければ作らずに FileNotFoundError。summaryDir が不正なとき
-    （手で直した project.json など）と、シンボリックリンク・ジャンクションで選んだディレクトリの
-    外に出るときは、書かずに OSError
-    """
+    """最終要約のコピーを置くディレクトリ（#341）。
+    選んだディレクトリがなければ FileNotFoundError、不正・リンクで外なら OSError"""
     base = Path(project_path)
     if not base.is_dir():
         # 選んだディレクトリが消えていたら、作り直さない

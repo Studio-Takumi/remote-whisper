@@ -1,18 +1,5 @@
-"""録音中の途中の要約と仮のタイトル。spec/flows.md 6.4
-
-- liveSummaryIntervalMin 分ごとに（録音した長さで数えるので、一時停止中は進まない）、
-  前回から確定した文字起こしが増えていれば、要約を作る。思考モードはオフ
-- 文字起こしを最終の要約と同じ区切り方（summary_parts.split_lines）で前から区間に分ける（#93）。
-  区間が閉じたら（次の区間が始まったら）その区間の要約を確定させ、以後は書き直さない。
-  まだ続いている最新の区間だけを毎回作り直す。録音が長くなっても、前半の要約が縮んでいかない
-- 区間が2つ以上になったら、区間ごとの要約から短い「ここまでの概要」を作って上に置く
-- 続いている区間の要約だけを、届いた分から `summary.delta`（live）で流す（#123）。
-  前置き（前回の概要・確定した区間・続いている区間の見出し）を `replace` で送ってから流し、
-  できあがった全体を `replace` で送り直して、`.tmp/<ID>/live-summary.md` に保存する
-- 続けて仮のタイトルを作り、`title`（provisional: true）で送る
-- GPU キューには優先度 2 で積む。Ollama につながらなければ ollama_unavailable を送り、
-  次の回に作り直す（確定できた区間はそのまま）
-"""
+"""録音中の途中の要約と仮のタイトル（閉じた区間は確定し、続いている区間だけ作り直す。#93）。
+spec/flows.md 6.4"""
 
 import asyncio
 import contextlib
@@ -261,12 +248,8 @@ class LiveSummarizer:
     async def _stream_current(
         self, model: str, messages: list[dict[str, str]], current_start: str | None
     ) -> str:
-        """続いている区間の要約を流して送り、本文を返す（#123）
-
-        先に、前回の概要・確定した区間・続いている区間の見出しを `replace` で送ってから、
-        届いた本文を続けて送る（画面は、確定した区間を畳んだまま、続いている区間だけが流れる）。
-        途中で失敗したら、画面は下書きを捨てて前の要約に戻す（ollama_unavailable）
-        """
+        """続いている区間の要約を流して送り、本文を返す（#123）。
+        失敗したら画面は下書きを捨てて前の要約に戻す"""
         prefix = self._compose(self._overview, current_start, "") if self.sections else ""
         await self.send({"type": "summary.delta", "kind": "live", "text": prefix, "replace": True})
         raw: list[str] = []
@@ -284,12 +267,8 @@ class LiveSummarizer:
         return "".join(raw).strip()
 
     def _compose(self, overview: str | None, current_start: str | None, current: str) -> str:
-        """途中の要約の全体。区間が1つだけなら、その要約をそのまま出す（短い録音は今までどおり）
-
-        区間が2つ以上なら「ここまでの概要」・確定した区間・続いている区間の順に、
-        時刻の範囲を見出し（##）にして並べる。続いている区間は終わりの時刻を空けておく
-        （画面は、終わりの時刻がある区間を確定したものとして畳む）
-        """
+        """途中の要約の全体。区間が 1 つならそのまま、
+        2 つ以上なら概要・確定した区間・続いている区間の順に並べる"""
         if not self.sections:
             return current
         blocks = []

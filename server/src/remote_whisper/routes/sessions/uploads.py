@@ -22,15 +22,8 @@ async def upload(
     last_modified: Annotated[float | None, Query(alias="lastModified")] = None,
     sources: Annotated[int | None, Query(ge=2)] = None,
 ) -> dict[str, Any]:
-    """音声ファイルをアップロードして、新しいセッションを作る（#180。spec/flows.md 6.11）
-
-    本文はファイルそのもの（`curl --data-binary @a.m4a`）。name は元のファイル名、
-    lastModified はファイルの更新日時（ミリ秒）。作ったセッションをすぐ返し、最終の文字起こしと
-    最終の要約は後ろで作る（status の transcribing・summarizing と jobs で進み具合が分かる）。
-    sources は、複数のファイルを 1 つのセッションにするときのファイルの数
-    （#241。spec/flows.md 6.16）。
-    このファイルが主の音源になり、残りを `/{sid}/sources/upload` で足すまで文字起こしを始めない
-    """
+    """音声ファイルをアップロードして、新しいセッションを作る（#180）。
+    spec/flows.md 6.11・6.16（sources は複数のときの数）"""
     if ctx.uploads is None:
         raise HTTPException(status_code=503, detail="このホストではアップロードできません")
     try:

@@ -139,9 +139,8 @@ class SessionSources:
     async def rejoin(
         self, ws: WebSocket, sid: Any, next_seq: Any, lost: bool = False
     ) -> JoinedSource:
-        """切れた端末が、同じ音源としてつなぎ直す（続きの連番から送る）
-
-        lost は、端末が手元の音をなくした。届かなかった間を無音で埋め、next_seq から受け取る"""
+        """切れた端末が、同じ音源としてつなぎ直す（next_seq から受け取る）。
+        lost なら届かなかった間を無音で埋める"""
         if self.session.ended:
             raise RecordingError("cannot_join", "録音中ではありません")
         source = self.joined.get(sid) if isinstance(sid, int) else None

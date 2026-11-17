@@ -1,7 +1,6 @@
 """セッション・文字起こし・要約を読む API。spec/api.md 7.1・spec/flows.md 6.5・6.8
 
-ファイルがないものは、保存期間を過ぎて消えたものとして 410 Gone を返す。
-セッション自体がなければ 404。
+ファイルがなければ保存期間を過ぎたものとして 410、セッション自体がなければ 404。
 """
 
 from typing import Annotated, Any
@@ -118,14 +117,8 @@ _AUDIO_TYPES = {".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".wav": "audio/wav"}
 def get_recording(
     pid: Pid, sid: str, ctx: Ctx, source: Annotated[int | None, Query()] = None
 ) -> FileResponse:
-    """録音ファイル（mp3）。ブラウザで再生する
-
-    好きな位置から聞けるよう、Range リクエストに対応する（FileResponse が返す）。
-    ファイルがない（保存期間を過ぎた・録音中）ときは 404。録音を終えて mp3 に変換する前
-    （続きを録音できる間。#174）は WAV を返す（続きを録音したあとの mp3 は前の部分だけのことがある）
-    source は音源 ID（#371）。ほかの音源の録音 `recording-<ID>-<音源 ID>.<拡張子>` を返す
-    （ない・音源 ID が 1〜16 でないときは 404。省いたときと 1 は主の音源）
-    """
+    """録音ファイル（mp3）。Range に対応する。変換前は WAV を返す（#174）。
+    source は音源 ID（#371）"""
     entry, files = load_session(ctx, pid, sid)
     if source is not None and not 1 <= source <= MAX_SOURCE_ID:
         raise HTTPException(status_code=404, detail="録音ファイルはありません")

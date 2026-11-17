@@ -1,13 +1,4 @@
-"""最終要約のコピーを Open Knowledge Format（OKF）v0.2 に準拠させる（#343）
-
-spec/files.md 5.1。対象は選んだディレクトリに置くコピーだけ（サーバーの中の
-`summary-<ID>-<版 ID>.md` は変えない）。
-
-- コピーのフロントマターに `type: Summary`・`description`・`tags`・`generated`・`sources` を足し、
-  `project`（手元の絶対パス）を外す。知らないキーは残す（OKF §4.1）
-- `summaryDir` を設定して子ディレクトリに置くときは、その `index.md`（§8）を作り直す。
-  remote-whisper が作った `index.md` には先頭の行に印を付け、印のない `index.md` は上書きしない
-"""
+"""最終要約のコピーを Open Knowledge Format（OKF）v0.2 に準拠させる（#343）。spec/files.md 5.1"""
 
 import logging
 import os
@@ -165,10 +156,8 @@ def build_index(directory: Path) -> str | None:
 
 
 def update_index(directory: Path) -> bool:
-    """directory の index.md を作り直す。作った（更新した）なら True
-
-    remote-whisper が作ったものでない index.md（と、リンクの index.md）は上書きしない
-    """
+    """directory の index.md を作り直す。作った（更新した）なら True。
+    remote-whisper が作っていない index.md は上書きしない"""
     path = directory / INDEX_NAME
     if path.is_symlink() or (path.exists() and not is_ours(path)):
         log.info("kept the existing %s (not made by remote-whisper)", path)

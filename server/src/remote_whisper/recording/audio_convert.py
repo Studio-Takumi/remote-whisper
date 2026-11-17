@@ -1,8 +1,6 @@
-"""録音の WAV を mp3（モノラル・64kbps）に変換する。spec/notes.md 9.1
+"""録音の WAV を mp3（モノラル・64kbps）に変換する（なければ m4a）。spec/notes.md 9.1
 
-変換には faster-whisper が内部で使っている PyAV を使う。mp3 のエンコーダーがない配布版なら
-m4a（AAC）にする（PyAV 18.1.0 には mp3 のエンコーダーがある。#36）。
-CPU で動くので、GPU キューには積まない。
+PyAV を使う。CPU で動くので GPU キューには積まない。
 """
 
 import contextlib
@@ -39,10 +37,8 @@ def pick_format() -> tuple[str, str, str]:
 
 
 def decode_pcm(path: Path) -> Iterator[bytes]:
-    """音声ファイル（WAV・mp3・m4a）を 16kHz・モノラル・Int16 の PCM にして、少しずつ返す
-
-    途中で終わったセッションの続きを録音するとき、前の録音を WAV に戻すのに使う（#101）
-    """
+    """音声ファイル（WAV・mp3・m4a）を 16kHz・モノラル・Int16 の PCM
+    にして少しずつ返す（続きの録音用。#101）"""
     resampler = av.AudioResampler(format="s16", layout="mono", rate=16000)
     with av.open(str(path)) as src:
         for frame in src.decode(audio=0):
@@ -90,10 +86,8 @@ def probe(path: Path) -> AudioInfo:
 
 
 def convert_audio(src_path: Path, out_dir: Path, sid: str, source: int | None = None) -> Path:
-    """どんな音声ファイル（動画なら音声だけ）でも、録音したときと同じ形式
-    （16kHz・モノラル・64kbps の mp3、なければ m4a）にする（#180）。
-    source はほかの音源の音源 ID（#241。ファイル名に付ける）。
-    途中で失敗したら、書きかけのファイルは消して例外を投げる"""
+    """どんな音声・動画でも、録音と同じ形式（16kHz・モノラル・64kbps の mp3、
+    なければ m4a）にする（#180。source は音源 ID）"""
     ext, container, encoder = pick_format()
     dst = out_dir / recording_name(sid, ext, source)
     tmp = dst.with_name(dst.name + ".tmp")
@@ -122,11 +116,8 @@ def convert_audio(src_path: Path, out_dir: Path, sid: str, source: int | None = 
 
 
 def convert_wav(wav: Path, out_dir: Path, sid: str, source: int | None = None) -> Path:
-    """WAV を out_dir/recording-<ID>.mp3（なければ .m4a）に変換して、できたファイルを返す
-
-    source はほかの音源の音源 ID（#356。recording-<ID>-<音源 ID>.mp3 にする）。
-    途中で失敗したら、書きかけのファイルは消して例外を投げる（WAV はそのまま残る）。
-    """
+    """WAV を out_dir/recording-<ID>.mp3（なければ .m4a）に変換して返す。
+    失敗したら書きかけを消す（#356。source は音源 ID）"""
     ext, container, encoder = pick_format()
     dst = out_dir / recording_name(sid, ext, source)
     tmp = dst.with_name(dst.name + ".tmp")

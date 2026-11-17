@@ -72,9 +72,8 @@ async def move(pid: Pid, sid: str, body: MoveBody, ctx: Ctx) -> dict[str, Any]:
     recorded = sessions.pop(sid, None) if sessions is not None else None
     deferred = getattr(recorded, "_deferred", None)
     if deferred is not None and not deferred.done():
-        # 続きを録音できる間の mp3 への変換待ち（#174）は、移す前の場所を指しているのでやめ、
-        # 移動先で変換してから返す（移したら、続きは mp3 から戻して録音する）。変換の途中に続きの
-        # 録音が始まって WAV が重ならないよう、返事は変換を待つ（数秒）
+        # 続きを録音できる間の変換待ち（#174）は移す前の場所を指すのでやめ、
+        # 移動先で変換してから返す（WAV が重ならないように）
         deferred.cancel()
         # 変換の間は、ほかの端末から続きの録音を頼まれても断る（前の録音を戻している途中と同じ扱い）
         restoring = getattr(ctx.recorder, "_restoring", None)

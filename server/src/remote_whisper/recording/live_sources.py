@@ -1,22 +1,5 @@
-"""録音中の複数の音源（#241・#356）。spec/flows.md 6.16 の「録音中の参加」
-
-録音中にほかの端末が音源として参加したら、0.1 秒ごとにどの音源が一番大きいかを決め、
-音源ごとに「その音源が一番大きい区間（前後 0.3 秒の余白つき）だけを残した音」を作って、
-音源ごとの区切り（LiveTranscriber）に入れる。GPU に積むのは一番大きい音源の区間だけになる。
-
-- 時刻は主の音源の時刻にそろえる（0.1 秒の枠の番号）。ほかの音源の音は、参加した時刻
-  （主の音源のその時点の長さ）を大まかなずれにして並べ、録音中は 60 秒ごとに直近の窓の
-  相互相関（GCC-PHAT）でずれを直す。直したずれの傾きをドリフトにする
-- 比べ方は浄書（multisource.py）と同じ: 音源ごとの 0.1 秒の音量から雑音の床（直近 30 秒の
-  下から 10%）を引いた高さで比べ、前後 0.3 秒（7 枠）の多数決で平らにする
-- 後ろの余白と多数決のために 0.3 秒先の音を待つので、ほかの音源があるときは、区切りに
-  入れるのが 0.3〜0.35 秒遅れる（主の音源のチャンクの端数の分）。前の余白は、先の 3 枠の
-  （平らにする前の）一番大きい音源で決める（平らにした結果を待つと 0.65 秒遅れるため）
-- ほかの音源の音が遅れて届くときは、2 秒まで待つ。それより遅れた音は比べるのに使わない
-  （録音ファイルには書く。浄書は録音ファイルから作る）
-
-GPU・Whisper に依存しない（numpy だけ）。テストは偽の区切りで回せる。
-"""
+"""録音中の複数の音源（#241・#356）。0.1 秒ごとに一番大きい音源を決める。
+spec/flows.md 6.16 の「録音中の参加」"""
 
 import logging
 from collections import deque
@@ -89,8 +72,7 @@ class _Track:
 class LiveMixer:
     """主の音源とほかの音源の音を受け取り、一番大きい区間だけを残した音を音源ごとの区切りに入れる
 
-    origin は、ミキサーを作った時点の主の音源の長さ（サンプル。続きを録音したときは前の録音も）。
-    枠の番号はここから数える。音源 ID 1 が主の音源
+    origin はミキサーを作った時点の主の音源の長さ（サンプル）。音源 ID 1 が主。
     """
 
     def __init__(self, main_feed: Callable[[bytes], None], origin: int = 0):
@@ -224,9 +206,8 @@ class LiveMixer:
             self.next_out += 1
 
     def _choose(self, k: int, record: bool = True) -> int:
-        """枠 k で、雑音の床からの高さが一番大きい音源（同じなら番号の小さいほう）
-
-        record=False は選び直し（音源が抜けたあと）。音量を雑音の床の記録に二重に入れない"""
+        """枠 k で、雑音の床からの高さが一番大きい音源（同じなら番号の小さいほう）。
+        record=False は選び直し"""
         best, best_rel = 1, -np.inf
         for track in sorted(self.tracks.values(), key=lambda t: t.id):
             got = track.frames.get(k)
@@ -350,9 +331,8 @@ class LiveMixer:
         return True
 
     def alignment(self, source: int) -> tuple[float, float]:
-        """(ずれ, ドリフト)。主の音源の時刻 = 音源の時刻 × (1 − drift × 10⁻⁶) + offset
-
-        offset は録音の頭からの秒"""
+        """(ずれ, ドリフト)。主の音源の時刻 = 音源の時刻 × (1 − drift × 10⁻⁶) + offset（offset
+        は秒）"""
         track = self.tracks[source]
         offset = self.origin / SR + track.base + self._correction(track, track.base)
         drift = 0.0

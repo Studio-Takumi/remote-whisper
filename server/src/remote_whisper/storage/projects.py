@@ -50,11 +50,8 @@ def session_uuid(project_path: str, sid: str) -> str:
 
 
 def project_id(path: str) -> str:
-    """パスからプロジェクト ID を作る。path は real_path で解決済みのもの（ドライブ文字は大文字）
-
-    英数字以外を `-` に置き換え、元のパスの SHA-1 の先頭6文字を付ける。
-    日本語のディレクトリ名が `-` だけになって衝突するのを防ぐため。
-    """
+    """パスからプロジェクト ID を作る（real_path で解決済みのもの）。
+    英数字以外を `-` にして SHA-1 の先頭 6 文字を付ける（日本語名の衝突を防ぐ）"""
     slug = re.sub(r"[^A-Za-z0-9]", "-", path)
     digest = hashlib.sha1(path.encode("utf-8")).hexdigest()[:6]
     return f"{slug}-{digest}"
@@ -75,12 +72,8 @@ SUMMARY_DIR_MAX = 200
 
 
 def normalize_summary_dir(value: str) -> str:
-    """最終要約のコピーの置き場所（選んだディレクトリからの相対パス。#341）を確かめてそろえる
-
-    `\\` は `/` にし、空の部分と `.` は除く（`./summary/` は `summary`、`.` や空は直下で `""`）。
-    絶対パス・UNC・ドライブ文字・`..`・Windows で使えない文字と名前は ValueError。
-    シンボリックリンクで外に出ることは、ここではなくコピーするときに確かめる
-    """
+    """最終要約のコピーの置き場所（相対パス。#341）を確かめてそろえる。
+    不正なら ValueError（リンクはコピーのときに確かめる）"""
     raw = value.strip()
     if len(raw) > SUMMARY_DIR_MAX:
         raise ValueError(f"長すぎます（{SUMMARY_DIR_MAX} 文字まで）")
@@ -103,11 +96,8 @@ def normalize_summary_dir(value: str) -> str:
 
 
 def order_projects(items: list[tuple[str, _T]], order: list[str]) -> list[tuple[str, _T]]:
-    """プロジェクトを setting.json の projectOrder（#173）の順に並べる
-
-    order にないもの（新しく作った・並び順を保存する前からある）は先頭に置き、元の順を保つ。
-    order にある ID のうち、items にないもの（消えたプロジェクト）は無視する
-    """
+    """プロジェクトを setting.json の projectOrder（#173）の順に並べる。
+    order にないものは先頭、消えたものは無視"""
     rank = {pid: i for i, pid in enumerate(order)}
     unlisted = [item for item in items if item[0] not in rank]
     listed = sorted((item for item in items if item[0] in rank), key=lambda item: rank[item[0]])
@@ -161,9 +151,8 @@ class ProjectFile(_Model):
     uuid: str | None = None
     path: str
     selection: Selection | None = None
-    # 最終要約のコピーを置く、選んだディレクトリの下の子ディレクトリ（#341。`/` 区切りの相対パス）。
-    # 空なら選んだディレクトリの直下。読むときは検証しない（手で直した値でも project.json を
-    # 作り直さないように）。保存の API とコピーするときに normalize_summary_dir で確かめる
+    # 最終要約のコピーを置く子ディレクトリ（#341。`/` 区切りの相対パス。空なら直下）。
+    # 読むときは検証しない（normalize_summary_dir は保存とコピーのとき）
     summary_dir: str = ""
     context_sets: list[ContextSetEntry] = Field(default_factory=list)
     sessions: list[SessionEntry] = Field(default_factory=list)
@@ -193,9 +182,7 @@ class ProjectFile(_Model):
 def rebuild_project_file(project_dir: Path) -> ProjectFile | None:
     """同じディレクトリのファイルのフロントマターから project.json の中身を作る。spec/files.md 5.4
 
-    プロジェクトのパスはフロントマターの `project` から取る（ID がディレクトリ名と合うものだけ）。
-    どのファイルにもなければ作れない（None）。
-    `selection` はファイルに残っていないので、既定（未保存）に戻る。
+    どのファイルにもなければ None。`selection` は残っていないので既定（未保存）に戻る。
     """
     if not project_dir.is_dir():
         return None
@@ -305,11 +292,8 @@ class ProjectStore:
         )
 
     def _read(self, pid: str) -> tuple[ProjectFile, bool]:
-        """project.json を読む。ない・壊れているときは _Unreadable を投げる
-
-        2 つ目は、UUID のないプロジェクトかセッションがあったか（#177 より前に作ったもの）。
-        読んだ中身には振ってあるので、保存すれば書き足される
-        """
+        """project.json を読む。ない・壊れているときは _Unreadable を投げる。
+        2 つ目は UUID を振った（#177 より前のもの）かどうか"""
         path = self._file(pid)
         if not path.is_file():
             raise _Unreadable(404, f"プロジェクト {pid} はありません")

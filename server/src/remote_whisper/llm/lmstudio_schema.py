@@ -86,12 +86,9 @@ def _strip_code_block(text: str) -> str:
 
 
 def conform(value: Any, schema: dict[str, Any], path: str = "$") -> Any:
-    """value が JSON Schema に合うか確かめる。合わなければ SchemaMismatch
+    """value が JSON Schema に合うか確かめる。合わなければ SchemaMismatch。spec/notes.md 9.3
 
-    使っているキーワード（type・properties・required・items・maxItems・maxLength）だけを見る。
-    maxLength を超えた文字列と maxItems を超えた配列は、切り詰めて返す（作り直さない）。
-    `/v1/chat/completions` の構造化出力も、上限で切れた文字列を返すので、それに合わせる（#322）。
-    properties にないキーは、そのまま残す（呼ぶ側は使わない）
+    maxLength・maxItems を超えたものは切り詰めて返す（#322）。
     """
     kind = schema.get("type")
     if kind == "object":
@@ -136,9 +133,8 @@ def conform(value: Any, schema: dict[str, Any], path: str = "$") -> Any:
 
 
 def parse_structured(text: str, schema: dict[str, Any]) -> str:
-    """プロンプトでスキーマを頼んだ返事を、スキーマに合った JSON の文字列にする
-
-    コードブロックを外して読む。読めない・合わなければ SchemaMismatch"""
+    """プロンプトでスキーマを頼んだ返事を、スキーマに合った JSON の文字列にする。
+    読めない・合わなければ SchemaMismatch"""
     try:
         value = json.loads(_strip_code_block(text))
     except ValueError as e:

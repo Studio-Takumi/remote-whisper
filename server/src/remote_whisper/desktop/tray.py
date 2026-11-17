@@ -1,19 +1,4 @@
-"""タスクトレイ（Windows。#135）・メニューバー（Mac。#136）にサーバーの状態を出す。spec/ui.md 8
-
-- 中身（状態の色・文・メニュー）は tray_state.py で決める。ここは pystray でアイコンを出す部分と、
-  OS ごとに違う部分（確認のダイアログ・フォルダを開く・状態の行）
-- 状態はサーバーの中（Hub の status）から直接読む。1 秒ごとに見て、変わったらアイコンと文を変える
-- 左クリックで画面をブラウザで開く。右クリックのメニューは
-  「画面を開く / ログのフォルダを開く / クラウドの状態の行・クラウド版にログイン（など） / 終了」。
-  クラウドの項目（#158）は、登録していなければ「クラウド版にログイン」、登録中は「登録をやめる」、
-  登録済みなら「クラウド版から外す」だけを出す。登録コードと結果は通知（Mac は osascript）でも出す。
-  Mac の配布版（#292）では、終了の上に「ログイン時に起動」（チェックの付く項目。login_item.py）
-  も出す
-- Mac ではクリックでメニューが開き、マウスを乗せたときの文が出ないことがあるので、
-  メニューの一番上に状態の行を出す。アイコンはテンプレート画像にしない（カーソルの色が見えるように）
-- pystray と Pillow は Windows と Mac だけの依存。ないときは available() が False になり、
-  トレイなしで動く
-"""
+"""タスクトレイ（Windows。#135）・メニューバー（Mac。#136）にサーバーの状態を出す。spec/ui.md 8"""
 
 import contextlib
 import importlib.util
@@ -56,9 +41,7 @@ log = logging.getLogger(__name__)
 # （Windows は 100% で 16、125% で 20、150% で 24、200% で 32。Mac のメニューバーは 18pt の 1x・2x）
 WINDOWS_ICON_SIZES = (16, 20, 24, 32, 48)
 MAC_ICON_PT = 18
-# アイコンはロゴ（#284）の「>」とカーソルだけ。波形の棒は 16px では潰れるので省き、
-# カーソルの色で状態を示す。以下はどれもアイコンの大きさに対する割合
-# カーソル: 幅・高さ・右の余白（16px でも 4px・12px・2px になる）
+# アイコンはロゴ（#284）の「>」とカーソルだけ（16px で棒が潰れるため）。大きさはアイコンに対する割合
 CURSOR_WIDTH = 0.26
 CURSOR_HEIGHT = 0.76
 CURSOR_MARGIN = 0.12
@@ -93,11 +76,8 @@ def shows_status_line() -> bool:
 
 
 def icon_image(color: Color, size: int = 32, light: bool = False) -> Any:
-    """size px 四方の、背景が透明なアイコン。ロゴの「>」と、状態の色のカーソル（縦の棒）を描く
-
-    小さいほど潰れやすいので、カーソルの位置と大きさは px の格子に合わせる（にじませない）。
-    light は背景（タスクバー・メニューバー）が明るいとき。「>」を暗い色にして、見えるようにする
-    """
+    """size px 四方の透明な背景に、「>」と状態の色のカーソルを描く。
+    light は背景が明るいとき（「>」を暗くする）"""
     from PIL import Image, ImageDraw
 
     k = SUPERSAMPLE
@@ -134,10 +114,8 @@ def icon_image(color: Color, size: int = 32, light: bool = False) -> Any:
 
 
 def icon_images(color: Color, light: bool = False) -> Any:
-    """OS に渡すアイコン。Windows は複数サイズ入りの ICO にできるよう、小さい画像も付ける
-
-    返すのは一番大きい画像で、全部のサイズは tray_frames に入れてある
-    """
+    """OS に渡すアイコン（一番大きい画像）。
+    Windows の複数サイズ入り ICO のため小さい画像も tray_frames に入れる"""
     sizes = WINDOWS_ICON_SIZES if sys.platform == "win32" else (MAC_ICON_PT * 2,)
     frames = [icon_image(color, size, light) for size in sizes]
     largest = frames[-1]
@@ -174,11 +152,8 @@ def taskbar_is_light() -> bool:
 
 
 def small_icon_size() -> int:
-    """Windows のトレイに出すアイコンの大きさ（px）。表示スケールに合わせる。分からなければ 16
-
-    サーバーは DPI 非対応のプロセスで、GetSystemMetrics は常に 16 を返す。調べている間だけ
-    スレッドを DPI 対応にして、システムの DPI でのサイズ（SM_CXSMICON）を聞く
-    """
+    """Windows のトレイのアイコンの大きさ（px）。分からなければ 16。
+    調べる間だけスレッドを DPI 対応にする"""
     try:
         import ctypes
 
@@ -200,13 +175,8 @@ def small_icon_size() -> int:
 
 
 def pystray_icon_class() -> Any:
-    """pystray のアイコン。OS に縮めさせず、用意した大きさの画像をそのまま使うよう差し替える
-
-    - Windows: pystray は 1 枚の画像から ICO を作り、大きい方（32px）で読み込んでシェルに
-      縮めさせる。複数サイズ入りの ICO を作り、小さいアイコンの大きさ（SM_CXSMICON）で読む
-    - Mac: pystray はメニューバーの高さ（22）に縮めるので、36px の画像を 18pt として使う
-      （Retina でぼやけない）
-    """
+    """pystray のアイコン。OS に縮めさせず、
+    用意した大きさの画像をそのまま使うよう差し替える（Windows・Mac で別）"""
     import pystray
 
     class Icon(pystray.Icon):
@@ -327,12 +297,7 @@ _reopen_delegate: Any = None
 
 
 def install_reopen_handler(on_reopen: Callable[[], None]) -> None:
-    """Mac の配布版（#292）: 動いている .app を Finder などからもう一度開いたら、画面を開く
-
-    LaunchServices は、動いている .app をもう一度開くと、2 つ目を起動せずに「開き直す」イベント
-    （applicationShouldHandleReopen）を送るだけなので、それを受けて画面を開く。
-    メインスレッドで呼ぶ（Tray.run の中、icon.run の前）。ほかのスレッドからは何もしない
-    """
+    """Mac の配布版（#292）: 動いている .app をもう一度開いたら画面を開く（メインスレッドで呼ぶ）"""
     global _reopen_delegate
     if threading.current_thread() is not threading.main_thread():
         log.warning("the reopen handler must be installed on the main thread; skipped")
@@ -380,13 +345,8 @@ class Tray:
         notice: str | None = None,
         backend: Callable[[], str] = lambda: "ollama",
     ):
-        """status はサーバーの今の状態を返すもの、on_quit はサーバーを止めるもの
-
-        cloud はクラウド版のホストの登録（#158）。None ならクラウドの行と項目を出さない
-        announcements は運営からのお知らせ（#164）。登録しているときだけ新しい版を通知する
-        notice はアイコンが出たときに 1 回だけ出す通知（別の番号で起動したとき。#290）
-        backend は設定で選んでいる LLM（llm.backend）を返すもの。その状態だけを出す（#327）
-        """
+        """status はサーバーの今の状態を返すもの、on_quit は止めるもの。
+        ほかの引数は省くとその行を出さない（#158・#164・#290・#327）"""
         self.backend = backend
         self.notice = notice
         self.announcements = announcements
@@ -406,10 +366,8 @@ class Tray:
         self._update_lock = threading.Lock()
 
     def run(self) -> None:
-        """アイコンを出して、止めるまで戻らない
-
-        Windows では別のスレッドで呼んでよい。Mac はメインスレッドで（must_run_on_main_thread）
-        """
+        """アイコンを出して、止めるまで戻らない（Windows は別のスレッドで可、
+        Mac はメインスレッド）"""
         import pystray
 
         state = self._state()
@@ -470,9 +428,8 @@ class Tray:
         if self._stopped.is_set():
             return
         if sys.platform == "darwin" and self.app_bundle is not None:
-            # AppKit はメインスレッドでしか触れない。pystray の setup（_setup）は別のスレッドで
-            # 動くので、ここ（Mac ではメインスレッド。NSApplication は Icon を作ったときに
-            # できている）で入れる
+            # AppKit はメインスレッドでしか触れないので、
+            # pystray の setup（別スレッド）ではなくここで入れる
             install_reopen_handler(self._open)
         self._icon.run(setup=self._setup)
 
@@ -500,12 +457,8 @@ class Tray:
             threading.Thread(target=self._catch_signals, name="tray-signals", daemon=True).start()
 
     def _catch_signals(self) -> None:
-        """Mac: Ctrl+C・kill で、サーバーの後片付けを経てから止める
-
-        pystray は Ctrl+C を受けると NSApp.terminate_ でプロセスごと終わらせる（後片付けを
-        しない）。メインスレッドは AppKit が持っていて Python のシグナルハンドラーが動かないので、
-        pystray と同じ MachSignals で、pystray が入れたものを差し替える
-        """
+        """Mac: Ctrl+C・kill で、サーバーの後片付けを経てから止める（pystray
+        の既定は後片付けなしで終わるため MachSignals で差し替える）"""
         import signal
 
         from PyObjCTools import MachSignals
@@ -523,10 +476,7 @@ class Tray:
                 log.exception("failed to update the tray icon")
 
     def update(self, state: TrayState, light: bool | None = None) -> None:
-        """変わっていれば、アイコンと文を変える。light は背景の明るさ（切り替えたら絵を描き直す）
-
-        1 秒ごとの見直しと、クラウドの登録のスレッド・メニューの操作から呼ばれるので、1 つずつ進める
-        """
+        """変わっていれば、アイコンと文を変える（複数のスレッドから呼ばれるので 1 つずつ進める）"""
         with self._update_lock:
             self._update(state, light)
 

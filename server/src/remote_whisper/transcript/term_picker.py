@@ -1,13 +1,6 @@
-"""録音中に文字起こしから用語を拾い、用語リスト（hotwords）に足す。spec/flows.md 6.2・6.6（#103）
+"""録音中に文字起こしから用語を拾い、用語リスト（hotwords）に足す（#103）。spec/flows.md 6.2・6.6
 
-- 途中の要約と同じ間隔（liveSummaryIntervalMin。録音した長さで数える）で、前回から増えた
-  文字起こしから、固有名詞・専門用語を Ollama で抜き出す（JSON Schema。思考モードはオフ）
-- 誤認識した語を足すとその誤りが固まるので、文字起こしの MIN_LINES 行以上に出てくる語だけを
-  採用する。消された語（rejected）は以後足さない
-- 参考資料セットの用語のあとに、出てくる行が多い順に足し、Whisper に渡す長さの上限
-  （HOTWORDS_MAX_CHARS）に収める
-- 拾った語と消された語は、文字起こしのフロントマターに残し、`terms` で画面に知らせる
-- GPU キューには優先度 2 で積む。Ollama につながらなければ、次の回に拾い直す
+誤認識を固めないよう、MIN_LINES 行以上に出る語だけを採用する。GPU キューは優先度 2。
 """
 
 import asyncio
@@ -69,9 +62,8 @@ COMMON_WORDS = frozenset(
 def combine_hotwords(
     base: str | None, picked: list[str], manual: list[str] | tuple[str, ...] = ()
 ) -> str | None:
-    """Whisper に渡す用語リストを作る。順は、手で足した語 → 参考資料セットの用語（base、「、」
-    区切り）→ 拾った語（#175）。長さの上限を超えるときは、拾った語から削る（手で足した語と
-    参考資料セットの用語は削らない）"""
+    """Whisper に渡す用語リストを作る。手で足した語 → 資料の用語 → 拾った語の順で、
+    上限は拾った語から削る（#175）"""
     words = list(dict.fromkeys(manual))
     words += [w for w in (base or "").split("、") if w and w not in words]
     for word in picked:
@@ -200,18 +192,8 @@ class TermPicker:
             await self._update(picked)
 
     def select(self, candidates: list[str]) -> list[str]:
-        """採用する語を、出てくる行が多い順に選ぶ
-
-        誤認識を固めないよう、次のようにする（#103 で測って決めた）
-        - 語のうち、カタカナ（3 文字以上）かラテン文字が続くところだけを使う。漢字・ひらがなの
-          ところは、同音の誤認識（負荷→付加、基盤→基板など）と見分けられず、足すとその誤りが
-          固まった（ゼフィール基板 → ゼフィール）。漢字の用語は参考資料セットから入れる
-        - 文字起こしの MIN_LINES 行未満にしか出てこない語は足さない
-        - よく使うカタカナ語（チーム・データなど。用語リストの枠を使ってしまう）は足さない
-        - 1 文字だけ違う書き方が文字起こしに同じくらい出てくる語は足さない（どちらが正しいか
-          分からない）
-        - ほかに採用した語に含まれる短い語は足さない
-        """
+        """採用する語を、出てくる行が多い順に選ぶ（#103）。
+        誤認識を固めない条件は spec/flows.md 6.6"""
         counts: dict[str, int] = {}
         # 語のうち、カタカナかラテン文字のところだけを使う（ハルシオン計画 → ハルシオン）
         parts = [p for word in candidates for p in _DISTINCT_RUN.findall(word)]

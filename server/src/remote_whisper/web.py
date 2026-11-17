@@ -18,10 +18,8 @@ DEFAULT_WEB_DIST = Path(__file__).resolve().parents[3] / "web" / "dist"
 
 
 class SpaStaticFiles(StaticFiles):
-    """画面の配信。画面の URL（/s/<UUID> など。#177）にはファイルがないので、index.html を返す
-
-    /api・/ws と、拡張子のあるもの（なくなった JS など）は 404 のままにする
-    """
+    """画面の配信。画面の URL（/s/<UUID> など。#177）には index.html を返す。
+    /api・/ws と拡張子のあるものは 404 のまま"""
 
     async def get_response(self, path: str, scope: Scope) -> Response:
         try:

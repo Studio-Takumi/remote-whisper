@@ -19,12 +19,8 @@ class RecordingError(Exception):
 
 
 def check_continuable(meta: TranscriptMeta, window_sec: float) -> None:
-    """続きを録音できるセッションか。できなければ RecordingError（本物とモックで使う）
-
-    途中で終わった（interrupted）ものは、いつでも続けられる（気づくのが遅れることがあるため）。
-    普通に終えた（done）ものは、終えてから window_sec 秒（recording.continueWindowMin）の間だけ
-    （#174）。音声ファイルから作ったセッションは続けられない
-    """
+    """続きを録音できるセッションか。できなければ RecordingError（interrupted はいつでも、
+    done は期間内だけ。#174）"""
     if meta.status == "interrupted":
         return
     if meta.status != "done" or meta.source == "upload" or meta.ended_at is None:

@@ -1,17 +1,6 @@
-"""Intel の GPU（Arc）で Whisper を動かす（OpenVINO GenAI の WhisperPipeline。#374）
+"""Intel の GPU（Arc）で Whisper を動かす（OpenVINO GenAI。#374）。spec/flows.md 6.17
 
-CUDA（NVIDIA の GPU）がなく、OpenVINO が単体の Intel の GPU（`FULL_DEVICE_NAME` に `(dGPU)`）を
-見つけたときだけ使う。録音中の文字起こし（whisper_worker）と、浄書の文字起こし
-（transcript.worker）で使う。浄書の位置合わせと話者分けは CPU のまま（#347）。
-
-faster-whisper と違うところ:
-- ビームサーチは GPU で動かない（`Not Implemented`）ので greedy にする
-- 区間の信頼度（`no_speech_prob`・`avg_logprob`）が取れない。ハルシネーションの判定
-  （hallucination.py）は、VAD で測った話している長さ（`voiced_sec`）と、こちらで計算する
-  `compression_ratio`（繰り返しの検出）で代わりにする
-- greedy は同じ語を繰り返し続けることがあるので、出す長さ（`max_new_tokens`）を音声の長さで抑える
-
-`openvino-genai` はサーバーの extra `openvino`（Windows）。入っていなければ何も読み込まない。
+greedy で動かし、信頼度の代わりに voiced_sec・compression_ratio を使う。
 """
 
 import functools
@@ -125,11 +114,8 @@ def _nvidia_present() -> bool:
 
 @functools.cache
 def detect() -> Device | None:
-    """この PC で OpenVINO の Intel の GPU を使うなら、そのデバイス。起動してから 1 回だけ調べる
-
-    extra `openvino` が入っていない・NVIDIA の GPU がある・単体の Intel の GPU がない、の
-    どれかなら None（今までどおり）
-    """
+    """この PC で OpenVINO の Intel の GPU を使うなら、そのデバイス（起動後に 1 回だけ調べる）。
+    使わなければ None"""
     if not installed() or _nvidia_present():
         return None
     device = find_device()
@@ -176,11 +162,8 @@ def max_new_tokens(samples: int) -> int:
 
 
 def generate(pipe: Any, audio: Any, options: dict) -> list[dict]:
-    """音声（16kHz・モノラルの float32）を 1 回で文字起こしする。時刻は渡した音声の頭から
-
-    返す区間には信頼度（`no_speech_prob`・`avg_logprob`）を付けない（取れないため）。
-    `compression_ratio` はこちらで計算して付ける
-    """
+    """音声（16kHz・モノラルの float32）を 1 回で文字起こしする。
+    信頼度は付けず、compression_ratio は計算して付ける"""
     kwargs: dict[str, Any] = {
         "language": f"<|{options.get('language') or 'ja'}|>",
         "task": "transcribe",
@@ -215,9 +198,8 @@ def generate(pipe: Any, audio: Any, options: dict) -> list[dict]:
 
 
 def _log_if_cut(segments: list[dict], limit: int, duration: float) -> None:
-    """出す長さの上限で止まったらしいときにログに残す（文の後ろが欠けたか、繰り返しで埋まったか
-    を後で見分けるため）。トークンの数は取れないので、文字数で目安にする（日本語は 1 文字が
-    1 トークン以上になることが多いので、上限の 7 割の文字数で出す）"""
+    """出す長さの上限で止まったらしいときにログに残す（トークン数が取れないので文字数で目安にする
+    ）"""
     chars = sum(len(s["text"]) for s in segments)
     if chars >= limit * 0.7:
         log.info(
@@ -250,13 +232,9 @@ def voiced_sec(spans: list[tuple[int, int]], start: float, end: float) -> float:
 
 
 def transcribe(pipe: Any, audio: Any, options: dict) -> list[dict]:
-    """録音中の文字起こし（whisper_worker）。faster-whisper の `vad_filter` と同じく、
-    VAD を使うなら話している範囲だけを渡し、話していなければ文字起こししない（#81）
+    """録音中の文字起こし（whisper_worker）。VAD を使うなら話している範囲だけを渡す（#81）
 
-    文ごとに話している長さ（`voiced_sec`）を付ける。信頼度の代わりに、ハルシネーションの判定に
-    使う（hallucination.py）。VAD で切り出した区間（`vad_filter` が False。録音中の既定）でも
-    付ける（切り詰めはしない）。そのときに VAD が区間のどこにも声を見つけなければ、区間を
-    切り出した側の判定を信じて付けない（区間全体の長さで判定される）
+    文ごとに voiced_sec を付ける（ハルシネーションの判定用。spec/flows.md 6.17）。
     """
     spans = speech_spans(audio)
     if not options.get("vad_filter", True):
@@ -291,11 +269,8 @@ def windows(spans: list[tuple[int, int]], limit_sec: float = CHUNK_SEC) -> list[
 
 
 def transcribe_long(pipe: Any, audio: Any, options: dict, progress: Any = None) -> list[dict]:
-    """浄書の文字起こし（transcript.worker）。録音全体を VAD で話している範囲に分け、
-    30 秒までのまとまりごとに文字起こしする。progress には %（0〜100）を渡す
-
-    繰り返しで埋まった区間（`compression_ratio` が大きい）は捨てる（hallucination.py と同じ基準）
-    """
+    """浄書の文字起こし（transcript.worker）。
+    VAD で分けた 30 秒までのまとまりごとに文字起こしする。progress は %"""
     from remote_whisper.recording.hallucination import MAX_COMPRESSION_RATIO
 
     spans = speech_spans(audio, max_speech_sec=CHUNK_SEC - 1)

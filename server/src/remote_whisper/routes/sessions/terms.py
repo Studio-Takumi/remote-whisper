@@ -40,11 +40,8 @@ def _terms_writer(ctx: AppContext, pid: str, sid: str) -> tuple[Any, SessionWrit
 
 @router.post("/{sid}/terms")
 async def add_term(pid: Pid, sid: str, body: TermBody, ctx: Ctx) -> dict[str, Any]:
-    """用語リストに手で語を足す（#175）。録音中なら、次の区間から Whisper に渡す用語リストに入る
-
-    手で足した語は、そのセッションだけに持つ（参考資料の用語リストには足さない）。
-    前に × で外した語を足したら、外した語の記録から消す
-    """
+    """用語リストに手で語を足す（#175）。録音中なら次の区間から Whisper に渡す。
+    外した記録にあれば消す（spec/flows.md 6.6）"""
     return await _add_manual_term(ctx, pid, sid, body.term)
 
 
@@ -91,11 +88,8 @@ async def _add_manual_term(ctx: AppContext, pid: str, sid: str, term: str) -> di
 async def reject_term_by_query(
     pid: Pid, sid: str, term: Annotated[str, Query(min_length=1, max_length=200)], ctx: Ctx
 ) -> dict[str, Any]:
-    """用語リストから語を外す（語はクエリの term で渡す。#219）
-
-    語をパスに入れると、「\\」「..」「%」などを含む語が、クラウド版の中継（#215・#216）や
-    URL の正規化で弾かれて外せない。画面はこちらを使う
-    """
+    """用語リストから語を外す（語はクエリの term で渡す。#219）。
+    パスに入れると中継・URL の正規化で弾かれる語があるため"""
     return await _reject_term(ctx, pid, sid, term)
 
 
@@ -108,10 +102,8 @@ async def reject_term(pid: Pid, sid: str, term: str, ctx: Ctx) -> dict[str, Any]
 
 
 async def _reject_term(ctx: AppContext, pid: str, sid: str, term: str) -> dict[str, Any]:
-    """手で足した語（#175）は、外すだけ（以後足さない語としては記録しない）。
-    録音中に拾った語は、以後そのセッションでは足さない（#103）。
-    録音中なら、録音中の用語リストからもすぐ外す（次の区間から効く）
-    """
+    """手で足した語（#175）は外すだけ。録音中に拾った語は以後足さない（#103）。
+    録音中ならすぐ外す（spec/flows.md 6.6）"""
     session, writer = _terms_writer(ctx, pid, sid)
     manual = list(writer.meta.manual_terms)
     if term in manual:
@@ -155,11 +147,9 @@ def _corrections_json(writer: SessionWriter, terms: dict[str, Any]) -> dict[str,
 
 @router.post("/{sid}/corrections")
 async def add_correction(pid: Pid, sid: str, body: CorrectionBody, ctx: Ctx) -> dict[str, Any]:
-    """文字起こしの「間違った文字列 → 正しい語」の置き換えを足す（#176。spec/flows.md 6.13）
+    """文字起こしの「間違った文字列 → 正しい語」の置き換えを足す（#176）。spec/flows.md 6.13
 
-    正しい語は手で足した用語（#175）にも足す。録音中の文字起こしは、ファイルの中身を直し、以後に出る
-    行にも当てる。最終の文字起こしは、表示するときと要約の入力にするときに当てる。
-    ほかの端末にも、置き換えたことを知らせる（`corrections`）
+    正しい語は手で足した用語（#175）にも足し、ほかの端末に `corrections` で知らせる。
     """
     wrong = body.wrong.strip()
     if not wrong or any(c in wrong for c in "\n\r") or len(wrong) > CORRECTION_MAX_CHARS:

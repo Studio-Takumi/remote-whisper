@@ -1,15 +1,4 @@
-"""音声ファイルのアップロード（#180）。spec/flows.md 6.11
-
-アップロードされた音声ファイルから新しいセッションを作り、録音中の文字起こしと途中の要約は飛ばして、
-最終の文字起こし → 最終の要約 → タイトルの順に作る。ほかは録音したセッションと同じに扱う。
-
-- 録音ファイル: mp3・m4a（AAC）で 1 分あたり約 1MB 以下なら、変換せずに名前だけ変えて置く。
-  それ以外（wav・flac・ビットレートの高いもの・動画）は、録音と同じ形式（mp3 64kbps）に変換する
-- 開始日時: ファイルの更新日時から長さを引いたもの（分からなければアップロードした日時）
-- 保存期間: アップロードした日時から数える（janitor）
-- 最終の文字起こし（WhisperX）が使えない・作れないときは、Whisper で録音全体を区切って文字起こしし、
-  文字起こし（transcript-<ID>.md）に書く。最終の要約はそこから作る
-"""
+"""音声ファイルのアップロード（#180）。spec/flows.md 6.11"""
 
 import asyncio
 import contextlib
@@ -167,12 +156,8 @@ class UploadService:
         body: AsyncIterator[bytes],
         sources: int | None = None,
     ) -> Uploaded:
-        """アップロードされたファイルを受け取り、セッションを作って、後ろで文字起こしと要約を始める
-
-        sources は、複数のファイルを 1 つのセッションにするときのファイルの数（#241）。
-        このファイルを主の音源にし、残りが receive_source でそろうまで文字起こしを始めない。
-        ProjectError（プロジェクトがない）と UploadError（大きすぎる・読めない）を投げる
-        """
+        """アップロードされたファイルを受け取り、セッションを作って、
+        後ろで文字起こしと要約を始める（#241。sources は複数のときの数）"""
         if sources is not None:
             limit = self.settings.get().recording.max_sources
             if not 2 <= sources <= limit:
@@ -271,11 +256,8 @@ class UploadService:
         last_modified_ms: float | None,
         body: AsyncIterator[bytes],
     ) -> SourceInfo:
-        """複数のファイルから作るセッションに、ほかの音源のファイルを足す
-        （#241。spec/flows.md 6.16）
-
-        そろったら文字起こしと要約を始める。待っているセッションでなければ UploadError（409）
-        """
+        """複数のファイルから作るセッションに、ほかの音源のファイルを足す（#241。
+        spec/flows.md 6.16）。待っていなければ 409"""
         pending = self._pending.get((pid, sid))
         if pending is None:
             raise UploadError(409, "ファイルを足せるセッションではありません")

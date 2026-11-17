@@ -1,22 +1,5 @@
-"""話している区間を Silero VAD で切り出す（#88）。spec/flows.md 6.2
-
-離れた場所の小さい声は、雑音との音量の差が小さく、音量のしきい値（segmenter.py の Segmenter）では
-声のピークしか越えずに細切れになる。Silero VAD も、元の音量のままでは小さい声を声と判定しない。
-そこで、直近の音量に合わせて音を持ち上げてから VAD にかけ、話している区間を切り出す。
-Whisper にも持ち上げた音を渡す（保存する録音は元の音のまま。manager.py が別に書く）。
-
-音量は話し声くらいあるのに、VAD がずっと「話していない」と判定し続けることがある（#120。
-ブラウザか OS のマイクの処理が途中で切り替わったときなど、音の性質が変わると
-Silero が反応しなくなる）。FALLBACK_AFTER_SEC のあいだ VAD が一度も反応せず、その間に
-声くらいの音（周りの音より LOUD_MARGIN_DB 以上大きい音）が FALLBACK_LOUD_RATIO 以上あったら、
-音量で区切る（フォールバック）。VAD が RECOVER_WINDOWS 続けて反応したら戻す。
-話していない区間から出た文は、ハルシネーションの判定で落とす。
-
-Silero は内部の状態（LSTM の h・c）を窓から窓へ引き継ぐ。数分黙っていると状態が
-「話していない」側に張り付き、声が戻っても 1〜6 分反応しないことがあった（#319。
-録音を止めて続きを録音すると、作り直されて直っていた）。
-話していない間が RESET_IDLE_SEC 続くたびに、状態を 0 に戻す。
-"""
+"""話している区間を Silero VAD で切り出す（#88）。音を持ち上げてから VAD にかける。
+spec/flows.md 6.2"""
 
 import logging
 import math
@@ -45,9 +28,8 @@ PAD_AFTER_SEC = 0.2
 MIN_SEGMENT_SEC = 3.0
 LONG_SILENCE_SEC = 2.0
 
-# 音の持ち上げ: 直近 GAIN_WINDOW_SEC の大きめの音（上から 5%）を TARGET_DBFS にそろえる。
-# 下げはしない。上げるのは MAX_GAIN_DB まで（雑音だけのときに雑音を大きくしすぎないように）。
-# 範囲が長いと、大きい声の直後に始まった小さい声を持ち上げられない（10 秒では取りこぼした）
+# 音の持ち上げ: 直近 GAIN_WINDOW_SEC の大きめの音を TARGET_DBFS にそろえる（下げない。
+# MAX_GAIN_DB まで。窓が短いと取りこぼす）
 GAIN_WINDOW_SEC = 2.0
 GAIN_QUANTILE = 0.95
 TARGET_DBFS = -20.0
@@ -56,23 +38,19 @@ MAX_GAIN_DB = 30.0
 # VAD が反応しなくなったときの、音量での区切り（#120）
 FALLBACK_AFTER_SEC = 20.0
 FALLBACK_LOUD_RATIO = 0.2
-# 話し声には息継ぎや間がある。ほとんどずっと同じ大きさで鳴り続ける音（換気扇・雑音）では
-# 切り替えない。
-# 実際に VAD が反応しなくなった録音では 29〜69%、弱い雑音だけの区間では 97% 以上だった
+# ほとんどずっと同じ大きさで鳴る音（換気扇・雑音）では切り替えない（話し声には息継ぎがある。
+# 実測は spec/flows.md 6.2）
 FALLBACK_MAX_LOUD_RATIO = 0.9
-# 周りの音（直近 FLOOR_WINDOW_SEC の音量の下から FLOOR_QUANTILE）よりこれだけ大きく、
-# かつ LOUD_MIN_DBFS より大きければ、声くらいの音とみなす（元の音量で比べる）。
-# 離れた場所の小さい声（-50 dBFS 前後）は対象にしない（そこは VAD と持ち上げに任せる）
+# 周りの音より LOUD_MARGIN_DB 以上大きく、
+# LOUD_MIN_DBFS より大きければ声くらいの音とみなす（元の音量で比べる）
 LOUD_MARGIN_DB = 12.0
 LOUD_MIN_DBFS = -35.0
 FLOOR_WINDOW_SEC = 30.0
 FLOOR_QUANTILE = 0.1
 RECOVER_WINDOWS = 3
 
-# 話していない間がこれだけ続くたびに、Silero の状態を 0 に戻す（#319）。
-# 講義の録音（約 36 分）で試すと、戻さないと声の 20 秒の塊 73 個のうち 5 個で反応せず、
-# 2・5・10 秒ごとに戻すとどれも 0 個だった。短いほど 1 秒未満の短い区間が増える
-# （戻さない・10・5・2 秒で 4・13・20・22 個）ので 10 秒
+# 話していない間がこれだけ続くたびに Silero の状態を 0 に戻す（#319）。
+# 短いと 1 秒未満の区間が増えるので 10 秒（実測は spec/flows.md 6.2）
 RESET_IDLE_SEC = 10.0
 
 log = logging.getLogger(__name__)
@@ -82,11 +60,8 @@ Probabilities = Callable[[np.ndarray], np.ndarray]
 
 
 class SileroVad:
-    """Silero VAD（faster-whisper に同梱の ONNX）を、続けて流れてくる音に使う
-
-    Silero は窓の並びを順に処理し、内部の状態（h・c）を次の窓に引き継ぐ。
-    呼び出しをまたいで状態を引き継ぐので、まとめて処理したときと同じ確率になる。
-    """
+    """Silero VAD（faster-whisper に同梱の ONNX）を、続けて流れてくる音に使う。
+    呼び出しをまたいで状態（h・c）を引き継ぐ"""
 
     def __init__(self) -> None:
         self._session = _session()
@@ -121,12 +96,8 @@ def _session():
 
 
 class VadSegmenter:
-    """16kHz・モノラル・Int16 の PCM を受け取り、話している区間を切り出す（Segmenter と同じ使い方）
-
-    無音が silence_ms 続くか、区間が max_segment_sec を超えたら区切る。話していない部分は捨てる。
-    区間の PCM は、持ち上げた音にしてから返す。
-    probabilities が reset() を持っていれば、話していない間が RESET_IDLE_SEC 続くたびに呼ぶ。
-    """
+    """16kHz・モノラル・Int16 の PCM から話している区間を切り出す（Segmenter と同じ使い方）。
+    区間の PCM は持ち上げた音"""
 
     def __init__(
         self,
@@ -148,9 +119,8 @@ class VadSegmenter:
         self._pad_after = round(PAD_AFTER_SEC / WINDOW_SEC)
         self._levels: deque[float] = deque(maxlen=int(GAIN_WINDOW_SEC / WINDOW_SEC))
         self.gain_db = 0.0  # 最後に受け取った窓の時点の持ち上げ量（dB）
-        # 区間に掛ける持ち上げ量（倍率）。区間の中の窓の持ち上げ量のうち、いちばん小さいもの。
-        # 区間の中では一定にし、大きい声の窓が音割れしないようにする（閉じる時点の値を使うと、
-        # 短い発言の後に黙っている間に持ち上げ量が上がり、声が割れる）
+        # 区間に掛ける持ち上げ量は、
+        # 窓の持ち上げ量の最小値で一定にする（閉じる時点の値だと声が割れる）
         self._gain = 1.0
         self._context = np.zeros(CONTEXT, dtype=np.float32)  # 前の窓の終わり（持ち上げた後）
         self._rest = b""  # 1 窓に満たない端数

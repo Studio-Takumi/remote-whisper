@@ -28,10 +28,8 @@ UNAUTHORIZED = (401, 403)
 
 
 class LMStudioUnavailable(LlmUnavailable):
-    """LM Studio につながらない・エラーを返した
-
-    status は LM Studio が返した HTTP のステータス（つながらないなどで返事がなければ None）。
-    401・403 なら、トークンが違う（セットアップの案内で見分ける。#327）"""
+    """LM Studio につながらない・エラーを返した。status は HTTP のステータス（なければ None）。
+    401・403 はトークン違い（#327）"""
 
     def __init__(self, message: str, status: int | None = None, detail: str | None = None):
         super().__init__(message)
@@ -87,12 +85,8 @@ class LMStudioHttp:
         await self.hub.set_status(lmstudio="ready")
 
     async def failed(self, e: Exception) -> LMStudioUnavailable:
-        """失敗を LMStudioUnavailable にする
-
-        status の lmstudio を error にするのは、つながらない・タイムアウト・5xx と、トークンが違う・
-        ない（401・403。どの頼みも通らないので、トレイ・画面で気づけるように。#327）とき。
-        ほかの 4xx（モデルがないなど）と、context を超えた入力の 500 は、LM Studio 自体は動いていて
-        使えるので変えない"""
+        """失敗を LMStudioUnavailable にする。status の lmstudio を error にする条件は
+        spec/notes.md 9.3"""
         if (
             isinstance(e, httpx.HTTPStatusError)
             and e.response.status_code not in UNAUTHORIZED

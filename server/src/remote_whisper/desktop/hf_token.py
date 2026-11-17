@@ -1,7 +1,6 @@
 """HuggingFace のトークンの保存と読み出し（#291）。spec/flows.md 6.15
 
-データのルートのファイル（本人だけが読める権限）に置き、最終の文字起こしの子プロセスに
-環境変数 `HF_TOKEN` で渡す。画面・ログ・API の応答には出さない。
+画面・ログ・API の応答には出さない。
 """
 
 import logging
@@ -43,11 +42,8 @@ def load_hf_token(home: Path) -> str | None:
 
 
 def hf_token_source(home: Path) -> str | None:
-    """最終の文字起こしが使うトークンの出どころ
-
-    `env`（環境変数 HF_TOKEN。今までどおり一番強い）→ `file`（画面から保存したもの）→
-    `login`（`hf auth login` で保存したもの）の順。どれもなければ None
-    """
+    """最終の文字起こしが使うトークンの出どころ。
+    `env` → `file` → `login` の順で、どれもなければ None"""
     if os.environ.get("HF_TOKEN"):
         return "env"
     if load_hf_token(home):

@@ -1,7 +1,5 @@
-"""Ollama に渡すプロンプト。spec/flows.md 6.4・6.5
-
-途中の要約・最終の要約・タイトルで使う。言い回しは実際に使ってから見直す（**仮**）。
-"""
+"""Ollama に渡すプロンプト（途中の要約・最終の要約・タイトル）。spec/flows.md 6.4・6.5。
+言い回しは使いながら見直す（**仮**）"""
 
 import json
 import logging
@@ -93,11 +91,8 @@ def live_section_messages(
     ongoing: bool = False,
     density: int = DEFAULT_DENSITY,
 ) -> list[dict[str, str]]:
-    """途中の要約（区間ごと）。録音中の文字起こしを前から順に区切った1区間を要約する（#93）
-
-    最終の要約の部分ごとの要約（part_summary_messages）と同じ言い方にして、濃さを揃える。
-    previous は1つ前の区間の要約。ongoing は、まだ録音が続いている最新の区間か
-    """
+    """途中の要約（区間ごと）（#93）。最終の部分ごとの要約と同じ言い方にして濃さを揃える。
+    previous は 1 つ前、ongoing は続いている区間か"""
     before = (
         "## 前の区間の要約（つながりの参考。ここに書いてあることは繰り返さない）\n"
         + f"{previous.strip()}\n\n"
@@ -138,10 +133,8 @@ def live_overview_messages(sections: list[str], context: str | None) -> list[dic
 def final_summary_messages(
     lines: list[str], context: str | None, density: int = DEFAULT_DENSITY
 ) -> list[dict[str, str]]:
-    """最終の要約（文字起こし全体が一度に収まるとき）
-
-    長いときの部分ごとの要約と同じ言い方にして、濃さを揃える（#92）。要約度は詳細のもの
-    """
+    """最終の要約（文字起こし全体が一度に収まるとき）。
+    部分ごとの要約と同じ言い方にして濃さを揃える（#92）。要約度は詳細"""
     user = (
         _context_block(context)
         + "## 文字起こし\n"
@@ -159,10 +152,8 @@ def part_summary_messages(
     previous: str | None = None,
     density: int = DEFAULT_DENSITY,
 ) -> list[dict[str, str]]:
-    """最終の要約（部分ごと）。文字起こしの一部分を要約する。結果はそのまま「詳細」として並べる（#92）
-
-    previous は1つ前の部分の要約。区切りの境目で話が途切れないように、参考として渡す
-    """
+    """最終の要約（部分ごと）（#92）。結果は「詳細」として並べる。
+    previous は 1 つ前の部分の要約（境目で話が途切れないように）"""
     before = (
         "## 前の部分の要約（つながりの参考。ここに書いてあることは繰り返さない）\n"
         + f"{previous.strip()}\n\n"
@@ -184,10 +175,8 @@ def part_summary_messages(
 def overview_messages(
     parts: list[str], context: str | None, density: int = DEFAULT_DENSITY
 ) -> list[dict[str, str]]:
-    """最終の要約（全体の概要）。部分ごとの要約から、話全体を短く凝縮する（#92）
-
-    要約度で箇条書きの数を変える（#100）
-    """
+    """最終の要約（全体の概要）。部分ごとの要約から話全体を短く凝縮する（#92）。
+    要約度で箇条書きの数を変える（#100）"""
     items = _OVERVIEW_ITEMS.get(density, _OVERVIEW_ITEMS[DEFAULT_DENSITY])
     blocks = "\n\n".join(f"### 部分{i + 1}\n{p.strip()}" for i, p in enumerate(parts))
     user = (
@@ -325,10 +314,8 @@ async def make_title_description(
 async def make_title(
     ollama: LlmClient, model: str, summary: str, think: bool = False
 ) -> str | None:
-    """要約からタイトルを作る（JSON Schema で15文字以内に制限する）。作れなければ None
-
-    num_ctx は要約と同じ値にする（値が変わると、Ollama がモデルを読み込み直すため）
-    """
+    """要約からタイトルを作る（JSON Schema で 15 文字以内）。作れなければ None。
+    num_ctx は要約と同じにする（変わるとモデルを読み込み直す）"""
     reply = await ollama.chat(
         model,
         title_messages(summary),
@@ -351,11 +338,8 @@ TERMS_FORMAT: dict[str, Any] = {
 
 
 def terms_messages(lines: list[str]) -> list[dict[str, str]]:
-    """文字起こしから、音声認識（Whisper）に渡す用語を抜き出す（#103）
-
-    誤認識した語を足すと、その誤りが固まる。拾った語は、文字起こしに何度も出てくるかを
-    あとで確かめるので、ここでは文字起こしの表記のまま抜き出させる
-    """
+    """文字起こしから、Whisper に渡す用語を抜き出す（#103）。
+    誤認識を固めないよう、文字起こしの表記のまま抜き出させる"""
     user = (
         "## 文字起こし（音声認識の結果。誤認識を含むことがある）\n"
         + "\n".join(lines)
@@ -388,12 +372,8 @@ def parse_terms(reply: str) -> list[str]:
     return out
 
 
-# 録音のあとに、今回扱った資料の範囲を判断する（#182）。JSON Schema で範囲の一覧を返させる。
-# 小さいモデルは「資料の番号」と「章の番号」を取り違えたので、目次の番号は資料をまたいだ
-# 通し番号にし、範囲は話題ごとに from・to で答えさせる（話題を先に書かせると、話題と章を
-# 結び付けて選ぶ）。
-# 「作り直すか」も答えさせたが、範囲と食い違う答えが多かったので、範囲が資料のほぼ全体かどうかで
-# こちらが決める（used_range.normalize_ranges）
+# 範囲の判断（#182）。目次は通し番号にし、範囲は話題ごとに from・to で答えさせる。
+# 「作り直すか」はこちらで決める（used_range.normalize_ranges。spec/flows.md 6.12）
 SCOPE_FORMAT: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -419,10 +399,8 @@ SCOPE_MAX_ENTRIES = 600
 
 
 def scope_messages(excerpt: str, tocs: list[tuple[str, str, list[str]]]) -> list[dict]:
-    """文字起こしの抜粋と資料の目次から、今回扱った範囲を判断する（#182）
-
-    tocs は資料ごとの（ファイル名, 区切りの種類, [見出し]）。目次の番号は、資料をまたいで 1 から
-    """
+    """文字起こしの抜粋と資料の目次から、今回扱った範囲を判断する（#182）。
+    目次の番号は資料をまたいだ通し番号"""
     blocks = []
     number = 0
     for name, kind, titles in tocs:

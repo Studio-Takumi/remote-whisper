@@ -19,10 +19,8 @@ def open_when_started(
     timeout: float = OPEN_BROWSER_TIMEOUT_SEC,
     open_url: Callable[[str], Any] = webbrowser.open,
 ) -> threading.Thread:
-    """サーバーが待ち受けを始めたら、画面をブラウザで開く（--open-browser。#292）
-
-    起動に失敗した・timeout 秒たっても始まらないときは開かない
-    """
+    """サーバーが待ち受けを始めたら、画面をブラウザで開く（--open-browser。#292）。
+    起動に失敗した・timeout 秒で開かない"""
 
     def wait_and_open() -> None:
         deadline = time.monotonic() + timeout

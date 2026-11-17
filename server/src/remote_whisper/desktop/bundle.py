@@ -1,19 +1,5 @@
-"""配布用のビルド（#168）の中で動いているときの、同梱物の場所
-
-配布用のフォルダは、こういう形になる
-（Windows は packaging/build.ps1、Mac は packaging/build-mac.sh が作る）。
-
-    <app>/bundle.json        ビルドの印（{"version": "<コミットのハッシュ>"}）
-    <app>/python/            同梱の Python（sys.prefix。Windows は pythonw.exe、
-                             Mac は bin/python3 で -m remote_whisper を起動する）
-    <app>/web/               画面のビルド結果
-    <app>/cloudflared.exe    同梱の cloudflared（Mac は <app>/cloudflared）
-    <app>/whisperx-requirements.txt  WhisperX を後から入れるときの、固定した依存（#291）
-
-Mac（#292）では、<app> は `Remote Whisper.app/Contents/Resources/app`
-（app_bundle() がその .app を返す）。
-開発（uv run）のときは bundle.json がないので、どれも None を返し、今までの動きのままになる
-"""
+"""配布用のビルド（#168）の中で動いているときの、同梱物の場所（開発のときは None）。
+spec/flows.md 6.15"""
 
 import json
 import os
@@ -50,21 +36,16 @@ WHISPERX_REQUIREMENTS = "whisperx-requirements.txt"
 
 
 def runtime() -> str:
-    """どの形で動いているか（初回のセットアップの案内で出し分ける。#291）
-
-    `windows-bundle`（Windows の配布版）・`mac-bundle`（Mac の配布版。#292）・
-    `dev`（開発の環境。uv）
-    """
+    """どの形で動いているか（`windows-bundle`・`mac-bundle`・`dev`）。
+    初回のセットアップの案内で出し分ける（#291）"""
     if bundle_dir() is None:
         return "dev"
     return "windows-bundle" if sys.platform == "win32" else "mac-bundle"
 
 
 def bundled_python() -> Path | None:
-    """同梱の Python（コンソール版。pip を動かすのに使う）。配布版でなければ None
-
-    サーバーは pythonw.exe で動いているので、sys.executable ではなく同じフォルダの python.exe を使う
-    """
+    """同梱の Python（コンソール版。pip 用）。配布版でなければ None。
+    サーバー自身は pythonw.exe なので sys.executable は使わない"""
     if bundle_dir() is None:
         return None
     prefix = Path(sys.prefix)
@@ -73,10 +54,7 @@ def bundled_python() -> Path | None:
 
 
 def bundled_whisperx_requirements() -> Path | None:
-    """WhisperX（最終の文字起こし）を入れるときの、版とハッシュを固定した依存の一覧（#291）
-
-    packaging/build.ps1 が `uv export --extra final` で作って同梱する。古い配布版にはない
-    """
+    """WhisperX を入れるときの、版とハッシュを固定した依存の一覧（#291）。古い配布版にはない"""
     root = bundle_dir()
     if root is None:
         return None
@@ -94,10 +72,7 @@ def bundled_cloudflared() -> Path | None:
 
 
 def app_bundle() -> Path | None:
-    """Mac の配布版の .app（`<名前>.app/Contents/Resources/app` の <名前>.app。#292）
-
-    Mac の配布版でなければ None
-    """
+    """Mac の配布版の .app（#292）。配布版でなければ None"""
     if sys.platform != "darwin":
         return None
     root = bundle_dir()

@@ -1,20 +1,6 @@
 """初回のセットアップの案内（#291）。spec/flows.md 6.15・spec/api.md 7.1
 
-足りないもの（Ollama・要約のモデル・WhisperX・HuggingFace のトークン）を調べて画面に返し、
-ボタンで入れられるものは入れる。どれも入れなくても、リアルタイムの文字起こしは今までどおり動く。
-
-- 外に何かを取りに行くのは、画面のボタンを押したとき（API を呼ばれたとき）だけ
-- 案内する LLM は、使っているバックエンド（`llm.backend`。Ollama か LM Studio。#327）
-- モデルの取得（Ollama の `/api/pull`、LM Studio の `/api/v1/models/download`）は GPU を使わないので
-  GPU キューには積まない。録音中は始めない。LM Studio は止める API がないので、やめても取り続ける
-- WhisperX は配布版だけ、同梱の Python に、同梱の固定した依存の一覧（版とハッシュ）で pip で入れる。
-  入れる前の site-packages の一覧を控え、
-  失敗した・やめた・途中でサーバーが止まったときは、その一覧に戻す（足したものを消し、版が変わった
-  ものを戻す）。開発の環境（uv）では案内だけ（`uv sync --extra final`）
-- HuggingFace のトークンはデータのルートのファイル（本人だけが読める権限）に置き、
-  最終の文字起こしの子プロセスに環境変数 `HF_TOKEN` で渡す。画面・ログ・API の応答には出さない
-- トンネル（クラウド版。8001 番）からの、トークンの保存・WhisperX の入れる・モデルの取得は、
-  ルートの側で断る（403。routes/setup.py）
+トンネル（8001 番）からの保存・取得は routes/setup.py で断る。
 """
 
 import asyncio
@@ -62,9 +48,7 @@ LMSTUDIO_MODEL_SIZES_GB = {"google/gemma-4-e4b": 6.3}
 
 
 def detect_gpu() -> str:
-    """`nvidia`（NVIDIA の GPU とドライバがある）・`mac`（Apple Silicon で mlx-whisper がある）・
-    `intel`（extra `openvino` があり、単体の Intel の GPU を OpenVINO で使える。#374）・
-    `none`（どれもない。CPU で動く。#274）"""
+    """`nvidia`・`mac`・`intel`（#374）・`none`（CPU で動く。#274）のどれか"""
     from remote_whisper.gpu import openvino_whisper
     from remote_whisper.gpu.whisper_worker import default_backend
 
@@ -99,9 +83,7 @@ def ollama_found() -> bool:
 
 
 def lmstudio_found() -> bool:
-    """LM Studio がこの PC に入っていそうか（#327。サーバーが動いていないときに「起動して」と
-    「入れて」を出し分ける）。`lms` のコマンド（PATH か、LM Studio が置く ~/.lmstudio/bin）、
-    Mac の /Applications/LM Studio.app、Windows の既定の入れ場所"""
+    """LM Studio がこの PC に入っていそうか（#327。「起動して」と「入れて」を出し分ける）"""
     if shutil.which("lms"):
         return True
     lms = "lms.exe" if sys.platform == "win32" else "lms"
@@ -273,10 +255,8 @@ class SetupService:
     # --- LLM のモデル ---
 
     def pullable(self, backend: str = "ollama") -> set[str]:
-        """取ってよいモデル（おすすめのものだけ）
-
-        設定で選んでいるモデル（ollama.models・lmstudio.models）は入れない。トンネル（クラウド版）
-        からも変えられるので、それを足すと、トンネルから任意のモデルを取らせる抜け道になる"""
+        """取ってよいモデル（おすすめのものだけ）。
+        設定のモデルを足すと、トンネルから任意のモデルを取らせる抜け道になる"""
         return set(recommended_models(backend))
 
     def start_pull(self, models: list[str]) -> None:

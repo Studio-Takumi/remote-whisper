@@ -1,8 +1,6 @@
-"""トンネル専用のポート（8001 番）と、中継の署名の確認（#160 のホスト側。spec/cloud.md 10.5）
+"""トンネル専用のポート（8001 番）と、中継の署名の確認（#160）。spec/cloud.md 10.5
 
-- 8000 番は今まで通り署名を見ない。8001 番だけ、アプリを `RelayAuthApp` で包んで
-  Worker の署名（`X-RW-Relay`）がないリクエストを 401 で断る（WebSocket はつなぐ前に閉じる）
-- 8001 番は 127.0.0.1 だけで、登録済み（cloud.json に relayKey がある）のときだけ開く
+8000 番は署名を見ない。8001 番だけ `RelayAuthApp` で包み、署名のないリクエストを断る。
 """
 
 import asyncio
@@ -40,10 +38,8 @@ CLOSE_TIMEOUT_SEC = 10.0
 
 
 def relay_canonical(user_id: str, host_id: str, ts: int, method: str, path: str) -> bytes:
-    """Worker → ホストの署名の対象。`v1`・ユーザー ID・ホスト ID・時刻・メソッド・パスを LF でつなぐ
-
-    パスは Worker が `/h/<hostId>` を外したあとのホスト側のパス（クエリがあれば `?` 以降も）
-    """
+    """Worker → ホストの署名の対象。パスは Worker が `/h/<hostId>` を外したあとのもの。
+    spec/cloud.md 10.5"""
     parts = [SIGNATURE_VERSION, user_id, host_id, str(ts), method.upper(), path]
     return "\n".join(parts).encode("utf-8")
 
@@ -98,11 +94,8 @@ def _raw_path(scope: dict) -> str:
 
 
 def _is_api_path(raw: str, decoded: str) -> bool:
-    """8001 番で出すのは `/api/` の下と `/ws` だけ。`..` や `%2F`・`%5C`・`%2e` を含むものは出さない
-
-    Worker は、こういうパスには署名しない。ホスト側でも、画面（SPA の静的ファイル）に
-    抜けられないように断る（署名が合っていても）
-    """
+    """8001 番で出すのは `/api/` の下と `/ws` だけ。
+    `..`・`%2F`・`%5C`・`%2e` を含むものは出さない。spec/cloud.md 10.5"""
     lowered = raw.lower()
     if any(token in lowered for token in ("%2f", "%5c", "%2e", "\\")):
         return False
@@ -112,10 +105,9 @@ def _is_api_path(raw: str, decoded: str) -> bool:
 
 
 class RelayAuthApp:
-    """アプリを包み、署名のないリクエストを断る ASGI アプリ（8001 番だけに使う）
+    """アプリを包み、署名のないリクエストを断る ASGI アプリ（8001 番だけに使う）。spec/cloud.md 10.5
 
-    `credentials` は (ホスト ID, 中継の鍵) を返す。登録していなければ None（すべて 401）。
-    登録・解除に追従するため、`TunnelPort.sync()` が cloud.json を読み直してこれを差し替える
+    `credentials` は (ホスト ID, 中継の鍵) か、未登録なら None（すべて 401）。
     """
 
     def __init__(
@@ -229,14 +221,8 @@ def stored_credentials(home: Path) -> Callable[[], tuple[str, bytes] | None]:
 
 
 class TunnelPort:
-    """トンネル専用のポートを、登録・解除に合わせて開け閉めする
-
-    8000 番と同じイベントループの上で動かす（アプリの GPU キュー・ハブ・asyncio.Lock などは
-    8000 番のループに結びついているため、別のループで動かすと固まる）。ループは
-    `attach()` で受け取る（アプリの lifespan から呼ぶ）。`sync()` はどのスレッドからでも呼べる
-
-    `sync()` を、起動時・登録したとき・解除したときに呼ぶ。登録済みなら開き、そうでなければ閉じる
-    """
+    """トンネル専用のポートを、登録・解除に合わせて開け閉めする（8000 番と同じループで動かす）。
+    spec/cloud.md 10.5"""
 
     def __init__(
         self,
@@ -273,10 +259,8 @@ class TunnelPort:
         self.sync()
 
     def sync(self) -> concurrent.futures.Future[None] | None:
-        """cloud.json を読み直し、登録済みなら開き、そうでなければ閉じる（どのスレッドからでも）
-
-        開け閉めはループに頼む。戻り値はその完了を待つ Future（ループがまだなければ None）
-        """
+        """cloud.json を読み直し、登録済みなら開き、そうでなければ閉じる。
+        完了を待つ Future を返す（どのスレッドからでも）"""
         self._creds = stored_credentials(self.home)()
         loop = self._loop
         if loop is None:

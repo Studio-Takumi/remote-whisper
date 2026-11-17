@@ -1,7 +1,4 @@
-"""録音中の 1 つのセッション。主の音源の受け取り・一時停止・切断と再開を受け持ち、ほかは部品に任せる
-
-GPU に依存させない（Whisper や Ollama が止まっていても保存は続ける）。spec/flows.md 6.1・6.2
-"""
+"""録音中の 1 つのセッション（主の音源の受け取り・一時停止・切断と再開）。spec/flows.md 6.1・6.2"""
 
 import asyncio
 import contextlib
@@ -180,9 +177,8 @@ class RecordingSession:
         await self._end("done")
 
     def detach(self) -> None:
-        """接続が切れた。recording.resumeTimeoutMin 分のうちに resume されなければ interrupted
-
-        （interrupted になっても、continue で続きから録音できる。#101）"""
+        """接続が切れた。recording.resumeTimeoutMin 分のうちに resume されなければ
+        interrupted（continue で続けられる。#101）"""
         self.ws = None
         if not self.ended:
             self._expire = asyncio.create_task(self._expire_later())

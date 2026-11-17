@@ -46,9 +46,8 @@ class ServerStatus:
 
 Tracked = Literal["summarizing", "transcribing"]
 
-# 録音しているクライアントにだけ送り、見ているクライアント（#238）には送らないもの。
-# ack は音声の受け取りの知らせ、started は録音を始めた返事、error は録音の操作・音声の書き込みの
-# 失敗（見る側には関係がなく、チャンクごとに出るものもあるため）
+# 録音しているクライアントにだけ送り、見ているクライアント（#238）
+# には送らないもの（ack・started・error）
 OWNER_ONLY = frozenset({"ack", "started", "error"})
 
 
@@ -72,10 +71,8 @@ class Hub:
         self._tasks: set[asyncio.Task] = set()
 
     def begin_summary(self, sid: str) -> Callable[[], None]:
-        """最終の要約を作り始めた（status の summarizing に入れる）。返す関数で終えたことにする
-
-        返す関数は何度呼んでもよい（2回目からは何もしない）。イベントループの中で呼ぶ
-        """
+        """最終の要約を作り始めた（status の summarizing に入れる）。
+        返す関数で終えたことにする（何度呼んでもよい）"""
         return self._begin("summarizing", sid)
 
     def begin_final_transcript(self, sid: str) -> Callable[[], None]:

@@ -1,15 +1,4 @@
-"""ホストで cloudflared を動かす（#159 のホスト側。spec/cloud.md 10.6）
-
-- 登録済み（cloud.json に relayKey がある）ときだけ、cloudflared を子プロセスで動かす
-- 起動のたびに Worker の POST /pair/tunnel でトークンをもらい、環境変数 TUNNEL_TOKEN で渡す
-  （コマンドラインに載せない。ファイルにもログにも残さない）
-- 落ちたら起動し直す（間隔は 5 秒から倍にして上限 5 分。60 秒以上動いたら 5 秒に戻す）。
-  起動し直すときもトークンをもらい直す
-- /pair/tunnel が 404・401（登録が外された）なら止める。つながらない・502・503・
-  429（間隔の制限。#166）は同じ間隔で聞き直す
-- 8001 番（TunnelPort）が開いてから動かす。開かなければ動かさない（通知は TunnelPort が出す）
-- 専用のスレッドで動かす（待つ間もイベントループは止めない）。sync()・stop() は任意のスレッドから
-"""
+"""ホストで cloudflared を子プロセスとして動かす（#159）。spec/cloud.md 10.6"""
 
 import contextlib
 import logging
@@ -55,10 +44,8 @@ TunnelState = Literal["connected", "connecting", "stopped"]
 
 
 class CloudflaredRunner:
-    """cloudflared の子プロセスを、登録・解除に合わせて動かす・止める
-
-    テストでは transport・popen・which を差し替える
-    """
+    """cloudflared の子プロセスを、登録・解除に合わせて動かす・止める（テストでは
+    transport・popen・which を差し替える）"""
 
     def __init__(
         self,

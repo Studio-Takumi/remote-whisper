@@ -1,9 +1,5 @@
-"""録音中の音声を区間に分ける。partial を確定部分と未確定部分に分ける（LocalAgreement）
-
-spec/flows.md 6.2。GPU に依存しない部品だけを置く。文字起こしを呼ぶのは live_transcriber.py。
-ここの Segmenter は音量のしきい値で切り出す（設定が manual のとき）。
-auto のときは vad_segmenter.py の VadSegmenter を使う（#88）。
-"""
+"""録音中の音声を区間に分ける。partial の確定・未確定を分ける（LocalAgreement）。
+spec/flows.md 6.2"""
 
 import array
 import math
@@ -29,11 +25,8 @@ class Segment:
 
 
 class Segmenter:
-    """16kHz・モノラル・Int16 の PCM を受け取り、話している区間を切り出す
-
-    無音が silence_ms 続くか、区間が max_segment_sec を超えたら区切る。話していない部分は捨てる。
-    20ms ごとの音量が speech_dbfs を超えたら話しているとみなす。
-    """
+    """16kHz・モノラル・Int16 の PCM を受け取り、
+    話している区間を切り出す（20ms ごとの音量が speech_dbfs を超えたら話している）"""
 
     def __init__(self, silence_ms: int, max_segment_sec: float, speech_dbfs: float = SPEECH_DBFS):
         self.silence_frames = max(1, silence_ms * SAMPLE_RATE // 1000 // FRAME_SAMPLES)
@@ -137,11 +130,7 @@ def _dbfs(frame: bytes) -> float:
 
 
 class LocalAgreement:
-    """partial を確定部分と未確定部分に分ける（LocalAgreement-2）
-
-    続けて2回の文字起こしで同じだった先頭の部分を確定とする。確定した部分は短くならない
-    （あとで結果が変わっても、確定済みの部分はそのまま。区間全体の final で置き換える）。
-    """
+    """partial を確定部分と未確定部分に分ける（LocalAgreement-2）。確定した部分は短くならない"""
 
     def __init__(self) -> None:
         self.committed = ""

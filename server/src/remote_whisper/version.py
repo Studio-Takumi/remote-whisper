@@ -1,8 +1,5 @@
-"""このサーバーのバージョン。spec/files.md 5.5・spec/api.md 7.1
-
-バージョン番号は運用しないので、git のコミットハッシュ（短いもの）をバージョンとして扱う。
-コミットしていない変更があれば `+dirty` を付ける。git が使えなければ `unknown`。
-"""
+"""このサーバーのバージョン（git の短いハッシュ。
+変更があれば `+dirty`、git がなければ `unknown`）。spec/files.md 5.5・spec/api.md 7.1"""
 
 import functools
 import logging
@@ -47,8 +44,6 @@ def read_version(repo: Path = REPO_DIR) -> str:
 
 @functools.cache
 def app_version() -> str:
-    """起動中のサーバーのバージョン。最初に呼んだときに一度だけ取る
-
-    配布用のビルド（#168）では bundle.json に書いたもの。そうでなければ git から
-    """
+    """起動中のサーバーのバージョン（最初に一度だけ取る）。
+    配布用のビルド（#168）では bundle.json、なければ git"""
     return bundle.bundled_version() or read_version()
