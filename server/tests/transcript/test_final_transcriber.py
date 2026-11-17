@@ -6,8 +6,8 @@ import sys
 import time
 
 import pytest
-from test_final_summary import client, project, record  # noqa: F401 フィクスチャも使う
-from test_recorder import receive_until
+from helpers.final_summary import client, project, record  # noqa: F401 フィクスチャも使う
+from helpers.recorder import receive_until
 
 from remote_whisper.gpu.gpu_queue import GpuQueue
 from remote_whisper.hub import Hub
@@ -100,7 +100,7 @@ def use_fake(test_client, command):
     return final
 
 
-def test_final_transcript_is_made_before_the_summary(client, project, fake_ollama, fake_worker):  # noqa: F811
+def test_final_transcript_is_made_before_the_summary(client, project, fake_ollama, fake_worker):
     pid, d = project
     use_fake(client, fake_worker())
     sid, seen = record(client, pid)
@@ -133,7 +133,7 @@ def test_final_transcript_is_made_before_the_summary(client, project, fake_ollam
     assert [m["generationId"] for m in listed] == [meta.generation_id]
 
 
-def test_diarization_can_be_turned_off(client, project, fake_ollama, fake_worker):  # noqa: F811
+def test_diarization_can_be_turned_off(client, project, fake_ollama, fake_worker):
     pid, d = project
     client.patch("/api/settings", json={"whisper": {"diarize": False}})
     use_fake(client, fake_worker())
@@ -144,7 +144,7 @@ def test_diarization_can_be_turned_off(client, project, fake_ollama, fake_worker
     assert (meta.diarization, meta.speakers) == ("off", 0)
 
 
-def test_no_final_transcript_when_turned_off_or_missing(client, project, fake_ollama, fake_worker):  # noqa: F811
+def test_no_final_transcript_when_turned_off_or_missing(client, project, fake_ollama, fake_worker):
     pid, d = project
     final = use_fake(client, fake_worker("missing"))
     client.patch("/api/settings", json={"whisper": {"finalTranscript": False}})
@@ -382,7 +382,7 @@ def test_a_recording_that_starts_before_the_worker_stops_it(home, session_files,
     assert fake_worker.count.read_text() == "1"
 
 
-def test_it_can_be_made_again_as_a_new_generation(client, project, fake_ollama, fake_worker):  # noqa: F811
+def test_it_can_be_made_again_as_a_new_generation(client, project, fake_ollama, fake_worker):
     pid, d = project
     final = use_fake(client, fake_worker())
     sid, _ = record(client, pid)
@@ -414,7 +414,7 @@ def test_it_can_be_made_again_as_a_new_generation(client, project, fake_ollama, 
     assert len(client.get(url).json()) == 2
 
 
-def test_it_cannot_be_made_again_without_a_recording_or_whisperx(client, project, fake_worker):  # noqa: F811
+def test_it_cannot_be_made_again_without_a_recording_or_whisperx(client, project, fake_worker):
     pid, d = project
     sid = recorded_session(client, pid)
     url = f"/api/projects/{pid}/sessions/{sid}/final-transcripts"
@@ -429,8 +429,8 @@ def test_it_cannot_be_made_again_without_a_recording_or_whisperx(client, project
 
 
 def test_making_again_waits_for_recordings_and_refuses_duplicates(
-    client,  # noqa: F811
-    project,  # noqa: F811
+    client,
+    project,
     fake_worker,
 ):
     pid, d = project
@@ -454,8 +454,8 @@ def test_making_again_waits_for_recordings_and_refuses_duplicates(
     assert len(client.get(url).json()) == 1
 
 
-def test_making_again_is_refused_while_recording(client, project, fake_worker):  # noqa: F811
-    from test_recorder import chunk, of_type, start
+def test_making_again_is_refused_while_recording(client, project, fake_worker):
+    from helpers.recorder import chunk, of_type, start
 
     pid, _ = project
     use_fake(client, fake_worker())
@@ -489,7 +489,7 @@ def test_close_stops_making_again(home, session_files, fake_worker):
 
 
 def recorded_session(test_client, pid):
-    from test_recorder import chunk, finished, of_type, receive_until, start
+    from helpers.recorder import chunk, finished, of_type, receive_until, start
 
     with test_client.websocket_connect("/ws") as ws:
         ws.receive_json()
@@ -501,7 +501,7 @@ def recorded_session(test_client, pid):
     return sid
 
 
-def test_final_transcript_api_errors(client, project):  # noqa: F811
+def test_final_transcript_api_errors(client, project):
     pid, _ = project
     sid = recorded_session(client, pid)
     url = f"/api/projects/{pid}/sessions/{sid}/final-transcripts"

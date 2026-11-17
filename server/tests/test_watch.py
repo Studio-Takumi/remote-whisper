@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
-from test_mock import FAST, audio, of_type, receive_until, start
+from helpers.mock import FAST, audio, of_type, receive_until, start
 
 from remote_whisper.app import create_app
 from remote_whisper.hub import Hub

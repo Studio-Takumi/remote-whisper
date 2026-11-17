@@ -25,7 +25,7 @@ from remote_whisper.desktop.setup import (
     worker_env,
 )
 
-FAKE_PYTHON = [sys.executable, str(Path(__file__).parents[1] / "fake_python.py")]
+FAKE_PYTHON = [sys.executable, str(Path(__file__).parents[1] / "helpers" / "fake_python.py")]
 TOKEN = "hf_" + "A1b2C3d4E5" * 3 + "zz"
 
 
@@ -185,7 +185,7 @@ def test_final_transcriber_passes_the_saved_token(client, home):
 def test_token_is_not_left_when_permissions_fail(home, monkeypatch, results):
     """Windows で本人だけにできなければ保存しない（#252 の write_owner_only）。
     トークンのファイルも、一時のフォルダ・ファイルも残さない"""
-    from test_cloud import fake_icacls
+    from helpers.cloud import fake_icacls
 
     home.mkdir(parents=True, exist_ok=True)
     fake_icacls(monkeypatch, results)
@@ -360,7 +360,7 @@ def test_pull_can_be_cancelled(home):
 @pytest.fixture
 def fake_lmstudio(monkeypatch):
     """アプリの LMStudioClient は偽の LM Studio とやりとりする。進み具合はすぐに見に行く"""
-    from fake_lmstudio import FakeLMStudio
+    from helpers.fake_lmstudio import FakeLMStudio
 
     from remote_whisper.llm.lmstudio import LMStudioClient
 

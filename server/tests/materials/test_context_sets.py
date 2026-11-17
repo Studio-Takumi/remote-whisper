@@ -2,7 +2,8 @@ import asyncio
 
 import pytest
 from fastapi.testclient import TestClient
-from test_recorder import of_type, receive_until, start
+from helpers.context_sets import create_and_wait
+from helpers.recorder import of_type, receive_until, start
 
 from remote_whisper.app import create_app
 from remote_whisper.materials.context_sets import (
@@ -51,20 +52,6 @@ def project(client, root):
 
 def materials(root):
     return [str(root / "docs" / "agenda.md"), str(root / "docs" / "notes.txt")]
-
-
-def create_and_wait(client, pid, paths):
-    with client.websocket_connect("/ws") as ws:
-        ws.receive_json()
-        res = client.post(f"/api/projects/{pid}/context-sets", json={"materials": paths})
-        assert res.status_code == 202, res.text
-        body = res.json()
-        if body["reused"]:
-            return body, []
-        seen = receive_until(
-            ws, lambda m: m["type"] == "contextSet" and m["status"] in ("ready", "failed")
-        )
-    return body, [m for m in seen if m["type"] == "contextSet"]
 
 
 def test_create_a_context_set(client, project, root, fake_ollama):
@@ -151,7 +138,7 @@ def test_empty_reply_with_thinking_is_retried_without_it(client, project, root, 
 
 
 def test_figures_in_a_pdf_are_added_to_the_materials(client, project, root, fake_ollama, home):
-    from test_material_figures import slides
+    from helpers.figure_pdf import slides
 
     pid, d = project
     pdf = slides(root / "docs")
@@ -170,7 +157,7 @@ def test_figures_in_a_pdf_are_added_to_the_materials(client, project, root, fake
 
 
 def test_pdf_is_read_as_text_without_a_vision_model(client, project, root, fake_ollama):
-    from test_material_figures import slides
+    from helpers.figure_pdf import slides
 
     pid, _ = project
     pdf = slides(root / "docs")

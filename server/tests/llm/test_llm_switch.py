@@ -8,7 +8,7 @@ import logging
 
 import httpx
 import pytest
-from fake_lmstudio import GEMMA, FakeLMStudio
+from helpers.fake_lmstudio import GEMMA, FakeLMStudio
 
 from remote_whisper.hub import Hub
 from remote_whisper.llm.llm_switch import LlmSwitch

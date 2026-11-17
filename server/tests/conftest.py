@@ -3,8 +3,8 @@ import sys
 
 import numpy as np
 import pytest
-from fake_ollama import FakeOllama
 from fastapi.testclient import TestClient
+from helpers.fake_ollama import FakeOllama
 
 from remote_whisper.app import create_app
 from remote_whisper.llm.ollama import OllamaClient

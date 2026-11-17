@@ -5,7 +5,7 @@ import logging
 
 import httpx
 import pytest
-from fake_lmstudio import GEMMA, FakeLMStudio
+from helpers.fake_lmstudio import GEMMA, FakeLMStudio
 
 from remote_whisper.hub import Hub
 from remote_whisper.llm.llm import LlmClient, LlmUnavailable
@@ -1191,7 +1191,7 @@ def test_load_without_an_instance_id_is_not_remembered_when_not_found(lms, fake,
 
 
 def test_jit_load_without_an_instance_id_is_not_remembered(lms, fake, caplog):
-    from fake_lmstudio import _sse
+    from helpers.fake_lmstudio import _sse
 
     fake.load(GEMMA, NUM_CTX)  # 手で載せたもの。使ったあと、/api/v1/chat が読み込み直したまね
     events = [

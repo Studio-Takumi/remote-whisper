@@ -6,7 +6,7 @@ import wave
 
 import pytest
 from fastapi.testclient import TestClient
-from test_recorder import audio_seconds, chunk, finished, of_type, receive_until, start, wait_for
+from helpers.recorder import audio_seconds, chunk, finished, of_type, receive_until, start, wait_for
 
 from remote_whisper.app import create_app
 from remote_whisper.gpu.gpu_queue import Priority

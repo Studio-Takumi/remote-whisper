@@ -3,9 +3,18 @@ import json
 import time
 import wave
 
-import av
 import pytest
 from fastapi.testclient import TestClient
+from helpers.recorder import (
+    audio_seconds,
+    chunk,
+    finished,
+    interrupted_session,
+    of_type,
+    receive_until,
+    start,
+    wait_for,
+)
 
 from remote_whisper.app import create_app
 from remote_whisper.recording import audio_convert
@@ -13,24 +22,6 @@ from remote_whisper.recording.live_transcriber import LiveTranscriber
 from remote_whisper.storage.documents import TranscriptMeta, read_doc
 
 # test_mock.py と同じ小さな道具
-
-
-def receive_until(ws, pred, limit=200):
-    seen = []
-    for _ in range(limit):
-        msg = ws.receive_json()
-        seen.append(msg)
-        if pred(msg):
-            return seen
-    raise AssertionError(f"来なかった: {seen[-5:]}")
-
-
-def of_type(message_type, **fields):
-    return lambda m: m["type"] == message_type and all(m.get(k) == v for k, v in fields.items())
-
-
-def chunk(seq: int, samples: int = 8000, value: int = 0) -> bytes:
-    return seq.to_bytes(4, "little") + value.to_bytes(2, "little", signed=True) * samples
 
 
 @pytest.fixture
@@ -54,17 +45,6 @@ def project(client, tmp_path):
     client.patch("/api/settings", json={"materials": {"roots": [str(root)]}})
     created = client.post("/api/projects", json={"path": str(root / "meetings")}).json()
     return created["id"], client.app.state.ctx.projects.dir(created["id"])
-
-
-def start(ws, pid):
-    ws.send_json({"type": "start", "project": pid})
-    return receive_until(ws, of_type("started"))[-1]["session"]
-
-
-def finished(client, sid):
-    """録音を終えたあとの処理（残りの文字起こし・変換）が終わるまで待つ"""
-    session = client.app.state.ctx.recorder.sessions[sid]
-    client.portal.call(session.wait_finished)
 
 
 @pytest.fixture
@@ -292,18 +272,6 @@ def test_transcribes_while_recording(client, project):
     assert body.splitlines()[-2:] == ["[00:00:00] fake 1.0s", "[00:00:01] fake 0.5s"]
 
 
-def audio_seconds(path):
-    with av.open(str(path)) as f:
-        return f.duration / 1e6
-
-
-def wait_for(pred, timeout=5.0):
-    deadline = time.monotonic() + timeout
-    while not pred():
-        assert time.monotonic() < deadline, "時間内に終わらなかった"
-        time.sleep(0.05)
-
-
 def test_stop_converts_to_mp3_and_queues_the_final_summary(client, project):
     pid, d = project
     summarized = []
@@ -487,19 +455,6 @@ def test_live_summary_while_recording(client, project, fake_ollama):
     assert meta.title == "リリース計画の確認"
     prompt = fake_ollama.bodies("/api/chat")[0]["messages"][-1]["content"]
     assert "[00:00:00] fake 1.0s" in prompt
-
-
-def interrupted_session(client, pid, seconds=1.5):
-    """seconds 秒話してから接続が切れ、interrupted になったセッションを作る"""
-    with client.websocket_connect("/ws") as ws:
-        ws.receive_json()
-        sid = start(ws, pid)
-        for seq in range(int(seconds * 2)):
-            ws.send_bytes(chunk(seq, value=3000))
-            receive_until(ws, of_type("ack", seq=seq))
-    wait_for(lambda: client.app.state.ctx.recorder.sessions[sid].ended)
-    finished(client, sid)
-    return sid
 
 
 def test_continue_an_interrupted_session(client, project):

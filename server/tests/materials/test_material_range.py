@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from test_context_sets import create_and_wait
-from test_final_summary import record
-from test_recorder import receive_until
-from test_uploads import upload, wait_done, write_audio
+from helpers.context_sets import create_and_wait
+from helpers.final_summary import record
+from helpers.recorder import receive_until
+from helpers.uploads import upload, wait_done, write_audio
 
 from remote_whisper.app import create_app
 from remote_whisper.materials import material_range

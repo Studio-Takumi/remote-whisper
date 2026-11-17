@@ -89,4 +89,4 @@
 | `desktop/` | 常駐アイコン・ログイン時の起動・初回のセットアップ・ポート・配布版の同梱物 |
 
 - 使い捨ての道具（`transcribe.py`・`tray_icons.py`）は `server/scripts/` に置く
-- テストどうしで部品を import し合っているので、pytest の `pythonpath` にテストのフォルダを並べている
+- テストどうしで共有する部品は `server/tests/helpers/` にあり、pytest の `pythonpath` は `tests` だけ（`from helpers.recorder import start` のように読む）

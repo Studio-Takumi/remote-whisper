@@ -7,7 +7,7 @@ import json
 
 import pytest
 from fastapi.testclient import TestClient
-from test_recorder import chunk, finished, of_type, receive_until, start, wait_for
+from helpers.recorder import chunk, finished, of_type, receive_until, start, wait_for
 
 from remote_whisper.app import create_app
 from remote_whisper.storage.documents import TranscriptMeta, read_doc

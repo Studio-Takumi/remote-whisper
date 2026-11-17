@@ -5,9 +5,9 @@ import json
 import re
 
 import pytest
-from fake_ollama import FakeOllama
-from test_final_summary import StubWriter
-from test_material_toc import make_pdf
+from helpers.fake_ollama import FakeOllama
+from helpers.final_summary import StubWriter
+from helpers.material_pdf import make_pdf
 
 from remote_whisper.hub import Hub
 from remote_whisper.llm.ollama import OllamaClient
