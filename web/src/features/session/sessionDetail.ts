@@ -47,5 +47,10 @@ export function sessionFrom(row: Session, parts: SessionParts, loaded: LoadedSes
     if (!loaded || (!loaded.failed && !hasDetail(row.files, parts))) {
         return row;
     }
-    return { ...row, ...detailFrom(parts), loaded: true };
+    return applyDetail(row, parts);
+}
+
+// 取ってきた中身を当てて、読み込んだことにする（中身がそろっているかは見ない）
+export function applyDetail(session: Session, parts: SessionParts): Session {
+    return { ...session, ...detailFrom(parts), loaded: true };
 }

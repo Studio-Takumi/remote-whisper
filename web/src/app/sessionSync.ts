@@ -24,7 +24,7 @@ import { sortSessions } from '@/features/projects/move';
 import { sortByIds } from '@/features/projects/projectOrder';
 import type { MetricsTracker } from '@/features/recording/metricsTracker';
 import { mergeLiveLines } from '@/features/session/corrections';
-import { type LoadedSession, sessionFrom } from '@/features/session/sessionDetail';
+import { type LoadedSession, applyDetail } from '@/features/session/sessionDetail';
 import { keepLineSources, withLineSources } from '@/features/session/sources';
 import { formatDateTime, newId } from '@/lib/time';
 
@@ -310,9 +310,7 @@ export class SessionSync {
         const parts = cachedParts(projectId, sessionId, loaded.finalTranscript);
         this.store.setState((s) => ({
             localSessions: patchLocal(s.localSessions, sessionId, (x) =>
-                loaded.failed
-                    ? { ...x, loaded: true }
-                    : sessionFrom({ ...x, files: files ?? x.files }, parts, { failed: true }),
+                loaded.failed ? { ...x, loaded: true } : applyDetail({ ...x, files: files ?? x.files }, parts),
             ),
         }));
     }

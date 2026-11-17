@@ -2,7 +2,13 @@
 // ストアの操作）、手元で積み上げているセッションはストアから読んで重ねる
 import { useMemo } from 'react';
 
-import { type QueryObserverResult, useQueries, useQuery } from '@tanstack/react-query';
+import {
+    type QueryKey,
+    type QueryObserverResult,
+    type UseQueryOptions,
+    useQueries,
+    useQuery,
+} from '@tanstack/react-query';
 
 import {
     finalTranscriptQuery,
@@ -58,21 +64,30 @@ export function useCurrentProject(): Project | undefined {
     return projects.find((p) => p.id === projectId);
 }
 
-function useSessionParts(projectId: string, sessionId: string, gid: string | undefined): SessionParts {
-    const transcript = useQuery({ ...transcriptQuery(projectId, sessionId), ...READ_ONLY }).data;
-    const finalTranscripts = useQuery({ ...finalTranscriptsQuery(projectId, sessionId), ...READ_ONLY }).data;
-    const final = useQuery({ ...finalTranscriptQuery(projectId, sessionId, gid ?? ''), ...READ_ONLY }).data;
-    const summaryInfos = useQuery({ ...summariesQuery(projectId, sessionId), ...READ_ONLY }).data;
+function firstData(results: QueryObserverResult<unknown>[]) {
+    return results[0]?.data;
+}
+
+// キャッシュの 1 つを見る。options が null（開いているセッション・世代がない）なら、キャッシュに空の項目を作らない
+function useCached<T, K extends QueryKey>(options: UseQueryOptions<T, Error, T, K> | null): T | undefined {
+    const queries = (options ? [{ ...options, ...READ_ONLY }] : []) as UseQueryOptions[];
+    return useQueries({ queries, combine: firstData }) as T | undefined;
+}
+
+function useSessionParts(projectId: string | undefined, sessionId: string | undefined, gid: string | undefined) {
+    const ids = projectId && sessionId ? ([projectId, sessionId] as const) : null;
+    const transcript = useCached(ids && transcriptQuery(...ids));
+    const finalTranscripts = useCached(ids && finalTranscriptsQuery(...ids));
+    const finalTranscript = useCached(ids && gid ? finalTranscriptQuery(...ids, gid) : null);
+    const summaryInfos = useCached(ids && summariesQuery(...ids));
     const summaryTexts = useQueries({
-        queries: (summaryInfos ?? []).map((x) => ({
-            ...summaryQuery(projectId, sessionId, x.generationId),
-            ...READ_ONLY,
-        })),
+        queries: ids
+            ? (summaryInfos ?? []).map((x) => ({ ...summaryQuery(...ids, x.generationId), ...READ_ONLY }))
+            : [],
         combine: dataOf,
     });
-    const liveSummary = useQuery({ ...liveSummaryQuery(projectId, sessionId), ...READ_ONLY }).data;
-    const finalTranscript = gid ? final : undefined;
-    return useMemo(
+    const liveSummary = useCached(ids && liveSummaryQuery(...ids));
+    return useMemo<SessionParts>(
         () => ({ transcript, finalTranscripts, finalTranscript, summaryInfos, summaryTexts, liveSummary }),
         [transcript, finalTranscripts, finalTranscript, summaryInfos, summaryTexts, liveSummary],
     );
@@ -85,6 +100,6 @@ export function useCurrentSession(): Session | undefined {
     const row = project?.sessions.find((x) => x.id === sessionId);
     const local = useAppStore((s) => s.localSessions.some((x) => x.session.id === sessionId));
     const loaded = useAppStore((s) => (sessionId ? s.loadedSessions[sessionId] : undefined));
-    const parts = useSessionParts(project?.id ?? '', row?.id ?? '', loaded?.finalTranscript);
+    const parts = useSessionParts(project?.id, local ? undefined : row?.id, loaded?.finalTranscript);
     return useMemo(() => (row && !local ? sessionFrom(row, parts, loaded) : row), [row, local, parts, loaded]);
 }
