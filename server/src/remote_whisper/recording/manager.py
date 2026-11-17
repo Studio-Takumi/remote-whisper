@@ -1,7 +1,5 @@
-"""録音マネージャ（録音中のセッションの開始・続き・再開）と、録音を終えた WAV の mp3 への変換
-
-spec/flows.md 6.1・6.2・spec/notes.md 9.1
-"""
+"""録音マネージャ（開始・続き・再開）と、録音を終えた WAV の mp3 への変換。
+spec/flows.md 6.1・6.2・spec/notes.md 9.1"""
 
 import asyncio
 import contextlib
@@ -62,10 +60,8 @@ async def convert_session_wavs(writer: SessionWriter, wav: Path) -> None:
 
 
 def convert_source_wavs(writer: SessionWriter) -> list[int]:
-    """`.tmp/<ID>/audio-<音源 ID>.wav`（録音中に参加した音源。#356）を
-    recording-<ID>-<音源 ID>.mp3 に変換して WAV を消し、フロントマターの音源に録音ファイルを書く。
-    変換できた音源 ID を返す。
-    失敗したものは WAV を残す（次の起動時にもう一度。recovery.py）"""
+    """録音中に参加した音源の WAV（`audio-<音源 ID>.wav`。#356）を mp3 にして消す。
+    失敗した WAV は残す（recovery.py）"""
     d = writer.files.dir
     converted = []
     for wav in sorted((d / ".tmp" / writer.id).glob("audio-*.wav")):
@@ -195,8 +191,7 @@ class RecordingManager:
     ) -> RecordingSession:
         """途中で終わった（interrupted）セッションの続きを、同じセッションのまま録音する（#101）
 
-        録音は前の録音（.tmp の WAV、なければ変換済みの mp3・m4a）を WAV に戻した後ろに続けて書き、
-        文字起こしの時刻も前の録音の長さから続ける。文字起こしは同じファイルに足していく
+        前の録音を WAV に戻した後ろに続けて書き、文字起こしの時刻も前の録音の長さから続ける。
         """
         # 前の録音を戻している途中のものも、録音中として数える（同じセッションを同時に続けない）
         if len(self.active()) + len(self._restoring) >= max_concurrent:
@@ -224,9 +219,8 @@ class RecordingManager:
             if previous.converting:
                 # mp3 に変換している途中なら、終わるのを待つ（CPU で数秒。WAV を読んでいるため）
                 await previous.wait_converted()
-            # 残りの文字起こし（GPU の空きを待つことがある）は待たずに、そのまま続けさせる。
-            # その間に WAV を変換し始めないよう、先に止めておく。録音を終えたあとの浄書・
-            # 最終の要約でまだのものは取り消す（#174。続けられなければ take_back で戻す）
+            # 残りの文字起こしは待たずに続けさせる。
+            # WAV の変換が始まらないよう先に止め、浄書・最終の要約は取り消す（#174）
             previous.finisher.hand_over()
         try:
             session = await self._restore(ws, project, sid)
@@ -320,10 +314,8 @@ class RecordingManager:
         await self.hub.set_status(recordings=n)
 
     async def context_set_ready(self, pid: str, set_id: str) -> None:
-        """参考資料セットができた。そのセットを選んで録音中のセッションは、次の区間から使う
-
-        （spec/flows.md 6.6。作成中に録音を始めたときは、
-        用語リストとコンテキストなしで始まっている）"""
+        """参考資料セットができた。
+        そのセットを選んで録音中のセッションは次の区間から使う（spec/flows.md 6.6）"""
         for session in self.active():
             writer = session.writer
             if writer.pid != pid or writer.meta.context_set != set_id:

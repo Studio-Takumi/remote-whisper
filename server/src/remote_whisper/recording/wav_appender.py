@@ -12,13 +12,8 @@ SAMPLE_WIDTH = 2  # Int16
 
 
 class WavAppender:
-    """`.tmp/<ID>/audio.wav` に追記する。書くたびにヘッダーの長さも直すので、落ちても読める
-
-    restore を渡すと、その音声（前の WAV か、変換済みの mp3・m4a）を頭に書いてから続ける
-    （途中で終わったセッションの続きを録音するとき。#101）。前の WAV が同じファイルなら、
-    名前を変えずにその後ろに書き足す（#174。再生や浄書がそのファイルを読んでいる最中でも、
-    Windows で続きを始められるように。開いているファイルは名前を変えられないため）
-    """
+    """`.tmp/<ID>/audio.wav` に追記する（書くたびにヘッダーを直す）。
+    restore は続きの録音用（#101・#174。spec/flows.md 6.2）"""
 
     def __init__(self, path: Path, restore: Path | None = None):
         path.parent.mkdir(parents=True, exist_ok=True)

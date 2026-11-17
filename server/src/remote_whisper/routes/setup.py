@@ -1,10 +1,5 @@
-"""初回のセットアップの案内の API（#291）。spec/api.md 7.1・spec/flows.md 6.15
-
-見るだけ（GET）はトンネル（クラウド版）からもできる。トークンの保存・消す、WhisperX を入れる、
-LLM（Ollama か LM Studio）のモデルを取るのは、トンネルからは断る（403）。
-クラウドのログインを盗まれても、ホストに数 GB を落とさせたり、
-話者分けに使うトークンを差し替えさせたりしないように
-"""
+"""初回のセットアップの案内の API（#291）。トンネルからは見るだけ（それ以外は 403）。
+spec/api.md 7.1・spec/flows.md 6.15"""
 
 from typing import Annotated, Any
 
@@ -102,7 +97,7 @@ async def put_hf_token(
 ) -> dict[str, Any]:
     """HuggingFace のトークンを保存する（本文は `{"token": "hf_..."}`）。返事にトークンは入れない
 
-    本文は自分で読む。FastAPI の検証に任せると、形が違うときの 422 に送った本文が入って返るため
+    本文は自分で読む（FastAPI の検証だと 422 に送った本文が入って返るため）。
     """
     try:
         body = await request.json()

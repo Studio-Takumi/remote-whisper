@@ -1,9 +1,6 @@
-"""話していないのに Whisper が作った文（ハルシネーション）を見分ける。spec/flows.md 6.2（#81）
+"""話していないのに Whisper が作った文（ハルシネーション）を見分ける（#81）。spec/flows.md 6.2
 
-無音や弱い雑音を渡すと、Whisper は「ご視聴ありがとうございました」などの定番の文を作ることがある。
-区間ごとの信頼度（no_speech_prob・avg_logprob・compression_ratio）で見分ける。
-定番の文の一覧は、信頼度が少し低いときに捨てる判断を後押しするだけで、一致しただけでは捨てない
-（本当に話した「ありがとうございました」を消さないため）。
+区間ごとの信頼度で見分ける。定番の文の一覧は捨てる判断を後押しするだけで、一致しただけでは捨てない。
 """
 
 import re
@@ -18,9 +15,7 @@ MAX_COMPRESSION_RATIO = 2.4
 # 定番の文は、これより自信がなければ捨てる
 PHRASE_NO_SPEECH_PROB = 0.3
 PHRASE_LOGPROB = -0.6
-# 区間の中で VAD が話しているとみなした長さがこれより短いのに定番の文が出たら、
-# 自信が高くても捨てる。音を持ち上げると、声の切れ端から自信の高い定番の文が
-# 出ることがあるため（#88）。本当に「ありがとうございました」と言えば 1 秒前後かかる
+# VAD が話しているとみなした長さがこれより短いのに定番の文が出たら、自信が高くても捨てる（#88）
 PHRASE_MIN_VOICED_SEC = 0.6
 
 # 信頼度が取れない実行系（OpenVINO。#374）の代わりの判定。文の時刻の範囲で VAD が話していると
@@ -29,9 +24,8 @@ NO_SCORES_MIN_VOICED_SEC = 0.2
 # 定番の文は、信頼度で後押しできないので、話している長さを長めに求める
 NO_SCORES_PHRASE_MIN_VOICED_SEC = 0.8
 
-# 無音・雑音から作られやすい定番の文（動画の字幕で学習したことによるもの）。
-# 文のほとんどがこれらでできているときだけ一致とみなす（_is_phrase）ので、
-# 言い換えは別に並べる（#235）
+# 無音・雑音から作られやすい定番の文。
+# ほとんどがこれらでできているときだけ一致とみなす（_is_phrase。#235）
 PHRASES = (
     "ご視聴ありがとうございました",
     "ご視聴ありがとうございます",
@@ -73,10 +67,8 @@ def _is_phrase(text: str) -> bool:
 
 
 def drop_reason(segment: dict[str, Any], voiced_sec: float | None = None) -> str | None:
-    """捨てるなら理由を返す。残すなら None
-
-    voiced_sec は、その文が出た区間で VAD が話しているとみなした長さ（分からなければ None）
-    """
+    """捨てるなら理由を返す。残すなら None。
+    voiced_sec はその区間で VAD が話しているとみなした長さ（なければ None）"""
     if not normalize(segment.get("text", "")):
         return None
     if segment.get("no_speech_prob") is None and segment.get("avg_logprob") is None:
@@ -97,14 +89,7 @@ def drop_reason(segment: dict[str, Any], voiced_sec: float | None = None) -> str
 
 
 def _drop_reason_without_scores(segment: dict[str, Any], voiced_sec: float | None) -> str | None:
-    """信頼度（no_speech_prob・avg_logprob）がない区間（OpenVINO。#374）。
-    VAD と繰り返しの検出で代える
-
-    - 繰り返し: compression_ratio（実行系の側で計算して付ける）
-    - 話していない: 文ごとの voiced_sec（文の時刻の範囲で VAD が話しているとみなした長さ）が短い
-    - 定番の文: 話している長さ（文ごとの voiced_sec、なければ区間の voiced_sec）が短い
-    どちらの長さも分からなければ（偽の実行系など）、繰り返しのほかは残す
-    """
+    """信頼度がない区間（OpenVINO。#374）を、VAD と繰り返しの検出で判定する。spec/flows.md 6.17"""
     if segment.get("compression_ratio", 0.0) > MAX_COMPRESSION_RATIO:
         return "repetition"
     own = segment.get("voiced_sec")

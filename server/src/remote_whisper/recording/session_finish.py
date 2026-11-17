@@ -90,9 +90,8 @@ class SessionFinisher:
         await self._complete(status)
 
     async def _complete(self, status: str) -> None:
-        """mp3 に変換して、done なら浄書（#121）を作り、最終の要約を積む
-
-        done のときは、続きを録音できる間（#174）は WAV のまま残し、過ぎてから変換する"""
+        """mp3 に変換して、done なら浄書（#121）を作り、最終の要約を積む。
+        続きを録音できる間（#174）は WAV のまま残す"""
         session, manager = self.session, self.session.manager
         self._completing = True
         if status == "done" and manager.continue_window_sec() > 0:
@@ -129,9 +128,8 @@ class SessionFinisher:
             self.settle_summary()
 
     def hand_over(self) -> None:
-        """続きの録音に引き継ぐ（#101・#174）。mp3 への変換と、まだの浄書・最終の要約を取り消す
-
-        GPU で動いている最終の要約は前の版として残す（作っている途中の浄書は止まる。6.9 節）"""
+        """続きの録音に引き継ぐ（#101・#174）。mp3 への変換と、
+        まだの浄書・最終の要約を取り消す（spec/flows.md 6.9）"""
         self.superseded = True
         if self.deferred is not None and not self.deferred.done():
             self.deferred.cancel()

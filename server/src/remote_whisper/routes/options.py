@@ -17,13 +17,8 @@ COMPUTE_TYPES = ["float16", "int8_float16", "int8"]
 
 @router.get("/options")
 async def get_options(ctx: Annotated[AppContext, Depends(get_ctx)]) -> dict[str, Any]:
-    """Whisper のモデル、使っている LLM（Ollama か LM Studio。#325）のモデルと、それぞれが
-    思考モードに対応しているか
-
-    つながらなければ、LLM のモデルは空の一覧にする（status の ollama・lmstudio が error になる）。
-    LLM のモデルは `llm` に入れる。`ollama` は同じ中身の古い名前（#327 で画面は `llm` を読むように
-    したが、PWA に古い画面が残っている間のために残す。消す時期は spec/api.md 7.1）
-    """
+    """Whisper と LLM のモデルと、思考モードへの対応（#325）。
+    `ollama` は `llm` の古い名前（spec/api.md 7.1）"""
     if ctx.mock:
         backend = ctx.settings.get().llm.backend
         llm_models = MOCK_LMSTUDIO_MODELS if backend == "lmstudio" else MOCK_OLLAMA_MODELS

@@ -27,13 +27,8 @@ router = APIRouter(prefix="/api/projects/{pid}/sessions")
 
 @router.post("/{sid}/final-transcripts", status_code=202)
 async def regenerate_final_transcript(pid: Pid, sid: str, ctx: Ctx) -> dict[str, Any]:
-    """最終の文字起こしを作り直す（#124）
-
-    今の全体設定の Whisper のモデル（と話者分けのオン・オフ）で作る。
-    GPU キュー（優先度 3）に積んで、すぐ返す（録音中なら、録音が終わってから作る）。
-    できたら `finalTranscript`、作れなければ `error`（final_transcript_failed）を全員に送る。
-    既存の文字起こしは上書きせず、新しい世代にする
-    """
+    """最終の文字起こしを作り直す（#124）。GPU キュー（優先度 3）に積んですぐ返す。
+    spec/flows.md 6.9"""
     entry, files = load_session(ctx, pid, sid)
     final = ctx.final_transcriber
     if final is None or not final.available():
@@ -76,12 +71,9 @@ async def regenerate_final_transcript(pid: Pid, sid: str, ctx: Ctx) -> dict[str,
 
 @router.post("/{sid}/summaries", status_code=202)
 async def regenerate_summary(pid: Pid, sid: str, ctx: Ctx) -> dict[str, Any]:
-    """今の全体設定で最終の要約を作り直す。GPU キュー（優先度 3）に積んで、すぐ返す
+    """今の全体設定で最終の要約を作り直す。GPU キュー（優先度 3）に積んですぐ返す。spec/flows.md 6.5
 
-    spec/flows.md 6.5
-
-    結果は WebSocket で全員に送る（`summary.delta`（final）・`summary.done`・`title`、失敗なら
-    `error`）。既存の要約は上書きせず、新しい生成 ID のファイルにする
+    結果は WebSocket で全員に送り、既存の要約は上書きせず新しい生成 ID のファイルにする。
     """
     entry, files = load_session(ctx, pid, sid)
     if ctx.summarizer is None:

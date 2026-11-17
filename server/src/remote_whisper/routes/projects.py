@@ -48,9 +48,7 @@ class ProjectBody(BaseModel):
 def change_project(
     pid: Pid, body: ProjectBody, ctx: Annotated[AppContext, Depends(get_ctx)]
 ) -> dict[str, Any]:
-    """プロジェクトの設定を変える（今は最終要約のコピーの置き場所 summaryDir だけ。#341）
-
-    選んだディレクトリの中に限るので、録音中もトンネル（クラウド版）からも変えられる。
+    """プロジェクトの設定を変える（今は最終要約のコピーの置き場所 summaryDir だけ。#341）。
     不正なパスは 422（spec/files.md 5.4）"""
     changes = body.model_dump(exclude_unset=True)
     summary_dir: str | None = None
@@ -124,9 +122,8 @@ async def create_context_set(
 def change_selection(
     pid: Pid, body: SelectionBody, ctx: Annotated[AppContext, Depends(get_ctx)]
 ) -> dict[str, Any]:
-    """使うセットと、用語リスト・コンテキストそれぞれを使うか。録音中は 409
-
-    （spec/files.md 5.3・spec/ui.md 8）"""
+    """使うセットと、用語リスト・コンテキストそれぞれを使うか。
+    録音中は 409（spec/files.md 5.3・spec/ui.md 8）"""
     ctx.ensure_not_recording()
     changes = body.model_dump(exclude_unset=True)
 

@@ -25,11 +25,8 @@ def list_dir(
     ctx: Annotated[AppContext, Depends(get_ctx)],
     path: Annotated[str | None, Query()] = None,
 ) -> dict[str, Any]:
-    """path の中のディレクトリと、materials.extensions の拡張子のファイルを返す
-
-    path を省略すると、materials.roots を返す。返すパスは、リンクなどを解決した実際のパス。
-    中のリンクのうち、ルートの外を指すものは返さない。
-    """
+    """path の中のディレクトリと、materials.extensions のファイルを返す。
+    省略すると materials.roots。ルートの外を指すリンクは返さない"""
     materials = ctx.settings.get().materials
     roots = materials.roots
     if not path:
