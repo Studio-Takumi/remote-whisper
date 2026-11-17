@@ -19,20 +19,19 @@ import {
     toSelection,
     transcriptQuery,
 } from '@/api/data';
-import { isCloud } from '@/api/endpoint';
 import { demoProjects, fallbackOptions, initialContextSets } from '@/api/mock';
-import type { ServerMessage } from '@/api/protocol';
 import { initialServerStatus } from '@/api/status';
 import type { ContextSelection, ContextSet, Project, Session } from '@/api/types';
 import type { AppState } from '@/app/appState';
 import { queryClient, runMutation } from '@/app/query';
+import { connectServer } from '@/app/serverConnection';
+import { StatusReceiver } from '@/app/serverStatus';
 import type { VersionJson } from '@/app/version';
 import { sortSessions } from '@/features/projects/move';
 import { sortByIds } from '@/features/projects/projectOrder';
 import { updateSession } from '@/features/projects/updateSession';
 import { watchMicrophonePermission } from '@/features/recording/audio/microphone';
 import { keepScreenOn, screenKeptOn } from '@/features/recording/audio/wakeLock';
-import { recordingConnectionChanged } from '@/features/recording/reconnect';
 import {
     continueRecording,
     pauseRecording,
@@ -43,14 +42,13 @@ import {
 } from '@/features/recording/recorder';
 import { createRecorder } from '@/features/recording/recorderState';
 import { recordingLocks } from '@/features/recording/recording';
-import { discardUnsent, discardUnsentElsewhere, loadUnsent, recoverUnsent } from '@/features/recording/unsentRecovery';
+import { discardUnsent, discardUnsentElsewhere, recoverUnsent } from '@/features/recording/unsentRecovery';
 import { UploadError, uploadAudio, uploadSource } from '@/features/recording/upload';
 import { Watcher } from '@/features/recording/watcher';
 import { type Correction, applyCorrectionLocally, mergeLiveLines } from '@/features/session/corrections';
 import { keepLineSources, withLineSources } from '@/features/session/sources';
 import { fetchOptions } from '@/features/settings/options';
 import {
-    LLM_NAMES,
     type OllamaModels,
     SETTINGS_PAGES,
     type Settings,
@@ -61,11 +59,6 @@ import {
     llmModels,
 } from '@/features/settings/settings';
 import { formatDateTime, newId } from '@/lib/time';
-
-// LLM（Ollama か LM Studio）につながらず、要約を作れなかった（#327）
-function llmFailed(code: string) {
-    return code === 'ollama_unavailable' || code === 'lmstudio_unavailable';
-}
 
 // 画面の状態をまとめて持つストア。プロジェクト・セッション・設定はサーバーの API から取る（spec/api.md 7.1）
 
@@ -114,10 +107,6 @@ export const currentContextSelection = (s: AppState, sets: ContextSet[]): Contex
     );
 };
 
-// セッションの中身を変える WebSocket の通知（受け取ったら、キャッシュにも入れる）。
-// title・finalTranscript・corrections・sessionMoved などは、それぞれの処理でキャッシュを書き換える・取り直す
-const SESSION_MESSAGES = new Set<ServerMessage['type']>(['final', 'terms', 'summary.done', 'watching']);
-
 // デモ（?demo）ではサーバーに保存されないので、届いた最終の要約をそのままセッションに足す
 function finishDemoSummary(s: AppState, sessionId: string): Partial<AppState> {
     if (s.generating?.sessionId !== sessionId) {
@@ -131,22 +120,6 @@ function finishDemoSummary(s: AppState, sessionId: string): Partial<AppState> {
     };
 }
 
-// サーバー全体で録音中のセッションの数（status の recordings）。変わったら一覧を取り直す（ほかの端末の録音を出すため）
-let lastRecordings = -1;
-// 最終の要約ができて、サーバーに保存されたもので置き換えるセッション（取り直しで手元のものを残さない）
-let releasing: string | null = null;
-// 最終の要約ができたので取り直しているセッション（title と status の両方から呼ばれても1回にする）
-const reloadingSummaries = new Set<string>();
-// サーバーが最終の要約を作っているセッション（直近の status の summarizing。古いサーバーでは null）。#118
-let summarizing: Set<string> | null = null;
-// つながってから、まだ status を受け取っていない。つながり直した直後の status には、
-// 切れている間に作り終えたことが含まれる（title を取りこぼしていても、ここで気づける）
-let freshConnection = false;
-// summarizing から外れた（作り終えた）セッション。作り直しの返事より先に作り終えたときに使う
-const finishedSummaries = new Set<string>();
-// この画面から最終の文字起こしの作り直しを頼んだセッション（できたら、要約も作り直すかを聞く。#124）
-const regeneratingTranscripts = new Set<string>();
-
 export const useAppStore = create<AppState>()((set, get, store) => {
     const recorder = createRecorder(store);
     const { metrics } = recorder;
@@ -155,8 +128,15 @@ export const useAppStore = create<AppState>()((set, get, store) => {
         Object.assign(window, { appMicrophone: () => recorder.mic });
     }
     const watcher = new Watcher(store, refreshTranscripts);
+    const status = new StatusReceiver(store, recorder, reloadAfterFinalSummary);
     // connectServer を 2 回呼んでも、購読は 1 つにする
     let serverSubscribed = false;
+    // 最終の要約ができて、サーバーに保存されたもので置き換えるセッション（取り直しで手元のものを残さない）
+    let releasing: string | null = null;
+    // 最終の要約ができたので取り直しているセッション（title と status の両方から呼ばれても1回にする）
+    const reloadingSummaries = new Set<string>();
+    // この画面から最終の文字起こしの作り直しを頼んだセッション（できたら、要約も作り直すかを聞く。#124）
+    const regeneratingTranscripts = new Set<string>();
 
     // サーバーのバージョンを取る（起動したときと、つながり直したとき。サーバーが入れ替わっているかもしれないため）
     async function loadServerVersion() {
@@ -302,34 +282,6 @@ export const useAppStore = create<AppState>()((set, get, store) => {
             set((s) => ({ generating: s.generating?.sessionId === sessionId ? null : s.generating }));
         } finally {
             reloadingSummaries.delete(sessionId);
-        }
-    }
-
-    // status の summarizing を受け取った。「作成中」のセッションの要約をサーバーが作り終えていたら、
-    // 保存されたものを取り直して「作成中」を消す（結果のメッセージを取りこぼしても残らないように。#118）
-    function receiveSummarizing(list: string[]) {
-        const before = summarizing;
-        const fresh = freshConnection;
-        summarizing = new Set(list);
-        freshConnection = false;
-        for (const id of before ?? []) {
-            if (!summarizing.has(id)) {
-                finishedSummaries.add(id);
-            }
-        }
-        for (const id of summarizing) {
-            finishedSummaries.delete(id);
-        }
-        const s = get();
-        const id = s.generating?.sessionId;
-        // 作っている途中か、まだ始まっていない（録音中・切れている間に止めて、stop をまだ送っていない）
-        if (!id || summarizing.has(id) || id === s.recordingSessionId || id === recorder.stoppedWhileOffline) {
-            return;
-        }
-        // 作っていたのに外れた・つながり直したらもう作っていなかった。
-        // （止めた直後に、止める前の status が遅れて届いたときは、どちらでもないので何もしない）
-        if (before?.has(id) || fresh) {
-            void reloadAfterFinalSummary(id);
         }
     }
 
@@ -949,191 +901,26 @@ export const useAppStore = create<AppState>()((set, get, store) => {
                 return;
             }
             serverSubscribed = true;
-            // ページを閉じるときは、その時点までの録音ごとの数字を送る（#206。同じ録音を 2 回送らない）
-            if (isCloud && !isDemo) {
-                window.addEventListener('pagehide', () => metrics.sendAll(!!get().recordingSessionId, get().elapsed));
-            }
-            // 前にページを開いていたときに、サーバーに届かなかった音声が残っていないか（#102）
-            if (!isDemo) {
-                void loadUnsent(recorder);
-            }
-            if (!isDemo) {
-                // 開いているセッションがほかのクライアントで録音中なら見る（#238）
-                store.subscribe(() => watcher.sync());
-            }
-            connection.onStateChange((connected) => {
-                set((s) => ({
-                    server: { ...s.server, connection: connected ? 'connected' : 'reconnecting' },
-                    // 切れたら、届きかけの途中の要約は捨てる（つながり直した後の断片が続けて足されないように）
-                    liveDraft: connected ? s.liveDraft : null,
-                }));
-                if (connected) {
-                    // 最初に届く status で、切れている間に最終の要約ができていないかを確かめる（#118）
-                    freshConnection = true;
-                }
-                if (connected && !isDemo) {
-                    // 切れている間に届かなかった contextSet（作成の終わり）を取りこぼさないように、一覧を取り直す
-                    void refreshContextSets(get().projects.map((p) => p.id));
-                    void loadServerVersion();
-                }
-                // 録音中に切れていたら、続きから録音する
-                recordingConnectionChanged(recorder, connected);
+            connectServer({
+                store,
+                recorder,
+                watcher,
+                status,
+                loadServerVersion,
+                sessions: {
+                    regeneratingTranscripts,
+                    receiveFinalTranscript,
+                    reloadAfterMove,
+                    reloadAfterFinalSummary,
+                    refreshTranscripts,
+                    refreshContextSets,
+                    sortProjectsBy,
+                    patchSession,
+                    syncSessionToCache,
+                    cachedContextSets,
+                    updateCachedContextSets,
+                },
             });
-            connection.subscribe((m) => {
-                watcher.receive(m);
-                // セッションの中身を変える通知（録音中・見ている録音の行・語・途中の要約）は、受け取った
-                // ほかのリスナー（録音の購読）がストアを書き換えたあとで、キャッシュにも入れる
-                if (SESSION_MESSAGES.has(m.type) && 'session' in m && m.session) {
-                    const sessionId = m.session;
-                    queueMicrotask(() => syncSessionToCache(sessionId));
-                }
-                if (m.type === 'status') {
-                    // recordings と queue は画面に出さない（GPU キューは jobs で出す）
-                    // LLM（Ollama か LM Studio。#327）につながるようになった
-                    const llmBack =
-                        (m.ollama === 'ready' && get().server.ollama !== 'ready') ||
-                        (m.lmstudio === 'ready' && get().server.lmstudio !== 'ready');
-                    // status は GPU の使用率が変わるたびにも届くが、jobs の秒数はキューが変わったときのまま。
-                    // jobs が変わったときだけ受け取った時刻を記録し直す（経過時間が戻らないように）
-                    const jobsChanged = !!m.jobs && JSON.stringify(m.jobs) !== JSON.stringify(get().server.jobs);
-                    set((s) => ({
-                        server: {
-                            ...s.server,
-                            whisper: m.whisper,
-                            ollama: m.ollama,
-                            lmstudio: m.lmstudio,
-                            jobs: jobsChanged && m.jobs ? m.jobs : s.server.jobs,
-                            jobsAt: jobsChanged ? Date.now() : s.server.jobsAt,
-                            gpu: m.gpu ?? null,
-                            // 同じ中身なら前の配列のまま（描き直さないように）
-                            transcribing:
-                                JSON.stringify(m.transcribing ?? []) === JSON.stringify(s.server.transcribing)
-                                    ? s.server.transcribing
-                                    : (m.transcribing ?? []),
-                            summarizing:
-                                JSON.stringify(m.summarizing ?? []) === JSON.stringify(s.server.summarizing)
-                                    ? s.server.summarizing
-                                    : (m.summarizing ?? []),
-                        },
-                    }));
-                    // LLM につながるようになったら、モデルの一覧を取り直す（つながらない間は空になっている）
-                    if (llmBack) {
-                        void get().loadOptions();
-                    }
-                    // 録音中のセッションの数が変わったら（ほかの端末で始めた・終えたなど）、一覧を取り直す
-                    if (m.recordings !== lastRecordings) {
-                        lastRecordings = m.recordings;
-                        void get().loadProjects();
-                    }
-                    // 古いサーバーは summarizing を送らない（そのときは title と error だけで消す）
-                    if (m.summarizing && !isDemo) {
-                        receiveSummarizing(m.summarizing);
-                    }
-                } else if (m.type === 'summary.delta' && m.kind === 'final') {
-                    // 最終の要約（録音を終えた後と、作り直し）。少しずつ届く
-                    set((s) => ({
-                        generating: {
-                            sessionId: m.session,
-                            model:
-                                s.generating?.sessionId === m.session
-                                    ? s.generating.model
-                                    : finalModelLabel(llmModels(s.settings)),
-                            text: (s.generating?.sessionId === m.session ? s.generating.text : '') + m.text,
-                        },
-                    }));
-                } else if (m.type === 'finalTranscript' && !isDemo) {
-                    // 最終の文字起こしができた（#121）。最終の要約を待っている間（一覧の取り直しでは中身を
-                    // 置き換えない）でも出せるように、そのセッションの最終の文字起こしだけを取ってきて足す
-                    void receiveFinalTranscript(m.session, m.generationId);
-                } else if (m.type === 'sessionMoved' && !isDemo) {
-                    // セッションを別のプロジェクトへ移した（ほかの端末からのものも。#172）
-                    void reloadAfterMove(m.session, m.from, m.to);
-                } else if (m.type === 'projectOrder' && !isDemo) {
-                    // プロジェクトの並びが変わった（ほかの端末からのものも。#173）。設定だけ取り直して、
-                    // 手元の一覧を並べ直す（一覧を取り直すと、続けて並び替えたときに古い応答で戻ることがある）
-                    void get()
-                        .loadSettings()
-                        .then(() => {
-                            const ids = get().settings.projectOrder;
-                            if (ids.some((id) => !get().projects.some((p) => p.id === id))) {
-                                // 知らないプロジェクト（ほかの端末で作ったもの）があれば、一覧ごと取り直す
-                                void get().loadProjects();
-                            } else {
-                                sortProjectsBy(ids);
-                            }
-                        });
-                } else if (m.type === 'corrections' && !isDemo) {
-                    // 置き換えを足した・外した（ほかの端末からのものも。#176）
-                    void refreshTranscripts(m.session);
-                } else if (m.type === 'title') {
-                    patchSession(m.session, (x) => ({ ...x, title: m.title, provisionalTitle: m.provisional }));
-                    // 最終のタイトルは、最終の要約を保存した後に届く。保存されたものを取り直して表示を置き換える
-                    if (!m.provisional) {
-                        // 録音ごとの数字を送る（#206。最終の要約ができた）。同じ録音を 2 回送らない
-                        metrics.finish(m.session, true);
-                        void reloadAfterFinalSummary(m.session);
-                    }
-                }
-                if (m.type === 'error' && m.session && m.code === 'final_transcript_failed') {
-                    // 作り直しを頼んだ文字起こしができなかった（知らせは下でトーストに出す）
-                    regeneratingTranscripts.delete(m.session);
-                }
-                if (
-                    m.type === 'error' &&
-                    m.session &&
-                    (llmFailed(m.code) || m.code === 'summary_skipped' || m.code === 'summary_failed')
-                ) {
-                    // 最終の要約を待っていた録音は、失敗として数字を送る（#206）
-                    metrics.finish(m.session, false);
-                }
-                if (
-                    m.type === 'error' &&
-                    m.session &&
-                    (llmFailed(m.code) ||
-                        m.code === 'summary_skipped' ||
-                        m.code === 'summary_failed' ||
-                        m.code === 'write_failed')
-                ) {
-                    // 要約を作れなかった（作らなかった）。作成中の表示を消す。
-                    // Ollama の失敗なら、途中の要約の下書きも捨てる（届きかけの分が、次の回の要約に混ざらないように。
-                    // 音声の write_failed では捨てない）
-                    set((s) => ({
-                        generating: s.generating?.sessionId === m.session ? null : s.generating,
-                        liveDraft: llmFailed(m.code) && s.liveDraft?.sessionId === m.session ? null : s.liveDraft,
-                    }));
-                    // 最終の要約の失敗はサーバーが記録している（spec/flows.md 6.7）。手元で決めつけず、取り直して記録に合わせる
-                    // （録音を終えた直後の途中の要約や音声の失敗を、要約の失敗と取り違えないように）
-                    if (get().recordingSessionId !== m.session) {
-                        void get().loadProjects();
-                    }
-                }
-                // project のない contextSet（モックの /api/mock/context-set のまね）は、どのプロジェクトか分からないので無視する
-                if (m.type === 'contextSet' && m.project) {
-                    // 参考資料セットの作成の進み具合（ほかの端末で始めたものも）
-                    const pid = m.project;
-                    const known = cachedContextSets(pid).find((x) => x.id === m.id);
-                    if (!known) {
-                        // 知らないセット（ほかの端末で始めたもの）は、一覧ごと取り直す
-                        void refreshContextSets([pid]);
-                        return;
-                    }
-                    updateCachedContextSets(pid, (sets) =>
-                        sets.map((x) => (x.id === m.id ? { ...x, status: m.status } : x)),
-                    );
-                    if (known.status === 'generating' && m.status === 'ready') {
-                        toast.success('参考資料ができました');
-                    } else if (known.status === 'generating' && m.status === 'failed') {
-                        toast.error(
-                            `参考資料を作れませんでした（資料を読めないか、${LLM_NAMES[llmBackend(get().settings)]} に接続できません）`,
-                        );
-                    }
-                }
-                if (m.type === 'error' && !recorder.starting && !recorder.resuming) {
-                    // 録音を始める・続けるときのエラーは、それぞれの処理でまとめて出す
-                    toast.error(m.message);
-                }
-            });
-            connection.start();
         },
 
         // 簡易設定・設定モーダルのどちらからでも呼ぶ。全体設定を保存する（PATCH /api/settings）。保存できたら true
@@ -1242,7 +1029,7 @@ export const useAppStore = create<AppState>()((set, get, store) => {
             if (!project) {
                 return;
             }
-            finishedSummaries.delete(sessionId);
+            status.finishedSummaries.delete(sessionId);
             try {
                 const reply = await api.post<{ model: string; overviewModel?: string }>(
                     `/api/projects/${project.id}/sessions/${sessionId}/summaries`,
@@ -1253,7 +1040,7 @@ export const useAppStore = create<AppState>()((set, get, store) => {
                     detail: reply.model,
                     overview: reply.overviewModel ?? reply.model,
                 });
-                if (finishedSummaries.has(sessionId)) {
+                if (status.finishedSummaries.has(sessionId)) {
                     // 返事より先に作り終えていた（「作成中」にすると、消すきっかけがもう来ない）
                     void reloadAfterFinalSummary(sessionId);
                     return;
