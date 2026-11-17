@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 
-// 文字起こしの高さを、同じセッションのあいだは縮めない（#89。spec/notes.md 9.5）。縮むと一番下を見ているとき揺れて見える。
+// 文字起こしの高さを、同じセッションのあいだは縮めない（#89。spec/ui.md 8）。縮むと一番下を見ているとき揺れて見える。
 // 外側に min-height を付け、内側の高さを測る（min-height を外して測るとその瞬間に縮む）。key はセッション、content は中身
 export function useKeepHeight(key: string, content: string) {
     const outer = useRef<HTMLDivElement>(null);

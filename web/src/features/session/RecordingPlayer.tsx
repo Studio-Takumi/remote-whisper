@@ -18,7 +18,7 @@ import {
 import { type SessionSource, sourceKindLabel, sourceLabel, sourceTitle } from '@/features/session/sources';
 
 // 録音の再生バー（spec/ui.md 8・spec/api.md 7.1）。読み込めなかったら onError を呼ぶ（出すかどうかは呼ぶ側が決める）。
-// 再生速度（#268）は端末ごとに覚え、src が変わると等速に戻るので読み込みのたびにかけ直す（spec/notes.md 9.5）。onLoaded は音源の切り替え（#371）用
+// 再生速度（#268）は端末ごとに覚え、src が変わると等速に戻るので読み込みのたびにかけ直す（spec/ui.md 8）。onLoaded は音源の切り替え（#371）用
 export function RecordingPlayer({
     src,
     audio,

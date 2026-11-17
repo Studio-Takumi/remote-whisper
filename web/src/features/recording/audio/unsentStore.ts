@@ -7,7 +7,7 @@ const CHUNKS = 'unsentChunks';
 // 置いておく量の上限（バイト）。16kHz・Int16 で約 60 分。超えた分は手元（メモリ）だけに持つ
 export const MAX_BYTES = 120 * 1024 * 1024;
 
-// host は録音していたホストの ID（クラウド版。#227。セルフホスト版は null、古い行は undefined。spec/notes.md 9.5）。
+// host は録音していたホストの ID（クラウド版。#227。セルフホスト版は null、古い行は undefined。spec/cloud.md 10.6）。
 // キーや索引は変えないので、データベースの版は上げない
 type ChunkRow = { session: string; seq: number; project: string; host?: string | null; frame: ArrayBuffer };
 export type UnsentSession = {
@@ -26,7 +26,7 @@ export function unsentSeconds(frames: { frame: ArrayBuffer }[]) {
     return Math.round(samples / SAMPLE_RATE);
 }
 
-// 今のホストのものと、ほかのホストのものに分ける（#227。spec/notes.md 9.5・spec/cloud.md 10.6）。今のホストのものは復旧できる最初の 1 つだけ。
+// 今のホストのものと、ほかのホストのものに分ける（#227。spec/cloud.md 10.6）。今のホストのものは復旧できる最初の 1 つだけ。
 // クラウド版でホスト不明の行は今のホストに送らず、host を null にして捨てられるようにする（別のアカウントの録音を送らないため）
 export function splitByHost(
     list: UnsentSession[],

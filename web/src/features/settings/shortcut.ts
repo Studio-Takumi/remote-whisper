@@ -1,5 +1,5 @@
 // マイクボタンのキーボードのショートカット（#236。spec/files.md 5.3）。「修飾キー + キー」の形で持つ。
-// キーは key ではなく KeyboardEvent.code で比べる（spec/notes.md 9.5）
+// キーは key ではなく KeyboardEvent.code で比べる（spec/ui.md 8）
 
 export const DEFAULT_MIC_SHORTCUT = 'Alt+Shift+KeyM';
 

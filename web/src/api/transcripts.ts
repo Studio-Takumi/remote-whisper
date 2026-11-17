@@ -28,7 +28,7 @@ export const finalTranscriptsQuery = (projectId: string, sessionId: string) =>
     });
 
 // 最終の文字起こし（#121）の 1 つの世代。書き換わらないのでキャッシュを使い、置き換え（#176）が変わったら
-// forgetTranscripts で消す（spec/notes.md 9.5）
+// forgetTranscripts で消す（spec/flows.md 6.13）
 export const finalTranscriptQuery = (projectId: string, sessionId: string, gid: string) =>
     queryOptions({
         ...KEEP,
@@ -63,7 +63,7 @@ export function fetchFinalTranscripts(projectId: string, sessionId: string) {
 }
 
 // 置き換え（#176）が変わったので、そのセッションの文字起こしと世代をキャッシュから消す。keep は消さず上書きする。
-// 取得中のものは、届くのを待ってから消す（invalidate だと古い中身が残り、cancel だと待つ側がエラーになる。spec/notes.md 9.5）
+// 取得中のものは、届くのを待ってから消す（invalidate だと古い中身が残り、cancel だと待つ側がエラーになる。spec/flows.md 6.13）
 export async function forgetTranscripts(
     projectId: string,
     sessionId: string,

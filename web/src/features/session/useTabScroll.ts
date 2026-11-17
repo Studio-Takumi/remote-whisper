@@ -6,7 +6,7 @@ type Tab = 'transcript' | 'summary';
 
 type TabScroll = { top: number; atBottom: boolean };
 
-// タブごとのスクロール位置（window）を覚えて、切り替えたら戻す（#78。spec/notes.md 9.5）。
+// タブごとのスクロール位置（window）を覚えて、切り替えたら戻す（#78。spec/ui.md 8）。
 // 一番下にいたタブは伸びていても一番下に戻す。セッションを替えたら捨てる
 export function useTabScroll(sessionId: string | undefined) {
     const [state, setState] = useState<{

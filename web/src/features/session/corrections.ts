@@ -90,7 +90,7 @@ export function rightProblem(wrong: string, right: string): string | null {
 }
 
 // 録音中に取り直した文字起こし（fetched）を手元の行（local）に重ねる。final と取り直しのどちらが先でも
-// 二重・抜けにならないよう、手元の行の数を正にして本文だけ差し替える（spec/notes.md 9.5）
+// 二重・抜けにならないよう、手元の行の数を正にして本文だけ差し替える（spec/flows.md 6.2）
 export function mergeLiveLines<T extends { time: string; text: string }>(local: T[], fetched: T[]): T[] {
     return local.map((line, i) =>
         fetched[i] && fetched[i].text !== line.text ? { ...line, text: fetched[i].text } : line,

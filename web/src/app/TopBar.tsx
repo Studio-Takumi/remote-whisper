@@ -58,7 +58,7 @@ export function TopBar() {
     );
 
     // 長い本文の下からでも押せるよう上に貼り付ける（#78）。本文が透けないよう背景を塗って余白まで広げ、
-    // 高さは CSS 変数に出してタブを下に貼る（spec/notes.md 9.5）
+    // 高さは CSS 変数に出してタブを下に貼る（spec/ui.md 8）
     return (
         <div
             ref={ref}

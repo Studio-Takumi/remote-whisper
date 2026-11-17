@@ -1,4 +1,4 @@
-// 画面の URL（#177。spec/notes.md 9.5）。セッション・プロジェクト・設定モーダルを URL に出し、
+// 画面の URL（#177。spec/ui.md 8）。セッション・プロジェクト・設定モーダルを URL に出し、
 // 戻る・進む・再読み込み・直接開く、のどれでも同じ画面を開く。UUID のないもの（古いサーバー・?demo）は今の ID を使う
 import type { Project } from '@/api/types';
 
