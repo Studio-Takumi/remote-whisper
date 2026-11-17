@@ -3,8 +3,8 @@ import { useLayoutEffect, useRef } from 'react';
 import { ChevronRightIcon, CpuIcon } from 'lucide-react';
 
 import { isCloud } from '@/api/endpoint';
+import { GpuIndicator } from '@/app/GpuIndicator';
 import { useAppStore } from '@/app/store';
-import { GpuIndicator } from '@/components/GpuIndicator';
 import { SidebarTrigger } from '@/components/ui/sidebar';
 import { CloudHostBadge } from '@/features/cloud/CloudHostBadge';
 import { ContextSetSheet } from '@/features/materials/ContextSetSheet';

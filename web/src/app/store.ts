@@ -230,7 +230,7 @@ export function needsSummaryFor(session: Session, models: OllamaModels) {
     );
 }
 // プロジェクトの参考資料セットの一覧。サーバーのデータなのでストアには持たず、キャッシュ（#330）から読む。
-// 画面からは useCurrentContextSets（hooks/useContextSets.ts）で読む
+// 画面からは useCurrentContextSets（features/materials/useContextSets.ts）で読む
 export function cachedContextSets(projectId: string | undefined) {
     return (projectId && queryClient.getQueryData(contextSetsQuery(projectId).queryKey)) || NO_SETS;
 }
