@@ -90,3 +90,14 @@
 
 - 使い捨ての道具（`transcribe.py`・`tray_icons.py`）は `server/scripts/` に置く
 - テストどうしで共有する部品は `server/tests/helpers/` にあり、pytest の `pythonpath` は `tests` だけ（`from helpers.recorder import start` のように読む）
+- 録音中のセッション（`recording/`）は役割ごとに分ける（#385）。`RecordingSession` は部品を組み合わせるだけ
+
+| モジュール | 置くもの |
+|---|---|
+| `recorder.py` | `RecordingManager`（開始・続き・再開・最終の要約を積む）と、録音を終えた WAV の mp3 への変換 |
+| `session.py` | `RecordingSession`。主の音源の受け取り・一時停止・切断と再開・録音の終わり |
+| `wav_appender.py` | 録音の WAV への追記（書くたびにヘッダーを直す） |
+| `session_live.py` | 録音中の文字起こし・途中の要約・用語拾いの起動と、確定した区間の受け渡し |
+| `session_sources.py` | 録音中に参加したほかの端末の音源（参加・つなぎ直し・抜ける・ずれの測り直し） |
+| `source_records.py` | 音源の一覧（`sources.json`）と行ごとの音源（`line-sources.jsonl`）の書き込み |
+| `session_finish.py` | 録音を終えたあとの後始末（変換・浄書・最終の要約）と、続きの録音への引き継ぎ |
