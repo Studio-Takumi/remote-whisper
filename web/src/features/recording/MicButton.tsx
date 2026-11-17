@@ -4,7 +4,8 @@ import { MicIcon, MicOffIcon, PauseIcon, PlayIcon, PlusIcon, RadioIcon, SquareIc
 import { toast } from 'sonner';
 
 import type { Session } from '@/api/types';
-import { currentProject, currentSession, useAppStore } from '@/app/store';
+import { currentProject, currentSession } from '@/app/selectors';
+import { useAppStore } from '@/app/store';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { continueLeftSec, describeLeft } from '@/features/recording/continueWindow';
 import { type Joined, joinUnavailable } from '@/features/recording/join';

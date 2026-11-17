@@ -3,7 +3,8 @@ import { useState } from 'react';
 import { PlusIcon, SettingsIcon, UserIcon } from 'lucide-react';
 
 import { isCloud } from '@/api/endpoint';
-import { useAppStore, visibleProjects } from '@/app/store';
+import { visibleProjects } from '@/app/selectors';
+import { useAppStore } from '@/app/store';
 import {
     Sidebar,
     SidebarContent,

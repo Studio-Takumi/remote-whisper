@@ -3,7 +3,8 @@ import { useShallow } from 'zustand/react/shallow';
 
 import { contextSetsQuery } from '@/api/data';
 import type { ContextSelection, ContextSet } from '@/api/types';
-import { currentContextSelection, currentProject, useAppStore } from '@/app/store';
+import { currentContextSelection, currentProject } from '@/app/selectors';
+import { useAppStore } from '@/app/store';
 
 // 毎回同じ参照を返すように、空のときも定数を返す
 const NO_SETS: ContextSet[] = [];

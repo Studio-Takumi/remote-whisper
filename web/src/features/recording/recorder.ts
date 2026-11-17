@@ -5,6 +5,7 @@ import { AudioSender, connection } from '@/api/connection';
 import { getHostId } from '@/api/endpoint';
 import type { Session } from '@/api/types';
 import { replaceUrlNext } from '@/app/router';
+import { currentProject, currentSession } from '@/app/selectors';
 import { updateSession } from '@/features/projects/updateSession';
 import { Microphone, MicrophoneError, SAMPLE_RATE } from '@/features/recording/audio/microphone';
 import { clearSession, deleteUpTo, saveChunk } from '@/features/recording/audio/unsentStore';
@@ -202,16 +203,28 @@ export async function startOrContinue(r: Recorder, projectId: string, continueSe
     }
 }
 
-// 新しいセッションを録音する（録音中・始めている途中・前の録音の残りを送っていないときは始めない）
-export async function startNew(r: Recorder, projectId: string) {
-    if (r.store.getState().recordingState !== 'idle' || r.starting) {
+// 開いているプロジェクトで、新しいセッションを録音する
+export async function startRecording(r: Recorder) {
+    const s = r.store.getState();
+    const project = currentProject(s);
+    if (!project) {
+        toast.info('録音するプロジェクトをメニューから選んでください');
+        return;
+    }
+    // 既存のセッションを開いていたら、同じプロジェクトの新しいセッションの画面に切り替えるだけにする
+    // 録音を始める前に、モデルや参考資料を選び直せるようにするため
+    if (currentSession(s)) {
+        r.store.setState({ selection: { projectId: project.id, sessionId: null } });
+        return;
+    }
+    if (s.recordingState !== 'idle' || r.starting) {
         return;
     }
     if (r.stoppedWhileOffline) {
         toast.warning(WAITING_LEFTOVER);
         return;
     }
-    await startOrContinue(r, projectId);
+    await startOrContinue(r, project.id);
 }
 
 // 途中で終わったセッションの続きを、同じセッションのまま録音する（#101）

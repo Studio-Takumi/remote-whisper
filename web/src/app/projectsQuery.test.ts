@@ -14,7 +14,8 @@ import {
 import type { ServerMessage } from '@/api/protocol';
 import type { ContextSet } from '@/api/types';
 import { queryClient, queryKeys } from '@/app/query';
-import { cachedContextSets, useAppStore } from '@/app/store';
+import { useAppStore } from '@/app/store';
+import { cachedContextSets } from '@/features/materials/contextSetCache';
 import { defaultSettings } from '@/features/settings/settings';
 
 // プロジェクトの一覧（#330 の 1 段目）・セッションの一覧と参考資料セットの一覧（2 段目）・

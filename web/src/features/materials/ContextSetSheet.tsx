@@ -3,7 +3,8 @@ import { useState } from 'react';
 import { ChevronDownIcon, FileTextIcon, PlusIcon } from 'lucide-react';
 
 import { type ContextSet, contextSetName } from '@/api/types';
-import { currentProject, useAppStore } from '@/app/store';
+import { currentProject } from '@/app/selectors';
+import { useAppStore } from '@/app/store';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
