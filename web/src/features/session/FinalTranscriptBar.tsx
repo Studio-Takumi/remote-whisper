@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { recordingLocks } from '@/features/recording/recording';
 import { StatusIndicator } from '@/features/session/StatusIndicator';
+import { generationLabel } from '@/features/session/transcriptGenerations';
 
 // 最終の文字起こし（#121）の世代の切り替えと作り直し。作っている途中なら、そう出す
 export function FinalTranscriptBar({ session, making }: { session: Session; making: boolean }) {
@@ -81,10 +82,7 @@ export function FinalTranscriptBar({ session, making }: { session: Session; maki
             noRecording || null
         );
     }
-    const label = (g: FinalTranscriptInfo) =>
-        [g.model, showSpeakers && g.diarization === 'done' ? `話者 ${g.speakers} 人` : null, g.generatedAt]
-            .filter(Boolean)
-            .join('・');
+    const label = (g: FinalTranscriptInfo) => generationLabel(g, showSpeakers);
     return (
         <div className='flex flex-col gap-1'>
             <div className='flex flex-wrap items-center gap-2'>

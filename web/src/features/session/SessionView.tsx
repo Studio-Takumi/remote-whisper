@@ -19,10 +19,10 @@ import { ShareButton } from '@/features/session/ShareButton';
 import { SourceList } from '@/features/session/SourceList';
 import { StatusIndicator } from '@/features/session/StatusIndicator';
 import { SummaryPanel } from '@/features/session/SummaryPanel';
-import { type Playback, Transcript } from '@/features/session/Transcript';
+import { Transcript } from '@/features/session/Transcript';
 import { TranscriptCorrection } from '@/features/session/TranscriptCorrection';
 import { type LivePartial, partialsOf } from '@/features/session/livePartials';
-import { lineAt } from '@/features/session/playbackLine';
+import { type SessionPlayback, lineAt, nextPlayback } from '@/features/session/playbackLine';
 import { expired, shareSource } from '@/features/session/sessionContent';
 import { sourceNames } from '@/features/session/sources';
 import { type PickedSummary, shownSummary } from '@/features/session/summaryPick';
@@ -64,7 +64,7 @@ export function SessionView() {
     // 読み込めなかった録音（開いた後に消えたなど）。再生バーを消し、時刻も押せなくする
     const [failedRecording, setFailedRecording] = useState<string | null>(null);
     // 録音の再生位置に当たる行（#122）。行が変わったときだけ変える（再生中の timeupdate のたびに描き直さない）
-    const [playback, setPlayback] = useState<(Playback & { sessionId: string }) | null>(null);
+    const [playback, setPlayback] = useState<SessionPlayback | null>(null);
     // 文字起こしの本文（文字を選んで置き換える範囲。#176）
     const transcriptBox = useRef<HTMLDivElement>(null);
     // 最終の文字起こし（#121）があれば、それだけを出す（要約と同じ。録音中の文字起こしには戻せない。#145）。
@@ -108,14 +108,7 @@ export function SessionView() {
             playSource.clearNotice();
         }
         const index = lineAt(starts, playSource.mainTime(sec));
-        setPlayback((p) => {
-            const same = p?.sessionId === session.id;
-            if (same && p.index === index && p.playing === playing && !seeked) {
-                return p;
-            }
-            const seeks = (same ? p.seeks : 0) + (seeked ? 1 : 0);
-            return { sessionId: session.id, index, playing, seeks };
-        });
+        setPlayback((p) => nextPlayback(p, session.id, index, playing, seeked));
     };
 
     return (

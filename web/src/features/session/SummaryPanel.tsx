@@ -15,6 +15,12 @@ import { StatusIndicator } from '@/features/session/StatusIndicator';
 import { expired, shareSource } from '@/features/session/sessionContent';
 import { type PickedSummary, shownSummary } from '@/features/session/summaryPick';
 import {
+    canRegenerateSummary,
+    generatingPlaceholder,
+    summaryFailureHint,
+    summaryLabel,
+} from '@/features/session/summaryView';
+import {
     LLM_NAMES,
     type OllamaModels,
     finalModelLabel,
@@ -61,15 +67,8 @@ export function SummaryPanel({
                 </>
             );
         }
-        // 本文が届き始めるまで（モデルの読み込み・思考・長い録音の部分ごとの要約の間）は、空にせず
-        // 作り直しなら今表示している要約を、録音を終えた直後なら途中の要約を出しておく（#80）
-        // 途中の要約は最終の要約ができた後も手元に残ることがあるので、最終の要約を先に見る
-        const live = liveDraft?.sessionId === session.id ? liveDraft.text : session.liveSummary;
-        const placeholder = summary?.text
-            ? { label: '今の要約（再生成した要約が届き次第差し替えます）', text: summary.text, live: false }
-            : live
-              ? { label: 'リアルタイム要約（最終要約が届き次第差し替えます）', text: live, live: true }
-              : null;
+        // 本文が届き始めるまで（モデルの読み込み・思考・長い録音の部分ごとの要約の間）は、空にしない
+        const placeholder = generatingPlaceholder(session, summary, liveDraft);
         return (
             <>
                 {status}
@@ -86,14 +85,7 @@ export function SummaryPanel({
             </>
         );
     }
-    // 作り直せるのは、録音を終えていて文字起こしが残っているセッション
-    // ほかのセッションの要約を作っている間は押せない（作成中の表示は1つだけ持つので、二重に頼まないように）
-    const canRegenerate =
-        session.status !== 'recording' &&
-        session.loaded === true &&
-        session.files?.transcript !== false &&
-        session.transcript.length > 0 &&
-        generating === null;
+    const canRegenerate = canRegenerateSummary(session, generating);
     const regenerateButton = canRegenerate && (
         <div className='flex flex-col items-start gap-1'>
             <Button
@@ -121,13 +113,7 @@ export function SummaryPanel({
                 {summary ? '直近の要約の再生成に失敗しました' : '最終要約を作れませんでした'}
             </p>
             <p className='text-xs text-muted-foreground'>
-                {!canRegenerate
-                    ? session.files?.transcript === false || session.transcript.length === 0
-                        ? '文字起こしが残っていないため、再生成できません'
-                        : 'ほかの要約を作り終えてから、再生成してください'
-                    : !llmDown
-                      ? `${llmName} には今つながっています。再生成してください（保存に失敗した場合は、ディスクの空きも確かめてください）`
-                      : `${llmName} に接続できません。動いているか確かめてから再生成してください`}
+                {summaryFailureHint(session, canRegenerate, llmDown, llmName)}
             </p>
             {regenerateButton}
         </div>
@@ -166,9 +152,7 @@ export function SummaryPanel({
         );
     }
 
-    // 全体概要のモデルが要約詳細と違えば、両方出す（#178）
-    const label = (s: Summary) =>
-        `${finalModelLabel({ ...models, overview: s.overviewModel ?? s.model, detail: s.model })} で生成・${s.generatedAt}`;
+    const label = (s: Summary) => summaryLabel(s, models);
     return (
         <>
             {failure}
