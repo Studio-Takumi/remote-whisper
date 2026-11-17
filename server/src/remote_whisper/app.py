@@ -14,11 +14,15 @@ from remote_whisper.routes import mock as mock_routes
 from remote_whisper.routes import options as options_routes
 from remote_whisper.routes import projects as projects_routes
 from remote_whisper.routes import push as push_routes
-from remote_whisper.routes import sessions as sessions_routes
 from remote_whisper.routes import settings as settings_routes
 from remote_whisper.routes import setup as setup_routes
 from remote_whisper.routes import version as version_routes
 from remote_whisper.routes import ws as ws_routes
+from remote_whisper.routes.sessions import move as sessions_move
+from remote_whisper.routes.sessions import read as sessions_read
+from remote_whisper.routes.sessions import regenerate as sessions_regenerate
+from remote_whisper.routes.sessions import terms as sessions_terms
+from remote_whisper.routes.sessions import uploads as sessions_uploads
 from remote_whisper.settings import default_home
 from remote_whisper.version import app_version
 from remote_whisper.web import mount_web
@@ -67,8 +71,15 @@ def create_app(
     app.include_router(settings_routes.router)
     app.include_router(options_routes.router)
     app.include_router(projects_routes.router)
-    app.include_router(sessions_routes.router)
-    app.include_router(sessions_routes.lookup)
+    for router in (
+        sessions_uploads.router,
+        sessions_read.router,
+        sessions_move.router,
+        sessions_read.lookup,
+        sessions_regenerate.router,
+        sessions_terms.router,
+    ):
+        app.include_router(router)
     app.include_router(fs_routes.router)
     app.include_router(ws_routes.router)
     app.include_router(version_routes.router)
