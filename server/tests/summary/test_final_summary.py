@@ -369,6 +369,14 @@ def test_section_heading():
     assert section_heading([["時刻なし"], ["x"]], 0) == "## 部分 1"
 
 
+def test_detail_section_puts_the_part_under_its_time_range():
+    chunks = [["[00:00:00] a"], ["[00:12:30] c"]]
+    part = "## 決まったこと\n- 来週出す"
+    assert final_summary.detail_section(chunks, 0, part) == (
+        "\n\n## 00:00:00〜00:12:30\n\n### 決まったこと\n- 来週出す"
+    )
+
+
 def test_regenerate_with_another_model(client, project, fake_ollama, tmp_path):
     pid, d = project
     sid, _ = record(client, pid)
