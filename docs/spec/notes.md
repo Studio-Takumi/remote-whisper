@@ -52,3 +52,24 @@
 4. リアルタイム要約・最終要約・タイトル
 5. 参考資料の作成
 6. 保存期間の管理と、障害からの復旧
+
+## 9.6 server のモジュールの置き場所（#332）
+
+`server/src/remote_whisper/` は役割ごとのパッケージに分ける。テストは `server/tests/` に同じ分け方で置く。
+
+| パッケージ | 置くもの |
+|---|---|
+| （直下） | 起動（`__main__`・`app`）、全体の状態（`context`・`hub`）、設定・ログ・バージョン、Host の確認、Web Push、モック |
+| `routes/` | HTTP・WebSocket の口 |
+| `recording/` | 録音の受け取り・区間分け・録音中の文字起こし・アップロード・復旧 |
+| `transcript/` | 録音後の文字起こし（浄書）・置き換え・用語の拾い出し |
+| `summary/` | 途中の要約・最終要約・プロンプト・OKF |
+| `llm/` | LLM の共通の口と、Ollama・LM Studio のクライアント |
+| `gpu/` | GPU キューと使用率、Whisper の子プロセス |
+| `materials/` | 参考資料のテキスト・目次・図・範囲と、参考資料セットの作成 |
+| `storage/` | プロジェクト・セッションのファイルの読み書き、日時と ID、掃除 |
+| `cloud/` | クラウド版のホストの登録・トンネル・cloudflared・お知らせ |
+| `desktop/` | 常駐アイコン・ログイン時の起動・初回のセットアップ・ポート・配布版の同梱物 |
+
+- 使い捨ての道具（`transcribe.py`・`tray_icons.py`）は `server/scripts/` に置く
+- テストどうしで部品を import し合っているので、pytest の `pythonpath` にテストのフォルダを並べている

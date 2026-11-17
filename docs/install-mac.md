@@ -6,7 +6,7 @@ Python・uv・cloudflared を自分で入れずに、`.dmg` 1 つで remote-whis
 
 ## 入っているもの
 
-`Remote Whisper.app` の中（`Contents/Resources/app`）に、次のものが入っています。中の形は Windows の配布版と同じです（`server/src/remote_whisper/bundle.py`）。
+`Remote Whisper.app` の中（`Contents/Resources/app`）に、次のものが入っています。中の形は Windows の配布版と同じです（`server/src/remote_whisper/desktop/bundle.py`）。
 
 - Python 3.11（python-build-standalone）と、`server/uv.lock` の通りの依存（mlx・mlx-whisper、faster-whisper（無音の判定に使う）、メニューバー用の pystray など）。`uv export` した固定の版とハッシュ（`--require-hashes`）で入れています
 - 画面（ブラウザで開くフロント）
@@ -119,7 +119,7 @@ Windows（#168）と同じく、python-build-standalone の Python をそのま�
 - **mlx の Metal のライブラリが、そのまま動く**: mlx は `mlx/lib/libmlx.dylib` と、その隣の `mlx.metallib`（Metal のシェーダー）を、自分の場所から探して読みます。普通の site-packages の形なら手を入れずに動きます（同梱の Python で Metal の GPU が使えること、mlx-whisper で文字起こしができることを確かめました）。PyInstaller・py2app はライブラリを別の場所にまとめ直すので、`mlx.metallib` を見つけさせる設定（hook）が要り、mlx の版が上がるたびに壊れるおそれがあります。
 - **依存を `uv.lock` のまま入れられる**: `uv export` した固定の版とハッシュで入れるので、開発の環境と食い違いません。Windows と同じビルドの考え方で済みます。
 - **後から WhisperX を足せる**: 初回の案内（#291）は、同梱の Python に pip で WhisperX を入れます。PyInstaller・py2app の形には、後から pip で足せません。
-- **子プロセスがそのまま動く**: 録音中の文字起こし（multiprocessing の spawn）と浄書（`python -m remote_whisper.final_transcribe_worker`）は、`sys.executable` の Python を子として動かします。普通の Python なのでそのまま動きます。
+- **子プロセスがそのまま動く**: 録音中の文字起こし（multiprocessing の spawn）と浄書（`python -m remote_whisper.transcript.final_transcribe_worker`）は、`sys.executable` の Python を子として動かします。普通の Python なのでそのまま動きます。
 - 起動用のスクリプト（`Contents/MacOS/remote-whisper`）は、同梱の Python を `exec` で動かします。LaunchServices は Python のプロセスを `Remote Whisper.app` として扱う（`LSUIElement` で Dock に出さない、もう一度開いたら画面を開く）ことを確かめました。
 - 代わりに、`.app` が大きくなります（mlx-whisper が要る torch・scipy・numba なども入るため。約 1.4GB）。
 - 動かせる一番古い macOS は 14 です。ビルドする Mac の版によらず、macOS 14 向けの wheel（`MACOSX_DEPLOYMENT_TARGET=14.0`）を選んで入れます。
