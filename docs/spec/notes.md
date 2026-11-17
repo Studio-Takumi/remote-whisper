@@ -114,3 +114,14 @@
 | `web.py` | 画面（`web/dist`）の配信 |
 | `tray_serve.py` | トレイ（Mac はメニューバー）を出しながらサーバーを動かす |
 | `open_browser.py` | 起動したら画面をブラウザで開く |
+- LM Studio のクライアント（`llm/`）も役割ごとに分ける（#387）。`lmstudio.LMStudioClient` は下の部品を継承で重ねたもの（`http` → `models` → `vram` → `chat` → `lmstudio`）。ログの名前は 5 つとも `remote_whisper.llm.lmstudio`
+
+| モジュール | 置くもの |
+|---|---|
+| `lmstudio_http.py` | 接続先・トークン・HTTP・`status.lmstudio`・見張り、`LMStudioUnavailable` |
+| `lmstudio_models.py` | 一覧（3 秒の覚え）と能力、入っていないときの代わりのモデル選び |
+| `lmstudio_vram.py` | 載せ下ろし（ロック・録音中は 1 つだけ・`keepAliveMin` のタイマー・`unload_all`・`shutdown`） |
+| `lmstudio_chat.py` | 生成（`/api/v1/chat`・`/v1/chat/completions` の stream、スキーマを頼む生成） |
+| `lmstudio_schema.py` | メッセージ・SSE の形と、返事の JSON Schema での確かめ（`SchemaMismatch`・`conform`・`parse_structured`） |
+| `lmstudio.py` | `LMStudioClient`（モデルの取得 `pull`）。外から読む名前はここから読める |
+
