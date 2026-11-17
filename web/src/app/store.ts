@@ -21,7 +21,7 @@ import {
 } from '@/api/data';
 import { isCloud } from '@/api/endpoint';
 import { demoProjects, fallbackOptions, initialContextSets } from '@/api/mock';
-import type { ServerMessage, WatchedState } from '@/api/protocol';
+import type { ServerMessage } from '@/api/protocol';
 import { initialServerStatus } from '@/api/status';
 import type { ContextSelection, ContextSet, Project, Session } from '@/api/types';
 import type { AppState } from '@/app/appState';
@@ -32,7 +32,6 @@ import { sortByIds } from '@/features/projects/projectOrder';
 import { updateSession } from '@/features/projects/updateSession';
 import { watchMicrophonePermission } from '@/features/recording/audio/microphone';
 import { keepScreenOn, screenKeptOn } from '@/features/recording/audio/wakeLock';
-import { SourceJoin, forgetJoin, recalledJoin } from '@/features/recording/join';
 import { recordingConnectionChanged } from '@/features/recording/reconnect';
 import {
     continueRecording,
@@ -44,14 +43,11 @@ import {
 } from '@/features/recording/recorder';
 import { createRecorder } from '@/features/recording/recorderState';
 import { recordingLocks } from '@/features/recording/recording';
-import { applyLive } from '@/features/recording/recordingMessages';
 import { discardUnsent, discardUnsentElsewhere, loadUnsent, recoverUnsent } from '@/features/recording/unsentRecovery';
 import { UploadError, uploadAudio, uploadSource } from '@/features/recording/upload';
-import { watchTarget } from '@/features/recording/watch';
+import { Watcher } from '@/features/recording/watcher';
 import { type Correction, applyCorrectionLocally, mergeLiveLines } from '@/features/session/corrections';
-import { isLiveMessage } from '@/features/session/liveMessages';
-import type { LivePartial } from '@/features/session/livePartials';
-import { keepLineSources, newlyDisconnected, sourceTitle, withLineSources } from '@/features/session/sources';
+import { keepLineSources, withLineSources } from '@/features/session/sources';
 import { fetchOptions } from '@/features/settings/options';
 import {
     LLM_NAMES,
@@ -137,9 +133,6 @@ function finishDemoSummary(s: AppState, sessionId: string): Partial<AppState> {
 
 // サーバー全体で録音中のセッションの数（status の recordings）。変わったら一覧を取り直す（ほかの端末の録音を出すため）
 let lastRecordings = -1;
-// watch を送ったセッション（#238）。stopped を受けたら null に戻し、一覧がまだ録音中なら
-// （終えてすぐ同じセッションの続きを録音した、など）送り直す
-let watchedSession: string | null = null;
 // 最終の要約ができて、サーバーに保存されたもので置き換えるセッション（取り直しで手元のものを残さない）
 let releasing: string | null = null;
 // 最終の要約ができたので取り直しているセッション（title と status の両方から呼ばれても1回にする）
@@ -154,14 +147,6 @@ const finishedSummaries = new Set<string>();
 // この画面から最終の文字起こしの作り直しを頼んだセッション（できたら、要約も作り直すかを聞く。#124）
 const regeneratingTranscripts = new Set<string>();
 
-let serverSubscribed = false;
-function dropSession(partials: LivePartial[], sessionId: string) {
-    return partials.filter((p) => p.sessionId !== sessionId);
-}
-
-// この端末のマイクで、録音中のセッションに音源として参加しているもの（#356）
-let joiner: SourceJoin | null = null;
-
 export const useAppStore = create<AppState>()((set, get, store) => {
     const recorder = createRecorder(store);
     const { metrics } = recorder;
@@ -169,108 +154,9 @@ export const useAppStore = create<AppState>()((set, get, store) => {
     if (import.meta.env.DEV) {
         Object.assign(window, { appMicrophone: () => recorder.mic });
     }
-
-    // 録音中のセッションに音源として参加する（#356）。rejoin は読み込み直す前に参加していた音源
-    async function startJoin(sessionId: string, rejoin: { source: number; nextSeq: number } | null) {
-        const { noiseSuppression, autoGainControl, echoCancellation = true } = get().settings.recording;
-        const join = new SourceJoin(
-            sessionId,
-            (joined) => set({ joined }),
-            (message) => {
-                if (joiner === join) {
-                    joiner = null;
-                }
-                if (message) {
-                    toast.error(message);
-                }
-                // サーバーは抜けた接続の「見ている」登録を消すので、まだ録音中なら見直して送り直す
-                watchedSession = null;
-                set((s) => ({ projects: [...s.projects], micLevel: 0 }));
-            },
-            // マイクの音量（マイクボタンの輪に出す。#357）。参加している間は録音していないので、録音のものと重ならない
-            (level) => {
-                if (get().micLevel !== level) {
-                    set({ micLevel: level });
-                }
-            },
-        );
-        joiner = join;
-        try {
-            await join.start({ noiseSuppression, autoGainControl, echoCancellation }, rejoin);
-        } catch (e) {
-            joiner = null;
-            forgetJoin(sessionId);
-            set({ joined: null });
-            toast.error((e as Error).message);
-        }
-    }
-
-    // ほかのクライアントで録音中のセッションを見ているときに届くもの（#238）。
-    // 自分で録音しているセッションのもの（subscribeRecording で受け取る）は扱わない
-    function receiveWatched(m: ServerMessage) {
-        if (m.type === 'watching') {
-            if (m.state === 'idle' || m.state === 'stopped') {
-                set((s) => ({ watching: s.watching?.sessionId === m.session ? null : s.watching }));
-                return;
-            }
-            // そこまでの文字起こし・リアルタイム要約・タイトルで置き換え、続きはこのあとのメッセージで足す
-            set((s) => ({
-                watching: { sessionId: m.session, state: m.state as WatchedState, join: m.join },
-                projects: updateSession(s.projects, m.session, (x) => ({
-                    ...x,
-                    transcript: m.transcript ?? x.transcript,
-                    liveSummary: m.liveSummary ?? x.liveSummary,
-                    title: m.title || x.title,
-                    loaded: true,
-                })),
-                liveDraft: s.liveDraft?.sessionId === m.session ? null : s.liveDraft,
-            }));
-            // 読み込み直す前に参加していたら、同じ音源としてつなぎ直す（#356）
-            const recalled = recalledJoin(m.session);
-            if (recalled && !joiner && m.join !== undefined) {
-                void startJoin(m.session, recalled);
-            }
-            return;
-        }
-        if (m.type === 'sources') {
-            // 録音している端末では、参加した端末が切れたら知らせる（録音は続いている。#357）
-            if (m.session === get().recordingSessionId) {
-                for (const lost of newlyDisconnected(get().liveSources[m.session], m.sources)) {
-                    toast.warning(`${sourceTitle(lost.id, lost.name)} との接続が切れました。録音は続いています`, {
-                        duration: 10000,
-                    });
-                }
-            }
-            // 参加できるか（上限に達した・空いた）が変わる（#356）。音源の一覧も覚える（#357）
-            set((s) => ({
-                watching: s.watching?.sessionId === m.session ? { ...s.watching, join: m.join } : s.watching,
-                liveSources: { ...s.liveSources, [m.session]: m.sources },
-            }));
-            return;
-        }
-        const w = get().watching;
-        if (!w || !('session' in m) || m.session !== w.sessionId || m.session === get().recordingSessionId) {
-            return;
-        }
-        if (m.type === 'recordingState') {
-            if (m.state === 'stopped') {
-                // 録音を終えた。最終の文字起こし・最終要約は、全員に届くもの（status の transcribing・
-                // summarizing と title）で気づける。一覧を取り直して、録音中ではなくする。
-                // サーバーは見ている登録を消したので、まだ録音中なら（すぐ続きを録音した）見直して送り直す
-                watchedSession = null;
-                set((s) => ({ watching: null, partials: dropSession(s.partials, m.session), liveDraft: null }));
-                // 音源が 2 つ以上なら、音源の一覧をフロントマターのもの（参加していた時間）に替える（#357）
-                const multi = (get().liveSources[m.session]?.length ?? 0) >= 2;
-                void get()
-                    .loadProjects()
-                    .then(() => (multi ? refreshTranscripts(m.session) : undefined));
-            } else {
-                set({ watching: { ...w, state: m.state } });
-            }
-        } else if (isLiveMessage(m)) {
-            applyLive(store, m);
-        }
-    }
+    const watcher = new Watcher(store, refreshTranscripts);
+    // connectServer を 2 回呼んでも、購読は 1 つにする
+    let serverSubscribed = false;
 
     // サーバーのバージョンを取る（起動したときと、つながり直したとき。サーバーが入れ替わっているかもしれないため）
     async function loadServerVersion() {
@@ -596,15 +482,8 @@ export const useAppStore = create<AppState>()((set, get, store) => {
         pendingAudio: 0,
         partials: [],
         joined: null,
-        joinSession: async (sessionId) => {
-            if (joiner || get().recordingState !== 'idle') {
-                return;
-            }
-            await startJoin(sessionId, null);
-        },
-        leaveSession: () => {
-            joiner?.leave();
-        },
+        joinSession: (sessionId) => watcher.join(sessionId),
+        leaveSession: () => watcher.leave(),
         liveSources: {},
         liveDraft: null,
         watching: null,
@@ -1079,32 +958,8 @@ export const useAppStore = create<AppState>()((set, get, store) => {
                 void loadUnsent(recorder);
             }
             if (!isDemo) {
-                // 開いているセッションがほかのクライアントで録音中なら見る（#238）。開くセッション・一覧・
-                // 録音の状態・接続が変わるたびに見直す。つながり直したら、サーバーは見ていたことを
-                // 覚えていないので送り直す
-                const syncWatch = () => {
-                    const s = get();
-                    const target =
-                        s.server.connection === 'connected'
-                            ? watchTarget(s.projects, s.selection, s.recordingSessionId)
-                            : null;
-                    if (s.server.connection !== 'connected') {
-                        watchedSession = null;
-                    }
-                    if (target === watchedSession) {
-                        return;
-                    }
-                    watchedSession = target;
-                    if (target) {
-                        connection.send({ type: 'watch', session: target });
-                    } else if (s.server.connection === 'connected') {
-                        connection.send({ type: 'unwatch' });
-                    }
-                    if (s.watching && s.watching.sessionId !== target) {
-                        set({ watching: null });
-                    }
-                };
-                useAppStore.subscribe(syncWatch);
+                // 開いているセッションがほかのクライアントで録音中なら見る（#238）
+                store.subscribe(() => watcher.sync());
             }
             connection.onStateChange((connected) => {
                 set((s) => ({
@@ -1125,7 +980,7 @@ export const useAppStore = create<AppState>()((set, get, store) => {
                 recordingConnectionChanged(recorder, connected);
             });
             connection.subscribe((m) => {
-                receiveWatched(m);
+                watcher.receive(m);
                 // セッションの中身を変える通知（録音中・見ている録音の行・語・途中の要約）は、受け取った
                 // ほかのリスナー（録音の購読）がストアを書き換えたあとで、キャッシュにも入れる
                 if (SESSION_MESSAGES.has(m.type) && 'session' in m && m.session) {
