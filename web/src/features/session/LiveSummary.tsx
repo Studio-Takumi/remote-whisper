@@ -5,10 +5,8 @@ import { ChevronRightIcon } from 'lucide-react';
 import { Markdown } from '@/components/Markdown';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 
-// 途中の要約の表示（spec/flows.md 6.4・spec/ui.md 8）。サーバーは長くなると「## ここまでの概要」と、
-// 時刻の範囲を見出し（## 00:00:00〜00:12:34）にした区間ごとの要約を並べて送る（#93）。
-// 確定した区間（終わりの時刻があるもの）は畳んでおき、開けば読める。続いている区間（00:12:34〜）は開いておく
-// 見出しのない要約（短い録音・前のサーバーで作ったもの）は、そのまま出す
+// 途中の要約の表示（spec/flows.md 6.4・spec/ui.md 8）。時刻の範囲を見出しにした区間ごとの要約を並べる（#93）。
+// 確定した区間は畳み、続いている区間は開く。見出しのない要約はそのまま出す（spec/notes.md 9.5）
 const OVERVIEW = 'ここまでの概要';
 const CLOSED = /^\d{2}:\d{2}:\d{2}〜\d{2}:\d{2}:\d{2}$/;
 
@@ -96,9 +94,7 @@ function splitSections(text: string): Block[] | null {
     return blocks[0]?.key === OVERVIEW ? blocks : null;
 }
 
-// 要約が更新されても、読んでいる区間の位置が画面の中でずれないようにする（#93）
-// 画面の上の端に見えている区間を覚えておき、更新の後にその区間が同じ位置に来るようにスクロールし直す。
-// 概要が伸び縮みしても、下の区間を読んでいる人の位置が動かない
+// 要約が更新されても、読んでいる区間の位置がずれないようにする（#93。spec/notes.md 9.5）。
 // reading は読んでいる区間の key（スクロールしたときに変わる）
 function useAnchoredScroll(text: string) {
     const container = useRef<HTMLDivElement>(null);

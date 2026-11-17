@@ -8,9 +8,8 @@ import { Input } from '@/components/ui/input';
 import { describeCorrection } from '@/features/session/corrections';
 import { addAll, describeInvalid, isSubmitKey, parseTermInput, remainingDraft } from '@/features/session/terms';
 
-// 用語リストの欄。手で足した語と、録音中に文字起こしから拾って足した語（#103）を出し、どちらも × で外せる。
-// 手で足す入力は、録音中・一時停止中・録音後のどれでも出す（#175）。
-// 拾った語の一覧は showPicked（全体設定 display.showPickedTerms、#147）がオンのときだけ出す
+// 用語リストの欄（#103・#175・#147。spec/flows.md 6.2・spec/ui.md 8）。手で足した語と拾った語を × で外せる。
+// 拾った語の一覧は showPicked がオンのときだけ出す
 export function SessionTerms({ session, showPicked }: { session: Session; showPicked: boolean }) {
     const reject = useAppStore((s) => s.rejectTerm);
     const removeCorrection = useAppStore((s) => s.removeCorrection);

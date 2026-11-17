@@ -4,9 +4,8 @@ import { api } from '@/api/api';
 import { useAppStore } from '@/app/store';
 import { type SetupStatus, isBusy, normalizeSetup } from '@/features/setup/setup';
 
-// セットアップの状態（GET /api/setup。#291）。取っている・入れている間は 1 秒ごとに取り直す。
-// 終わったら、設定で選べる値（Ollama のモデル・浄書できるか）も取り直す。
-// onFirst は最初に届いたときに 1 回だけ呼ぶ（初回の「はじめに」を出すかを決める）
+// セットアップの状態（GET /api/setup。#291。spec/flows.md 6.15）。取っている・入れている間は 1 秒ごとに取り直し、
+// 終わったら選べる値も取り直す。onFirst は最初に届いたときに 1 回だけ呼ぶ
 export function useSetupStatus(enabled: boolean, onFirst?: (status: SetupStatus) => void) {
     const [status, setRawStatus] = useState<SetupStatus | null>(null);
     const [error, setError] = useState<string | null>(null);

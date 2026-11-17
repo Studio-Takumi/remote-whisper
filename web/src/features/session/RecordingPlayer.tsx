@@ -17,12 +17,8 @@ import {
 } from '@/features/session/playbackRate';
 import { type SessionSource, sourceKindLabel, sourceLabel, sourceTitle } from '@/features/session/sources';
 
-// 録音の再生バー（spec/ui.md 8）。ブラウザの audio をそのまま使う（シークは Range リクエスト。spec/api.md 7.1）
-// 読み込めなかったら（保存期間を過ぎて消えた直後など）onError を呼ぶ。出すかどうかは呼ぶ側が決める
-// onTime は再生位置が変わったとき（再生中は 1 秒に数回）。seeked はシークしたとき（#122）
-// 再生速度（#268）は端末ごとに覚える。audio は src が変わると作り直されて等速に戻るので、読み込みのたびにかけ直す
-// onLoaded は読み込んで長さが分かったとき（音源を切り替えたあと、同じ時刻に合わせるため。#371）。
-// children は再生バーと再生速度の間に置くもの（再生する音源のメニュー）
+// 録音の再生バー（spec/ui.md 8・spec/api.md 7.1）。読み込めなかったら onError を呼ぶ（出すかどうかは呼ぶ側が決める）。
+// 再生速度（#268）は端末ごとに覚え、src が変わると等速に戻るので読み込みのたびにかけ直す（spec/notes.md 9.5）。onLoaded は音源の切り替え（#371）用
 export function RecordingPlayer({
     src,
     audio,

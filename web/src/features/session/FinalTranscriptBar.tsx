@@ -36,9 +36,8 @@ export function FinalTranscriptBar({ session, making }: { session: Session; maki
         }
     }, [shown, preferred, pickedByHand, pick, session.id]);
 
-    // 作り直せるのは、録音を終えていて録音ファイルが残っているセッション（作っている間は押せない）。#124
-    // 手元で録音したセッションは、一覧を取り直すまで files がない（最終の要約を作っている間など）。
-    // そのときは録音ファイルがあるものとする（消えたと分かっているときだけ出さない。#273）
+    // 作り直せるのは、録音を終えて録音ファイルが残っているセッション（#124。spec/ui.md 8）。
+    // 手元で録音した直後は files がないので、消えたと分かっているときだけ出さない（#273）
     const done = session.status !== 'recording' && session.loaded === true;
     const regenerateButton = available && done && session.files?.recording !== false && !making && (
         <Button
