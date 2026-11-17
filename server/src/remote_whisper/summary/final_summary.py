@@ -23,55 +23,24 @@ Ollama につながらなければ ollama_unavailable を送り、途中の要�
 import asyncio
 import logging
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 from remote_whisper.gpu.gpu_queue import report_progress
 from remote_whisper.llm.llm import LlmClient, LlmUnavailable, backend_of
 from remote_whisper.llm.ollama import ollama_error
-from remote_whisper.materials.material_pages import Page, annotate_detail, load_pages
+from remote_whisper.materials.material_pages import Page, load_pages
 from remote_whisper.settings import FinalModels, SettingsStore
 from remote_whisper.storage.session_writer import SessionWriter
 from remote_whisper.storage.sessions import summary_body
 from remote_whisper.storage.timeutil import now
+from remote_whisper.summary.final_summary_body import Density, SummaryBody, needs_overview
 from remote_whisper.summary.live_summary import load_context
-from remote_whisper.summary.prompts import (
-    DEFAULT_DENSITY,
-    TITLE_MAX,
-    final_summary_messages,
-    make_title_description,
-    overview_messages,
-    part_summary_messages,
-    reduce_summary_messages,
-)
-from remote_whisper.summary.summary_parts import (
-    CHUNK_CHARS,
-    NUM_CTX,
-    PREVIOUS_CHARS,
-    demote,
-    demote_lines,
-    section_heading,
-    split_lines,
-)
+from remote_whisper.summary.prompts import TITLE_MAX, make_title_description
 
 log = logging.getLogger(__name__)
-
-OVERVIEW_HEADING = "全体概要"
-
-
-@dataclass(frozen=True)
-class Density:
-    """最終の要約の要約度（#100）
-
-    overview は概要、detail は部分ごとの要約（一度に収まるときは、その要約）
-    """
-
-    overview: int = DEFAULT_DENSITY
-    detail: int = DEFAULT_DENSITY
-
-
-EMPTY_PART = "（この部分は要約できませんでした）"
 
 
 def _mark_failed(writer: SessionWriter, failed: bool) -> None:
@@ -91,6 +60,38 @@ def fallback_title(summary: str) -> str | None:
     return None
 
 
+@dataclass
+class _Made:
+    """作った要約の本文と、タイトルを作る元（長いときは全体の概要）、思考モードを使ったか"""
+
+    text: str
+    gist: str
+    think: bool
+
+
+async def _transcript_lines(
+    writer: SessionWriter, send: Callable[[dict[str, Any]], Awaitable[None]]
+) -> list[str] | None:
+    """要約する文字起こしの行（空の行は除く）。読めない・空なら送って None"""
+    try:
+        # 最終の文字起こし（#121）があれば、そちらから作る（文ごとの行で、取りこぼしも少ない）。
+        # 画面で足した置き換え（#176）を当てたもの
+        body = summary_body(writer.files, writer.meta.corrections)
+    except (OSError, ValueError) as e:
+        log.warning("could not read the transcript of %s: %s", writer.id, e)
+        await send(_skipped("文字起こしを読み込めないので、最終要約は作りませんでした"))
+        return None
+    lines = [line for line in body.splitlines() if line.strip()]
+    if not lines:
+        await send(_skipped("文字起こしが空なので、最終要約は作りませんでした"))
+        return None
+    return lines
+
+
+def _skipped(message: str) -> dict[str, Any]:
+    return {"type": "error", "code": "summary_skipped", "message": message}
+
+
 class FinalSummarizer:
     def __init__(
         self,
@@ -100,6 +101,7 @@ class FinalSummarizer:
         recording: Callable[[], bool] = lambda: False,
     ):
         self.ollama = ollama
+        self.body = SummaryBody(ollama)
         self.settings = settings
         self.whisper = whisper
         # ほかに録音中のセッションがあるか（あれば Whisper を下ろさない）
@@ -155,44 +157,52 @@ class FinalSummarizer:
     ) -> str | None:
         # 生成 ID は、生成を始めた時刻（spec/files.md 5.2）
         started = now()
-        if self.whisper is not None and not self.recording():
-            # 要約の前に Whisper を下ろして、VRAM を Ollama に空ける。失敗しても要約は作る
-            try:
-                await self.whisper.unload()
-            except Exception:  # noqa: BLE001
-                log.exception("failed to unload whisper before the summary")
+        await self._unload_whisper()
+        lines = await _transcript_lines(writer, send)
+        if lines is None:
+            return None
+        models = await self._resolve(models)
+        context, density, pages = await self._inputs(writer)
+        made = await self._make_body(writer, models, lines, context, send, density, pages)
+        if made is None:
+            return None
+        title, description = await self._make_title(writer, models.title, made.gist)
+        # 作れなければ、仮のタイトルか要約の最初の行を使う
+        title = title or writer.meta.title or fallback_title(made.gist)
+        gid = await self._save(writer, send, models, made, title, started, density, lines)
+        if gid is None:
+            return None
         try:
-            # 最終の文字起こし（#121）があれば、そちらから作る（文ごとの行で、取りこぼしも少ない）。
-            # 画面で足した置き換え（#176）を当てたもの
-            body = summary_body(writer.files, writer.meta.corrections)
-        except (OSError, ValueError) as e:
-            log.warning("could not read the transcript of %s: %s", writer.id, e)
-            await send(
-                {
-                    "type": "error",
-                    "code": "summary_skipped",
-                    "message": "文字起こしを読み込めないので、最終要約は作りませんでした",
-                }
-            )
-            return None
-        lines = [line for line in body.splitlines() if line.strip()]
-        if not lines:
-            await send(
-                {
-                    "type": "error",
-                    "code": "summary_skipped",
-                    "message": "文字起こしが空なので、最終要約は作りませんでした",
-                }
-            )
-            return None
+            writer.copy_summary(gid, description)
+        except OSError as e:
+            # コピーできなくても、データのルートには保存できている
+            log.warning("failed to copy the summary of %s: %s", writer.id, e)
+        _mark_failed(writer, False)
+        log.info("final summary of %s saved as %s", writer.id, gid)
+        await send({"type": "title", "title": writer.meta.title or "", "provisional": False})
+        return gid
+
+    async def _unload_whisper(self) -> None:
+        """要約の前に Whisper を下ろして、VRAM を Ollama に空ける。失敗しても要約は作る"""
+        if self.whisper is None or self.recording():
+            return
+        try:
+            await self.whisper.unload()
+        except Exception:  # noqa: BLE001
+            log.exception("failed to unload whisper before the summary")
+
+    async def _resolve(self, models: FinalModels | None) -> FinalModels:
+        """使うモデル。省けば今の全体設定のもの"""
         models = models or self.settings.get().llm_models(backend_of(self.ollama)).final()
         # 入っていないモデルは代わりのもので作り、フロントマターには実際に使ったモデルを残す（#178）
-        models = FinalModels(
+        return FinalModels(
             overview=await self.ollama.resolve(models.overview),
             detail=await self.ollama.resolve(models.detail),
             title=await self.ollama.resolve(models.title),
         )
-        model = models.detail
+
+    async def _inputs(self, writer: SessionWriter) -> tuple[str | None, Density, list[Page]]:
+        """参考資料セットのコンテキスト・要約度・詳細の項目に付ける参考資料のページ"""
         context = (
             load_context(writer.files.dir, writer.meta.context_set) if writer.use_context else None
         )
@@ -206,6 +216,19 @@ class FinalSummarizer:
             if ollama_settings.detail_material_pages
             else []
         )
+        return context, density, pages
+
+    async def _make_body(
+        self,
+        writer: SessionWriter,
+        models: FinalModels,
+        lines: list[str],
+        context: str | None,
+        send: Callable[[dict[str, Any]], Awaitable[None]],
+        density: Density,
+        pages: list[Page],
+    ) -> _Made | None:
+        """要約の本文を作って流す。作れなければ失敗を記録して None"""
         clock = time.monotonic()
         log.info(
             "final summary of %s started with %s / %s (%d lines)",
@@ -215,8 +238,8 @@ class FinalSummarizer:
             len(lines),
         )
         try:
-            think = await self.ollama.supports_thinking(model)
-            text, gist = await self._summarize(models, lines, context, send, density, pages)
+            think = await self.ollama.supports_thinking(models.detail)
+            text, gist = await self.body.make(models, lines, context, send, density, pages)
             if not gist:
                 raise LlmUnavailable("要約が空でした")
         except LlmUnavailable as e:
@@ -232,34 +255,47 @@ class FinalSummarizer:
             time.monotonic() - clock,
             len(text),
         )
+        return _Made(text, gist, think)
 
+    async def _make_title(
+        self, writer: SessionWriter, model: str, gist: str
+    ) -> tuple[str | None, str | None]:
+        """タイトルと説明。作れなければ None（本文はもうできているので捨てない。#118）"""
         clock = time.monotonic()
         report_progress("title")
         try:
-            title, description = await make_title_description(self.ollama, models.title, gist)
+            title, description = await make_title_description(self.ollama, model, gist)
             if title:
                 log.info("title of %s done in %.1fs", writer.id, time.monotonic() - clock)
+            return title, description
         except LlmUnavailable as e:
             log.warning("title of %s failed: %s", writer.id, e)
-            title = description = None
         except Exception:
-            # 本文はもうできているので、タイトルだけの失敗で捨てない（#118）
             log.exception("title of %s failed", writer.id)
-            title = description = None
-        # 作れなければ、仮のタイトルか要約の最初の行を使う
-        title = title or writer.meta.title or fallback_title(gist)
+        return None, None
+
+    async def _save(
+        self,
+        writer: SessionWriter,
+        send: Callable[[dict[str, Any]], Awaitable[None]],
+        models: FinalModels,
+        made: _Made,
+        title: str | None,
+        started: datetime,
+        density: Density,
+        lines: list[str],
+    ) -> str | None:
+        """タイトルと要約を保存して生成 ID を返す。保存できなければ失敗を記録して None"""
         try:
             if title:
                 writer.set_title(title)
-            gid = writer.save_final_summary(
-                model,
-                think,
-                text,
+            return writer.save_final_summary(
+                models.detail,
+                made.think,
+                made.text,
                 generated=started,
                 # 一度に収まって概要を作らなかったときは、概要の要約度は残さない
-                overview_density=(
-                    density.overview if len(split_lines(lines, CHUNK_CHARS)) > 1 else None
-                ),
+                overview_density=(density.overview if needs_overview(lines) else None),
                 detail_density=density.detail,
                 overview_model=models.overview,
             )
@@ -274,137 +310,3 @@ class FinalSummarizer:
                 }
             )
             return None
-        try:
-            writer.copy_summary(gid, description)
-        except OSError as e:
-            # コピーできなくても、データのルートには保存できている
-            log.warning("failed to copy the summary of %s: %s", writer.id, e)
-        _mark_failed(writer, False)
-        log.info("final summary of %s saved as %s", writer.id, gid)
-        await send({"type": "title", "title": writer.meta.title or "", "provisional": False})
-        return gid
-
-    async def _summarize(
-        self,
-        models: FinalModels,
-        lines: list[str],
-        context: str | None,
-        send: Callable[[dict[str, Any]], Awaitable[None]],
-        density: Density | None = None,
-        pages: list[Page] | None = None,
-    ) -> tuple[str, str]:
-        """要約の本文と、タイトルを作る元（長いときは全体の概要）を返す。どちらも空なら作れなかった
-
-        一度に収まるときは、詳細の要約度で作る（概要は作らない）。
-        部分ごとの要約（と一度に収まるときの要約）は要約詳細のモデル、まとめと概要は全体概要のモデル。
-        pages があれば、詳細の項目に参考資料のページを付ける（#237。概要には付けない）
-        """
-        density = density or Density()
-        model = models.detail
-        options = {"num_ctx": NUM_CTX}
-        chunks = split_lines(lines, CHUNK_CHARS)
-        if len(chunks) == 1:
-            report_progress("summary")
-            stream = self.ollama.chat_stream(
-                model,
-                final_summary_messages(lines, context, density.detail),
-                think=True,
-                options=options,
-            )
-            text = (await self._send_stream(stream, send)).strip()
-            # 流したものには付いていない。保存したものを画面が取り直すときに付いて見える
-            if text and pages:
-                report_progress("pages")
-                return await annotate_detail(self.ollama, model, text, pages), text
-            return text, text
-
-        # 部分ごとに要約する（送らない）。これがそのまま「詳細」になる
-        parts: list[str] = []
-        for i, chunk in enumerate(chunks):
-            report_progress("parts", i, len(chunks))
-            previous = parts[-1][-PREVIOUS_CHARS:] if parts else None
-            part = await self.ollama.chat(
-                model,
-                part_summary_messages(
-                    chunk, i, len(chunks), context, previous, density=density.detail
-                ),
-                think=True,
-                options=options,
-            )
-            if not part.strip():
-                # その時間帯が見出しだけになって、黙って抜けないようにする
-                log.warning("part %d/%d of the final summary was empty", i + 1, len(chunks))
-                part = EMPTY_PART
-            parts.append(part.strip())
-        # 概要の材料。部分の要約を合わせてまだ長ければ、いくつかずつまとめるのを繰り返す
-        digest = parts
-        while len(digest) > 1 and sum(len(p) for p in digest) > CHUNK_CHARS:
-            groups = split_lines(digest, CHUNK_CHARS)
-            if len(groups) == len(digest):
-                # 1つずつにしかならない（どれも長い）なら、これ以上は縮まらないので概要に進む
-                break
-            # 何回まとめるかは前もって分からないので、段階だけ出す
-            report_progress("condense")
-            digest = [
-                (
-                    await self.ollama.chat(
-                        models.overview,
-                        reduce_summary_messages(group, context),
-                        think=True,
-                        options=options,
-                    )
-                ).strip()
-                for group in groups
-            ]
-        # 全体の概要を流してから、部分ごとの要約を時間の順に続ける
-        head = f"## {OVERVIEW_HEADING}\n\n"
-        report_progress("overview")
-        stream = self.ollama.chat_stream(
-            models.overview,
-            overview_messages(digest, context, density.overview),
-            think=True,
-            options=options,
-        )
-        gist = (await self._send_stream(demote_lines(stream), send, head)).strip()
-        if not gist:
-            return "", ""
-        text = head + gist
-        if pages:
-            annotated: list[str] = []
-            for i, part in enumerate(parts):
-                report_progress("pages", i, len(parts))
-                annotated.append(
-                    part
-                    if part == EMPTY_PART
-                    else await annotate_detail(self.ollama, model, part, pages)
-                )
-            parts = annotated
-        for i, part in enumerate(parts):
-            body = "\n".join(demote(line) for line in part.split("\n"))
-            section = f"\n\n{section_heading(chunks, i)}\n\n{body}"
-            text += section
-            await send({"type": "summary.delta", "kind": "final", "text": section})
-        return text, gist
-
-    async def _send_stream(
-        self,
-        stream: AsyncIterator[str],
-        send: Callable[[dict[str, Any]], Awaitable[None]],
-        prefix: str = "",
-    ) -> str:
-        """流れてくる本文を `summary.delta`（final）で送り、つなげて返す
-
-        prefix は空白でない本文が来たときに、それと一緒に送る（来なければ送らない）。
-        返す本文には含めない
-        """
-        out: list[str] = []
-        pending = prefix
-        async for part in stream:
-            out.append(part)
-            if pending:
-                if not part.strip():
-                    pending += part
-                    continue
-                part, pending = pending + part, ""
-            await send({"type": "summary.delta", "kind": "final", "text": part})
-        return "".join(out)

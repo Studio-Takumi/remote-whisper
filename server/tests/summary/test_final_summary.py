@@ -11,12 +11,11 @@ from remote_whisper.llm.ollama import OllamaClient
 from remote_whisper.settings import FinalModels, SettingsStore
 from remote_whisper.storage.documents import SummaryMeta, TranscriptMeta, parse, read_doc
 from remote_whisper.storage.session_writer import safe_filename
-from remote_whisper.summary import final_summary
-from remote_whisper.summary.final_summary import (
-    FinalSummarizer,
+from remote_whisper.summary import final_summary, final_summary_body
+from remote_whisper.summary.final_summary import FinalSummarizer, fallback_title
+from remote_whisper.summary.summary_parts import (
     demote,
     demote_lines,
-    fallback_title,
     section_heading,
     split_lines,
 )
@@ -50,7 +49,7 @@ def test_final_summary_is_streamed_saved_and_copied(client, project, fake_ollama
 
     # 思考モードはオン、num_ctx を渡す
     chat = [b for b in fake_ollama.bodies("/api/chat") if "format" not in b][-1]
-    assert chat["think"] is True and chat["options"]["num_ctx"] == final_summary.NUM_CTX
+    assert chat["think"] is True and chat["options"]["num_ctx"] == final_summary_body.NUM_CTX
     assert "[00:00:00] fake 1.0s" in chat["messages"][-1]["content"]
 
     # 選んだディレクトリにコピーを置く。同じ名前があれば番号を付ける
@@ -122,7 +121,7 @@ def test_title_falls_back_when_it_cannot_be_made(client, project, monkeypatch):
 
 
 def test_long_transcript_is_summarized_in_parts(home, fake, monkeypatch):
-    monkeypatch.setattr(final_summary, "CHUNK_CHARS", 30)
+    monkeypatch.setattr(final_summary_body, "CHUNK_CHARS", 30)
     summarizer = FinalSummarizer(
         OllamaClient(Hub(), SettingsStore(home), transport=fake.transport()), SettingsStore(home)
     )
@@ -132,7 +131,7 @@ def test_long_transcript_is_summarized_in_parts(home, fake, monkeypatch):
         sent.append(m)
 
     lines = [f"[00:00:{i:02d}] 二十文字ほどの長さの発言です。{i}" for i in range(6)]
-    text, gist = asyncio.run(summarizer._summarize(GEMMA, lines, None, send))
+    text, gist = asyncio.run(summarizer.body.make(GEMMA, lines, None, send))
     chats = fake.bodies("/api/chat")
     # 部分ごとが 6 回（1行ずつ）、部分の要約（各4文字）は合わせて 30 文字を超えないので、
     # 概要が 1 回
@@ -158,7 +157,7 @@ def test_long_transcript_is_summarized_in_parts(home, fake, monkeypatch):
 
 
 def test_long_transcript_fails_when_the_overview_is_empty(home, fake, monkeypatch):
-    monkeypatch.setattr(final_summary, "CHUNK_CHARS", 30)
+    monkeypatch.setattr(final_summary_body, "CHUNK_CHARS", 30)
     # 部分ごとの要約は作れたが、概要が改行と空白だけだった
     replies = iter([["一"], ["二"], ["三"], ["\n", " \n"]])
 
@@ -177,7 +176,7 @@ def test_long_transcript_fails_when_the_overview_is_empty(home, fake, monkeypatc
         sent.append(m)
 
     lines = [f"[00:00:{i:02d}] 二十文字ほどの長さの発言です。{i}" for i in range(3)]
-    assert asyncio.run(summarizer._summarize(GEMMA, lines, None, send)) == ("", "")
+    assert asyncio.run(summarizer.body.make(GEMMA, lines, None, send)) == ("", "")
     # 概要が空なら、見出しだけを送ったりしない
     assert sent == []
 
@@ -203,11 +202,11 @@ def summarize(home, fake, lines):
     async def send(m):
         sent.append(m)
 
-    return asyncio.run(summarizer._summarize(GEMMA, lines, None, send)), sent
+    return asyncio.run(summarizer.body.make(GEMMA, lines, None, send)), sent
 
 
 def test_empty_part_is_marked_instead_of_dropped(home, fake, monkeypatch, caplog):
-    monkeypatch.setattr(final_summary, "CHUNK_CHARS", 30)
+    monkeypatch.setattr(final_summary_body, "CHUNK_CHARS", 30)
     chat_replies(fake, [["一"], [], ["三"], ["概要"]])
     lines = [f"[00:00:{i:02d}] 二十文字ほどの長さの発言です。{i}" for i in range(3)]
     (text, gist), _ = summarize(home, fake, lines)
@@ -218,17 +217,19 @@ def test_empty_part_is_marked_instead_of_dropped(home, fake, monkeypatch, caplog
 
 def record_progress(monkeypatch):
     steps = []
-    monkeypatch.setattr(
-        final_summary,
-        "report_progress",
-        lambda step, done=None, total=None: steps.append((step, done, total)),
-    )
+
+    def record(step, done=None, total=None):
+        steps.append((step, done, total))
+
+    # タイトルは final_summary、本文の段階は final_summary_body が知らせる
+    monkeypatch.setattr(final_summary, "report_progress", record)
+    monkeypatch.setattr(final_summary_body, "report_progress", record)
     return steps
 
 
 def test_progress_of_a_long_summary(home, fake, monkeypatch):
     # 部分ごとの要約は件数つき、まとめ・概要は段階だけ（#340）
-    monkeypatch.setattr(final_summary, "CHUNK_CHARS", 30)
+    monkeypatch.setattr(final_summary_body, "CHUNK_CHARS", 30)
     steps = record_progress(monkeypatch)
     chat_replies(fake, [["あ" * 10]] * 6 + [["い" * 10]] * 3 + [["概要"]])
     lines = [f"[00:00:{i:02d}] 二十文字ほどの長さの発言です。{i}" for i in range(6)]
@@ -248,7 +249,7 @@ def test_progress_of_a_short_summary_and_the_title(home, fake, tmp_path, monkeyp
 
 
 def test_long_parts_are_merged_before_the_overview(home, fake, monkeypatch):
-    monkeypatch.setattr(final_summary, "CHUNK_CHARS", 30)
+    monkeypatch.setattr(final_summary_body, "CHUNK_CHARS", 30)
     # 部分の要約（各10文字）は合わせて 30 文字を超えるので、2つずつまとめてから概要を作る
     chat_replies(fake, [["あ" * 10]] * 6 + [["い" * 10]] * 3 + [["概要"]])
     lines = [f"[00:00:{i:02d}] 二十文字ほどの長さの発言です。{i}" for i in range(6)]
@@ -264,7 +265,7 @@ def test_long_parts_are_merged_before_the_overview(home, fake, monkeypatch):
 
 
 def test_long_summary_is_saved_and_titled_from_the_overview(home, fake, tmp_path, monkeypatch):
-    monkeypatch.setattr(final_summary, "CHUNK_CHARS", 30)
+    monkeypatch.setattr(final_summary_body, "CHUNK_CHARS", 30)
     chat_replies(fake, [["一"], ["二"], ["概要です"]])
     settings = SettingsStore(home)
     summarizer = FinalSummarizer(
@@ -295,7 +296,7 @@ def test_long_summary_is_saved_and_titled_from_the_overview(home, fake, tmp_path
 
 def test_density_from_settings_is_used_and_recorded(home, fake, tmp_path, monkeypatch):
     # 概要と詳細の要約度を全体設定から読み、プロンプトに効かせてフロントマターに残す（#100）
-    monkeypatch.setattr(final_summary, "CHUNK_CHARS", 30)
+    monkeypatch.setattr(final_summary_body, "CHUNK_CHARS", 30)
     settings = SettingsStore(home)
     settings.update({"ollama": {"overviewDensity": 1, "detailDensity": 5}})
     summarizer = FinalSummarizer(
@@ -367,6 +368,14 @@ def test_section_heading():
     assert section_heading(chunks, 0) == "## 00:00:00〜00:12:30"
     assert section_heading(chunks, 1) == "## 00:12:30〜00:20:10"
     assert section_heading([["時刻なし"], ["x"]], 0) == "## 部分 1"
+
+
+def test_detail_section_puts_the_part_under_its_time_range():
+    chunks = [["[00:00:00] a"], ["[00:12:30] c"]]
+    part = "## 決まったこと\n- 来週出す"
+    assert final_summary_body.detail_section(chunks, 0, part) == (
+        "\n\n## 00:00:00〜00:12:30\n\n### 決まったこと\n- 来週出す"
+    )
 
 
 def test_regenerate_with_another_model(client, project, fake_ollama, tmp_path):

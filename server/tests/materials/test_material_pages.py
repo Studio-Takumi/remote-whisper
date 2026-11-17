@@ -25,7 +25,7 @@ from remote_whisper.materials.material_pages import (
 from remote_whisper.materials.material_toc import MaterialRange
 from remote_whisper.settings import SettingsStore
 from remote_whisper.storage.documents import ContextMeta, MaterialRef, context_name, write_doc
-from remote_whisper.summary import final_summary
+from remote_whisper.summary import final_summary_body
 from remote_whisper.summary.final_summary import FinalSummarizer
 
 
@@ -250,7 +250,7 @@ def test_no_pages_when_the_setting_is_off(home, fake, tmp_path):
 
 
 def test_long_summary_gets_the_pages_only_in_the_detail(home, fake, tmp_path, monkeypatch):
-    monkeypatch.setattr(final_summary, "CHUNK_CHARS", 30)
+    monkeypatch.setattr(final_summary_body, "CHUNK_CHARS", 30)
     fake.reply = ["- eigen value definition を説明した"]
     fake.reply_for = refs_reply
     writer = prepare(

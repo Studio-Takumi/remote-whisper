@@ -23,13 +23,14 @@ import httpx
 
 from remote_whisper.cloud.credentials import (
     CREDENTIALS_SAVE_ERROR,
+    Credentials,
     delete_credentials,
     load_credentials,
     new_credentials,
     save_credentials,
 )
 from remote_whisper.cloud.errors import CloudError, CloudRefused
-from remote_whisper.cloud.relay_client import PAIR_TIMEOUT_SEC, RelayClient, redact_code
+from remote_whisper.cloud.relay_client import PAIR_TIMEOUT_SEC, RelayClient, Ticket, redact_code
 
 log = logging.getLogger(__name__)
 
@@ -44,6 +45,13 @@ CloudStatus = Literal["unregistered", "pairing", "registered", "unpairing"]
 
 # 承認のあとに書けず、Worker の登録も取り消せなかったときに書き足す
 UNDO_FAILED_NOTICE = "。中間サーバーに登録が残っているので、画面のホストの管理からも外してください"
+
+
+def next_poll_interval(interval: float, base: float, throttled: Any) -> float:
+    """次に聞くまでの間隔。429 のあいだは倍にしていく（上限 30 秒）。通ったら元に戻す"""
+    if throttled and base > 0:
+        return min(max(interval, 1.0) * 2, MAX_POLL_INTERVAL_SEC)
+    return base
 
 
 def host_name() -> str:
@@ -207,68 +215,77 @@ class CloudHost:
         try:
             ticket = client.start(self.name())
             log.info("cloud pairing started (host %s)", credentials.host_id)
-            self._view = CloudView("pairing", code=ticket.code)
-            self._notice(
-                f"登録コード: {ticket.code}\n"
-                "ブラウザの画面に同じコードが出ているか確かめて、承認してください"
-            )
-            # ログには登録コードを書かない（#166。URL のクエリに入っている）。
-            # コードはトレイの通知とメニューに出る
-            page = redact_code(ticket.url)
-            try:
-                self.open_browser(ticket.url)
-            except Exception as e:  # noqa: BLE001 開けなくても、画面の場所はログに、コードは通知に出ている
-                # 例外の文にコードつきの URL が入りうるので、例外の型だけ書く
-                log.warning("failed to open the pairing page %s: %s", page, type(e).__name__)
-            log.info("pairing page: %s", page)
-            deadline = min(ticket.expires_at, self.clock() + PAIR_TIMEOUT_SEC)
-            interval = self.poll_interval
-            while not self._cancel.wait(interval):
-                if self.clock() >= deadline:
-                    return EXPIRED_NOTICE
-                try:
-                    answer = client.poll()
-                except CloudRefused:
-                    # 署名が通らないなどは、待っても変わらないのですぐ知らせる
-                    raise
-                except CloudError as e:
-                    # 一時的なつながらなさは、期限まで聞き直す
-                    log.info("cloud poll failed, retrying: %s", e)
-                    continue
-                # 429 のあいだは間隔を倍にしていく（上限 30 秒）。通ったら元に戻す
-                interval = (
-                    min(max(interval, 1.0) * 2, MAX_POLL_INTERVAL_SEC)
-                    if answer.get("throttled") and self.poll_interval > 0
-                    else self.poll_interval
-                )
-                status = answer.get("status")
-                if status == "approved":
-                    relay_key = answer.get("relayKey")
-                    if not isinstance(relay_key, str) or not relay_key:
-                        raise CloudError("承認されましたが、中継の鍵を受け取れませんでした")
-                    try:
-                        save_credentials(
-                            self.home,
-                            replace(
-                                credentials, relay_key=relay_key, registered_at=int(self.clock())
-                            ),
-                        )
-                    except Exception as e:
-                        # 中継の鍵を置けない（権限・ディスクがいっぱい・ほかのプロセスの
-                        # ロックなど）なら、Worker の登録も取り消す（使えない登録を残さない）
-                        raise self._undo_approval(client, e) from e
-                    self._view = CloudView("registered")
-                    self._registration_changed()
-                    log.info("cloud pairing approved (host %s)", credentials.host_id)
-                    return "クラウド版に登録しました"
-                if status == "rejected":
-                    return "登録が拒否されました"
-                if status == "expired":
-                    return EXPIRED_NOTICE
-            log.info("cloud pairing cancelled")
-            return "クラウド版への登録をやめました"
+            self._show_ticket(ticket)
+            return self._wait_for_answer(client, credentials, ticket)
         finally:
             client.close()
+
+    def _show_ticket(self, ticket: Ticket) -> None:
+        """登録コードを通知とメニューに出し、承認の画面をブラウザで開く"""
+        self._view = CloudView("pairing", code=ticket.code)
+        self._notice(
+            f"登録コード: {ticket.code}\n"
+            "ブラウザの画面に同じコードが出ているか確かめて、承認してください"
+        )
+        # ログには登録コードを書かない（#166。URL のクエリに入っている）。
+        # コードはトレイの通知とメニューに出る
+        page = redact_code(ticket.url)
+        try:
+            self.open_browser(ticket.url)
+        except Exception as e:  # noqa: BLE001 開けなくても、画面の場所はログに、コードは通知に出ている
+            # 例外の文にコードつきの URL が入りうるので、例外の型だけ書く
+            log.warning("failed to open the pairing page %s: %s", page, type(e).__name__)
+        log.info("pairing page: %s", page)
+
+    def _wait_for_answer(
+        self, client: RelayClient, credentials: Credentials, ticket: Ticket
+    ) -> str | None:
+        """承認・拒否・期限切れ・やめるまで聞き続けて、知らせる文を返す"""
+        deadline = min(ticket.expires_at, self.clock() + PAIR_TIMEOUT_SEC)
+        interval = self.poll_interval
+        while not self._cancel.wait(interval):
+            if self.clock() >= deadline:
+                return EXPIRED_NOTICE
+            try:
+                answer = client.poll()
+            except CloudRefused:
+                # 署名が通らないなどは、待っても変わらないのですぐ知らせる
+                raise
+            except CloudError as e:
+                # 一時的なつながらなさは、期限まで聞き直す
+                log.info("cloud poll failed, retrying: %s", e)
+                continue
+            interval = next_poll_interval(interval, self.poll_interval, answer.get("throttled"))
+            status = answer.get("status")
+            if status == "approved":
+                return self._approved(client, credentials, answer)
+            if status == "rejected":
+                return "登録が拒否されました"
+            if status == "expired":
+                return EXPIRED_NOTICE
+        log.info("cloud pairing cancelled")
+        return "クラウド版への登録をやめました"
+
+    def _approved(
+        self, client: RelayClient, credentials: Credentials, answer: dict[str, Any]
+    ) -> str:
+        """承認された。中継の鍵を保存して、登録済みにする"""
+        relay_key = answer.get("relayKey")
+        if not isinstance(relay_key, str) or not relay_key:
+            raise CloudError("承認されましたが、中継の鍵を受け取れませんでした")
+        try:
+            save_credentials(
+                self.home,
+                replace(credentials, relay_key=relay_key, registered_at=int(self.clock())),
+            )
+        except Exception as e:
+            # 中継の鍵を置けない（権限・ディスクがいっぱい・ほかのプロセスの
+            # ロックなど）なら、Worker の登録も取り消す（使えない登録を残さない）
+            raise self._undo_approval(client, e) from e
+        self._view = CloudView("registered")
+        self._registration_changed()
+        log.info("cloud pairing approved (host %s)", credentials.host_id)
+        return "クラウド版に登録しました"
 
     def _unpair(self) -> None:
         told = False

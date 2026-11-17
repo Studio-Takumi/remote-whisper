@@ -12,7 +12,12 @@ import pytest
 from helpers.cloud import ICACLS, SID, fake_icacls
 
 from remote_whisper.cloud import credentials
-from remote_whisper.cloud.cloud import UNDO_FAILED_NOTICE, CloudHost, CloudView
+from remote_whisper.cloud.cloud import (
+    UNDO_FAILED_NOTICE,
+    CloudHost,
+    CloudView,
+    next_poll_interval,
+)
 from remote_whisper.cloud.credentials import (
     CREDENTIALS_PERMISSION_ERROR,
     CREDENTIALS_SAVE_ERROR,
@@ -627,3 +632,13 @@ def test_tooltip_has_the_cloud_line():
     assert state.tooltip == "remote-whisper: 待機中\nクラウド版: 登録していない"
     # クラウドを渡さなければ今まで通り
     assert tray_state(ServerStatus()).tooltip == "remote-whisper: 待機中"
+
+
+def test_next_poll_interval_doubles_while_throttled_up_to_the_limit():
+    assert next_poll_interval(3.0, 3.0, True) == 6.0
+    assert next_poll_interval(20.0, 3.0, True) == 30.0
+    # 0 秒（テスト）からでも 1 秒を元に倍にする。通ったら元の間隔に戻す
+    assert next_poll_interval(0.5, 3.0, True) == 2.0
+    assert next_poll_interval(24.0, 3.0, False) == 3.0
+    # 元の間隔が 0 なら倍にしない
+    assert next_poll_interval(0.0, 0.0, True) == 0.0

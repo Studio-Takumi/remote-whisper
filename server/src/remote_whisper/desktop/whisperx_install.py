@@ -291,44 +291,12 @@ class WhisperXInstaller:
         log.info("installing WhisperX into the bundled Python")
         before: dict[str, str] | None = None
         try:
-            # pip がなければ入れる（python-build-standalone には入っているはず）
-            if await self._run(["-m", "pip", "--version"]) != 0:
-                await self._run(["-m", "ensurepip", "--upgrade"])
-            before = await self._snapshot()
+            before = await self._prepare()
             # 入れる前の一覧を控える。途中でサーバーが止まっても、次に起動したときに戻せるように
             atomic_write_json(self.marker, before)
-            if self._cancelled:
-                raise asyncio.CancelledError
-            job.phase = "downloading"
-            code = await self._run(self._install_args(), self._on_pip_line)
-            if self._cancelled:
-                raise asyncio.CancelledError
-            if code != 0:
-                raise RuntimeError(f"pip failed (exit {code})")
+            await self._pip_install(job)
         except (asyncio.CancelledError, Exception) as e:
-            if self._closing:
-                log.warning("the server stopped while installing WhisperX; rolling back on restart")
-                return
-            cancelled = self._cancelled or isinstance(e, asyncio.CancelledError)
-            if not cancelled:
-                log.exception("installing WhisperX failed; see %s", self.log_path)
-            else:
-                log.info("installing WhisperX was cancelled")
-            if before is not None:
-                job.phase = "rollingBack"
-                try:
-                    ok = await self._rollback(before)
-                except Exception:  # noqa: BLE001
-                    log.exception("rolling back the WhisperX install failed")
-                    ok = False
-                job.rolled_back = ok
-                job.rollback_failed = not ok
-                if ok:
-                    self.marker.unlink(missing_ok=True)
-            else:
-                job.rolled_back = True
-            job.state = "cancelled" if cancelled else "failed"
-            job.package = None
+            await self._failed(job, before, e)
             return
         self.marker.unlink(missing_ok=True)
         self.on_installed()
@@ -336,6 +304,51 @@ class WhisperXInstaller:
         job.phase = "installing"
         job.package = None
         log.info("installed WhisperX")
+
+    async def _prepare(self) -> dict[str, str]:
+        """pip を用意して、入れる前の一覧を返す"""
+        # pip がなければ入れる（python-build-standalone には入っているはず）
+        if await self._run(["-m", "pip", "--version"]) != 0:
+            await self._run(["-m", "ensurepip", "--upgrade"])
+        return await self._snapshot()
+
+    async def _pip_install(self, job: InstallJob) -> None:
+        if self._cancelled:
+            raise asyncio.CancelledError
+        job.phase = "downloading"
+        code = await self._run(self._install_args(), self._on_pip_line)
+        if self._cancelled:
+            raise asyncio.CancelledError
+        if code != 0:
+            raise RuntimeError(f"pip failed (exit {code})")
+
+    async def _failed(
+        self, job: InstallJob, before: dict[str, str] | None, e: BaseException
+    ) -> None:
+        """入れられなかった・やめた。入れる前の一覧があれば戻す（except の中で呼ぶ）"""
+        if self._closing:
+            log.warning("the server stopped while installing WhisperX; rolling back on restart")
+            return
+        cancelled = self._cancelled or isinstance(e, asyncio.CancelledError)
+        if not cancelled:
+            log.exception("installing WhisperX failed; see %s", self.log_path)
+        else:
+            log.info("installing WhisperX was cancelled")
+        if before is not None:
+            job.phase = "rollingBack"
+            try:
+                ok = await self._rollback(before)
+            except Exception:  # noqa: BLE001
+                log.exception("rolling back the WhisperX install failed")
+                ok = False
+            job.rolled_back = ok
+            job.rollback_failed = not ok
+            if ok:
+                self.marker.unlink(missing_ok=True)
+        else:
+            job.rolled_back = True
+        job.state = "cancelled" if cancelled else "failed"
+        job.package = None
 
     async def _rollback(self, before: dict[str, str]) -> bool:
         """入れる前の一覧に戻す。戻せたら True"""

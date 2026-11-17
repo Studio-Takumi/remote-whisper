@@ -14,8 +14,8 @@ from remote_whisper.hub import Hub
 from remote_whisper.settings import SettingsStore
 from remote_whisper.storage.documents import FinalTranscriptMeta, TranscriptMeta, read_doc
 from remote_whisper.storage.sessions import SessionFiles
-from remote_whisper.transcript import final_transcriber
-from remote_whisper.transcript.final_transcribe_worker import Progress, parse_progress
+from remote_whisper.transcript import final_transcript_job
+from remote_whisper.transcript.final_transcribe_steps import Progress, parse_progress
 from remote_whisper.transcript.final_transcriber import FinalTranscriber
 
 # WhisperX の子プロセスの代わり。決まった結果を書く。
@@ -254,6 +254,37 @@ def test_the_intel_gpu_is_passed_only_when_found_and_allowed(home, session_files
     assert "openvino" not in job()
 
 
+def test_build_job_from_the_settings_and_the_session(home, session_files, tmp_path):
+    files, meta = session_files
+    whisper = SettingsStore(home).get().whisper
+    out = tmp_path / "out.json"
+    job, sources = final_transcript_job.build_job(
+        files, meta, files.recording(), out, "large-v3-turbo", True, whisper, None
+    )
+    assert job == {
+        "audio": str(files.recording()),
+        "out": str(out),
+        "model": "large-v3-turbo",
+        "computeType": whisper.compute_type,
+        "language": "ja",
+        "diarize": True,
+        "diarizationModel": final_transcript_job.DIARIZATION_MODEL,
+        "batchSize": final_transcript_job.BATCH_SIZE,
+        "hotwords": None,
+        "initialPrompt": final_transcript_job.INITIAL_PROMPT["ja"],
+    }
+    # 音源が 1 つなら sources は渡さない
+    assert sources == [{"id": 1, "audio": str(files.recording()), "roughOffsetSec": 0.0}]
+
+
+def test_worker_timeout_grows_with_the_audio_and_the_sources():
+    base = final_transcript_job.TIMEOUT_BASE_SEC
+    assert final_transcript_job.worker_timeout(600, 1) == base + 600
+    assert final_transcript_job.worker_timeout(600, 3) == base + 1800
+    # 長さが分からなければ 1 時間とみなす。音源が 0 でも 1 つ分
+    assert final_transcript_job.worker_timeout(None, 0) == base + 3600
+
+
 def test_progress_of_the_worker_goes_to_the_gpu_job(home, session_files, fake_worker, caplog):
     # 子が出した進み具合の行は、ログに書かずに GPU キューのジョブの進み具合にする（#340）
     files, meta = session_files
@@ -322,8 +353,8 @@ def test_a_failed_worker_makes_nothing(home, session_files, fake_worker):
 
 def test_a_stuck_worker_is_stopped(home, session_files, fake_worker, monkeypatch):
     # 固まったら打ち切る（GPU キューを止めたままにしない）
-    monkeypatch.setattr(final_transcriber, "TIMEOUT_BASE_SEC", 1.0)
-    monkeypatch.setattr(final_transcriber, "TIMEOUT_PER_SEC", 0.0)
+    monkeypatch.setattr(final_transcript_job, "TIMEOUT_BASE_SEC", 1.0)
+    monkeypatch.setattr(final_transcript_job, "TIMEOUT_PER_SEC", 0.0)
     files, meta = session_files
     assert run_final(home, fake_worker("slow"), files, meta) is None
     assert files.final_transcripts() == []

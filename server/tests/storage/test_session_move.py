@@ -19,7 +19,7 @@ from remote_whisper.storage.documents import (
     write_doc,
 )
 from remote_whisper.storage.projects import ContextSetEntry, rebuild_project_file
-from remote_whisper.transcript import final_transcriber
+from remote_whisper.transcript import final_transcript_job
 
 BASE_SET = "20261019-090000"
 SESSION_SET = "20261019-095959"
@@ -187,7 +187,7 @@ def test_regenerating_after_the_move_uses_the_same_terms(client, projects, monke
 
     def regenerate(files, meta, model, diarize):
         seen["dir"] = files.dir
-        seen["hotwords"] = final_transcriber._hotwords(files, meta)
+        seen["hotwords"] = final_transcript_job.hotwords(files, meta)
 
     monkeypatch.setattr(final, "available", lambda: True)
     monkeypatch.setattr(final, "regenerate", regenerate)
@@ -322,3 +322,11 @@ def test_a_failure_while_saving_project_json_is_undone(client, projects, monkeyp
     assert (db / "project.json").read_text(encoding="utf-8") == project_b
     assert sid in _ids(client, a) and sid not in _ids(client, b)
     assert (da / f"transcript-{sid}.md").is_file()
+
+
+def test_move_error_tells_a_file_in_use_from_other_failures():
+    # Windows で開いているファイルは動かせない（409）。ほかは 500 で理由を付ける
+    in_use = session_move.move_error(PermissionError("locked"))
+    assert in_use.status == 409 and "使われているファイル" in in_use.message
+    other = session_move.move_error(OSError("disk full"))
+    assert other.status == 500 and other.message.endswith("disk full")
