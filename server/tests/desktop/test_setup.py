@@ -200,7 +200,7 @@ def test_token_is_not_left_when_permissions_fail(home, monkeypatch, results):
 
 
 def test_token_permission_failure_is_reported_by_the_api(client, home, monkeypatch):
-    from remote_whisper.cloud.cloud import OwnerOnlyError
+    from remote_whisper.cloud.owner_only import OwnerOnlyError
 
     def fail(path, text):
         raise OwnerOnlyError("icacls failed: Access is denied.")

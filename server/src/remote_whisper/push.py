@@ -32,7 +32,7 @@ from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
-from remote_whisper.cloud.cloud import OwnerOnlyError, write_owner_only
+from remote_whisper.cloud.owner_only import OwnerOnlyError, write_owner_only
 from remote_whisper.storage.fsutil import atomic_write_json, atomic_write_text
 
 log = logging.getLogger(__name__)

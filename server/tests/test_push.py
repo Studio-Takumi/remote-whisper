@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 from helpers.mock import FAST, of_type, receive_until, start
 
 from remote_whisper.app import create_app
-from remote_whisper.cloud.cloud import OwnerOnlyError
+from remote_whisper.cloud.owner_only import OwnerOnlyError
 from remote_whisper.push import (
     KEY_FILE,
     NOTIFICATION_TITLE,

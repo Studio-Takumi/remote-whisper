@@ -11,7 +11,7 @@ from remote_whisper.cloud.announcements import (
     newest_release,
     parse_version,
 )
-from remote_whisper.cloud.cloud import new_credentials, save_credentials
+from remote_whisper.cloud.credentials import new_credentials, save_credentials
 
 RELAY = "https://relay.example.test"
 NOW = datetime(2026, 10, 21, tzinfo=UTC)

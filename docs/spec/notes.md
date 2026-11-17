@@ -125,3 +125,26 @@
 | `lmstudio_schema.py` | メッセージ・SSE の形と、返事の JSON Schema での確かめ（`SchemaMismatch`・`conform`・`parse_structured`） |
 | `lmstudio.py` | `LMStudioClient`（部品を作って公開メソッドを渡す。モデルの取得 `pull` もここ） |
 
+- セッションの API（`routes/sessions/`）は、FastAPI の router をファイルごとに分ける（#388）。登録の順番とパスは分ける前と同じ（`app.py`）
+
+| モジュール | 置くもの |
+|---|---|
+| `common.py` | `Ctx`、セッションの引き方（`load_project`・`load_session`）、410 の `gone`、返す形 `session_json`、録音後の処理中の判定 `still_finishing` |
+| `uploads.py` | 音声ファイルのアップロード（`/upload`・`/{sid}/sources/upload`） |
+| `read.py` | 一覧・取得・文字起こし・浄書済み・録音・要約を読む。UUID から引く `lookup` |
+| `move.py` | 別のプロジェクトへ移す（`move_blocker` と `/{sid}/move`） |
+| `regenerate.py` | 浄書済み文字起こし・要約の作り直し |
+| `terms.py` | 用語の追加・外し、置き換えの追加・外し |
+- 初回のセットアップ（`desktop/`）と、クラウド版のホスト（`cloud/`）も役割ごとに分ける（#388）。依存は一方向（`setup_error`・`errors`・`owner_only` が土台）
+
+| モジュール | 置くもの |
+|---|---|
+| `desktop/setup.py` | `SetupService`（足りないものの調べ・モデルの取得・画面への状態） |
+| `desktop/whisperx_install.py` | `WhisperXInstaller`（pip で入れる・失敗したときに元の一覧へ戻す）、`InstallJob` |
+| `desktop/hf_token.py` | HuggingFace のトークンの保存・読み出し、子プロセスに渡す環境変数 |
+| `desktop/setup_error.py` | `SetupError` |
+| `cloud/cloud.py` | `CloudHost`（登録・解除を別スレッドで進める）・`CloudView` |
+| `cloud/relay_client.py` | `RelayClient`（中間サーバーの `/pair/...` を署名つきで呼ぶ）・`Ticket` |
+| `cloud/credentials.py` | Ed25519 の鍵・署名（`canonical_string`）・`cloud.json` の読み書き |
+| `cloud/owner_only.py` | 本人だけが読めるファイルの書き込み（`write_owner_only`） |
+| `cloud/errors.py` | `CloudError`・`RegistrationGone`・`CloudRefused` |

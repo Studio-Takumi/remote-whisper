@@ -11,18 +11,18 @@ from pathlib import Path
 import httpx
 import pytest
 
-from remote_whisper.cloud.cloud import (
-    HOST_HEADER,
-    CloudHost,
-    new_credentials,
-    public_key_from_b64,
-    save_credentials,
-    verify_header,
-)
+from remote_whisper.cloud.cloud import CloudHost
 from remote_whisper.cloud.cloudflared import (
     INVALID_PATH_NOTICE,
     NOT_FOUND_NOTICE,
     CloudflaredRunner,
+)
+from remote_whisper.cloud.credentials import (
+    HOST_HEADER,
+    new_credentials,
+    public_key_from_b64,
+    save_credentials,
+    verify_header,
 )
 from remote_whisper.desktop.tray_state import cloud_text
 
