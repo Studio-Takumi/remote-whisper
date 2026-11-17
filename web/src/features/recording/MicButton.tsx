@@ -4,32 +4,27 @@ import { toast } from 'sonner';
 import { useCurrentProject, useCurrentSession, useSessionTitle } from '@/app/sessionHooks';
 import { useAppStore } from '@/app/store';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { describeLeft } from '@/features/recording/continueWindow';
-import { type Joined, joinUnavailable } from '@/features/recording/join';
+import { joinUnavailable } from '@/features/recording/join';
+import { type MicDo, type MicIcon as MicIconKind, describeJoined, micAction } from '@/features/recording/micAction';
 import { useContinueLeft } from '@/features/recording/useContinueLeft';
 import { useMicShortcut } from '@/features/recording/useMicShortcut';
-import { describeWatched, recordedElsewhere } from '@/features/recording/watch';
+import { recordedElsewhere } from '@/features/recording/watch';
 import { DEFAULT_MIC_SHORTCUT, ariaShortcut, formatShortcut } from '@/features/settings/shortcut';
 import { formatElapsed } from '@/lib/time';
 
-// 参加している間に出す「参加中」（#357）。つなぎ直している間・返事待ちはそう出す
-function describeJoined(joined: Joined) {
-    if (joined.state === 'reconnecting') {
-        return 'ホストにつなぎ直しています';
-    }
-    if (joined.state === 'joining' || joined.source === null) {
-        return '参加しています…';
-    }
-    return `音源 ${joined.source} として参加中`;
-}
-
-// アイコンの大きさ。スマホの幅ではボタンが小さいので、アイコンも小さくする
+// アイコンの大きさ。スマホの幅ではボタンが小さいので、アイコンも小さくする（録音中の操作は小さく、待機中は大きく）
 const smallIcon = 'size-10 md:size-14';
 const largeIcon = 'size-12 md:size-16';
 
-// 待機中に押したら何が起きるか
-// none: プロジェクトを選んでいない / new: 新しいセッションの画面 / session: 既存のセッションを開いている
-type MicTarget = { kind: 'none' } | { kind: 'new' } | { kind: 'session'; projectName: string };
+const ICONS: Record<MicIconKind, React.ReactNode> = {
+    back: <Undo2Icon className={smallIcon} />,
+    pause: <PauseIcon className={smallIcon} fill='currentColor' />,
+    play: <PlayIcon className={smallIcon} fill='currentColor' />,
+    micOff: <MicOffIcon className={largeIcon} />,
+    mic: <MicIcon className={largeIcon} />,
+    radio: <RadioIcon className={largeIcon} />,
+    plus: <PlusIcon className={largeIcon} />,
+};
 
 // sticky + mx-auto で、サイドバーの開閉に関係なくメイン領域の中央下に置く
 // 大きいボタンは開始・一時停止・再開。録音を終えるのは取り返しがつかないので、右横の小さいボタンに分ける
@@ -79,108 +74,39 @@ export function MicButton() {
           ? 'ほかのセッションに参加しています'
           : joinUnavailable(joinAvailability);
 
-    const target: MicTarget =
-        projectName === undefined ? { kind: 'none' } : hasSession ? { kind: 'session', projectName } : { kind: 'new' };
-
-    // 録音中に別のセッションを開いているときは、録音を始めずに録音中のセッションに戻るボタンにする。
-    // 一時停止・終了は、録音中のセッションの画面でだけ出す
-    const main = elsewhere
-        ? {
-              onClick: onBack,
-              label: `「${recordingTitle ?? '新しいセッション'}」で${state === 'paused' ? '一時停止中' : '録音中'}です。クリックで戻ります`,
-              hint: '',
-              color: state === 'paused' ? 'bg-amber-500' : 'bg-red-500',
-              icon: <Undo2Icon className={smallIcon} />,
-          }
-        : state === 'recording'
-          ? {
-                onClick: onPause,
-                label: 'クリックして一時停止',
-                hint: '',
-                color: 'bg-red-500',
-                icon: <PauseIcon className={smallIcon} fill='currentColor' />,
-            }
-          : state === 'paused'
-            ? {
-                  onClick: onResume,
-                  label: 'クリックして録音再開',
-                  hint: '',
-                  color: 'bg-amber-500',
-                  icon: <PlayIcon className={smallIcon} fill='currentColor' />,
-              }
-            : watchedElsewhere && joinedHere
-              ? {
-                    // この端末のマイクで参加している（#357）。押すと抜ける。録音の操作（一時停止・終了）はできない
-                    onClick: onLeave,
-                    label: `${joinedLabel}。クリックして参加をやめる`,
-                    hint: '',
-                    color: 'bg-red-500',
-                    icon: <MicOffIcon className={smallIcon} />,
-                }
-              : watchedElsewhere && joinReason === null
-                ? {
-                      // ほかの端末で録音中のセッションを見ている（#238）。この端末のマイクで音源として参加できる（#357）
-                      onClick: () => session && void onJoin(session.id),
-                      label: `${describeWatched(watchedState)}です。クリックしてこの端末のマイクで参加`,
-                      hint: 'この端末のマイクで参加',
-                      color: 'bg-blue-500',
-                      icon: <MicIcon className={largeIcon} />,
-                  }
-                : watchedElsewhere
-                  ? {
-                        // 参加できない（古いホスト・上限・参加を切っている・ほかのセッションに参加している）。理由を出す
-                        onClick: () => toast.info(joinReason ?? 'ほかの端末で録音中です。操作はその端末でしてください'),
-                        label: `${describeWatched(watchedState)}です。${joinReason ?? 'この端末では閲覧専用です'}`,
-                        hint: joinReason ?? describeWatched(watchedState),
-                        color: 'cursor-not-allowed bg-neutral-400 dark:bg-neutral-600',
-                        icon: <RadioIcon className={largeIcon} />,
-                        disabled: true,
-                        // 押せない理由は、タッチでなくても出す
-                        showHint: joinReason !== null,
-                    }
-                  : session && continueLeft !== null
-                    ? {
-                          onClick: () => void onContinue(session.id),
-                          label: `クリックして続きから録音（録音を終えてから ${windowMin} 分の間は、続きから録音できます。${describeLeft(continueLeft)}）`,
-                          hint: '押すと続きから録音',
-                          color: 'bg-blue-500',
-                          icon: <MicIcon className={largeIcon} />,
-                      }
-                    : target.kind === 'session'
-                      ? {
-                            onClick: onStart,
-                            label: `クリックして「${target.projectName}」に新しいセッションを作成`,
-                            hint: '押すと新しいセッション',
-                            color: 'bg-neutral-500',
-                            icon: <PlusIcon className={largeIcon} />,
-                        }
-                      : target.kind === 'new' && micDenied
-                        ? {
-                              // 押すともう一度マイクの許可を求める（ブラウザの設定で許可し直した場合のため）
-                              onClick: onStart,
-                              label: 'マイクが許可されていません。ブラウザの設定でマイクを許可してください',
-                              hint: 'マイクが許可されていません',
-                              color: 'bg-blue-500 opacity-50',
-                              icon: <MicOffIcon className={largeIcon} />,
-                          }
-                        : target.kind === 'new'
-                          ? {
-                                onClick: onStart,
-                                label: 'クリックして録音開始',
-                                hint: '押すと録音開始',
-                                color: 'bg-blue-500',
-                                icon: <MicIcon className={largeIcon} />,
-                            }
-                          : {
-                                onClick: onStart,
-                                label: '録音するプロジェクトをメニューから選んでください',
-                                hint: 'プロジェクトを選んでください',
-                                color: 'cursor-not-allowed bg-blue-500 opacity-50',
-                                icon: <MicIcon className={largeIcon} />,
-                            };
+    const main = micAction({
+        state,
+        elsewhere,
+        recordingTitle,
+        watchedElsewhere,
+        watchedState,
+        joinedHere,
+        joinedLabel,
+        joinReason,
+        continueLeft,
+        windowMin,
+        target:
+            projectName === undefined
+                ? { kind: 'none' }
+                : hasSession
+                  ? { kind: 'session', projectName }
+                  : { kind: 'new' },
+        micDenied,
+    });
+    const actions: Record<MicDo, () => void> = {
+        back: onBack,
+        pause: onPause,
+        resume: onResume,
+        leave: onLeave,
+        join: () => session && void onJoin(session.id),
+        notice: () => toast.info(main.notice),
+        continue: () => session && void onContinue(session.id),
+        start: onStart,
+    };
+    const onClick = actions[main.do];
 
     const shortcut = useAppStore((s) => s.settings.display.micShortcut ?? DEFAULT_MIC_SHORTCUT);
-    useMicShortcut(shortcut, main.onClick);
+    useMicShortcut(shortcut, onClick);
 
     // 録音中は上に経過時間（参加中は「参加中」）を出すので、Tooltip は左右に出して被らないようにする
     const recording = state !== 'idle';
@@ -192,7 +118,7 @@ export function MicButton() {
             {/* タッチではツールチップが出ないので、待機中はボタンの上に短い説明を出す（押せない理由はいつも出す） */}
             {!recording && !showJoined && main.hint && (
                 <p
-                    className={`absolute bottom-full left-1/2 mb-3 -translate-x-1/2 rounded-full bg-background/90 px-2 py-0.5 text-xs whitespace-nowrap text-muted-foreground shadow-sm ${'showHint' in main && main.showHint ? '' : 'hidden pointer-coarse:block'}`}
+                    className={`absolute bottom-full left-1/2 mb-3 -translate-x-1/2 rounded-full bg-background/90 px-2 py-0.5 text-xs whitespace-nowrap text-muted-foreground shadow-sm ${main.showHint ? '' : 'hidden pointer-coarse:block'}`}
                 >
                     {main.hint}
                 </p>
@@ -225,12 +151,12 @@ export function MicButton() {
                 <TooltipTrigger asChild>
                     <button
                         className={`relative flex size-24 items-center justify-center rounded-full text-white transition-colors md:size-32 ${main.color}`}
-                        onClick={main.onClick}
+                        onClick={onClick}
                         aria-label={main.label}
-                        aria-disabled={'disabled' in main && main.disabled ? true : undefined}
+                        aria-disabled={main.disabled ? true : undefined}
                         aria-keyshortcuts={ariaShortcut(shortcut)}
                     >
-                        {main.icon}
+                        {ICONS[main.icon]}
                     </button>
                 </TooltipTrigger>
                 <TooltipContent side={recording || showJoined ? 'left' : 'top'}>
