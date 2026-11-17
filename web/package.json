@@ -43,6 +43,8 @@
   },
   "devDependencies": {
     "@tanstack/react-query-devtools": "^5.107.1",
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/react": "^16.3.3",
     "@trivago/prettier-plugin-sort-imports": "^6.0.2",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.18",
