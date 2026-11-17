@@ -76,7 +76,7 @@
 
 | パッケージ | 置くもの |
 |---|---|
-| （直下） | 起動（`__main__`・`app`）、全体の状態（`context`・`hub`）、設定・ログ・バージョン、Host の確認、Web Push、モック |
+| （直下） | 起動（`__main__`・`app`・下の表）、全体の状態（`context`・`hub`）、設定・ログ・バージョン、Host の確認、Web Push、モック |
 | `routes/` | HTTP・WebSocket の口 |
 | `recording/` | 録音の受け取り・区間分け・録音中の文字起こし・アップロード・復旧 |
 | `transcript/` | 録音後の文字起こし（浄書）・置き換え・用語の拾い出し |
@@ -101,3 +101,16 @@
 | `session_sources.py` | 録音中に参加したほかの端末の音源（参加・つなぎ直し・抜ける・ずれの測り直し） |
 | `source_records.py` | 音源の一覧（`sources.json`）と行ごとの音源（`line-sources.jsonl`）の書き込み |
 | `session_finish.py` | 録音を終えたあとの後始末（変換・浄書・最終の要約）と、続きの録音への引き継ぎ |
+- 起動（直下）も役割ごとに分ける（#386）。`create_app` は部品をつなぐだけ
+
+| モジュール | 置くもの |
+|---|---|
+| `__main__.py` | `main`（二重起動の確認・ポート選び・ログ・サーバーの起動と片付け） |
+| `cli.py` | コマンドラインの引数 |
+| `app.py` | `create_app`（ミドルウェア・ルートの登録） |
+| `wiring.py` | 録音・Whisper・LLM・要約・アップロードなどの部品を作って `AppContext` につなぐ |
+| `lifecycle.py` | lifespan（起動時に起こす見張り・復旧と、終了時に止める順番） |
+| `request_log.py` | API のリクエストのログ |
+| `web.py` | 画面（`web/dist`）の配信 |
+| `tray_serve.py` | トレイ（Mac はメニューバー）を出しながらサーバーを動かす |
+| `open_browser.py` | 起動したら画面をブラウザで開く |

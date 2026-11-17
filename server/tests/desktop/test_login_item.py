@@ -208,10 +208,10 @@ class FakeServer:
 
 
 def test_open_browser_waits_until_the_server_listens():
-    from remote_whisper.__main__ import _open_when_started
+    from remote_whisper.open_browser import open_when_started
 
     server, opened = FakeServer(), []
-    thread = _open_when_started(server, "http://127.0.0.1:8000/", open_url=opened.append)
+    thread = open_when_started(server, "http://127.0.0.1:8000/", open_url=opened.append)
     time.sleep(0.3)
     assert opened == []
     server.started = True
@@ -220,19 +220,19 @@ def test_open_browser_waits_until_the_server_listens():
 
 
 def test_open_browser_gives_up_when_the_server_stops():
-    from remote_whisper.__main__ import _open_when_started
+    from remote_whisper.open_browser import open_when_started
 
     server, opened = FakeServer(), []
-    thread = _open_when_started(server, "http://x/", open_url=opened.append)
+    thread = open_when_started(server, "http://x/", open_url=opened.append)
     threading.Timer(0.2, lambda: setattr(server, "should_exit", True)).start()
     thread.join(2)
     assert not thread.is_alive() and opened == []
 
 
 def test_open_browser_gives_up_after_the_timeout():
-    from remote_whisper.__main__ import _open_when_started
+    from remote_whisper.open_browser import open_when_started
 
     server, opened = FakeServer(), []
-    thread = _open_when_started(server, "http://x/", timeout=0.2, open_url=opened.append)
+    thread = open_when_started(server, "http://x/", timeout=0.2, open_url=opened.append)
     thread.join(2)
     assert not thread.is_alive() and opened == []

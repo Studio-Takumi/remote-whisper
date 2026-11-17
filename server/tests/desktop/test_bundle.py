@@ -3,9 +3,9 @@ import sys
 
 import pytest
 
-from remote_whisper.app import web_dist_dir
 from remote_whisper.desktop import bundle
 from remote_whisper.version import app_version
+from remote_whisper.web import web_dist_dir
 
 
 def _make_bundle(root, version="abc1234"):
