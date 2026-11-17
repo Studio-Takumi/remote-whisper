@@ -17,6 +17,7 @@ import type { ServerMessage } from '@/api/protocol';
 import { queryClient } from '@/app/query';
 import { readProjects, readSession } from '@/app/sessionData';
 import { useAppStore } from '@/app/store';
+import { patchLocal } from '@/features/projects/localSessions';
 import { defaultSettings } from '@/features/settings/settings';
 
 // #330 の 4 段目: 要約のキャッシュ・WebSocket の通知をキャッシュに入れる・操作（mutation）の楽観的更新と巻き戻し
@@ -287,6 +288,32 @@ describe('操作の楽観的更新と巻き戻し', () => {
         expect(opened().transcript.map((x) => x.text)).toEqual(['りりーす計画', '始めます', '届いた行']);
         expect(opened().corrections).toEqual([]);
         expect(toast.error).toHaveBeenCalledWith('置き換えられません: 置き換えられない語です');
+    });
+
+    it('置き換え（自分の録音）: できなければ戻す。待っている間に届いた行は残す', async () => {
+        await open();
+        // 自分で録音しているセッションは、中身を手元（ストア）に積む（#361）
+        useAppStore.setState({
+            localSessions: [{ projectId: 'a', session: { ...opened(), status: 'recording' } }],
+            recordingSessionId: 's1',
+        });
+        let reject: (e: Error) => void = () => {};
+        vi.spyOn(api, 'post').mockImplementation(() => new Promise((_r, j) => (reject = j)));
+        const done = useAppStore.getState().addCorrection('s1', { from: 'りりーす', to: 'リリース', line: null });
+        expect(opened().transcript[0].text).toBe('リリース計画');
+        // 待っている間に行が届いた
+        useAppStore.setState((s) => ({
+            localSessions: patchLocal(s.localSessions, 's1', (x) => ({
+                ...x,
+                transcript: [...x.transcript, { time: '00:00:09', text: '届いた行' }],
+            })),
+        }));
+        await vi.waitFor(() => expect(api.post).toHaveBeenCalled());
+        reject(new ApiError(400, '置き換えられない語です'));
+        expect(await done).toBe(false);
+        expect(opened().transcript.map((x) => x.text)).toEqual(['りりーす計画', '始めます', '届いた行']);
+        expect(opened().corrections).toEqual([]);
+        useAppStore.setState({ localSessions: [], recordingSessionId: null });
     });
 
     it('置き換えを外す: 先に一覧から外し、外せなければ戻す', async () => {
