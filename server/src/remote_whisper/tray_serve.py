@@ -16,19 +16,9 @@ from remote_whisper.desktop import tray
 log = logging.getLogger("remote_whisper")
 
 
-def serve_with_tray(
-    server: uvicorn.Server,
-    app: FastAPI,
-    home: Path,
-    *,
-    url: str,
-    log_dir: Path,
-    tunnel: TunnelPort,
-    runner: CloudflaredRunner,
-    notice: str | None,
-) -> None:
-    # Windows: サーバーはメインスレッドで動かし（Ctrl+C で止められるように）、
-    # トレイは別のスレッドで出す。Mac はその逆（AppKit はメインスレッドでしか動かない）
+def _make_cloud_host(
+    app: FastAPI, home: Path, tunnel: TunnelPort, runner: CloudflaredRunner
+) -> cloud.CloudHost:
     cloud_host = cloud.CloudHost(
         home,
         relay_url=lambda: app.state.ctx.settings.get().cloud.relay_url,
@@ -46,6 +36,23 @@ def serve_with_tray(
     # ポートが使えなかった・cloudflared がなかったら、トレイの通知で知らせる
     tunnel.on_error = lambda message: cloud_host.on_notice(message)
     runner.on_notice = lambda message: cloud_host.on_notice(message)
+    return cloud_host
+
+
+def serve_with_tray(
+    server: uvicorn.Server,
+    app: FastAPI,
+    home: Path,
+    *,
+    url: str,
+    log_dir: Path,
+    tunnel: TunnelPort,
+    runner: CloudflaredRunner,
+    notice: str | None,
+) -> None:
+    # Windows: サーバーはメインスレッドで動かし（Ctrl+C で止められるように）、
+    # トレイは別のスレッドで出す。Mac はその逆（AppKit はメインスレッドでしか動かない）
+    cloud_host = _make_cloud_host(app, home, tunnel, runner)
     icon = tray.Tray(
         status=lambda: app.state.ctx.hub.status,
         # 選んでいる LLM（#327）。その状態だけを出す

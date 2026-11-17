@@ -152,6 +152,13 @@ def _wire_real(
         openvino_device=openvino_device,
     )
     ctx.recorder.final_transcript = ctx.final_transcriber
+    if ctx.ollama is None:
+        return None
+    return _wire_summary_and_materials(ctx, home)
+
+
+def _wire_summary_and_materials(ctx: AppContext, home: Path) -> RangeService:
+    """最終の要約と参考資料を作る"""
     # 録音を終えたら最終の要約とタイトルを作る
     # （ほかに録音中でなければ Whisper を下ろしてから）
     ctx.summarizer = FinalSummarizer(

@@ -17,6 +17,7 @@ import logging
 import sys
 import webbrowser
 from pathlib import Path
+from typing import NoReturn
 
 import uvicorn
 
@@ -70,7 +71,7 @@ def _open_running(home: Path, use_tray: bool) -> None:
         webbrowser.open(url)
 
 
-def _fail_no_port(use_tray: bool) -> None:
+def _fail_no_port(use_tray: bool) -> NoReturn:
     message = NO_PORT_MESSAGE.format(first=ports.CANDIDATE_PORTS[0], last=ports.CANDIDATE_PORTS[-1])
     log.error(message)
     _say(message)
