@@ -1,22 +1,42 @@
 """LM Studio のモデルの載せ下ろし（ロック・録音中は 1 つだけ・keepAliveMin のタイマー）。
 
-spec/notes.md 9.3（#326）"""
+spec/notes.md 9.3（#326）。自分が載せたインスタンス（`loaded`）を持つのはここだけ"""
 
 import asyncio
 import contextlib
-from collections.abc import Callable
+import time
+from collections.abc import Awaitable, Callable, Iterator
 from typing import Any
 
-from remote_whisper.llm.lmstudio_http import LOAD_TIMEOUT, LMStudioUnavailable, log
-from remote_whisper.llm.lmstudio_models import LMStudioModels, entry_instances, usable_instance
+from remote_whisper.llm.lmstudio_http import LOAD_TIMEOUT, LMStudioHttp, LMStudioUnavailable, log
+from remote_whisper.llm.lmstudio_models import ModelList, entry_instances, usable_instance
+from remote_whisper.settings import SettingsStore
 from remote_whisper.summary.summary_parts import NUM_CTX
 
 
-class LMStudioVram(LMStudioModels):
+class Vram:
     """自分が載せたインスタンスだけを載せ下ろしする"""
 
-    def __init__(self, *args: Any, **kwargs: Any):
-        super().__init__(*args, **kwargs)
+    def __init__(
+        self,
+        http: LMStudioHttp,
+        models: ModelList,
+        settings: SettingsStore,
+        recording: Callable[[], bool] = lambda: False,
+        clock: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    ):
+        """clock・sleep は、保持の時間のタイマーに使う（テストで差し替える）"""
+        self.http = http
+        self.models = models
+        self.settings = settings
+        # 録音中かどうか（録音中は下ろさない・1 つだけ載せる）
+        self.recording = recording
+        self._clock = clock
+        self._sleep = sleep
+        # このクライアントが載せたインスタンス → 載せたときの context_length（これだけを下ろす）。
+        # 手で載せたものは下ろさない（一覧と食い違うものは _forget_gone で忘れる）
+        self.loaded: dict[str, int] = {}
         # context の小さいインスタンス・手で載せたインスタンス（ログに書いたもの。何度も書かない）
         self._small: set[str] = set()
         self._manual: set[str] = set()
@@ -25,15 +45,55 @@ class LMStudioVram(LMStudioModels):
         self._vram = asyncio.Lock()
         # 生成している途中の数と、最後に使った時刻（保持の時間のタイマー）
         self._active = 0
-        self._last_used = self._clock()
+        self._last_used = clock()
         self._timer: asyncio.Task | None = None
+        models.on_listed = self._forget_gone
+
+    def note_loaded(self, iid: str, ctx: int) -> None:
+        """生成の途中で LM Studio が読み込んだ（JIT）インスタンスを、自分が載せたものに数える"""
+        self.loaded[iid] = ctx
+
+    @contextlib.contextmanager
+    def generating(self) -> Iterator[None]:
+        """生成している間はタイマーで下ろさない。終わったら、そこから keepAliveMin 分を数え直す
+
+        録音中は数えない（録音が終わったとき（recording_ended）に数え始める）"""
+        self._active += 1
+        try:
+            yield
+        finally:
+            self._active -= 1
+            if not self.recording():
+                self._touch()
+
+    def _forget_gone(self, llms: dict[str, dict[str, Any]]) -> None:
+        """自分が載せた記録のうち、一覧に載っていないもの・context が食い違うものを忘れる
+
+        自分の `<key>` を手で下ろしたあと、同じモデルを手で載せ直すと、新しいインスタンスも
+        同じ `<key>` になる。記録を残したままだと、手で載せたほうを下ろしてしまうため。
+        同じ context で載せ直されて、その間に一覧を取らなかったときは見分けられない"""
+        listed = {iid: ctx for entry in llms.values() for iid, ctx in entry_instances(entry)}
+        for iid, ctx in list(self.loaded.items()):
+            if iid not in listed:
+                log.info("lmstudio %s is no longer loaded; forgetting it", iid)
+            elif listed[iid] != ctx:
+                log.warning(
+                    "lmstudio %s is now loaded with context %d instead of %d (by hand?); "
+                    "not unloading it",
+                    iid,
+                    listed[iid],
+                    ctx,
+                )
+            else:
+                continue
+            del self.loaded[iid]
 
     async def shutdown(self) -> None:
         """サーバーを止めるとき。見張りとタイマーを止め、自分が載せたインスタンスを下ろす
 
         止めたあとはタイマーで下ろせず、VRAM に残り続けるため（手で載せたものは下ろさない）。
         つながらなければ下ろさずに終える"""
-        await self.close()
+        await self.http.close()
         if self._timer is not None and not self._timer.done():
             self._timer.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -41,7 +101,7 @@ class LMStudioVram(LMStudioModels):
         self._timer = None
         await self._unload_mine("the server is stopping")
 
-    async def _instance(self, model: str) -> tuple[str, int]:
+    async def instance(self, model: str) -> tuple[str, int]:
         """生成に使うインスタンスの（id, context_length）。なければ載せる
 
         - NUM_CTX 以上で載っているものがあれば、それを使う（NUM_CTX ちょうどを優先）
@@ -56,7 +116,7 @@ class LMStudioVram(LMStudioModels):
         載せ下ろしのロックの中で選ぶ
         """
         async with self._vram:
-            llms = await self._llms()
+            llms = await self.models.llms()
             entry = llms.get(model)
             instances = entry_instances(entry) if entry else []
             found = usable_instance(instances)
@@ -72,7 +132,7 @@ class LMStudioVram(LMStudioModels):
                     NUM_CTX,
                 )
                 self._small.add(model)
-            data = await self._request(
+            data = await self.http.request(
                 "POST",
                 "/api/v1/models/load",
                 timeout=LOAD_TIMEOUT,
@@ -81,8 +141,8 @@ class LMStudioVram(LMStudioModels):
             sec = float(data.get("load_time_seconds") or 0)
             if data.get("instance_id"):
                 iid = str(data["instance_id"])
-                self._loaded[iid] = NUM_CTX
-                self._listed_loaded(model, iid, NUM_CTX)
+                self.loaded[iid] = NUM_CTX
+                self.models.listed_loaded(model, iid, NUM_CTX)
             else:
                 # id が返らなかった（#322 では返る）。モデルの名前で代わりに覚えると、手で
                 # 載せた `<key>` を自分のものとみなしてしまうので、一覧で増えた id を探す
@@ -94,19 +154,19 @@ class LMStudioVram(LMStudioModels):
         """載せたのに id が返らなかったとき、載せる前になかった NUM_CTX のインスタンスを一覧から
         探して覚える。見つからなければ覚えずにログに書き、モデルの名前で生成する"""
         with contextlib.suppress(LMStudioUnavailable):
-            entry = (await self._llms(fresh=True)).get(model)
+            entry = (await self.models.llms(fresh=True)).get(model)
             new = [
                 iid
                 for iid, ctx in (entry_instances(entry) if entry else [])
                 if iid not in before and ctx == NUM_CTX
             ]
             if len(new) == 1:
-                self._loaded[new[0]] = NUM_CTX
+                self.loaded[new[0]] = NUM_CTX
                 return new[0]
         log.warning(
             "lmstudio loaded %s but did not tell its instance id; it will not be unloaded", model
         )
-        self._forget_list()
+        self.models.forget()
         return model
 
     async def _unload_others(self, llms: dict[str, dict[str, Any]], keep: str | None) -> None:
@@ -115,14 +175,14 @@ class LMStudioVram(LMStudioModels):
         自分が載せたインスタンスのうち、これから使う keep 以外を下ろす（録音の前に参考資料などで
         載せたものも）。手で載せたものは下ろさず、VRAM を使っているかもしれないとログに書く
         （インスタンスごとに 1 回）。下ろせなくても生成は試す。載せ下ろしのロックの中で呼ぶ"""
-        for iid in sorted(set(self._loaded) - {keep}):
+        for iid in sorted(set(self.loaded) - {keep}):
             if not await self._unload(iid, "to load another model while recording"):
                 break
         manual = sorted(
             iid
             for entry in llms.values()
             for iid, _ in entry_instances(entry)
-            if iid != keep and iid not in self._loaded and iid not in self._manual
+            if iid != keep and iid not in self.loaded and iid not in self._manual
         )
         if manual:
             log.warning(
@@ -139,13 +199,13 @@ class LMStudioVram(LMStudioModels):
 
         断られた（4xx。手で下ろされて、もう載っていないなど）ものは、記録から消す"""
         try:
-            await self._request("POST", "/api/v1/models/unload", json={"instance_id": iid})
+            await self.http.request("POST", "/api/v1/models/unload", json={"instance_id": iid})
             log.info("lmstudio unloaded %s (%s)", iid, why)
         except LMStudioUnavailable:
-            if self.hub.status.lmstudio == "error":
+            if self.http.is_down:
                 return False
-        self._loaded.pop(iid, None)
-        self._listed_unloaded(iid)
+        self.loaded.pop(iid, None)
+        self.models.listed_unloaded(iid)
         return True
 
     async def _unload_mine(self, why: str, stop: Callable[[], bool] = lambda: False) -> bool:
@@ -156,14 +216,14 @@ class LMStudioVram(LMStudioModels):
         応答しないと、インスタンスごとに待たされるため）。stop() が True になったら、そこで
         やめて False を返す。インスタンスごとに確かめる"""
         async with self._vram:
-            if not self._loaded:
+            if not self.loaded:
                 return True
             try:
-                await self._llms()
+                await self.models.llms()
             except LMStudioUnavailable:
-                if self.hub.status.lmstudio == "error":
+                if self.http.is_down:
                     return True
-            for iid in sorted(self._loaded):
+            for iid in sorted(self.loaded):
                 if stop():
                     return False
                 if not await self._unload(iid, why):
@@ -217,15 +277,15 @@ class LMStudioVram(LMStudioModels):
         渡したとき）は、使わなくなったバックエンドなので、手で載せたものを確かめない
         """
         done = await self._unload_mine("to free VRAM", stop=cancelled or (lambda: False))
-        if not done or cancelled is not None or self.hub.status.lmstudio == "error":
+        if not done or cancelled is not None or self.http.is_down:
             return
         with contextlib.suppress(LMStudioUnavailable):
-            llms = await self._llms(fresh=True)
+            llms = await self.models.llms(fresh=True)
             manual = sorted(
                 iid
                 for entry in llms.values()
                 for iid, _ in entry_instances(entry)
-                if iid not in self._loaded
+                if iid not in self.loaded
             )
             if manual:
                 log.warning(

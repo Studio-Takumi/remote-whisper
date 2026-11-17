@@ -1,13 +1,13 @@
 """LM Studio での生成（`/api/v1/chat` と `/v1/chat/completions` の stream）。spec/notes.md 9.3"""
 
-import contextlib
 import json
 from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
 
-from remote_whisper.llm.lmstudio_http import REQUEST_TIMEOUT, LMStudioUnavailable, log
+from remote_whisper.llm.lmstudio_http import LMStudioHttp, LMStudioUnavailable, log
+from remote_whisper.llm.lmstudio_models import ModelList
 from remote_whisper.llm.lmstudio_schema import (
     SchemaMismatch,
     native_input,
@@ -16,11 +16,16 @@ from remote_whisper.llm.lmstudio_schema import (
     schema_prompt,
     sse,
 )
-from remote_whisper.llm.lmstudio_vram import LMStudioVram
+from remote_whisper.llm.lmstudio_vram import Vram
 
 
-class LMStudioChat(LMStudioVram):
+class Chat:
     """本文を少しずつ返す生成"""
+
+    def __init__(self, http: LMStudioHttp, models: ModelList, vram: Vram):
+        self.http = http
+        self.models = models
+        self.vram = vram
 
     async def chat_stream(
         self,
@@ -35,8 +40,8 @@ class LMStudioChat(LMStudioVram):
         options は temperature と num_predict（出力の上限）だけを使う。num_ctx は見ず、
         いつも NUM_CTX にする（違う値だと 2 つ目のインスタンスが載るため。#322）。
         モデルが入っていなければ、代わりのモデルで動かす（resolve。#178）"""
-        model = await self.resolve(model)
-        reasoning = await self._reasoning_options(model)
+        model = await self.models.resolve(model)
+        reasoning = await self.models.reasoning_options(model)
         # 思考をオフにできないモデル（いつも思考する）は、本文が空なら失敗にする（#322）
         always_thinks = reasoning is not None and "off" not in reasoning
         switchable = reasoning is not None and {"on", "off"} <= reasoning
@@ -53,18 +58,11 @@ class LMStudioChat(LMStudioVram):
             parts = self._openai_stream(
                 model, messages, think, switchable, format, options, max_tokens
             )
-        # 生成の途中はタイマーで下ろさない。終わったら、そこから keepAliveMin 分を数え直す
-        # （録音中は数えない。録音が終わったとき（recording_ended）に数え始める）
-        self._active += 1
-        try:
+        with self.vram.generating():
             empty = True
             async for part in parts:
                 empty = False
                 yield part
-        finally:
-            self._active -= 1
-            if not self.recording():
-                self._touch()
         if empty and always_thinks:
             log.warning("lmstudio model %s returned only its thinking", model)
             raise LMStudioUnavailable(f"{model} returned no reply")
@@ -144,13 +142,13 @@ class LMStudioChat(LMStudioVram):
         id が来なければ覚えない（名前で覚えると、手で載せた `<key>` を自分のものとみなす）"""
         jit = data.get("model_instance_id")
         if jit:
-            self._loaded[str(jit)] = ctx
+            self.vram.note_loaded(str(jit), ctx)
         elif kind == "model_load.start":
             log.warning(
                 "lmstudio loaded %s without telling its instance id; it will not be unloaded",
                 model,
             )
-        self._forget_list()
+        self.models.forget()
 
     @staticmethod
     def _note_chat_end(
@@ -176,11 +174,11 @@ class LMStudioChat(LMStudioVram):
         max_tokens: int | None,
     ) -> AsyncIterator[str]:
         """`POST /api/v1/chat`（format なし）。先に NUM_CTX で載せておく（_instance）"""
-        iid, ctx = await self._instance(model)
+        iid, ctx = await self.vram.instance(model)
         body = self._native_body(messages, iid, ctx, think, switchable, options, max_tokens)
         load_logged = started = False
         try:
-            async with self._stream("/api/v1/chat", body) as res:
+            async with self.http.stream("/api/v1/chat", body) as res:
                 async for event, raw in sse(res):
                     data = json.loads(raw)
                     kind = event or str(data.get("type") or "")
@@ -206,10 +204,10 @@ class LMStudioChat(LMStudioVram):
             # chat.start のあとに切れたのは、LM Studio が生成を打ち切ったもの（context 超えなど）。
             # 接続できなかったのとは違うので、下の「chat.end なしで閉じた」と同じに扱う
             if not started:
-                raise await self._failed(e) from e
+                raise await self.http.failed(e) from e
             log.debug("lmstudio stream of %s broke: %s", model, str(e) or type(e).__name__)
         except (httpx.HTTPError, httpx.InvalidURL, ValueError) as e:
-            raise await self._failed(e) from e
+            raise await self.http.failed(e) from e
         # context を超えた入力は、chat.start だけで何も言わずに閉じる（#322）
         log.warning("lmstudio closed the stream of %s before chat.end", model)
         raise LMStudioUnavailable(
@@ -227,7 +225,7 @@ class LMStudioChat(LMStudioVram):
         max_tokens: int | None,
     ) -> AsyncIterator[str]:
         """`POST /v1/chat/completions`（format あり）。context_length を渡せないので先に載せる"""
-        iid, _ = await self._instance(model)
+        iid, _ = await self.vram.instance(model)
         body: dict[str, Any] = {
             "model": iid,
             "messages": [openai_message(m) for m in messages],
@@ -246,7 +244,7 @@ class LMStudioChat(LMStudioVram):
         if max_tokens is not None:
             body["max_tokens"] = max_tokens
         try:
-            async with self._stream("/v1/chat/completions", body) as res:
+            async with self.http.stream("/v1/chat/completions", body) as res:
                 async for _, raw in sse(res):
                     if raw.strip() == "[DONE]":
                         return
@@ -262,26 +260,9 @@ class LMStudioChat(LMStudioVram):
                         if choice.get("finish_reason") == "length":
                             log.warning("the reply of %s was cut off at max_tokens", model)
         except (httpx.HTTPError, httpx.InvalidURL, ValueError) as e:
-            raise await self._failed(e) from e
+            raise await self.http.failed(e) from e
         log.warning("lmstudio closed the stream of %s before [DONE]", model)
         raise LMStudioUnavailable(f"the stream of {model} ended without [DONE]")
-
-    @contextlib.asynccontextmanager
-    async def _stream(self, path: str, body: dict[str, Any]) -> AsyncIterator[httpx.Response]:
-        """生成のストリーム。エラーの応答は HTTPStatusError にする"""
-        # 生成は思考を含めて数分かかることがあるので、届くまでの待ち時間は設けない
-        timeout = httpx.Timeout(REQUEST_TIMEOUT, read=None)
-        async with (
-            self._client(timeout) as client,
-            client.stream("POST", path, json=body) as res,
-        ):
-            if res.is_error:
-                await res.aread()
-                raise httpx.HTTPStatusError(
-                    f"{res.status_code}: {res.text}", request=res.request, response=res
-                )
-            await self._ok()
-            yield res
 
     async def chat(self, model: str, messages: list[dict[str, Any]], **kwargs: Any) -> str:
         """本文をまとめて返す"""

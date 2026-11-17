@@ -1,19 +1,24 @@
 """LM Studio のクライアント（`llm.LlmClient` の実装）。spec/notes.md 9.3
 
-役割ごとに、`lmstudio_http`（接続）・`lmstudio_models`（一覧と能力）・`lmstudio_vram`（載せ下ろし）・
-`lmstudio_chat`（生成）・`lmstudio_schema`（頼みの形と返事の確かめ）に分け、ここでモデルの取得を足す。
+役割ごとに、`lmstudio_http`（`LMStudioHttp`）・`lmstudio_models`（`ModelList`）・`lmstudio_vram`（`Vram`）・
+`lmstudio_chat`（`Chat`）の 4 つの部品に分け、ここで作ってつなぐ。モデルの取得（`pull`）もここ。
 """
 
 import asyncio
-from collections.abc import AsyncIterator
+import contextlib
+import time
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
+import httpx
+
+from remote_whisper.hub import Hub
 from remote_whisper.llm.llm import PullProgress
-from remote_whisper.llm.lmstudio_chat import LMStudioChat
-from remote_whisper.llm.lmstudio_http import LMStudioUnavailable, log
-from remote_whisper.llm.lmstudio_schema import SchemaMismatch as SchemaMismatch
-from remote_whisper.llm.lmstudio_schema import conform as conform
-from remote_whisper.llm.lmstudio_schema import parse_structured as parse_structured
+from remote_whisper.llm.lmstudio_chat import Chat
+from remote_whisper.llm.lmstudio_http import LMStudioHttp, LMStudioUnavailable, log
+from remote_whisper.llm.lmstudio_models import ModelList
+from remote_whisper.llm.lmstudio_vram import Vram
+from remote_whisper.settings import SettingsStore
 
 # モデルを取っている間、進み具合を見に行く間隔（秒）
 DOWNLOAD_POLL_SEC = 1.0
@@ -34,8 +39,79 @@ def lmstudio_error(what: str) -> dict[str, Any]:
     }
 
 
-class LMStudioClient(LMStudioChat):
-    """`llm.LlmClient` の LM Studio での実装。モデルの取得（#327）はここ"""
+class LMStudioClient:
+    """`llm.LlmClient` の LM Studio での実装。4 つの部品を作って持ち、呼び出しを渡す"""
+
+    # 処理ごとのモデルを読む設定（Settings.llm_models）
+    backend = "lmstudio"
+
+    def __init__(
+        self,
+        hub: Hub,
+        settings: SettingsStore,
+        host: str | None = None,
+        token: str | None = None,
+        recording: Callable[[], bool] = lambda: False,
+        transport: httpx.AsyncBaseTransport | None = None,
+        clock: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    ):
+        """host・token を省くと、設定（lmstudio.host・lmstudio.token）を使うたびに読む
+
+        clock・sleep は、保持の時間のタイマーと一覧を覚える時間に使う（テストで差し替える）"""
+        self.hub = hub
+        self.settings = settings
+        self._clock = clock
+        self._sleep = sleep
+        self.http = LMStudioHttp(hub, settings, host, token, transport)
+        self.model_list = ModelList(self.http, settings, clock)
+        self.vram = Vram(self.http, self.model_list, settings, recording, clock, sleep)
+        self.generation = Chat(self.http, self.model_list, self.vram)
+
+    @property
+    def host(self) -> str:
+        return self.http.host
+
+    def start_monitor(self, interval: float = 15.0) -> None:
+        self.http.start_monitor(interval)
+
+    async def close(self) -> None:
+        await self.http.close()
+
+    async def shutdown(self) -> None:
+        await self.vram.shutdown()
+
+    async def models(self) -> list[dict[str, Any]]:
+        return await self.model_list.models()
+
+    async def installed(self) -> set[str]:
+        return await self.model_list.installed()
+
+    async def resolve(self, model: str) -> str:
+        return await self.model_list.resolve(model)
+
+    async def supports_thinking(self, model: str) -> bool:
+        return await self.model_list.supports_thinking(model)
+
+    async def supports_vision(self, model: str) -> bool:
+        return await self.model_list.supports_vision(model)
+
+    async def chat_stream(self, model: str, messages: list[dict[str, Any]], **kwargs: Any):
+        # 呼んだ側が途中でやめても、すぐ生成の後始末（タイマーの数え直し）に届くように閉じる
+        async with contextlib.aclosing(
+            self.generation.chat_stream(model, messages, **kwargs)
+        ) as parts:
+            async for part in parts:
+                yield part
+
+    async def chat(self, model: str, messages: list[dict[str, Any]], **kwargs: Any) -> str:
+        return await self.generation.chat(model, messages, **kwargs)
+
+    async def unload_all(self, cancelled: Callable[[], bool] | None = None) -> None:
+        await self.vram.unload_all(cancelled)
+
+    async def recording_ended(self) -> None:
+        await self.vram.recording_ended()
 
     async def _wait_listed(self, model: str) -> None:
         """取り終えたモデルが一覧（GET /api/v1/models）に出るまで、少し待つ
@@ -43,7 +119,7 @@ class LMStudioClient(LMStudioChat):
         0.4.28 では、completed になった直後の一覧にはまだ出なかった（数秒後には出る）。
         出ないまま終えると、画面が「入っていません」のままになるため。出なければ諦める"""
         for _ in range(DOWNLOAD_LIST_TRIES):
-            if model in await self._llms(fresh=True):
+            if model in await self.model_list.llms(fresh=True):
                 return
             await self._sleep(DOWNLOAD_POLL_SEC)
         log.warning("lmstudio downloaded %s but does not list it yet", model)
@@ -53,10 +129,10 @@ class LMStudioClient(LMStudioChat):
 
         失敗（カタログにない・LM Studio が failed を返した・つながらない）は LMStudioUnavailable。
         止める API がないので、呼んだ側がやめても（CancelledError）LM Studio は取り続ける"""
-        data = await self._request("POST", "/api/v1/models/download", json={"model": model})
+        data = await self.http.request("POST", "/api/v1/models/download", json={"model": model})
         job_id = data.get("job_id")
         if data.get("status") == "already_downloaded" or not job_id:
-            self._forget_list()
+            self.model_list.forget()
             yield {"status": "success"}
             return
         job_id = str(job_id)
@@ -66,7 +142,7 @@ class LMStudioClient(LMStudioChat):
         try:
             while True:
                 await self._sleep(DOWNLOAD_POLL_SEC)
-                data = await self._request("GET", f"/api/v1/models/download/status/{job_id}")
+                data = await self.http.request("GET", f"/api/v1/models/download/status/{job_id}")
                 state = str(data.get("status") or "")
                 total = int(data.get("total_size_bytes") or 0)
                 done = int(data.get("downloaded_bytes") or 0)
