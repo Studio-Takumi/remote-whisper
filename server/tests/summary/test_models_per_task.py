@@ -11,7 +11,7 @@ from remote_whisper.hub import Hub
 from remote_whisper.llm.ollama import OllamaClient
 from remote_whisper.materials.context_sets import OllamaGenerator
 from remote_whisper.settings import SettingsStore
-from remote_whisper.summary import final_summary
+from remote_whisper.summary import final_summary_body
 from remote_whisper.summary.final_summary import FinalSummarizer
 
 # 処理ごとに別のモデルにする（どれも入っている）
@@ -64,7 +64,7 @@ async def _ignore(message):
 
 
 def test_final_summary_uses_the_overview_detail_and_title_models(home, tmp_path, monkeypatch):
-    monkeypatch.setattr(final_summary, "CHUNK_CHARS", 30)
+    monkeypatch.setattr(final_summary_body, "CHUNK_CHARS", 30)
     fake = fake_with_all_models()
     settings = use_models(home)
     summarizer = FinalSummarizer(
@@ -84,7 +84,7 @@ def test_final_summary_uses_the_overview_detail_and_title_models(home, tmp_path,
 
 def test_final_summary_is_made_even_if_the_models_are_not_installed(home, tmp_path, monkeypatch):
     # 選んだモデルが入っていなくても、入っているモデルで代わりに作る（#178）
-    monkeypatch.setattr(final_summary, "CHUNK_CHARS", 30)
+    monkeypatch.setattr(final_summary_body, "CHUNK_CHARS", 30)
     fake = FakeOllama()  # gemma4:e4b と llama3.2:latest だけ
     settings = SettingsStore(home)
     settings.update(
