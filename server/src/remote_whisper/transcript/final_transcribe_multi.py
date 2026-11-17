@@ -1,6 +1,6 @@
 """浄書の子プロセスの、複数の音源（#241）。spec/flows.md 6.16
 
-時刻合わせ・音源ごとの結果のまとめ・音源のヒント。WhisperX の段階は final_transcribe_worker と共通
+時刻合わせ・音源ごとの結果のまとめ・音源のヒント。WhisperX の段階は final_transcribe_steps と共通
 """
 
 import time
@@ -9,24 +9,24 @@ from typing import Any
 
 import numpy as np
 
-from remote_whisper.transcript import final_transcribe_worker as worker
+from remote_whisper.transcript import final_transcribe_steps as steps
 from remote_whisper.transcript import multisource
 from remote_whisper.transcript.multisource import DECISIVE_DB, HOP, SR
 
-log = worker.log
+log = steps.log
 
 
 def _align_sources(sources: list[dict[str, Any]]) -> tuple[Any, list[dict[str, Any]]]:
     """ほかの音源を主の音源の時刻に並べ直して、文字起こし用と話者分け用の音を作る"""
     t = time.monotonic()
-    main = worker.load_audio(sources[0]["audio"])
+    main = steps.load_audio(sources[0]["audio"])
     aligned = [main]
     present = [np.ones(len(main), dtype=bool)]
     alignments: list[dict[str, Any]] = [
         {"id": int(sources[0]["id"]), "offsetSec": 0.0, "driftPpm": 0.0, "windows": None}
     ]
     for s in sources[1:]:
-        other = worker.load_audio(s["audio"])
+        other = steps.load_audio(s["audio"])
         a = multisource.align(main, other, float(s.get("roughOffsetSec") or 0.0))
         aligned.append(multisource.to_main_time(other, a, len(main)))
         mark = multisource.to_main_time(np.ones(len(other), dtype=np.float32), a, len(main))
@@ -59,7 +59,7 @@ def merge_segments(ids: list[int], results: list[dict[str, Any]]) -> list[dict[s
     """音源ごとの結果を、音源の ID を付けて始まりの時刻の順に並べる"""
     segments: list[dict[str, Any]] = []
     for source, r in zip(ids, results, strict=True):
-        segments += worker.segments_json(r["segments"], source)
+        segments += steps.segments_json(r["segments"], source)
     segments.sort(key=lambda s: s["start"] if s["start"] is not None else 0.0)
     return segments
 
@@ -70,10 +70,10 @@ def run_multi(job: dict[str, Any]) -> dict[str, Any]:
     音源ごとに、その音源が一番大きい区間だけを残した音を文字起こし・位置合わせし、
     話者分けは各時点で一番大きい音源をつないだ 1 本で 1 回だけ行う。時刻は主の音源の時刻にそろえる
     """
-    w = worker.begin(job)
+    w = steps.begin(job)
     ids = [int(s["id"]) for s in job["sources"]]
     prepared, alignments = _align_sources(job["sources"])
-    results, common = worker.run_steps(w, prepared.gated, prepared.joined)
+    results, common = steps.run_steps(w, prepared.gated, prepared.joined)
     segments = merge_segments(ids, results)
     hint = hint_conflicts(segments, prepared.choice, prepared.margin, ids)
     if hint is not None:

@@ -28,11 +28,8 @@ from remote_whisper.settings import SettingsStore
 from remote_whisper.storage.documents import TranscriptMeta
 from remote_whisper.storage.sessions import SessionFiles
 from remote_whisper.storage.timeutil import now
-from remote_whisper.transcript.final_transcribe_worker import (
-    EXIT_NOT_INSTALLED,
-    STEPS,
-    parse_progress,
-)
+from remote_whisper.transcript.final_transcribe_steps import STEPS, parse_progress
+from remote_whisper.transcript.final_transcribe_worker import EXIT_NOT_INSTALLED
 from remote_whisper.transcript.final_transcript_job import build_job, result_path, worker_timeout
 from remote_whisper.transcript.final_transcript_save import render_result, save_result
 

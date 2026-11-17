@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from remote_whisper.transcript import final_transcribe_multi as multi
+from remote_whisper.transcript import final_transcribe_steps as steps
 from remote_whisper.transcript import final_transcribe_worker as worker
 from remote_whisper.transcript import multisource
 
@@ -101,7 +102,7 @@ def fake_whisperx(monkeypatch):
         monkeypatch.delenv("HF_HOME", raising=False)
         # 録音は、パスの名前の数字で埋めた短い音にする
         monkeypatch.setattr(
-            worker, "load_audio", lambda path: np.full(4, float(path[-1]), dtype=np.float32)
+            steps, "load_audio", lambda path: np.full(4, float(path[-1]), dtype=np.float32)
         )
         return fake
 
@@ -109,7 +110,7 @@ def fake_whisperx(monkeypatch):
 
 
 def progress_lines(capsys) -> list[dict]:
-    prefix = worker.PROGRESS_PREFIX
+    prefix = steps.PROGRESS_PREFIX
     out = capsys.readouterr().out.splitlines()
     return [json.loads(line[len(prefix) :]) for line in out if line.startswith(prefix)]
 

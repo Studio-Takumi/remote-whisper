@@ -15,7 +15,7 @@ from remote_whisper.settings import SettingsStore
 from remote_whisper.storage.documents import FinalTranscriptMeta, TranscriptMeta, read_doc
 from remote_whisper.storage.sessions import SessionFiles
 from remote_whisper.transcript import final_transcript_job
-from remote_whisper.transcript.final_transcribe_worker import Progress, parse_progress
+from remote_whisper.transcript.final_transcribe_steps import Progress, parse_progress
 from remote_whisper.transcript.final_transcriber import FinalTranscriber
 
 # WhisperX の子プロセスの代わり。決まった結果を書く。
