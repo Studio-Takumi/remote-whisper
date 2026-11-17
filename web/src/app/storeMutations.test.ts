@@ -133,7 +133,20 @@ describe('待っている間に一覧の取り直しが返っても、操作の�
 });
 
 describe('並べ替えを続けて 2 回して、1 回目だけ失敗する', () => {
-    it.fails('2 回目の並びのまま', async () => {
+    it('2 回目が保存できなかったら、保存できた 1 回目の並びに戻す', async () => {
+        await useAppStore.getState().loadProjects();
+        const saves = pending('patch');
+        void useAppStore.getState().reorderProjects(['b', 'a', 'c']);
+        void useAppStore.getState().reorderProjects(['c', 'b', 'a']);
+        await vi.waitFor(() => expect(saves).toHaveLength(2));
+        saves[0].resolve();
+        saves[1].reject(new ApiError(0, 'ホストにつながりません'));
+        await vi.waitFor(() => expect(toast.error).toHaveBeenCalled());
+        expect(ids()).toEqual(['b', 'a', 'c']);
+        expect(useAppStore.getState().settings.projectOrder).toEqual(['b', 'a', 'c']);
+    });
+
+    it('2 回目の並びのまま', async () => {
         await useAppStore.getState().loadProjects();
         const saves = pending('patch');
         void useAppStore.getState().reorderProjects(['b', 'a', 'c']);

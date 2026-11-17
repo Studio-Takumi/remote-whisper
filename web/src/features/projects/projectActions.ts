@@ -6,6 +6,7 @@ import { isDemo, projectsQuery, sessionsQuery } from '@/api/data';
 import type { ActionContext } from '@/app/actionContext';
 import { queryClient, runMutation } from '@/app/query';
 import { readProjectInfos, readProjects, readSession } from '@/app/sessionData';
+import { type ProjectOrder, reorderTracker } from '@/features/projects/reorderTracker';
 
 export async function createProject(ctx: ActionContext, path: string) {
     const { getState: get, setState: set } = ctx.store;
@@ -82,30 +83,33 @@ export async function moveSession(ctx: ActionContext, fromProjectId: string, ses
 
 export async function reorderProjects(ctx: ActionContext, ids: string[]) {
     const { getState: get, setState: set } = ctx.store;
+    const tracker = reorderTracker(ctx.store);
+    const show = (order: ProjectOrder) => {
+        ctx.sessions.sortProjectsBy(order.ids);
+        set((s) => ({ settings: { ...s.settings, projectOrder: order.projectOrder } }));
+    };
     await runMutation(
         {
             // 先に画面を入れ替えておく（保存を待つと、離した瞬間に元の位置へ戻って見える）
             onMutate: () => {
                 cancelLists([]);
-                const before = {
-                    ids: readProjectInfos().map((p) => p.id),
-                    projectOrder: get().settings.projectOrder,
-                };
-                ctx.sessions.sortProjectsBy(ids);
-                set((s) => ({ settings: { ...s.settings, projectOrder: ids } }));
-                return before;
+                const before = { ids: readProjectInfos().map((p) => p.id), projectOrder: get().settings.projectOrder };
+                const seq = tracker.start(before, { ids, projectOrder: ids });
+                show({ ids, projectOrder: ids });
+                return seq;
             },
             mutationFn: async () => {
                 if (!isDemo) {
                     await api.patch('/api/settings', { projectOrder: ids });
                 }
             },
-            // 保存できなかったので、前の並びに戻す
-            onError: (e, _v, before) => {
+            onSuccess: (_d, _v, seq) => tracker.succeed(seq),
+            // 保存できなかったので戻す。あとから並べ替えた並びを出しているなら、そのまま（#361）
+            onError: (e, _v, seq) => {
                 toast.error(`プロジェクトの並びを保存できません: ${e.message}`);
-                if (before) {
-                    ctx.sessions.sortProjectsBy(before.ids);
-                    set((s) => ({ settings: { ...s.settings, projectOrder: before.projectOrder } }));
+                const back = seq === undefined ? null : tracker.fail(seq);
+                if (back) {
+                    show(back);
                 }
             },
         },
