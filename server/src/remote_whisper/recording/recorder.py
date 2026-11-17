@@ -30,7 +30,7 @@ from remote_whisper.summary.live_summary import load_context
 log = logging.getLogger(__name__)
 
 
-async def convert_recording(writer: SessionWriter, wav: Path) -> None:
+async def convert_session_wavs(writer: SessionWriter, wav: Path) -> None:
     """WAV を mp3 に変換して WAV を消す。失敗したら WAV を残す（次の起動時に変換し直す: #33）"""
     # 参加した音源の録音も、音源ごとに変換する（#356）
     await asyncio.to_thread(convert_source_wavs, writer)
@@ -371,7 +371,7 @@ class RecordingManager:
 
     async def convert_recording(self, session: RecordingSession) -> None:
         """録音を終えたセッションの WAV を mp3 に変換する（SessionFinisher が呼ぶ）"""
-        await convert_recording(session.writer, session.wav.path)
+        await convert_session_wavs(session.writer, session.wav.path)
 
     async def close(self) -> None:
         """サーバーを止めるとき。録音中の WAV を閉じ、録音を終えたあとの処理を止める

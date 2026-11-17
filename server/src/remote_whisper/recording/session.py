@@ -84,6 +84,7 @@ class RecordingSession:
 
     @_finishing.setter
     def _finishing(self, task: asyncio.Task | None) -> None:
+        # テストのため（後始末の途中を作る。test_final_summary）
         self.finisher.task = task
 
     @property
