@@ -2,7 +2,7 @@
 // ほかの端末での変更・要約の失敗・参考資料の進み具合（spec/api.md 7.2）
 import { toast } from 'sonner';
 
-import { isDemo } from '@/api/data';
+import { isDemo } from '@/api/demo';
 import type { ServerMessage } from '@/api/protocol';
 import type { AppStore } from '@/app/appState';
 import { readProjectInfos } from '@/app/sessionData';

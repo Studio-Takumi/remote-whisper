@@ -2,7 +2,9 @@
 import { toast } from 'sonner';
 
 import { type ProjectJson, api } from '@/api/api';
-import { isDemo, projectsQuery, sessionsQuery } from '@/api/data';
+import { isDemo } from '@/api/demo';
+import { projectsQuery } from '@/api/projects';
+import { sessionsQuery } from '@/api/sessions';
 import type { ActionContext } from '@/app/actionContext';
 import { queryClient, runMutation } from '@/app/query';
 import { readProjectInfos, readProjects, readSession } from '@/app/sessionData';

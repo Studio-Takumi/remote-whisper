@@ -3,7 +3,9 @@
 import { isCancelledError } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
-import { fetchProjects, isDemo, sessionsQuery } from '@/api/data';
+import { isDemo } from '@/api/demo';
+import { fetchProjects } from '@/api/projects';
+import { sessionsQuery } from '@/api/sessions';
 import type { Project, Session } from '@/api/types';
 import type { ActionContext } from '@/app/actionContext';
 import { queryClient } from '@/app/query';

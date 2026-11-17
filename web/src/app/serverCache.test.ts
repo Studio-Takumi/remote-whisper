@@ -4,16 +4,11 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 
 import { ApiError, type ProjectJson, type SessionJson, api } from '@/api/api';
 import { connection } from '@/api/connection';
-import {
-    finalTranscriptQuery,
-    liveSummaryQuery,
-    projectsQuery,
-    sessionsQuery,
-    summariesQuery,
-    summaryQuery,
-    transcriptQuery,
-} from '@/api/data';
+import { projectsQuery } from '@/api/projects';
 import type { ServerMessage } from '@/api/protocol';
+import { sessionsQuery } from '@/api/sessions';
+import { liveSummaryQuery, summariesQuery, summaryQuery } from '@/api/summaries';
+import { finalTranscriptQuery, transcriptQuery } from '@/api/transcripts';
 import { queryClient } from '@/app/query';
 import { readProjects, readSession } from '@/app/sessionData';
 import { useAppStore } from '@/app/store';

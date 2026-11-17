@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ApiError, type ProjectJson, api } from '@/api/api';
-import { projectsQuery } from '@/api/data';
+import { projectsQuery } from '@/api/projects';
 import { queryClient } from '@/app/query';
 import { readProjects } from '@/app/sessionData';
 import { useAppStore } from '@/app/store';

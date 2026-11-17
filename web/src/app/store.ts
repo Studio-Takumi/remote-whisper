@@ -3,8 +3,10 @@
 import { create } from 'zustand';
 
 import { connection } from '@/api/connection';
-import { contextSetsQuery, isDemo, projectsQuery } from '@/api/data';
+import { contextSetsQuery } from '@/api/contextSets';
+import { isDemo } from '@/api/demo';
 import { demoProjects, fallbackOptions, initialContextSets } from '@/api/mock';
+import { projectsQuery } from '@/api/projects';
 import { initialServerStatus } from '@/api/status';
 import type { ActionContext } from '@/app/actionContext';
 import type { AppState } from '@/app/appState';

@@ -1,7 +1,8 @@
 import { type RefObject, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import type { Session } from '@/api/types';
-import { playableSources, recordingQuery, sourceLabel, toMainTime, toSourceTime } from '@/features/session/sources';
+import { playableSources, recordingQuery, toMainTime, toSourceTime } from '@/features/session/sourcePlayback';
+import { sourceLabel } from '@/features/session/sources';
 
 export const NO_RECORDING_AT = 'この時刻の録音はありません';
 

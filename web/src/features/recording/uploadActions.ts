@@ -1,7 +1,7 @@
 // 音声ファイルから新しいセッションを作る（#180）。複数なら別々にするか、1 つのセッションの音源にまとめる（#357）
 import { toast } from 'sonner';
 
-import { isDemo } from '@/api/data';
+import { isDemo } from '@/api/demo';
 import type { ActionContext } from '@/app/actionContext';
 import { UploadError, uploadAudio as sendAudio, uploadSource } from '@/features/recording/upload';
 import { finalModelLabel, llmModels } from '@/features/settings/settings';

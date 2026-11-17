@@ -4,7 +4,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 
 import { ApiError, type ProjectJson, type SessionJson, api } from '@/api/api';
 import { connection } from '@/api/connection';
-import { transcriptQuery } from '@/api/data';
+import { transcriptQuery } from '@/api/transcripts';
 import { queryClient } from '@/app/query';
 import { readProjects, readSession } from '@/app/sessionData';
 import { useAppStore } from '@/app/store';

@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 
 import { useQuery } from '@tanstack/react-query';
 
-import { contextSetsQuery } from '@/api/data';
+import { contextSetsQuery } from '@/api/contextSets';
 import type { ContextSelection, ContextSet } from '@/api/types';
 import { contextSelectionOf } from '@/app/selectors';
 import { useCurrentProject } from '@/app/sessionHooks';

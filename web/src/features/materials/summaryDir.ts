@@ -1,5 +1,6 @@
 import { type ProjectJson, api } from '@/api/api';
-import { isDemo, projectsQuery } from '@/api/data';
+import { isDemo } from '@/api/demo';
+import { projectsQuery } from '@/api/projects';
 import { queryClient } from '@/app/query';
 
 // 最終要約のコピーの置き場所（project.json の summaryDir。spec/files.md 5.4 節、#341）を保存する。
