@@ -231,7 +231,6 @@ class FinalTranscriber:
         job, sources = build_job(files, meta, audio, out, model, diarize, whisper, openvino)
         if self._preempted:
             raise _Preempted
-        timeout = worker_timeout(meta.duration_sec, len(sources))
         clock = time.monotonic()
         log.info(
             "final transcript of %s started with %s (diarize=%s, %.0fs of audio)",
@@ -240,6 +239,7 @@ class FinalTranscriber:
             diarize,
             meta.duration_sec or 0,
         )
+        timeout = worker_timeout(meta.duration_sec, len(sources))
         code, timed_out = await self._run_worker(job, timeout)
         result = self._read_result(files, work, out, code, timed_out)
         if result is None:
@@ -248,14 +248,7 @@ class FinalTranscriber:
         gid = save_result(
             files, meta, model, started, result, body, speakers, audio, lines, sources
         )
-        log.info(
-            "final transcript of %s saved as %s in %.0fs (diarization %s, %d speakers)",
-            files.id,
-            gid,
-            time.monotonic() - clock,
-            result.get("diarization") or "off",
-            speakers,
-        )
+        _log_saved(files.id, gid, time.monotonic() - clock, result, speakers)
         await self.hub.broadcast(
             {"type": "finalTranscript", "session": files.id, "generationId": gid}
         )
@@ -345,6 +338,17 @@ class FinalTranscriber:
                 await self.ollama.unload_all()
             except Exception:  # noqa: BLE001
                 log.exception("failed to unload ollama models before the final transcript")
+
+
+def _log_saved(sid: str, gid: str, seconds: float, result: dict[str, Any], speakers: int) -> None:
+    log.info(
+        "final transcript of %s saved as %s in %.0fs (diarization %s, %d speakers)",
+        sid,
+        gid,
+        seconds,
+        result.get("diarization") or "off",
+        speakers,
+    )
 
 
 def _forward_progress(line: str) -> bool:
