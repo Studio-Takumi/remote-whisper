@@ -19,7 +19,7 @@ from remote_whisper.storage.documents import (
     write_doc,
 )
 from remote_whisper.storage.projects import ContextSetEntry, rebuild_project_file
-from remote_whisper.transcript import final_transcriber
+from remote_whisper.transcript import final_transcript_job
 
 BASE_SET = "20261019-090000"
 SESSION_SET = "20261019-095959"
@@ -187,7 +187,7 @@ def test_regenerating_after_the_move_uses_the_same_terms(client, projects, monke
 
     def regenerate(files, meta, model, diarize):
         seen["dir"] = files.dir
-        seen["hotwords"] = final_transcriber._hotwords(files, meta)
+        seen["hotwords"] = final_transcript_job.hotwords(files, meta)
 
     monkeypatch.setattr(final, "available", lambda: True)
     monkeypatch.setattr(final, "regenerate", regenerate)
