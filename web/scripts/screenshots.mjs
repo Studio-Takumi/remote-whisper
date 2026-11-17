@@ -18,7 +18,7 @@
 //   SCREENSHOT_SERVER  モックサーバーの URL（既定: http://localhost:8000）。クラウド版の場面で、ホスト宛ての通信をここへ流す
 //   CHROMIUM_PATH      使う Chromium の実行ファイル（省略すると Playwright のもの。`npx playwright install chromium` で入る）
 //
-// 画面のデータは web/src/mock.ts のダミー（架空の打ち合わせと講義）と、モックサーバーが流すダミーの文字起こし・要約
+// 画面のデータは web/src/api/mock.ts のダミー（架空の打ち合わせと講義）と、モックサーバーが流すダミーの文字起こし・要約
 // （URL に ?demo を付けて開くと、サーバーのデータではなく mock.ts のダミーを出す）。
 // ダミーにない状態（再生できる録音・浄書済み文字起こし・GPU のジョブなど）は、画面のストア（window.appStore）に直接入れて作る。
 // クラウド版の場面は、このスクリプトがクラウド用のドメインとして localhost の開発サーバーを別に立て、

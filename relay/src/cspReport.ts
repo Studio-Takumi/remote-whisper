@@ -20,7 +20,7 @@ export const MAX_REPORTS = 20;
 // 1 回の本文から書く行の数（同じ違反はまとめて件数にする）
 export const MAX_POINTS = 5;
 
-// 画面の URL の決まった区切り（web/src/router.ts）。ここにないものは :v か :id に伏せる
+// 画面の URL の決まった区切り（web/src/app/router.ts）。ここにないものは :v か :id に伏せる
 const SCREEN_SEGMENTS = new Set(['s', 'p', 'new', 'settings', 'pair', 'h', 'api', 'ws', 'assets']);
 // 読み込もうとしたものが URL でないときの値（CSP3 と、古い report-uri の形）
 const BLOCKED_KEYWORDS = new Set([
