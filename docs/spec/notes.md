@@ -125,7 +125,7 @@
 | `lmstudio_schema.py` | メッセージ・SSE の形と、返事の JSON Schema での確かめ（`SchemaMismatch`・`conform`・`parse_structured`） |
 | `lmstudio.py` | `LMStudioClient`（部品を作って公開メソッドを渡す。モデルの取得 `pull` もここ） |
 
-- セッションの API（`routes/sessions/`）は、FastAPI の router をファイルごとに分ける（#388）。登録の順番とパスは分ける前と同じ（`app.py`）
+- セッションの API（`routes/sessions/`）は、FastAPI の router をファイルごとに分ける（#388）。パスの当たり方は分ける前と同じ（OpenAPI と、最初に当たる route を比べて確かめた）。`app.py` の登録は、分けた 5 つの router のあとに UUID 引き `lookup` を置く（分ける前は `router` の直後）
 
 | モジュール | 置くもの |
 |---|---|
@@ -146,5 +146,5 @@
 | `cloud/cloud.py` | `CloudHost`（登録・解除を別スレッドで進める）・`CloudView` |
 | `cloud/relay_client.py` | `RelayClient`（中間サーバーの `/pair/...` を署名つきで呼ぶ）・`Ticket` |
 | `cloud/credentials.py` | Ed25519 の鍵・署名（`canonical_string`）・`cloud.json` の読み書き |
-| `cloud/owner_only.py` | 本人だけが読めるファイルの書き込み（`write_owner_only`） |
+| `storage/owner_only.py` | 本人だけが読めるファイルの書き込み（`write_owner_only`） |
 | `cloud/errors.py` | `CloudError`・`RegistrationGone`・`CloudRefused` |

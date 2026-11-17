@@ -75,9 +75,9 @@ def create_app(
         sessions_uploads.router,
         sessions_read.router,
         sessions_move.router,
-        sessions_read.lookup,
         sessions_regenerate.router,
         sessions_terms.router,
+        sessions_read.lookup,
     ):
         app.include_router(router)
     app.include_router(fs_routes.router)

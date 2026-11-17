@@ -9,8 +9,8 @@ import os
 import re
 from pathlib import Path
 
-from remote_whisper.cloud.owner_only import OwnerOnlyError, write_owner_only
 from remote_whisper.desktop.setup_error import SetupError
+from remote_whisper.storage.owner_only import OwnerOnlyError, write_owner_only
 
 log = logging.getLogger(__name__)
 

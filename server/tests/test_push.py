@@ -17,7 +17,6 @@ from fastapi.testclient import TestClient
 from helpers.mock import FAST, of_type, receive_until, start
 
 from remote_whisper.app import create_app
-from remote_whisper.cloud.owner_only import OwnerOnlyError
 from remote_whisper.push import (
     KEY_FILE,
     NOTIFICATION_TITLE,
@@ -28,6 +27,7 @@ from remote_whisper.push import (
     encrypt,
     is_push_endpoint,
 )
+from remote_whisper.storage.owner_only import OwnerOnlyError
 
 ENDPOINT = "https://fcm.googleapis.com/fcm/send/abc123"
 

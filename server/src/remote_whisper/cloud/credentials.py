@@ -21,7 +21,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 )
 
 from remote_whisper.cloud.errors import CloudError
-from remote_whisper.cloud.owner_only import OwnerOnlyError, write_owner_only
+from remote_whisper.storage.owner_only import OwnerOnlyError, write_owner_only
 
 log = logging.getLogger(__name__)
 
