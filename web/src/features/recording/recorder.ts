@@ -1,0 +1,304 @@
+// 自分の端末での録音：始める・続きから録音する・一時停止・再開・停止・マイクの開き直し（spec/flows.md 6.2）
+import { toast } from 'sonner';
+
+import { AudioSender, connection } from '@/api/connection';
+import { getHostId } from '@/api/endpoint';
+import type { Session } from '@/api/types';
+import { replaceUrlNext } from '@/app/router';
+import { updateSession } from '@/features/projects/updateSession';
+import { Microphone, MicrophoneError, SAMPLE_RATE } from '@/features/recording/audio/microphone';
+import { clearSession, deleteUpTo, saveChunk } from '@/features/recording/audio/unsentStore';
+import { micStateMessage } from '@/features/recording/micMessages';
+import type { ErrorMessage, Recorder, StartedMessage } from '@/features/recording/recorderState';
+import { subscribeRecording } from '@/features/recording/recordingMessages';
+import { recordedSeconds } from '@/features/recording/recordingMetrics';
+import { finalModelLabel, llmModels } from '@/features/settings/settings';
+import { formatDateTime } from '@/lib/time';
+
+// 前の録音の残りをまだ送っていないときの知らせ（始めると、その残りが捨てられてしまう）
+const WAITING_LEFTOVER = '前の録音の残りを送るのを待っています。つながってから、もう一度押してください';
+
+// 送る音声を数えて、経過時間を進める。接続が切れて手元に溜めている分も、録音した長さとして数える
+export function countRecorded(r: Recorder, pcm: Int16Array) {
+    r.recordedSamples += pcm.length;
+    const elapsed = Math.floor(r.recordedSamples / SAMPLE_RATE);
+    if (elapsed !== r.store.getState().elapsed) {
+        r.store.setState({ elapsed });
+    }
+}
+
+// マイクを開く。届いた音声を送り、マイクが止まったら画面で知らせる（#102）。
+// 状態は開けたときに最初の知らせで決まる（開き直しに失敗したら、止まったままの警告を残す）
+export function openMicrophone(r: Recorder) {
+    const { getState: get, setState: set } = r.store;
+    // 古いサーバーは echoCancellation を返さない（そのときはオン）
+    const { noiseSuppression, autoGainControl, echoCancellation = true } = get().settings.recording;
+    return Microphone.open(
+        (pcm, level) => {
+            // 一時停止中の音声は送らない
+            if (get().recordingState === 'recording' && r.sender) {
+                r.sender.push(pcm);
+                countRecorded(r, pcm);
+                set({ micLevel: level });
+            }
+        },
+        { noiseSuppression, autoGainControl, echoCancellation },
+        (micState) => {
+            const before = get().micState;
+            set({ micState });
+            if (micState !== 'ok' && before === 'ok' && get().recordingState !== 'idle') {
+                toast.error(micStateMessage(micState), { duration: 15000 });
+            }
+        },
+    );
+}
+
+// 届いていない音声を IndexedDB に置き、サーバーが受け取ったら消す（#102）
+export function persistUnsent(target: AudioSender, sessionId: string, projectId: string) {
+    let warned = false;
+    target.onFrame = (seq, frame) => {
+        void saveChunk(sessionId, projectId, getHostId(), seq, frame).then((saved) => {
+            if (!saved && !warned) {
+                warned = true;
+                toast.warning(
+                    '届いていない音声が多いため、ここから先はページを読み込み直すと消えます。閉じずに、つながるのを待ってください',
+                );
+            }
+        });
+    };
+    target.onAcked = (seq) => void deleteUpTo(sessionId, seq);
+}
+
+// マイクを閉じ、録音のためのメッセージの受け取りをやめる
+export function closeRecording(r: Recorder) {
+    r.mic?.close();
+    r.mic = null;
+    r.sender = null;
+    r.recoveredBase = null;
+    r.unsubscribe?.();
+    r.unsubscribe = null;
+}
+
+// マイクを開いてサーバーに start（continue）を送り、started を待つ
+async function openRecording(r: Recorder, projectId: string, continueSessionId?: string) {
+    closeRecording(r);
+    r.stoppedWhileOffline = null;
+    r.sender = new AudioSender((pendingAudio) => r.store.setState({ pendingAudio }));
+    r.mic = await openMicrophone(r);
+    r.unsubscribe = subscribeRecording(r);
+    await connection.open();
+    connection.send(
+        continueSessionId
+            ? { type: 'continue', project: projectId, session: continueSessionId }
+            : { type: 'start', project: projectId },
+    );
+    const reply = await connection.waitFor(
+        (m): m is StartedMessage | ErrorMessage => m.type === 'started' || m.type === 'error',
+        // 続きを録音するときは、サーバーが前の録音（mp3）を WAV に戻すので、長い録音ほど時間がかかる
+        continueSessionId ? 60000 : 5000,
+    );
+    if (reply.type === 'error') {
+        throw new Error(reply.message);
+    }
+    return reply;
+}
+
+// 続きを録音する。経過時間と文字起こしの時刻は、前の録音の長さから続ける（#101）
+async function beginContinue(r: Recorder, projectId: string, sessionId: string, reply: StartedMessage) {
+    r.recordedSamples = Math.round((reply.offsetSec ?? 0) * SAMPLE_RATE);
+    r.store.setState((s) => ({
+        projects: updateSession(s.projects, sessionId, (x) => ({
+            ...x,
+            status: 'recording',
+            endedAt: undefined,
+            durationSec: undefined,
+        })),
+        selection: { projectId, sessionId },
+        recordingState: 'recording',
+        recordingSessionId: sessionId,
+        elapsed: Math.floor(r.recordedSamples / SAMPLE_RATE),
+        partials: [],
+        liveDraft: null,
+    }));
+    // 切れている間に録音した分（サーバーに届かなかった音声）を、続きの頭に送る。
+    // IndexedDB に置いてあった分は、新しい連番で置き直す
+    await clearSession(sessionId);
+    if (r.sender) {
+        persistUnsent(r.sender, sessionId, projectId);
+    }
+    if (r.leftover?.sessionId === sessionId && r.sender) {
+        for (const pcm of r.leftover.pcm) {
+            r.sender.push(pcm);
+            countRecorded(r, pcm);
+        }
+    }
+    r.leftover = null;
+}
+
+// セッションは録音を始めたときに作る。ID はサーバーが決めた、録音を始めた時刻（spec/files.md 5.2）
+function beginNew(r: Recorder, projectId: string, reply: StartedMessage) {
+    const created: Session = {
+        id: reply.session,
+        uuid: reply.sessionUuid ?? undefined,
+        title: '新しいセッション',
+        startedAt: formatDateTime(),
+        status: 'recording',
+        loaded: true,
+        transcript: [],
+        summaries: [],
+    };
+    r.recordedSamples = 0;
+    if (r.sender) {
+        persistUnsent(r.sender, created.id, projectId);
+    }
+    // 新規セッション画面の URL を、このセッションの URL に置き換える（履歴は増やさない。#177）
+    replaceUrlNext();
+    r.store.setState((s) => ({
+        // 先に一覧の取り直しでサーバーのものが入っていることがあるので、同じ ID のものは置き換える
+        projects: s.projects.map((p) =>
+            p.id === projectId ? { ...p, sessions: [created, ...p.sessions.filter((x) => x.id !== created.id)] } : p,
+        ),
+        selection: { projectId, sessionId: created.id },
+        recordingState: 'recording',
+        recordingSessionId: created.id,
+        elapsed: 0,
+        partials: [],
+        liveDraft: null,
+    }));
+}
+
+async function beginRecording(r: Recorder, projectId: string, continueSessionId?: string) {
+    const reply = await openRecording(r, projectId, continueSessionId);
+    const offset = continueSessionId ? Math.round((reply.offsetSec ?? 0) * SAMPLE_RATE) : 0;
+    r.metrics.start(
+        !!continueSessionId,
+        continueSessionId ?? reply.session,
+        recordedSeconds(offset, SAMPLE_RATE),
+        r.store.getState().settings,
+        r.sender,
+    );
+    if (continueSessionId) {
+        await beginContinue(r, projectId, continueSessionId, reply);
+    } else {
+        beginNew(r, projectId, reply);
+    }
+}
+
+// 録音を始める（continueSessionId があれば、途中で終わったそのセッションの続きを録音する）
+export async function startOrContinue(r: Recorder, projectId: string, continueSessionId?: string) {
+    r.starting = true;
+    try {
+        await beginRecording(r, projectId, continueSessionId);
+    } catch (e) {
+        closeRecording(r);
+        if (e instanceof MicrophoneError && e.reason === 'denied') {
+            r.store.setState((s) => ({ server: { ...s.server, microphone: 'denied' } }));
+            toast.error('マイクが使えません。ブラウザの設定でマイクを許可してください');
+        } else {
+            toast.error((e as Error).message);
+        }
+    } finally {
+        r.starting = false;
+    }
+}
+
+// 新しいセッションを録音する（録音中・始めている途中・前の録音の残りを送っていないときは始めない）
+export async function startNew(r: Recorder, projectId: string) {
+    if (r.store.getState().recordingState !== 'idle' || r.starting) {
+        return;
+    }
+    if (r.stoppedWhileOffline) {
+        toast.warning(WAITING_LEFTOVER);
+        return;
+    }
+    await startOrContinue(r, projectId);
+}
+
+// 途中で終わったセッションの続きを、同じセッションのまま録音する（#101）
+export async function continueRecording(r: Recorder, sessionId: string) {
+    const s = r.store.getState();
+    const project = s.projects.find((p) => p.sessions.some((x) => x.id === sessionId));
+    if (!project || s.recordingState !== 'idle' || r.starting) {
+        return;
+    }
+    if (r.stoppedWhileOffline) {
+        toast.warning(WAITING_LEFTOVER);
+        return;
+    }
+    await startOrContinue(r, project.id, sessionId);
+}
+
+// 一時停止の前までの音声を送り切ってから pause を送る
+export async function pauseRecording(r: Recorder) {
+    await r.mic?.flush();
+    r.sender?.flush();
+    r.metrics.pause();
+    connection.send({ type: 'pause' });
+    r.store.setState({ recordingState: 'paused', micLevel: 0 });
+}
+
+export function unpauseRecording(r: Recorder) {
+    // 一時停止中に worklet に溜まった音は送らない
+    r.mic?.discard();
+    connection.send({ type: 'unpause' });
+    r.store.setState({ recordingState: 'recording' });
+}
+
+// 録音を終えたら、セッションの終了日時と状態を確定して、最終の要約を作り始める
+export async function stopRecording(r: Recorder) {
+    const { getState: get, setState: set } = r.store;
+    // 終了の前までの音声（worklet と手元に溜まっている分）を送り切ってから stop を送る
+    if (get().recordingState === 'recording') {
+        await r.mic?.flush();
+    }
+    r.sender?.flush();
+    const sessionId = get().recordingSessionId;
+    if (sessionId) {
+        // 最終の要約ができたときに送る
+        r.metrics.stop(sessionId, get().elapsed);
+    }
+    if (r.sender && !r.sender.holding) {
+        connection.send({ type: 'stop' });
+    } else {
+        // 切れていて音声を溜めている間は、つながり直して溜めた音声を送ってから stop を送る
+        r.stoppedWhileOffline = sessionId;
+    }
+    // 最後に送った音声の ack を受け取れるように、購読は次の録音を始めるまで続ける
+    r.mic?.close();
+    r.mic = null;
+    const endedAt = formatDateTime();
+    set((s) => ({
+        recordingState: 'idle',
+        recordingSessionId: null,
+        micLevel: 0,
+        transcriptionStalled: false,
+        // 流れている途中で終えると summary.done（live）が来ないので、書きかけの途中の要約は捨てる
+        liveDraft: null,
+        projects: sessionId
+            ? // 長さはサーバーと同じ時計の経過時間。取り直すまでの間も、サイドバーに秒まで出せるように
+              updateSession(s.projects, sessionId, (x) => ({ ...x, status: 'done', endedAt, durationSec: s.elapsed }))
+            : s.projects,
+        // 最終の要約はサーバーが作り、summary.delta（final）で届く。届くまでは「作成中」と出す
+        generating: sessionId ? { sessionId, model: finalModelLabel(llmModels(s.settings)), text: '' } : s.generating,
+    }));
+}
+
+// 止まったマイクを開き直す（録音はそのまま続ける。#102）
+export async function reopenMicrophone(r: Recorder) {
+    if (r.store.getState().recordingState === 'idle' || !r.mic) {
+        return;
+    }
+    try {
+        if (r.store.getState().micState === 'suspended') {
+            await r.mic.restart();
+            return;
+        }
+        // 止まったトラックは戻らないので、マイクを開き直す（送信と経過時間はそのまま続く）
+        const next = await openMicrophone(r);
+        r.mic.close();
+        r.mic = next;
+        toast.success('マイクを開き直しました。録音を続けています');
+    } catch (e) {
+        toast.error(`マイクを開き直せません: ${(e as Error).message}`);
+    }
+}

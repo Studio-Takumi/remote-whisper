@@ -2,8 +2,9 @@ import { useEffect } from 'react';
 
 import { CaptionsOffIcon, MicOffIcon } from 'lucide-react';
 
-import { micStateMessage, stalledMessage, useAppStore } from '@/app/store';
+import { useAppStore } from '@/app/store';
 import { Button } from '@/components/ui/button';
+import { micStateMessage, stalledMessage } from '@/features/recording/micMessages';
 
 // 録音を裏に回していても気づけるよう、タブのタイトルの頭に付ける（#120）
 const TITLE_MARK = '⚠ ';
