@@ -292,6 +292,8 @@ class WhisperXInstaller:
         before: dict[str, str] | None = None
         try:
             before = await self._prepare()
+            # 入れる前の一覧を控える。途中でサーバーが止まっても、次に起動したときに戻せるように
+            atomic_write_json(self.marker, before)
             await self._pip_install(job)
         except (asyncio.CancelledError, Exception) as e:
             await self._failed(job, before, e)
@@ -304,14 +306,11 @@ class WhisperXInstaller:
         log.info("installed WhisperX")
 
     async def _prepare(self) -> dict[str, str]:
-        """pip を用意して、入れる前の一覧を控える（途中でサーバーが止まっても、次に起動したときに
-        戻せるように）"""
+        """pip を用意して、入れる前の一覧を返す"""
         # pip がなければ入れる（python-build-standalone には入っているはず）
         if await self._run(["-m", "pip", "--version"]) != 0:
             await self._run(["-m", "ensurepip", "--upgrade"])
-        before = await self._snapshot()
-        atomic_write_json(self.marker, before)
-        return before
+        return await self._snapshot()
 
     async def _pip_install(self, job: InstallJob) -> None:
         if self._cancelled:

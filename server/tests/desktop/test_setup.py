@@ -668,6 +668,28 @@ def test_failed_install_is_rolled_back(tmp_path, monkeypatch, mode):
     assert not installer.marker.exists()
 
 
+def test_marker_write_failure_is_rolled_back(tmp_path, monkeypatch):
+    # 入れる前の一覧（marker）を書けなくても、控えた一覧で戻しにいく
+    installer, site, installed = make_installer(tmp_path, monkeypatch)
+
+    def broken(path, data):
+        raise OSError("disk full")
+
+    monkeypatch.setattr("remote_whisper.desktop.whisperx_install.atomic_write_json", broken)
+
+    async def run():
+        installer.start()
+        await finish(installer)
+
+    asyncio.run(run())
+    assert installer.job.state == "failed"
+    assert installer.job.phase == "rollingBack"
+    assert installer.job.rolled_back is True
+    assert installed == []
+    assert site_of(site) == BEFORE
+    assert "--- roll back" in installer.log_path.read_text(encoding="utf-8")
+
+
 def test_cancel_rolls_back(tmp_path, monkeypatch):
     installer, site, _ = make_installer(tmp_path, monkeypatch, "hang")
 
