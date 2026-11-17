@@ -13,11 +13,9 @@ from remote_whisper.llm.lmstudio import (
     DOWNLOAD_STALL_SEC,
     LMStudioClient,
     LMStudioUnavailable,
-    SchemaMismatch,
-    conform,
     lmstudio_error,
-    parse_structured,
 )
+from remote_whisper.llm.lmstudio_schema import SchemaMismatch, conform, parse_structured
 from remote_whisper.settings import SettingsStore
 from remote_whisper.summary.prompts import TITLE_FORMAT
 from remote_whisper.summary.summary_parts import NUM_CTX
@@ -87,7 +85,7 @@ def test_unreachable_sets_status_error_and_recovers(lms, fake):
 
 def test_server_error_sets_status_error(lms, fake, monkeypatch):
     monkeypatch.setattr(fake, "handle", lambda request: httpx.Response(500))
-    lms._transport = fake.transport()
+    lms.http._transport = fake.transport()
     with pytest.raises(LMStudioUnavailable):
         run(lms.models())
     assert lms.hub.status.lmstudio == "error"
@@ -246,7 +244,7 @@ def test_context_exceeded_500_does_not_set_status_error(lms, fake, monkeypatch):
             )
         return original(request)
 
-    lms._transport = httpx.MockTransport(handle)
+    lms.http._transport = httpx.MockTransport(handle)
     with pytest.raises(LMStudioUnavailable):
         stream(lms, GEMMA, MESSAGES)
     assert lms.hub.status.lmstudio == "ready"
@@ -260,7 +258,7 @@ def test_rejected_request_keeps_status_ready(lms, fake, monkeypatch):
             return httpx.Response(400, json={"error": {"message": "bad"}})
         return original(request)
 
-    lms._transport = httpx.MockTransport(handle)
+    lms.http._transport = httpx.MockTransport(handle)
     with pytest.raises(LMStudioUnavailable):
         stream(lms, GEMMA, MESSAGES)
     assert lms.hub.status.lmstudio == "ready"
@@ -277,7 +275,7 @@ def test_error_event_fails(lms, fake, monkeypatch):
             )
         return original(request)
 
-    lms._transport = httpx.MockTransport(handle)
+    lms.http._transport = httpx.MockTransport(handle)
     with pytest.raises(LMStudioUnavailable, match="boom"):
         stream(lms, GEMMA, MESSAGES)
 
@@ -708,7 +706,7 @@ def with_handler(lms, fake, path, respond):
             return respond(request)
         return original(request)
 
-    lms._transport = httpx.MockTransport(handle)
+    lms.http._transport = httpx.MockTransport(handle)
 
 
 class Broken(httpx.AsyncByteStream):
@@ -1019,6 +1017,20 @@ def test_idle_instances_are_unloaded_after_keep_alive(timed, fake, clock):
     run(go())
 
 
+def test_closing_a_stream_early_lets_the_timer_unload(timed, fake, clock):
+    async def go():
+        parts = timed.chat_stream(GEMMA, MESSAGES)
+        await anext(parts)
+        assert timed.vram._active == 1
+        await parts.aclose()
+        await settle()
+        assert timed.vram._active == 0
+        await clock.advance(600)
+        assert loaded_ids(fake) == []
+
+    run(go())
+
+
 def test_using_again_restarts_the_count(timed, fake, clock):
     async def go():
         await timed.chat(GEMMA, MESSAGES)
@@ -1132,7 +1144,7 @@ def test_shutdown_gives_up_after_lmstudio_does_not_answer(timed, fake):
             raise httpx.ReadTimeout("timed out", request=request)
         return fake.handle(request)
 
-    timed._transport = httpx.MockTransport(handle)
+    timed.http._transport = httpx.MockTransport(handle)
     run(timed.shutdown())
     assert len(tries) == 1
     assert loaded_ids(fake) == sorted([PLAIN, GEMMA])
@@ -1145,7 +1157,7 @@ def test_reloaded_by_hand_with_the_same_id_is_not_unloaded(timed, fake, clock):
     fake.loaded[GEMMA].clear()  # 手で下ろした
     clock.now += 5
     run(timed.installed())  # 一覧を取った
-    assert timed._loaded == {}
+    assert timed.vram.loaded == {}
     fake.load(GEMMA, NUM_CTX)  # 手で載せ直した（同じ id）
     run(timed.unload_all())
     assert fake.bodies("/api/v1/models/unload") == []
@@ -1175,7 +1187,7 @@ def test_load_without_an_instance_id_remembers_the_new_instance(lms, fake):
 
     with_handler(lms, fake, "/api/v1/models/load", respond)
     stream(lms, GEMMA, MESSAGES)
-    assert lms._loaded == {f"{GEMMA}:2": NUM_CTX}
+    assert lms.vram.loaded == {f"{GEMMA}:2": NUM_CTX}
     assert fake.bodies("/api/v1/chat")[-1]["model"] == f"{GEMMA}:2"
     run(lms.unload_all())
     assert fake.loaded[GEMMA] == [(GEMMA, 8192)]
@@ -1185,8 +1197,8 @@ def test_load_without_an_instance_id_is_not_remembered_when_not_found(lms, fake,
     fake.load(GEMMA, 8192)
     respond = lambda r: httpx.Response(200, json={"type": "llm"})  # noqa: E731
     with_handler(lms, fake, "/api/v1/models/load", respond)
-    run(lms._instance(GEMMA))
-    assert lms._loaded == {}
+    run(lms.vram.instance(GEMMA))
+    assert lms.vram.loaded == {}
     assert "did not tell its instance id" in caplog.text
 
 
@@ -1204,7 +1216,7 @@ def test_jit_load_without_an_instance_id_is_not_remembered(lms, fake, caplog):
     respond = lambda r: httpx.Response(200, content=_sse(events))  # noqa: E731
     with_handler(lms, fake, "/api/v1/chat", respond)
     assert stream(lms, GEMMA, MESSAGES) == ["要約"]
-    assert lms._loaded == {}
+    assert lms.vram.loaded == {}
     assert "without telling its instance id" in caplog.text
 
 
@@ -1218,7 +1230,7 @@ def test_only_its_own_instance_is_unloaded_next_to_one_loaded_by_hand(
     async def go():
         await timed.chat(GEMMA, MESSAGES)
         await settle()
-        assert sorted(timed._loaded) == [f"{GEMMA}:2"]
+        assert sorted(timed.vram.loaded) == [f"{GEMMA}:2"]
         if how == "unload_all":
             await timed.unload_all()
         elif how == "timer":
@@ -1248,7 +1260,7 @@ def test_generation_while_the_timer_is_unloading(timed, fake, clock):
         await timed.chat(GEMMA, MESSAGES)
         await timed.chat(PLAIN, MESSAGES)
         await settle()
-        timed._transport = httpx.MockTransport(handle)
+        timed.http._transport = httpx.MockTransport(handle)
         await clock.advance(600)  # 名前の順で先の PLAIN を下ろしている途中で止まる
         generation = asyncio.create_task(timed.chat(PLAIN, MESSAGES))
         await settle()
