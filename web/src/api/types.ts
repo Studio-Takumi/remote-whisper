@@ -1,0 +1,115 @@
+// 画面で扱うデータの形。サーバーの API（spec/api.md 7.1）から作る
+import type { MaterialRange, SessionFiles } from '@/api/api';
+import type { Correction } from '@/features/session/corrections';
+import type { SessionSource } from '@/features/session/sources';
+
+export type TranscriptLine = {
+    time: string;
+    text: string;
+    // 音源 ID（音源が 2 つ以上のセッションだけ。録音中に届いた行と、フロントマターの lineSources から。#356・#357）
+    source?: number;
+};
+
+// 最終の要約。作り直すたびに増えていく（spec/flows.md 6.5 節）
+export type Summary = {
+    generationId: string;
+    // 要約詳細のモデルと、全体概要のモデル（#178。ないものは model と同じ）
+    model: string;
+    overviewModel?: string;
+    generatedAt: string;
+    // 本文。まだ取ってきていなければない
+    text?: string;
+};
+
+// 最終の文字起こし（#121）。行は文ごと。話者を分けたときは、本文が「話者 1: …」で始まる
+export type FinalTranscript = {
+    generationId: string;
+    model: string;
+    generatedAt: string;
+    // 話者分け。done は分けた、off は設定で切っていた、unavailable はモデルを使えなかった
+    diarization: 'done' | 'off' | 'unavailable';
+    speakers: number;
+    lines: TranscriptLine[];
+};
+
+// 最終の文字起こしの世代（#124。作り直すたびに増える）。本文は表示するときに取る
+export type FinalTranscriptInfo = Omit<FinalTranscript, 'lines'>;
+
+export type Session = {
+    id: string;
+    // 画面の URL に出す ID（#177）。古いサーバー・デモのダミーデータにはない（代わりに id を使う）
+    uuid?: string;
+    title: string;
+    // 音声ファイルをアップロードして作ったセッション（#180）
+    uploaded?: boolean;
+    startedAt: string;
+    // 録音を終えた日時。録音中はない
+    endedAt?: string;
+    // 録音の長さ（秒）。録音中と、これを記録する前のセッションにはない
+    durationSec?: number;
+    // recording は録音中（ほかの端末で録音しているものも含む）
+    status: 'recording' | 'done' | 'interrupted';
+    // どのファイルが残っているか（サーバーから取ったとき）。保存期間を過ぎて消えたものは「期限切れ」と出す
+    files?: SessionFiles;
+    // 文字起こしと要約を取ってきたか。取るのはセッションを開いたとき
+    loaded?: boolean;
+    transcript: TranscriptLine[];
+    // 録音後に録音全体から作った最終の文字起こし（#121）。表示している世代。なければない
+    finalTranscript?: FinalTranscript;
+    // 最終の文字起こしの世代の一覧（#124。古いものから）
+    finalTranscripts?: FinalTranscriptInfo[];
+    summaries: Summary[];
+    // 途中の要約（いちばん新しいもの）。最終の要約がまだないときに代わりに出す
+    liveSummary?: string;
+    // タイトルが仮のもの（途中の要約から作ったもの）かどうか
+    provisionalTitle?: boolean;
+    // 最終の要約を作れなかった（Ollama につながらなかったなど）。作り直して作れたら false
+    summaryFailed?: boolean;
+    // 録音中に文字起こしから拾って、用語リストに足した語（#103）
+    pickedTerms?: string[];
+    // 画面で手で足した語（#175）。拾った語とは分けて持つ
+    manualTerms?: string[];
+    // 録音のあとに、今回扱った範囲で参考資料を作り直したとき（#182）
+    materialRange?: MaterialRange[];
+    // 文字起こしの置き換え（#176）
+    corrections?: Correction[];
+    // 音源（#241・#357）。音源が 2 つ以上のセッションだけ（文字起こしのフロントマターから）
+    sources?: SessionSource[];
+};
+
+export type Project = {
+    id: string;
+    // 画面の URL に出す ID（#177）。ないときは id を使う
+    uuid?: string;
+    name: string;
+    path: string;
+    sessions: Session[];
+    // サーバーに保存されている、今選んでいる参考資料セット（spec/files.md 5.4 節の selection）
+    selection?: ContextSelection;
+    // 最終要約のコピーの置き場所（spec/files.md 5.4 節の summaryDir。#341）。古いサーバーにはない
+    summaryDir?: string;
+};
+
+// 作成中の最終の要約。summary.delta（spec/api.md 7.2 節）で届いた分
+export type Generating = { sessionId: string; model: string; text: string };
+
+// 参考資料セット（spec/files.md 5.4 節の contextSets）。/api/projects/{pid}/context-sets から取る
+export type ContextSet = {
+    id: string;
+    status: 'generating' | 'ready' | 'failed';
+    materials: string[];
+};
+
+// プロジェクトで今選んでいる状態（spec/files.md 5.4 節の selection）
+export type ContextSelection = {
+    setId: string | null;
+    useHotwords: boolean;
+    useContext: boolean;
+    // 録音中に文字起こしから用語を拾い、用語リストに足すか（#103）
+    pickTerms: boolean;
+};
+
+// 資料のファイル名だけを並べた、セットの表示名
+export function contextSetName(set: ContextSet) {
+    return set.materials.map((m) => m.split(/[\\/]/).at(-1)).join(', ');
+}

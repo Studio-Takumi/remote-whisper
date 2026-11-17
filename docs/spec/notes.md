@@ -53,6 +53,23 @@
 5. 参考資料の作成
 6. 保存期間の管理と、障害からの復旧
 
+## 9.5 web のファイルの置き場所（#331）
+
+機能ごとにまとめる。部品・hook・関数・テストを同じフォルダに置き、テストは対象の隣に置く。
+
+| 場所 | 置くもの |
+|---|---|
+| `src/main.tsx`・`index.css` | 入口と全体のスタイル |
+| `src/app/` | 画面の骨組み（`App`・`TopBar`・`AppSidebar`）、URL（`router`）、ストア、キャッシュ（`query`） |
+| `src/api/` | サーバーとの通信（REST・WebSocket・URL の組み立て）と、受け取るデータの形 |
+| `src/features/<機能>/` | `recording`（録音・音声）・`session`（文字起こし・要約の表示）・`projects`・`materials`（参考資料）・`settings`・`setup`・`cloud`（クラウド版の入口・アカウント・ホスト） |
+| `src/components/` | 機能によらない部品（Markdown を出す唯一の部品 `Markdown` など）。`ui/` は shadcn のもので手で直さない |
+| `src/lib/`・`src/hooks/` | 機能によらない小さな関数（`time`・`scroll`）。`lib/utils.ts`・`hooks/use-mobile.ts` は shadcn のもの |
+
+- import は `@/` から書く（相対パスは使わない）。フォルダの `index.ts` でまとめ直すことはしない
+- 1 つの機能でしか使わないものは、その機能のフォルダに置く。2 つ以上で使うようになったら `components/`・`lib/` に移す
+- ファイル名は、部品なら PascalCase（`MicButton.tsx`）、それ以外は camelCase（`recording.ts`）。同じフォルダで大文字小文字だけが違う名前にしない
+
 ## 9.6 server のモジュールの置き場所（#332）
 
 `server/src/remote_whisper/` は役割ごとのパッケージに分ける。テストは `server/tests/` に同じ分け方で置く。

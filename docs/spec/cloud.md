@@ -26,7 +26,7 @@ Tailscale・uv・Ollama などを自分で入れられる人だけでなく、�
 | 広告 | 出さない | 後で出す（10.13 節） |
 - 画面は `location.hostname` がクラウド用のドメイン（ビルド時の設定で渡す）ならクラウド版として動く。コードと設定の値は `cloud`・`direct`
   - ビルド時の設定は環境変数 `VITE_CLOUD_HOSTS`（カンマ区切り）。渡さなければ staging の `rw-dev.studio-takumi.dev` だけ。本番のドメインは、決まったら足す
-  - 画面の URL の組み立ては `web/src/endpoint.ts` の 1 か所に集め、入口の状態（`login`・`consent`・`hosts`・`ready`）は `web/src/cloud.ts` に持つ。`ready` でホストが決まるまで、今の画面は出さない
+  - 画面の URL の組み立ては `web/src/api/endpoint.ts` の 1 か所に集め、入口の状態（`login`・`consent`・`hosts`・`ready`）は `web/src/features/cloud/cloud.ts` に持つ。`ready` でホストが決まるまで、今の画面は出さない
   - PWA は API・WebSocket をキャッシュせず、`/h/`・`/auth/`・`/me/`・`/pair`・`/healthz` は画面の読み込み直しの代わり（navigateFallback）にしない
 - セルフホスト版の挙動は変えない。クラウド版のために足す画面（ログイン・同意・ホストの選択・広告・お知らせ）は、セルフホスト版では出さず、そのためのスクリプトも読まない
 
@@ -249,7 +249,7 @@ sequenceDiagram
   - 画面（静的アセット）: `web/public/_headers` に書く（Workers の assets が読む）
     - `X-Frame-Options: DENY` と CSP の `frame-ancestors 'none'`（iframe に入れて `/pair?code=` の承認などを押させる攻撃を防ぐ）
     - `nosniff`・`Referrer-Policy`・`Permissions-Policy`（マイクは自分のオリジンだけ）
-    - **CSP は強制**（`Content-Security-Policy`。#247 で Report-Only で入れ、#253 で主な画面を Chromium と WebKit で回して違反がないことを確かめてから替えた。確かめ方は `cd web && npm run check:csp`）。読み込めるのは自分のオリジンのものだけ（`connect-src 'self'` は同じホストの `wss:` も含む。Playwright の WebKit でも当たることを確かめた。iPhone の Safari の実機は #253 の PR の手順で確かめる）。インラインのスクリプトは index.html のテーマの設定だけで、LF・CRLF のハッシュで許す。中身を変えたらハッシュも替える（`web/src/headers.test.ts` が確かめる）。shiki の wasm のために `'wasm-unsafe-eval'`、スタイルは `'unsafe-inline'`（UI のライブラリが style を差し込む。外せるかは Report-Only で試してから）
+    - **CSP は強制**（`Content-Security-Policy`。#247 で Report-Only で入れ、#253 で主な画面を Chromium と WebKit で回して違反がないことを確かめてから替えた。確かめ方は `cd web && npm run check:csp`）。読み込めるのは自分のオリジンのものだけ（`connect-src 'self'` は同じホストの `wss:` も含む。Playwright の WebKit でも当たることを確かめた。iPhone の Safari の実機は #253 の PR の手順で確かめる）。インラインのスクリプトは index.html のテーマの設定だけで、LF・CRLF のハッシュで許す。中身を変えたらハッシュも替える（`web/src/app/headers.test.ts` が確かめる）。shiki の wasm のために `'wasm-unsafe-eval'`、スタイルは `'unsafe-inline'`（UI のライブラリが style を差し込む。外せるかは Report-Only で試してから）
     - Cloudflare の Web Analytics（RUM）が差し込むスクリプト（`static.cloudflareinsights.com`）は許さない（ほかのオリジンのスクリプトを画面で動かさない。差し込みは Cloudflare の設定で切る。docs/deploy.md の「CSP の違反を見る」）
     - 違反は `report-uri /csp-report` で Worker に送らせる。`report-to` は付けない（付けると Chromium は `report-uri` を使わなくなるが、#253 で確かめた Chromium では `report-to` の報告が届かなかった。`report-uri` は Chromium・WebKit で届くことを確かめた）。Worker は Reporting API の形も読めるので、あとで `report-to` に替えてもよい。Report-Only の行は置かない。新しいポリシーを試すときは、強制の行はそのままにして `Content-Security-Policy-Report-Only` の行を足す（報告の `disposition` が `report` になるので分けて数えられる）
   - **CSP の違反の報告（#253）**: `POST /csp-report`（`relay/src/cspReport.ts`。`run_worker_first` に入れる）。ブラウザが Cookie なしで送ることがあるので、ログインも Origin も確かめない。そのかわり:

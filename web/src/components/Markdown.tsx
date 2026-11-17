@@ -5,8 +5,8 @@ import { code } from '@streamdown/code';
 import { createMathPlugin } from '@streamdown/math';
 import { Streamdown } from 'streamdown';
 
-import { copySelection } from '@/copyMarkdown';
-import { rehypePlugins } from '@/markdownImages';
+import { copySelection } from '@/components/copyMarkdown';
+import { rehypePlugins } from '@/components/markdownImages';
 
 // 講義の要約では $x$ のようなインライン数式が出てくるので、$ 1つでも数式として扱う
 const math = createMathPlugin({ singleDollarTextMath: true });
