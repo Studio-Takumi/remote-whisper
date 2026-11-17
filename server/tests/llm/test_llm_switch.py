@@ -32,7 +32,7 @@ def fake_lmstudio(monkeypatch):
     def client(*args, **kwargs):
         return LMStudioClient(*args, transport=fake.transport(), **kwargs)
 
-    monkeypatch.setattr("remote_whisper.app.LMStudioClient", client)
+    monkeypatch.setattr("remote_whisper.wiring.LMStudioClient", client)
     return fake
 
 

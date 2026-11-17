@@ -1,46 +1,14 @@
 """FastAPI のアプリ"""
 
-import asyncio
-import contextlib
-import logging
-import os
-import re
-import time
-from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request
-from fastapi.staticfiles import StaticFiles
-from starlette.exceptions import HTTPException as StarletteHTTPException
-from starlette.responses import Response
-from starlette.types import Scope
+from fastapi import FastAPI
 
-from remote_whisper.context import AppContext
-from remote_whisper.desktop import bundle
 from remote_whisper.desktop.ports import INSTANCE_ID
-from remote_whisper.desktop.setup import SetupService, worker_env
-from remote_whisper.gpu import openvino_whisper
-from remote_whisper.gpu.gpu_stats import GpuStats
-from remote_whisper.gpu.whisper_worker import WhisperWorker, default_backend
 from remote_whisper.host_check import HostCheckMiddleware
-from remote_whisper.llm.llm_switch import LlmSwitch
-from remote_whisper.llm.lmstudio import LMStudioClient
-from remote_whisper.llm.ollama import OllamaClient
-from remote_whisper.logs import traffic
-from remote_whisper.materials.context_sets import ContextSetService, OllamaGenerator
-from remote_whisper.materials.material_figures import FigureReader
-from remote_whisper.materials.material_range import RangeService
-from remote_whisper.mock import (
-    MockContextGenerator,
-    MockFinalSummarizer,
-    MockRecorder,
-    MockTiming,
-    mock_script_lines,
-)
-from remote_whisper.push import PushService
-from remote_whisper.recording.recorder import RecordingManager
-from remote_whisper.recording.recovery import Leftovers, find_leftovers, fix_leftovers
-from remote_whisper.recording.uploads import UploadService
+from remote_whisper.lifecycle import make_lifespan
+from remote_whisper.mock import MockTiming
+from remote_whisper.request_log import log_requests
 from remote_whisper.routes import fs as fs_routes
 from remote_whisper.routes import mock as mock_routes
 from remote_whisper.routes import options as options_routes
@@ -51,43 +19,10 @@ from remote_whisper.routes import settings as settings_routes
 from remote_whisper.routes import setup as setup_routes
 from remote_whisper.routes import version as version_routes
 from remote_whisper.routes import ws as ws_routes
-from remote_whisper.settings import SettingsStore, default_home
-from remote_whisper.storage.janitor import Janitor
-from remote_whisper.storage.projects import ProjectStore
-from remote_whisper.summary.final_summary import FinalSummarizer
-from remote_whisper.transcript.final_transcriber import FinalTranscriber, installed
+from remote_whisper.settings import default_home
 from remote_whisper.version import app_version
-
-# server/src/remote_whisper/app.py から見たリポジトリの web/dist。
-# リポジトリから動かす（uv run）前提。wheel で入れた場合は REMOTE_WHISPER_WEB_DIST で指定する
-DEFAULT_WEB_DIST = Path(__file__).resolve().parents[3] / "web" / "dist"
-
-log = logging.getLogger(__name__)
-
-
-class SpaStaticFiles(StaticFiles):
-    """画面の配信。画面の URL（/s/<UUID> など。#177）にはファイルがないので、index.html を返す
-
-    /api・/ws と、拡張子のあるもの（なくなった JS など）は 404 のままにする
-    """
-
-    async def get_response(self, path: str, scope: Scope) -> Response:
-        try:
-            return await super().get_response(path, scope)
-        except StarletteHTTPException as e:
-            parts = re.split(r"[\\/]", path)
-            if e.status_code != 404 or parts[0] in ("api", "ws") or "." in parts[-1]:
-                raise
-            return await super().get_response("index.html", scope)
-
-
-def web_dist_dir() -> Path:
-    """本番で配信するフロントのビルド結果の場所。REMOTE_WHISPER_WEB_DIST で変えられる。
-    配布用のビルド（#168）では同梱の web/"""
-    env = os.environ.get("REMOTE_WHISPER_WEB_DIST")
-    if env:
-        return Path(env)
-    return bundle.bundled_web_dist() or DEFAULT_WEB_DIST
+from remote_whisper.web import mount_web
+from remote_whisper.wiring import build_parts
 
 
 def create_app(
@@ -105,264 +40,16 @@ def create_app(
     # バージョンは起動したときのものにする（動いている間に git pull しても変わらないように）
     app_version()
 
-    @asynccontextmanager
-    async def lifespan(app: FastAPI):
-        if ctx.whisper is not None:
-            # Whisper の子プロセスが落ちていないか、使わなくなっていないかを見張る
-            ctx.whisper.start_watchdog()
-        if ctx.ollama is not None:
-            # 使っている LLM（Ollama か LM Studio）につながるかを見張る
-            # （status の ollama・lmstudio）
-            ctx.ollama.start_monitor()
-        if ctx.context_sets is not None:
-            # 前に動いていたときに作っている途中だった参考資料セットを failed に直す
-            ctx.context_sets.recover()
-        # 前に動いていたサーバーが落ちていたら、録音中のままの文字起こしを interrupted に直し、
-        # 残っている WAV を変換する（変換は時間がかかるので後ろで。spec/flows.md 6.7）
-        found = find_leftovers(ctx.projects, ctx.settings.get().retention_days.summary)
-        quick = Leftovers(
-            recording=found.recording, unsummarized=found.unsummarized, partials=found.partials
-        )
-        fix_leftovers(ctx.projects, quick)
-        if found.wavs:
-            leftover_wavs = Leftovers(wavs=found.wavs)
-            recovering = asyncio.create_task(
-                asyncio.to_thread(fix_leftovers, ctx.projects, leftover_wavs)
-            )
-            background.add(recovering)
-            recovering.add_done_callback(background.discard)
-        # 最終要約の通知（#245）の VAPID の鍵。なければ作る（秘密鍵はデータのルートの外に出さない）
-        try:
-            await asyncio.to_thread(ctx.push.ensure_key)
-        except OSError:
-            log.exception("could not prepare the push key; notifications are off")
-            ctx.push = None
-        # 前に WhisperX を入れている途中でサーバーが止まっていたら、元に戻す（#291）
-        ctx.setup.installer.recover()
-        # 保存期間を過ぎたファイルを、起動時とその後1日1回消す
-        janitor.start()
-        # GPU の使用率と VRAM を数秒おきに送る（取れない環境と、GPU を使わないモック・
-        # 偽の Whisper（テスト）では何もしない）
-        if not mock and os.environ.get("REMOTE_WHISPER_WHISPER_BACKEND") != "fake":
-            gpu_stats.start()
-        # 音声の受信量と送ったメッセージの数を、1 分ごとにまとめてログに書く（#134）
-        traffic_task = asyncio.create_task(traffic.run())
-        log.info("server started (version %s, data in %s)", app_version(), home)
-        # トンネル専用の 8001 番（#160）は、このアプリと同じイベントループの上で動かす
-        tunnel = app.state.tunnel
-        if tunnel is not None:
-            tunnel.attach(asyncio.get_running_loop())
-        # 登録済みなら cloudflared を動かす（8001 番が開くのを待つのは専用のスレッド。#159）
-        cloudflared = app.state.cloudflared
-        if cloudflared is not None:
-            cloudflared.sync()
-        yield
-        log.info("server stopping")
-        if cloudflared is not None:
-            # 子プロセスを残さない（待つ間もイベントループは止めない）
-            await asyncio.to_thread(cloudflared.stop)
-        if tunnel is not None:
-            # 片付ける前に、8001 番からの新しいリクエストを止める
-            await tunnel.aclose()
-        traffic_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await traffic_task
-        await gpu_stats.close()
-        await janitor.close()
-        await ctx.uploads.close()
-        # モデルの取得と WhisperX を入れるのを止める（入れている途中なら、次に起動したときに戻す）
-        await ctx.setup.close()
-        # 止めるときは、録音中の WAV を閉じて録音を終えたあとの処理を止め、GPU のジョブキューを止め
-        # （待っているジョブは cancel）、Whisper を下ろす。録音の側を先に止めるのは、止めたキューに
-        # 最終の要約などのジョブが積まれて、ワーカーが作り直されないようにするため
-        if isinstance(ctx.recorder, RecordingManager):
-            await ctx.recorder.close()
-        if ctx.final_transcriber is not None:
-            await ctx.final_transcriber.close()
-        # 参考資料セットも、Ollama への頼みを 1 回ずつ積んでいるので先に止める（#271）
-        if ctx.context_sets is not None:
-            await ctx.context_sets.close()
-        await ctx.gpu.stop()
-        if ctx.whisper is not None:
-            await ctx.whisper.close()
-        if background:
-            await asyncio.gather(*background, return_exceptions=True)
-        if ctx.ollama is not None:
-            # 見張りを止める。LM Studio は自分が載せたモデルを下ろす（止めたあとはタイマーで
-            # 下ろせないため。#326）
-            await ctx.ollama.close()
-
-    app = FastAPI(title="remote-whisper", lifespan=lifespan)
-    ctx = AppContext(
-        home=home, settings=SettingsStore(home), projects=ProjectStore(home), mock=mock
-    )
+    parts = build_parts(home, mock, mock_timing)
+    ctx = parts.ctx
+    app = FastAPI(title="remote-whisper", lifespan=make_lifespan(parts, home, mock))
     app.state.ctx = ctx
     # トンネル専用のポート（tunnel.TunnelPort。__main__ が入れる）
     app.state.tunnel = None
     # cloudflared の子プロセス（cloudflared.CloudflaredRunner。__main__ が入れる。#159）
     app.state.cloudflared = None
-    janitor = Janitor(ctx.projects, ctx.settings)
-    gpu_stats = GpuStats(lambda stats: ctx.hub.set_status(gpu=stats))
-    # 結果を待たないタスク（途中で回収されないように持っておく）
-    background: set[asyncio.Task] = set()
-    if not mock:
-        # モデルは録音を始めたときに読み込む（#23）。ここでは子プロセスはまだ作らない
-        # REMOTE_WHISPER_WHISPER_BACKEND=fake で、GPU を使わない偽物にできる（テスト用）。
-        # 指定がなければ、Apple Silicon の Mac は mlx、ほかは faster-whisper（#276）
-        backend = os.environ.get("REMOTE_WHISPER_WHISPER_BACKEND") or default_backend()
-        # NVIDIA の GPU がなく、単体の Intel の GPU（Arc）があれば、faster-whisper の代わりに
-        # OpenVINO で動かす（#374。extra `openvino` が入っているときだけ。設定 whisper.intelGpu）
-        arc = openvino_whisper.detect() if backend == "faster-whisper" else None
-        if arc is not None:
-            gpu_stats.use_windows_counters(
-                arc.luid,
-                arc.total_mb,
-                active=lambda: ctx.settings.get().whisper.intel_gpu == "auto",
-            )
-        openvino_device = arc.name if arc is not None else None
-        ctx.whisper = WhisperWorker(
-            ctx.hub, ctx.settings, backend=backend, openvino_device=openvino_device
-        )
-        # 名前は ctx.ollama のままだが、中身は設定（llm.backend）で選んだ Ollama か LM Studio の
-        # クライアント（#325）。切り替えは録音がすべて終わってから（LlmSwitch）
-        ctx.ollama = LlmSwitch(
-            ctx.hub,
-            ctx.settings,
-            recording=lambda: ctx.is_recording,
-            make_ollama=OllamaClient,
-            make_lmstudio=LMStudioClient,
-        )
 
-    def on_count(n: int) -> None:
-        ctx.recordings = n
-        if ctx.final_transcriber is not None:
-            # 録音が始まったら、作っている途中の最終の文字起こしを止める（録音が終わったら作り直す）
-            ctx.final_transcriber.recordings_changed(n)
-        if n == 0 and ctx.ollama is not None:
-            # 録音中は下ろさないようにしていた LLM のモデルを、keepAliveMin 分で下ろすように
-            # 戻す（LM Studio はここからサーバーの中のタイマーで数える。#326）。
-            # 録音中に使う LLM を変えていたら、ここで切り替える（#325）
-            task = asyncio.create_task(ctx.ollama.recording_ended())
-            background.add(task)
-            task.add_done_callback(background.discard)
-
-    # 今回扱った資料の範囲で参考資料を作り直す（#182）。Ollama がなければ（モック）作り直さない
-    material_range: RangeService | None = None
-    if mock:
-        ctx.recorder = MockRecorder(ctx.hub, mock_timing, on_count, ctx.projects, ctx.settings)
-        ctx.summarizer = MockFinalSummarizer(ctx.hub, ctx.settings, mock_timing)
-        generator = MockContextGenerator(ctx.hub, ctx.settings, mock_timing)
-        ctx.context_sets = ContextSetService(
-            ctx.projects, ctx.settings, ctx.hub, ctx.gpu, generator
-        )
-    else:
-        ctx.recorder = RecordingManager(
-            ctx.hub,
-            ctx.projects,
-            ctx.settings,
-            on_count,
-            whisper=ctx.whisper,
-            gpu=ctx.gpu,
-            ollama=ctx.ollama,
-        )
-        # 録音を終えたら、録音全体から最終の文字起こしを作る（#121）。
-        # WhisperX が入っていなければ作らない。偽の Whisper（テスト）では作らない
-        # （テストは FinalTranscriber を差し替えて確かめる）
-        ctx.final_transcriber = FinalTranscriber(
-            ctx.settings,
-            ctx.hub,
-            ctx.gpu,
-            whisper=ctx.whisper,
-            ollama=ctx.ollama,
-            recording=lambda: ctx.is_recording,
-            available=installed if backend != "fake" else lambda: False,
-            # 画面から保存した HuggingFace のトークン（#291）を子プロセスに渡す
-            extra_env=lambda: worker_env(home),
-            # 浄書の文字起こしも Intel の GPU で（#374。位置合わせと話者分けは CPU のまま）
-            openvino_device=openvino_device,
-        )
-        ctx.recorder.final_transcript = ctx.final_transcriber
-        if ctx.ollama is not None:
-            # 録音を終えたら最終の要約とタイトルを作る
-            # （ほかに録音中でなければ Whisper を下ろしてから）
-            ctx.summarizer = FinalSummarizer(
-                ctx.ollama, ctx.settings, ctx.whisper, recording=lambda: ctx.is_recording
-            )
-            ctx.recorder.final_summary = ctx.summarizer
-            # 参考資料セットを作る。できたら、そのセットを選んで録音中のセッションに使わせる
-            generator = OllamaGenerator(ctx.ollama, ctx.settings)
-            ctx.context_sets = ContextSetService(
-                ctx.projects,
-                ctx.settings,
-                ctx.hub,
-                ctx.gpu,
-                generator,
-                on_ready=ctx.recorder.context_set_ready,
-                # PDF の図の説明は、資料の内容ごとにホームの下にキャッシュする（#271）
-                figures=FigureReader(ctx.ollama, ctx.settings, home / "cache" / "figures"),
-            )
-            # 録音のあとに、今回扱った資料の範囲で参考資料を作り直す（#182）
-            material_range = RangeService(
-                ctx.projects, ctx.settings, ctx.ollama, ctx.gpu, ctx.context_sets, generator
-            )
-            ctx.recorder.material_range = material_range
-
-    # 音声ファイルのアップロード（#180）。モックでは Whisper の代わりに台本を文字起こしにする
-    ctx.uploads = UploadService(
-        ctx.projects,
-        ctx.settings,
-        ctx.hub,
-        ctx.gpu,
-        whisper=ctx.whisper,
-        final_transcriber=ctx.final_transcriber,
-        summarizer=ctx.summarizer,
-        recording=lambda: ctx.is_recording,
-        fallback_lines=mock_script_lines if mock else None,
-    )
-    ctx.uploads.material_range = material_range
-    # 初回のセットアップの案内（#291）。WhisperX が入っているかは、最終の文字起こしと同じに見る
-    ctx.setup = SetupService(
-        home,
-        ctx.settings,
-        ollama=ctx.ollama,
-        recording=lambda: ctx.is_recording,
-        whisperx_installed=lambda: (
-            ctx.final_transcriber is not None and ctx.final_transcriber.available()
-        ),
-        mock=mock,
-    )
-    # 最終要約ができたら通知する（#245）。録音を終えたあとと、音声ファイルのアップロードのとき。
-    # 再生成は、頼んだ人が画面で待っているので送らない
-    ctx.push = PushService(home)
-    notify = ctx.push.notify_later
-    ctx.uploads.on_summary = notify
-    if mock:
-        # モックの録音は、最終要約を MockSession が作る
-        ctx.recorder.on_summary = notify
-    if ctx.summarizer is not None:
-        ctx.summarizer.on_summary = notify
-
-    @app.middleware("http")
-    async def log_requests(request: Request, call_next):
-        """API のリクエストをログに書く（メソッド・パス・ステータス・かかった時間。#134）。
-        画面の静的ファイルは書かない"""
-        if not request.url.path.startswith("/api/"):
-            return await call_next(request)
-        started = time.monotonic()
-        try:
-            response = await call_next(request)
-        except Exception:
-            log.exception("%s %s failed", request.method, request.url.path)
-            raise
-        log.info(
-            "%s %s %d %.0fms",
-            request.method,
-            request.url.path,
-            response.status_code,
-            (time.monotonic() - started) * 1000,
-        )
-        return response
-
+    app.middleware("http")(log_requests)
     # Host・Origin の確認（#249）。一番外に置き、ほかのサイトからのリクエストは何もさせずに断る。
     # トンネル（8001 番）からのものは見ない
     app.add_middleware(
@@ -390,10 +77,5 @@ def create_app(
     app.include_router(setup_routes.host)
     if mock:
         app.include_router(mock_routes.router)
-
-    # API より後にマウントする。ビルドしていなければ配信しない（開発中は Vite から開く）
-    dist = web_dist_dir()
-    if (dist / "index.html").is_file():
-        app.mount("/", SpaStaticFiles(directory=dist, html=True), name="web")
-
+    mount_web(app)
     return app
