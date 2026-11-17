@@ -1,6 +1,6 @@
 """WhisperX を同梱の Python に pip で入れる（配布版だけ）。spec/flows.md 6.15
 
-入れる前の site-packages の一覧を控え、失敗・中止・途中でサーバーが止まったときは、その一覧に戻す。
+失敗・中止・途中でサーバーが止まったときは、入れる前の site-packages の一覧に戻す。
 """
 
 import asyncio
@@ -22,9 +22,8 @@ from remote_whisper.storage.atomic_write import atomic_write_json, atomic_write_
 
 log = logging.getLogger(__name__)
 
-# WhisperX（最終の文字起こし）の大きさと時間の目安（Windows の配布版。CUDA 版の torch を含む）。
-# 2026-11 に Windows の配布版で測った値: ダウンロード 3.56GB、python フォルダが 2.05GB → 9.86GB、
-# 光回線で 5 分 39 秒。回線が遅いと延びるので、時間は幅を持たせる
+# WhisperX の大きさと時間の目安（2026-11 に Windows の配布版で測った値。
+# 3.56GB のダウンロード、光回線で約 6 分）
 WHISPERX_DOWNLOAD_GB = 3.6
 WHISPERX_DISK_GB = 8.0
 WHISPERX_MINUTES = (5, 30)
@@ -54,10 +53,8 @@ _PINNED = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)==([^\s;\\]+)")
 
 
 def locked_entries(text: str) -> dict[tuple[str, str], list[str]]:
-    """`uv export` の一覧を、(名前, 版) → その項目の行（マーカーとハッシュを含む）に分ける
-
-    同じ名前・版でもマーカー違いの項目（torch の CUDA 版と CPU 版など）は、まとめて持つ
-    """
+    """`uv export` の一覧を (名前, 版) → 行（マーカーとハッシュ込み）に分ける。
+    マーカー違いの同名・同版はまとめて持つ"""
     entries: dict[tuple[str, str], list[str]] = {}
     current: list[str] | None = None
     for line in text.splitlines():
@@ -105,13 +102,8 @@ _COLLECTING = re.compile(r"^\s*(Collecting|Downloading)\s+(\S+)")
 
 
 class WhisperXInstaller:
-    """同梱の Python に WhisperX を pip で入れる（配布版だけ）
-
-    python は対象の Python を動かすコマンド（テストでは偽物）。requirements は版とハッシュを固定した
-    依存の一覧（配布版に同梱する whisperx-requirements.txt）。入れるのも戻すのも、この一覧の行を
-    `--require-hashes` で使う。どちらかがなければ入れられない（固定しない版を入れると、同梱の依存の
-    版が変わりうるため。Mac の配布版（#292）も一覧を同梱する前提）
-    """
+    """同梱の Python に WhisperX を pip で入れる（配布版だけ）。
+    固定した依存の一覧がなければ入れない。spec/flows.md 6.15"""
 
     def __init__(
         self,
@@ -379,12 +371,8 @@ class WhisperXInstaller:
         return ok
 
     async def _restore(self, packages: list[tuple[str, str, str]]) -> None:
-        """版が変わった・消えたパッケージを、入れる前の版で入れ直す（(そろえた名前, 名前, 版)）
-
-        固定した一覧にその版の行があるもの（同梱の依存はすべて同じ uv.lock から作ったので、ここに
-        入る）は、その行（ハッシュ付き）を抜き出して `--require-hashes` で入れる。一覧にない版
-        （利用者が後から足したものなど）はハッシュが分からないので、版だけを指定して入れる
-        """
+        """版が変わった・消えたパッケージを、
+        入れる前の版で入れ直す（固定した一覧に行があればハッシュ付きで）"""
         args = ["-m", "pip", "install", "--no-input", "--no-deps", "--no-cache-dir"]
         args += ["--extra-index-url", TORCH_INDEX]
         entries: dict[tuple[str, str], list[str]] = {}

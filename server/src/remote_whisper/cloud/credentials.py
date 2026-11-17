@@ -1,7 +1,6 @@
 """クラウド版のホストの鍵・署名・cloud.json（#158）。spec/cloud.md 10.5
 
-ホスト ID（UUID4）と Ed25519 の鍵のペアは、登録を始めるたびに新しく作る。
-データのルートの cloud.json に置き、権限は本人だけにする。
+cloud.json は本人だけが読める権限で置く。
 """
 
 import base64
@@ -41,12 +40,7 @@ def b64url_decode(text: str) -> bytes:
 
 
 def canonical_string(host_id: str, ts: int, method: str, path: str, body: bytes) -> bytes:
-    """ホスト → Worker の署名の対象（spec/cloud.md 10.5）。Worker（#157）も同じ形で組み立てる
-
-    `v1`・ホスト ID・時刻（UNIX 秒の 10 進）・メソッド（大文字）・パス（クエリを含む）・
-    本文の SHA-256（小文字の 16 進。本文がなければ空のバイト列のもの）を、
-    改行（\\n）でつないだ UTF-8
-    """
+    """ホスト → Worker の署名の対象（spec/cloud.md 10.5）。Worker（#157）も同じ形で組み立てる"""
     digest = hashlib.sha256(body).hexdigest()
     parts = [SIGNATURE_VERSION, host_id, str(ts), method.upper(), path, digest]
     return "\n".join(parts).encode("utf-8")
@@ -168,10 +162,8 @@ CREDENTIALS_SAVE_ERROR = "cloud.json に書き込めません"
 
 
 def save_credentials(home: Path, credentials: Credentials) -> None:
-    """cloud.json を、本人だけが読み書きできるファイルとして書く（write_owner_only。#252）
-
-    権限を付けられなければ書かずに CloudError にする（登録をやめて、トレイで知らせる）
-    """
+    """cloud.json を本人だけが読み書きできるファイルとして書く。
+    付けられなければ CloudError（#252）"""
     text = json.dumps(credentials.to_json(), ensure_ascii=False, indent=2) + "\n"
     try:
         write_owner_only(credentials_path(home), text)

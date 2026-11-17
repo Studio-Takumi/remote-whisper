@@ -1,11 +1,6 @@
-"""クラウド版のホストの登録（#158）。spec/cloud.md 10.5・10.6
+"""クラウド版のホストの登録・解除（#158）。spec/cloud.md 10.5・10.6
 
-- 「クラウド版にログイン」: POST /pair/start → 返ってきた URL をブラウザで開き、同じ登録コードを
-  トレイに出す → 承認・拒否・期限切れまで POST /pair/poll（署名つき）を数秒ごとに呼ぶ →
-  承認されたら中継の鍵（relayKey）を cloud.json に足す
-- 「クラウド版から外す」: POST /pair/unpair（署名つき）→ cloud.json を消す →
-  cloudflared を止める（#159）
-- ネットワークの失敗でトレイやサーバーを落とさない。失敗は notice（通知の文）で知らせる
+ネットワークの失敗でトレイやサーバーを落とさず、notice（通知の文）で知らせる。
 """
 
 import contextlib
@@ -76,10 +71,8 @@ class CloudView:
 
 
 class CloudHost:
-    """登録・解除を別のスレッドで進め、状態（view）と通知（on_notice）をトレイに渡す
-
-    どの操作もトレイのメニューから呼ばれ、すぐに戻る。失敗しても例外を投げない
-    """
+    """登録・解除を別のスレッドで進め、状態（view）と通知（on_notice）をトレイに渡す。
+    例外は投げない"""
 
     def __init__(
         self,
@@ -174,10 +167,8 @@ class CloudHost:
             log.warning("failed to show a cloud notice", exc_info=True)
 
     def _undo_approval(self, client: "RelayClient", error: Exception) -> CloudError:
-        """承認のあとに中継の鍵を書けなかった。Worker の登録を取り消し、通知に出す CloudError を返す
-
-        取り消せなかったとき（つながらない・5xx など）は、画面から外すように書き足す
-        """
+        """承認のあとに中継の鍵を書けなかった。Worker の登録を取り消し、
+        通知に出す CloudError を返す"""
         log.warning("cannot save the relay key; unpairing", exc_info=error)
         message = str(error) if isinstance(error, CloudError) else CREDENTIALS_SAVE_ERROR
         try:

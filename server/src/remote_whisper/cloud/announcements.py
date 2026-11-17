@@ -1,11 +1,6 @@
-"""運営からのお知らせ（#164。docs/spec/cloud.md 10.12 節）のうち、常駐アイコンの分
+"""運営からのお知らせのうち、常駐アイコンの分（新しい版の通知。#164）。spec/cloud.md 10.12
 
-- クラウドに登録しているとき（cloud.json に relayKey がある）だけ、登録した中間サーバーの
-  `/announcements.json` を読む。登録していなければ読みに行かない（外に何も送らない）
-- `release` の項目で、今の版より新しい版があれば、通知で「新しい版があります」と 1 回だけ出す。
-  通知した版は、データのルートの announcements-state.json に覚える（cloud.json とは別）
-- 起動時と、そのあと 1 日 1 回ほど読む。つながらない・JSON が壊れているときは何もせず、次に回す
-- 版の比べ方は数字だけ（semver のうち、先頭の major.minor.patch）。読めない版は比べない
+登録していないときは読みに行かない。つながらない・壊れているときは何もせず次に回す。
 """
 
 import importlib.metadata
@@ -37,10 +32,7 @@ _DATE_ONLY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 def parse_version(text: str) -> tuple[int, int, int] | None:
-    """`1.2.3`・`v1.2`・`1.2.3-beta.1` を (major, minor, patch) にする。読めなければ None
-
-    先頭の数字だけを比べる（プレリリースの印は見ない）
-    """
+    """`1.2.3`・`v1.2`・`1.2.3-beta.1` を (major, minor, patch) にする。読めなければ None"""
     m = _VERSION.match(text.strip())
     if m is None:
         return None
@@ -54,10 +46,8 @@ def is_newer(candidate: str, current: str) -> bool:
 
 
 def current_release() -> str | None:
-    """今のサーバーの版（パッケージの version）。取れなければ None
-
-    version.py のバージョンは git のハッシュで、数字では比べられないので使わない
-    """
+    """今のサーバーの版（パッケージの version）。
+    取れなければ None（version.py は数字でないので使わない）"""
     try:
         return importlib.metadata.version("remote-whisper")
     except importlib.metadata.PackageNotFoundError:

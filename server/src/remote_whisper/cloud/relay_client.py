@@ -115,10 +115,8 @@ class RelayClient:
         return res.status_code in (200, 204, 401, 404)
 
     def tunnel(self, app_version: str | None = None) -> tuple[str, str]:
-        """cloudflared のトークンと公開ホスト名をもらう（起動のたび。ホストに長く置かない）
-
-        404・401 は RegistrationGone（登録が外された）。それ以外の失敗は CloudError（聞き直せる）
-        """
+        """cloudflared のトークンと公開ホスト名をもらう。
+        404・401 は RegistrationGone、ほかは CloudError。spec/cloud.md 10.6"""
         payload: dict[str, Any] = {"appVersion": app_version} if app_version else {}
         res = self._call("/pair/tunnel", payload)
         if res.status_code in (401, 404):

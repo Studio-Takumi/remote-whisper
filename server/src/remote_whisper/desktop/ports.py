@@ -1,16 +1,4 @@
-"""サーバーが使うポートの選び方と、二重起動の防ぎ方（#290。spec/files.md 5.1）
-
-- **ポート**: `--auto-port`（インストーラのショートカット・ログオン時の起動が付ける）のときだけ、
-  8000 番から順に空いている番号を試す（8000, 8002〜8011。トンネル専用の 8001 番は飛ばす。
-  クラウドに登録したあとで、トンネルが開けなくなるため）。付けないとき・`--port` を付けたときは、
-  今までどおり決め打ちで、bind は uvicorn に任せる
-  （README の `tailscale serve --bg 8000` や Vite の転送先が 8000 番のままで済む）
-- **二重起動**: データのルートの `instance.lock` をプロセスが生きている間ずっと持つ。取れなければ、
-  同じデータのルートで動いている（または起動中の）サーバーがあるので、2 つ目は起動せずに
-  その画面を開く。開く先は `port.json`（host・port・pid・instance id）から決め、
-  `/api/health` が同じ instance id を答えるときだけ開く
-  （ほかのユーザーや別のアプリのサーバーを取り違えない）
-"""
+"""サーバーが使うポートの選び方と、二重起動の防ぎ方（#290）。spec/files.md 5.1"""
 
 import json
 import logging
@@ -100,13 +88,8 @@ def release_lock() -> None:
 def bind_first_free(
     host: str, ports: Iterable[int]
 ) -> tuple[list[socket.socket], int] | tuple[None, None]:
-    """空いている最初の番号で待ち受けるソケットを作る（そのまま uvicorn に渡す）
-
-    確かめてから開くまでの間に取られないよう、ここで bind まで済ませる。Windows は
-    SO_EXCLUSIVEADDRUSE にして、ほかのアプリが SO_REUSEADDR で待ち受けていても横取りしない
-    （uvicorn の既定は SO_REUSEADDR で、Windows だと同じ番号に重ねて bind できてしまう）。
-    host が名前（localhost など）で複数のアドレスになるときは、全部で bind する
-    """
+    """空いている最初の番号で待ち受けるソケットを作る（uvicorn に渡す）。
+    Windows は SO_EXCLUSIVEADDRUSE にする"""
     for port in ports:
         socks = _bind_all(host, port)
         if socks:
@@ -197,12 +180,8 @@ def _health_instance(url: str) -> str | None:
 
 
 def running_url(home: Path, probe: Callable[[str], str | None] = _health_instance) -> str | None:
-    """このデータのルートで動いているサーバーの画面の URL。確認できなければ None
-
-    port.json の host は 127.0.0.1・::1（全部のアドレスで待ち受けているときは 127.0.0.1）だけ、
-    番号は自動で選ぶ範囲だけを信じる。/api/health が port.json と同じ instance id を
-    答えたときだけ返す
-    """
+    """このデータのルートで動いているサーバーの画面の URL。
+    port.json と /api/health の instance id が合うときだけ"""
     data = read_port(home)
     if data is None:
         return None
