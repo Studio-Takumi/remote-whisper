@@ -2,10 +2,10 @@
 
 import asyncio
 
-from fake_ollama import FakeOllama
-from test_final_summary import StubWriter as FinalWriter
-from test_live_summary import Harness
-from test_term_picker import LINES, make, terms_reply
+from helpers.fake_ollama import FakeOllama
+from helpers.final_summary import StubWriter as FinalWriter
+from helpers.live_summary import Harness
+from helpers.term_picker import LINES, make, terms_reply
 
 from remote_whisper.hub import Hub
 from remote_whisper.llm.ollama import OllamaClient

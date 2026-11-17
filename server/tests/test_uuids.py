@@ -4,7 +4,7 @@ import json
 
 import pytest
 from fastapi.testclient import TestClient
-from test_mock import FAST, receive_until
+from helpers.mock import FAST, receive_until
 
 from remote_whisper.app import create_app
 from remote_whisper.storage.documents import TranscriptMeta, write_doc

@@ -3,7 +3,7 @@ import logging
 
 import httpx
 import pytest
-from fake_ollama import FakeOllama
+from helpers.fake_ollama import FakeOllama
 
 from remote_whisper.hub import Hub
 from remote_whisper.llm.ollama import OllamaClient, OllamaUnavailable, _same_model

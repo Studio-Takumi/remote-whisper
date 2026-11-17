@@ -14,7 +14,7 @@ from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from fastapi.testclient import TestClient
-from test_mock import FAST, of_type, receive_until, start
+from helpers.mock import FAST, of_type, receive_until, start
 
 from remote_whisper.app import create_app
 from remote_whisper.cloud.cloud import OwnerOnlyError
@@ -278,8 +278,8 @@ def test_record_size_and_aud_follow_the_rfcs(tmp_path):
 def test_real_summarizer_notifies_after_recording_but_not_on_regenerate(home, tmp_path):
     # 本物の FinalSummarizer: 録音を終えたあと（__call__）は通知し、再生成（run）では通知しない。
     # 通知は待たずに頼むだけ（GPU のキューのジョブの中で呼ぶため）
-    from fake_ollama import FakeOllama
-    from test_final_summary import StubWriter
+    from helpers.fake_ollama import FakeOllama
+    from helpers.final_summary import StubWriter
 
     from remote_whisper.hub import Hub
     from remote_whisper.llm.ollama import OllamaClient

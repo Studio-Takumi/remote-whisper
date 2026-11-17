@@ -3,10 +3,9 @@
 import time
 from datetime import datetime, timedelta
 
-import av
-import numpy as np
 import pytest
 from fastapi.testclient import TestClient
+from helpers.uploads import upload, wait_done, write_audio
 
 from remote_whisper.app import create_app
 from remote_whisper.recording import uploads
@@ -14,33 +13,6 @@ from remote_whisper.recording.audio_convert import probe
 from remote_whisper.recording.uploads import keeps_as_is, start_time
 from remote_whisper.storage.documents import TranscriptMeta, read_doc
 from remote_whisper.storage.janitor import clean
-
-RATE = 16000
-
-
-def _tone(seconds: float, rate: int = RATE, channels: int = 1) -> np.ndarray:
-    t = np.arange(int(seconds * rate)) / rate
-    tone = (np.sin(2 * np.pi * 440 * t) * 8000).astype(np.int16)
-    return np.repeat(tone[:, None], channels, axis=1)
-
-
-def write_audio(path, encoder: str, seconds=3.0, rate=RATE, channels=1, bit_rate=None, fmt=None):
-    """テスト用の音声ファイルを作る（PyAV で書く）"""
-    layout = "mono" if channels == 1 else "stereo"
-    with av.open(str(path), "w", format=fmt) as out:
-        stream = out.add_stream(encoder, rate=rate, layout=layout)
-        if bit_rate:
-            stream.bit_rate = bit_rate
-        samples = _tone(seconds, rate, channels)
-        frame = av.AudioFrame.from_ndarray(samples.reshape(1, -1), format="s16", layout=layout)
-        frame.sample_rate = rate
-        resampler = av.AudioResampler(format=stream.format.name, layout=layout, rate=rate)
-        for converted in resampler.resample(frame):
-            for packet in stream.encode(converted):
-                out.mux(packet)
-        for packet in stream.encode(None):
-            out.mux(packet)
-    return path
 
 
 @pytest.fixture
@@ -61,21 +33,6 @@ def project(client, tmp_path):
     client.patch("/api/settings", json={"materials": {"roots": [str(root)]}})
     created = client.post("/api/projects", json={"path": str(root / "meetings")}).json()
     return created["id"], client.app.state.ctx.projects.dir(created["id"])
-
-
-def upload(client, pid, path, name=None, last_modified=None, sources=None):
-    params = {"name": name or path.name}
-    if last_modified is not None:
-        params["lastModified"] = last_modified
-    if sources is not None:
-        params["sources"] = sources
-    return client.post(
-        f"/api/projects/{pid}/sessions/upload", params=params, content=path.read_bytes()
-    )
-
-
-def wait_done(client):
-    client.portal.call(client.app.state.ctx.uploads.wait)
 
 
 def test_small_m4a_is_kept_and_transcribed_and_summarized(client, project, tmp_path):
@@ -269,7 +226,7 @@ def test_start_time_without_last_modified_is_the_upload_time():
 
 def test_upload_in_mock_mode_makes_a_summary(home, tmp_path):
     # モック（GPU なし）でも、台本を文字起こしにして要約まで作る（画面の確かめ用）
-    from test_mock import FAST
+    from helpers.mock import FAST
 
     with TestClient(create_app(home, mock=True, mock_timing=FAST)) as client:
         root = tmp_path / "work"

@@ -3,7 +3,7 @@ import wave
 from datetime import datetime, timedelta
 
 from fastapi.testclient import TestClient
-from test_recorder import chunk, of_type, receive_until, start
+from helpers.recorder import chunk, of_type, receive_until, start
 
 from remote_whisper.app import create_app
 from remote_whisper.storage.documents import TranscriptMeta, read_doc, write_doc

@@ -6,8 +6,8 @@ import sys
 import time
 
 import pytest
-from test_final_summary import client, project, record  # noqa: F401 フィクスチャも使う
-from test_recorder import receive_until
+from helpers.final_summary import client, project, record  # noqa: F401 フィクスチャも使う
+from helpers.recorder import receive_until
 
 from remote_whisper.gpu.gpu_queue import GpuQueue
 from remote_whisper.hub import Hub
@@ -455,7 +455,7 @@ def test_making_again_waits_for_recordings_and_refuses_duplicates(
 
 
 def test_making_again_is_refused_while_recording(client, project, fake_worker):  # noqa: F811
-    from test_recorder import chunk, of_type, start
+    from helpers.recorder import chunk, of_type, start
 
     pid, _ = project
     use_fake(client, fake_worker())
@@ -489,7 +489,7 @@ def test_close_stops_making_again(home, session_files, fake_worker):
 
 
 def recorded_session(test_client, pid):
-    from test_recorder import chunk, finished, of_type, receive_until, start
+    from helpers.recorder import chunk, finished, of_type, receive_until, start
 
     with test_client.websocket_connect("/ws") as ws:
         ws.receive_json()
