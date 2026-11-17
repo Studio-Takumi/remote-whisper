@@ -1,5 +1,6 @@
 // プロジェクトとセッションの一覧を取り直す（spec/api.md 7.1）。一覧と中身はキャッシュに入り、
 // 手元で積み上げているセッション（localSessions）は、積み上げている間は取り直しで置き換えない（#361）
+import { isCancelledError } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
 import { fetchProjects, isDemo, sessionsQuery } from '@/api/data';
@@ -71,7 +72,10 @@ export async function loadProjects(ctx: ActionContext) {
         await refreshContextSets(projects.map((p) => p.id));
         settle(ctx, before, projects);
     } catch (e) {
-        toast.error(`プロジェクトを読み込めません: ${(e as Error).message}`);
+        // 移動・並べ替えで止めたもの（操作の結果を古い一覧で戻さないように）は、知らせない
+        if (!isCancelledError(e)) {
+            toast.error(`プロジェクトを読み込めません: ${(e as Error).message}`);
+        }
         return;
     }
     // 開いているセッションの中身が取り直しで無くなっていたら、読み直す

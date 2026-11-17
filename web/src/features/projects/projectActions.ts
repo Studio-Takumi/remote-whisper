@@ -2,9 +2,9 @@
 import { toast } from 'sonner';
 
 import { type ProjectJson, api } from '@/api/api';
-import { isDemo } from '@/api/data';
+import { isDemo, projectsQuery, sessionsQuery } from '@/api/data';
 import type { ActionContext } from '@/app/actionContext';
-import { runMutation } from '@/app/query';
+import { queryClient, runMutation } from '@/app/query';
 import { readProjectInfos, readProjects, readSession } from '@/app/sessionData';
 
 export async function createProject(ctx: ActionContext, path: string) {
@@ -37,6 +37,13 @@ export function showRecordingSession(ctx: ActionContext) {
     }
 }
 
+// 一覧（プロジェクトと、projectIds のセッションの一覧）の取り直しの途中なら止める。待たない（画面はすぐ変える）
+function cancelLists(projectIds: string[]) {
+    for (const key of [projectsQuery.queryKey, ...projectIds.map((id) => sessionsQuery(id).queryKey)]) {
+        void queryClient.cancelQueries({ queryKey: key, exact: true });
+    }
+}
+
 export async function moveSession(ctx: ActionContext, fromProjectId: string, sessionId: string, toProjectId: string) {
     const projects = readProjects(ctx.store.getState());
     const from = projects.find((p) => p.id === fromProjectId);
@@ -47,8 +54,11 @@ export async function moveSession(ctx: ActionContext, fromProjectId: string, ses
     }
     await runMutation(
         {
-            // 先に画面とキャッシュで移しておく（失敗したら戻す）
-            onMutate: () => ctx.sessions.moveLocally(sessionId, from.id, to.id),
+            // 先に画面とキャッシュで移しておく（失敗したら戻す）。取り直しの途中なら止める（古い一覧で戻らないように）
+            onMutate: () => {
+                cancelLists([from.id, to.id]);
+                ctx.sessions.moveLocally(sessionId, from.id, to.id);
+            },
             mutationFn: async () => {
                 if (!isDemo) {
                     await api.post(`/api/projects/${from.id}/sessions/${sessionId}/move`, { to: to.id });
@@ -76,6 +86,7 @@ export async function reorderProjects(ctx: ActionContext, ids: string[]) {
         {
             // 先に画面を入れ替えておく（保存を待つと、離した瞬間に元の位置へ戻って見える）
             onMutate: () => {
+                cancelLists([]);
                 const before = {
                     ids: readProjectInfos().map((p) => p.id),
                     projectOrder: get().settings.projectOrder,

@@ -101,7 +101,7 @@ afterEach(() => {
 });
 
 describe('待っている間に一覧の取り直しが返っても、操作の結果を戻さない', () => {
-    it.fails('セッションの移動', async () => {
+    it('セッションの移動', async () => {
         await useAppStore.getState().loadProjects();
         const release = hold('/api/projects/a/sessions');
         const reloading = useAppStore.getState().loadProjects();
@@ -119,7 +119,7 @@ describe('待っている間に一覧の取り直しが返っても、操作の�
         expect(toast.error).not.toHaveBeenCalled();
     });
 
-    it.fails('プロジェクトの並べ替え', async () => {
+    it('プロジェクトの並べ替え', async () => {
         await useAppStore.getState().loadProjects();
         const release = hold('/api/projects');
         const reloading = useAppStore.getState().loadProjects();
