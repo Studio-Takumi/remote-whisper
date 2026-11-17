@@ -25,6 +25,7 @@ import {
     type Dragging,
     type ProjectDrag,
     collisionDetection,
+    dragName,
     screenReaderInstructions,
 } from '@/features/projects/projectDrag';
 import { closedIds, loadClosed, openIds, saveClosed } from '@/features/projects/projectFold';
@@ -122,18 +123,7 @@ export function ProjectList({
         }
     };
     // 読み上げの案内。既定の英語の案内はドラッグの ID（プロジェクト ID にはパスが入る）を読むので、名前で案内する
-    const nameOf = (id: string | number | undefined | null) => {
-        const key = id == null ? null : String(id);
-        const project = projects.find((p) => p.id === key || sortableId(p.id) === key);
-        if (project) {
-            return project.name;
-        }
-        // セッションのドラッグの ID は `<プロジェクト ID>:<セッション ID>`（ID はプロジェクトをまたぐと重なりうる）
-        const session = projects
-            .flatMap((p) => p.sessions.map((s) => ({ key: `${p.id}:${s.id}`, s })))
-            .find((x) => x.key === key);
-        return session?.s.title ?? '';
-    };
+    const nameOf = (id: string | number | undefined | null) => dragName(projects, id);
     const announcements: Announcements = {
         onDragStart: ({ active }) => `「${nameOf(active.id)}」を持ち上げました`,
         onDragOver: ({ active, over }) =>

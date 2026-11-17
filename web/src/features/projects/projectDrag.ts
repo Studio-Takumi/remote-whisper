@@ -1,6 +1,9 @@
 // サイドバーのプロジェクト一覧のドラッグ（セッションを移す #172・プロジェクトを並び替える #173）
 import { type CollisionDetection, closestCenter, rectIntersection } from '@dnd-kit/core';
 
+import type { Project } from '@/api/types';
+import { sortableId } from '@/features/projects/projectOrder';
+
 export const screenReaderInstructions = {
     draggable: 'プロジェクトの並び順は、Space で持ち上げ、上下の矢印で動かし、Space で置きます。Esc でやめます',
 };
@@ -24,4 +27,18 @@ export function pointerOnly(listeners: Record<string, unknown> | undefined) {
     const { onKeyDown, ...rest } = listeners ?? {};
     void onKeyDown;
     return rest;
+}
+
+// 読み上げの案内に使う、ドラッグの ID の名前（プロジェクト名かセッションのタイトル。見つからなければ空）。
+// セッションのドラッグの ID は `<プロジェクト ID>:<セッション ID>`（ID はプロジェクトをまたぐと重なりうる）
+export function dragName(projects: Project[], id: string | number | undefined | null): string {
+    const key = id == null ? null : String(id);
+    const project = projects.find((p) => p.id === key || sortableId(p.id) === key);
+    if (project) {
+        return project.name;
+    }
+    const session = projects
+        .flatMap((p) => p.sessions.map((s) => ({ key: `${p.id}:${s.id}`, s })))
+        .find((x) => x.key === key);
+    return session?.s.title ?? '';
 }
