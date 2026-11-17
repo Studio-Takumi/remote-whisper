@@ -4,27 +4,13 @@ import { toast } from 'sonner';
 
 import { isDemo } from '@/api/data';
 import type { ServerMessage } from '@/api/protocol';
-import type { ContextSet, Session } from '@/api/types';
 import type { AppStore } from '@/app/appState';
+import type { SessionSync } from '@/app/sessionSync';
+import { cachedContextSets, refreshContextSets, updateCachedContextSets } from '@/features/materials/contextSetCache';
 import type { Recorder } from '@/features/recording/recorderState';
 import { LLM_NAMES, finalModelLabel, llmBackend, llmModels } from '@/features/settings/settings';
 
 type Message<T extends ServerMessage['type']> = Extract<ServerMessage, { type: T }>;
-
-// ストアの中の、セッションと参考資料セットを書き換える・取り直す処理
-export type SessionSync = {
-    regeneratingTranscripts: Set<string>;
-    receiveFinalTranscript: (sessionId: string, generationId: string) => Promise<void>;
-    reloadAfterMove: (sessionId: string, from: string, to: string) => Promise<void>;
-    reloadAfterFinalSummary: (sessionId: string) => Promise<void>;
-    refreshTranscripts: (sessionId: string) => Promise<void>;
-    refreshContextSets: (projectIds: string[]) => Promise<void>;
-    sortProjectsBy: (ids: string[]) => void;
-    patchSession: (sessionId: string, change: (session: Session) => Session) => void;
-    syncSessionToCache: (sessionId: string) => void;
-    cachedContextSets: (projectId: string) => ContextSet[];
-    updateCachedContextSets: (projectId: string, change: (sets: ContextSet[]) => ContextSet[]) => void;
-};
 
 export type MessageContext = { store: AppStore; recorder: Recorder; sessions: SessionSync };
 
@@ -128,14 +114,14 @@ function receiveSessionError({ store, recorder, sessions }: MessageContext, m: M
 }
 
 // 参考資料セットの作成の進み具合（ほかの端末で始めたものも）
-function receiveContextSet({ store, sessions }: MessageContext, m: Message<'contextSet'>, pid: string) {
-    const known = sessions.cachedContextSets(pid).find((x) => x.id === m.id);
+function receiveContextSet({ store }: MessageContext, m: Message<'contextSet'>, pid: string) {
+    const known = cachedContextSets(pid).find((x) => x.id === m.id);
     if (!known) {
         // 知らないセット（ほかの端末で始めたもの）は、一覧ごと取り直す
-        void sessions.refreshContextSets([pid]);
+        void refreshContextSets([pid]);
         return;
     }
-    sessions.updateCachedContextSets(pid, (sets) => sets.map((x) => (x.id === m.id ? { ...x, status: m.status } : x)));
+    updateCachedContextSets(pid, (sets) => sets.map((x) => (x.id === m.id ? { ...x, status: m.status } : x)));
     if (known.status === 'generating' && m.status === 'ready') {
         toast.success('参考資料ができました');
     } else if (known.status === 'generating' && m.status === 'failed') {
