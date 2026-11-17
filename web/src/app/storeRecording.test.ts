@@ -148,6 +148,22 @@ describe('録音（自分の端末）', () => {
         expect(store.getState().liveDraft).toBeNull();
     });
 
+    it('録音を終えた後に届いた final も足す', async () => {
+        await startRecording();
+        await store.getState().stopRecording();
+        receive({ type: 'final', session: SESSION, segment: 0, start: 0, end: 1, text: '最後の行' });
+        expect(session()?.transcript.map((l) => l.text)).toEqual(['最後の行']);
+    });
+
+    it('録音中のセッションを見ていることになっていても、行・語は録音の購読で足す', async () => {
+        await startRecording();
+        store.setState({ watching: { sessionId: SESSION, state: 'recording' } });
+        receive({ type: 'final', session: SESSION, segment: 0, start: 0, end: 1, text: '録音の行' });
+        receive({ type: 'terms', session: SESSION, terms: ['Whisper'], rejected: [] });
+        expect(session()?.transcript.map((l) => l.text)).toEqual(['録音の行']);
+        expect(session()?.pickedTerms).toEqual(['Whisper']);
+    });
+
     it('録音中に切れる → つながり直して resume → 届かなかった音声を送り直す', async () => {
         await startRecording();
         mic.speak(8000);
@@ -346,6 +362,22 @@ describe('ほかの端末の録音を見る（watch）', () => {
         expect(session(WATCHED)?.transcript.map((l) => l.text)).toEqual(['見ている行']);
         receive({ type: 'final', session: SESSION, segment: 0, start: 0, end: 1, text: '録音の行' });
         expect(session()?.transcript.map((l) => l.text)).toEqual(['録音の行']);
+    });
+
+    it('録音を終えた後にほかの端末の録音を見るとき、見ているセッションの final は 1 回だけ足す', async () => {
+        await startWatching();
+        store.setState({ selection: { projectId: 'p1', sessionId: null } });
+        const starting = store.getState().startRecording();
+        await vi.waitFor(() => expect(ws.log()).toContain('start'));
+        receive({ type: 'started', session: SESSION, sessionUuid: 'uuid-1' });
+        await starting;
+        await store.getState().stopRecording();
+        // 録音の購読は次の録音まで残る
+        store.setState({ selection: { projectId: 'p1', sessionId: WATCHED } });
+        receive({ type: 'watching', session: WATCHED, state: 'recording', transcript: [] });
+
+        receive({ type: 'final', session: WATCHED, segment: 0, start: 0, end: 1, text: '見ている行' });
+        expect(session(WATCHED)?.transcript.map((l) => l.text)).toEqual(['見ている行']);
     });
 
     it('つながり直したら watch を送り直す', async () => {

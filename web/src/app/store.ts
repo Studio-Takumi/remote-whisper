@@ -436,12 +436,12 @@ export const useAppStore = create<AppState>()((set, get) => {
     }
 
     // 録音の購読で受け取るもの。途中の要約は録音中のセッションだけ（終えた後に届いたものは出さない）。
-    // 行・語は最後の final を受けるため録音を終えた後も受け取るが、録音しながら見ているセッションのものは receiveWatched に任せる
+    // 行・語は最後の final を受けるため録音を終えた後も受け取るが、見ているセッションのものは receiveWatched に任せる
     function isMyRecording(m: LiveMessage) {
         if (m.type === 'summary.delta' || m.type === 'summary.done') {
             return m.session === get().recordingSessionId;
         }
-        return m.session !== get().watching?.sessionId;
+        return m.session === get().recordingSessionId || m.session !== get().watching?.sessionId;
     }
 
     // 録音のためのメッセージ（ack・partial・final・途中の要約）を受け取る。
