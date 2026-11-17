@@ -29,6 +29,7 @@ import { replaceUrlNext } from '@/app/router';
 import type { VersionJson } from '@/app/version';
 import { sortSessions } from '@/features/projects/move';
 import { sortByIds } from '@/features/projects/projectOrder';
+import { updateSession } from '@/features/projects/updateSession';
 import {
     type MicState,
     Microphone,
@@ -59,7 +60,8 @@ import {
 import { UploadError, uploadAudio, uploadSource } from '@/features/recording/upload';
 import { type Watching, watchTarget } from '@/features/recording/watch';
 import { type Correction, applyCorrectionLocally, mergeLiveLines } from '@/features/session/corrections';
-import { type LivePartial, dropPartial, upsertPartial } from '@/features/session/livePartials';
+import { type LiveDraft, type LiveMessage, applyLiveMessage, isLiveMessage } from '@/features/session/liveMessages';
+import type { LivePartial } from '@/features/session/livePartials';
 import { keepLineSources, newlyDisconnected, sourceTitle, withLineSources } from '@/features/session/sources';
 import { fetchOptions } from '@/features/settings/options';
 import {
@@ -73,7 +75,7 @@ import {
     llmBackend,
     llmModels,
 } from '@/features/settings/settings';
-import { formatClock, formatDateTime, newId } from '@/lib/time';
+import { formatDateTime, newId } from '@/lib/time';
 
 // LLM（Ollama か LM Studio）につながらず、要約を作れなかった（#327）
 function llmFailed(code: string) {
@@ -112,7 +114,7 @@ type AppState = {
     // 録音中のセッションの音源の一覧（sources のメッセージ。#357）。セッション ID ごと
     liveSources: Record<string, LiveSource[]>;
     // 届いている途中の途中の要約（summary.delta kind: live）。summary.done で session.liveSummary に移す
-    liveDraft: { sessionId: string; text: string } | null;
+    liveDraft: LiveDraft | null;
     // ほかのクライアントで録音中のセッションを見ている（#238）。開いているセッションが録音中で、
     // 自分で録音していなければ、サーバーに watch を送って見る
     watching: Watching | null;
@@ -258,10 +260,6 @@ export const currentContextSelection = (s: AppState, sets: ContextSet[]): Contex
 // title・finalTranscript・corrections・sessionMoved などは、それぞれの処理でキャッシュを書き換える・取り直す
 const SESSION_MESSAGES = new Set<ServerMessage['type']>(['final', 'terms', 'summary.done', 'watching']);
 
-function updateSession(projects: Project[], sessionId: string, fn: (s: Session) => Session) {
-    return projects.map((p) => ({ ...p, sessions: p.sessions.map((s) => (s.id === sessionId ? fn(s) : s)) }));
-}
-
 // デモ（?demo）ではサーバーに保存されないので、届いた最終の要約をそのままセッションに足す
 function finishDemoSummary(s: AppState, sessionId: string): Partial<AppState> {
     if (s.generating?.sessionId !== sessionId) {
@@ -353,28 +351,6 @@ function finishMetrics(sessionId: string, ok: boolean) {
 type StartedMessage = Extract<ServerMessage, { type: 'started' }>;
 type ErrorMessage = Extract<ServerMessage, { type: 'error' }>;
 
-// 届いた partial・final から、画面で持つ形にする（source は音源が 2 つ以上のときだけ来る。#356）
-function partialFrom(m: Extract<ServerMessage, { type: 'partial' }>): LivePartial {
-    const partial: LivePartial = {
-        sessionId: m.session,
-        segment: m.segment,
-        committed: m.committed,
-        tentative: m.tentative,
-    };
-    if (m.source !== undefined) {
-        partial.source = m.source;
-    }
-    return partial;
-}
-
-function lineFrom(m: Extract<ServerMessage, { type: 'final' }>) {
-    const line: { time: string; text: string; source?: number } = { time: formatClock(m.start), text: m.text };
-    if (m.source !== undefined) {
-        line.source = m.source;
-    }
-    return line;
-}
-
 function dropSession(partials: LivePartial[], sessionId: string) {
     return partials.filter((p) => p.sessionId !== sessionId);
 }
@@ -452,6 +428,22 @@ export const useAppStore = create<AppState>()((set, get) => {
         );
     }
 
+    function applyLive(m: LiveMessage) {
+        const change = applyLiveMessage(get(), m);
+        if (change) {
+            set(change);
+        }
+    }
+
+    // 録音の購読で受け取るもの。途中の要約は録音中のセッションだけ（終えた後に届いたものは出さない）。
+    // 行・語は最後の final を受けるため録音を終えた後も受け取るが、見ているセッションのものは receiveWatched に任せる
+    function isMyRecording(m: LiveMessage) {
+        if (m.type === 'summary.delta' || m.type === 'summary.done') {
+            return m.session === get().recordingSessionId;
+        }
+        return m.session === get().recordingSessionId || m.session !== get().watching?.sessionId;
+    }
+
     // 録音のためのメッセージ（ack・partial・final・途中の要約）を受け取る。
     // 接続した直後に届く status も受け取れるように、つなぐ前に呼ぶ
     function subscribeRecording() {
@@ -479,60 +471,13 @@ export const useAppStore = create<AppState>()((set, get) => {
                         connection.send({ type: get().recordingState === 'paused' ? 'pause' : 'unpause' });
                     }
                 }
-            } else if (m.type === 'partial') {
-                set((s) => ({ partials: upsertPartial(s.partials, partialFrom(m)) }));
             } else if (m.type === 'transcriptionStalled') {
                 if (m.stalled && !get().transcriptionStalled) {
                     toast.warning(stalledMessage, { duration: 15000 });
                 }
                 set({ transcriptionStalled: m.stalled });
-            } else if (m.type === 'final') {
-                // 区間全体の文字起こしで、partial を置き換える。text が空なら文字にならなかった区間なので、partial を消すだけ（#89）
-                const line = lineFrom(m);
-                set((s) => ({
-                    projects: m.text
-                        ? updateSession(s.projects, m.session, (x) => ({
-                              ...x,
-                              transcript: [...x.transcript, line],
-                          }))
-                        : s.projects,
-                    partials: dropPartial(s.partials, m.session, m.segment),
-                }));
-            } else if (
-                (m.type === 'summary.delta' || m.type === 'summary.done') &&
-                m.kind === 'live' &&
-                get().recordingSessionId !== m.session
-            ) {
-                // 録音を終えた後に届いた途中の要約は出さない（もう最終の要約を作成中と出している）
-            } else if (m.type === 'summary.delta' && m.kind === 'live') {
-                // 途中の要約は毎回まるごと作り直される。summary.done で下書きを消すので、
-                // その後に届いた最初の delta から、新しい下書きとして積んでいく。
-                // replace（前置き・できあがった全体）は、下書きを置き換える（#123）。
-                // 回の始まり（前置き）を受けていない続き（つながり直した直後など）は、断片だけが出ないように捨てる
-                if (m.replace || get().liveDraft?.sessionId === m.session) {
-                    set((s) => ({
-                        liveDraft: {
-                            sessionId: m.session,
-                            text: (!m.replace && s.liveDraft?.sessionId === m.session ? s.liveDraft.text : '') + m.text,
-                        },
-                    }));
-                }
-            } else if (m.type === 'terms') {
-                // 録音中に拾った語が変わった（#103）
-                set((s) => ({
-                    projects: updateSession(s.projects, m.session, (x) => ({
-                        ...x,
-                        pickedTerms: m.terms,
-                        manualTerms: m.manual ?? x.manualTerms,
-                    })),
-                }));
-            } else if (m.type === 'summary.done' && m.kind === 'live') {
-                set((s) => ({
-                    projects: s.liveDraft
-                        ? updateSession(s.projects, m.session, (x) => ({ ...x, liveSummary: s.liveDraft?.text }))
-                        : s.projects,
-                    liveDraft: null,
-                }));
+            } else if (isLiveMessage(m) && isMyRecording(m)) {
+                applyLive(m);
             }
             // 最終の要約・タイトル・要約の失敗は、作り直し（ほかの端末から頼んだものも）でも届くので、
             // 録音ごとではなく、常時の購読（connectServer）で受け取る
@@ -601,42 +546,8 @@ export const useAppStore = create<AppState>()((set, get) => {
             } else {
                 set({ watching: { ...w, state: m.state } });
             }
-        } else if (m.type === 'partial') {
-            set((s) => ({ partials: upsertPartial(s.partials, partialFrom(m)) }));
-        } else if (m.type === 'final') {
-            const line = lineFrom(m);
-            set((s) => ({
-                projects: m.text
-                    ? updateSession(s.projects, m.session, (x) => ({ ...x, transcript: [...x.transcript, line] }))
-                    : s.projects,
-                partials: dropPartial(s.partials, m.session, m.segment),
-            }));
-        } else if (m.type === 'terms') {
-            set((s) => ({
-                projects: updateSession(s.projects, m.session, (x) => ({
-                    ...x,
-                    pickedTerms: m.terms,
-                    manualTerms: m.manual ?? x.manualTerms,
-                })),
-            }));
-        } else if (m.type === 'summary.delta' && m.kind === 'live') {
-            // 録音している側と同じく、回の始まり（replace）から積む（#123）
-            if (m.replace || get().liveDraft?.sessionId === m.session) {
-                set((s) => ({
-                    liveDraft: {
-                        sessionId: m.session,
-                        text: (!m.replace && s.liveDraft?.sessionId === m.session ? s.liveDraft.text : '') + m.text,
-                    },
-                }));
-            }
-        } else if (m.type === 'summary.done' && m.kind === 'live') {
-            set((s) => ({
-                projects:
-                    s.liveDraft?.sessionId === m.session
-                        ? updateSession(s.projects, m.session, (x) => ({ ...x, liveSummary: s.liveDraft?.text }))
-                        : s.projects,
-                liveDraft: s.liveDraft?.sessionId === m.session ? null : s.liveDraft,
-            }));
+        } else if (isLiveMessage(m)) {
+            applyLive(m);
         }
     }
 
