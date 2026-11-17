@@ -3,7 +3,8 @@ import { DownloadIcon } from 'lucide-react';
 import { api } from '@/api/api';
 import { Button } from '@/components/ui/button';
 import { LLM_NAMES, recommendedLmStudioModels } from '@/features/settings/settings';
-import { type SetupStatus, formatGb, missingModels, missingSizeGb, pullPercent } from '@/features/setup/setup';
+import { pullBlockedReason, pullButtonLabel, pullProgressText } from '@/features/setup/pullModels';
+import { type SetupStatus, missingModels, pullPercent } from '@/features/setup/setup';
 import { Note, ProgressBar, Step } from '@/features/setup/steps/StepParts';
 
 export function ModelsStep({
@@ -22,15 +23,7 @@ export function ModelsStep({
     const pull = llm.pull;
     const pulling = pull?.state === 'running';
     const missing = missingModels(status);
-    const sizeGb = missingSizeGb(status);
-    // 大きさが分からないもの（LM Studio の一部）があれば「以上」を付ける
-    const sizeUnknown = missing.some((m) => m.sizeGb === null);
-    // 押せない理由
-    const reason = !llm.running
-        ? `${name} が動いてから取得できます`
-        : status.recording
-          ? '録音が終わってから取得できます'
-          : null;
+    const reason = pullBlockedReason(status);
 
     return (
         <Step title='要約のモデル' purpose={`要約などに使う ${name} のモデル`} ok={ok}>
@@ -62,12 +55,7 @@ export function ModelsStep({
             </ul>
             {pulling && pull ? (
                 <div className='flex flex-col gap-1'>
-                    <Note>
-                        {pull.backend !== llm.backend && `${LLM_NAMES[pull.backend]} で `}
-                        {pull.model} を取得中（{pull.index + 1}/{pull.models.length}）
-                        {pull.total > 0 &&
-                            `・${pullPercent(pull)}%（${formatGb(pull.completed)} / ${formatGb(pull.total)}）`}
-                    </Note>
+                    <Note>{pullProgressText(pull, llm.backend)}</Note>
                     <ProgressBar percent={pullPercent(pull)} label={`${pull.model} の取得`} />
                     {/* 取っている途中に切り替えたときも、始めたほうで決める（LM Studio は止められない） */}
                     {pull.backend !== 'lmstudio' ? (
@@ -104,7 +92,7 @@ export function ModelsStep({
                                 }
                             >
                                 <DownloadIcon />
-                                {sizeGb > 0 ? `取得（約 ${sizeGb} GB${sizeUnknown ? ' 以上' : ''}）` : '取得'}
+                                {pullButtonLabel(status)}
                             </Button>
                             {reason && <Note warn>{reason}</Note>}
                         </div>
