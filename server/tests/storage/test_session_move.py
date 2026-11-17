@@ -322,3 +322,11 @@ def test_a_failure_while_saving_project_json_is_undone(client, projects, monkeyp
     assert (db / "project.json").read_text(encoding="utf-8") == project_b
     assert sid in _ids(client, a) and sid not in _ids(client, b)
     assert (da / f"transcript-{sid}.md").is_file()
+
+
+def test_move_error_tells_a_file_in_use_from_other_failures():
+    # Windows で開いているファイルは動かせない（409）。ほかは 500 で理由を付ける
+    in_use = session_move.move_error(PermissionError("locked"))
+    assert in_use.status == 409 and "使われているファイル" in in_use.message
+    other = session_move.move_error(OSError("disk full"))
+    assert other.status == 500 and other.message.endswith("disk full")

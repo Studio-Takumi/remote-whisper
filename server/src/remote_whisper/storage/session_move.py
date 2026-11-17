@@ -28,6 +28,7 @@ from remote_whisper.storage.fsutil import atomic_write_text
 from remote_whisper.storage.projects import (
     ContextSetEntry,
     ProjectError,
+    ProjectFile,
     ProjectStore,
     SessionEntry,
 )
@@ -121,63 +122,15 @@ def move_session(store: ProjectStore, src: str, dst: str, sid: str) -> SessionEn
     with store.lock, transcript_lock(store.dir(src) / transcript_name(sid)):
         source = store.load(src)
         target = store.load(dst)
-        entry = next((s for s in source.sessions if s.id == sid), None)
-        if entry is None:
-            raise ProjectError(404, f"セッション {sid} はありません")
-        if any(s.id == sid for s in target.sessions):
-            raise ProjectError(409, "移動先に同じ ID のセッションがあります")
         src_dir, dst_dir = store.dir(src), store.dir(dst)
-        paths = session_paths(src_dir, sid)
-        for path in paths:
-            if (dst_dir / path.relative_to(src_dir)).exists():
-                raise ProjectError(409, f"移動先に同じ名前のファイルがあります: {path.name}")
-
+        entry, paths = _check(source, target, sid, src_dir, dst_dir)
         original_target = copy.deepcopy(target)
         undo = _Undo()
         target_saved = False
         try:
-            # 参考資料セットをコピーする（移動先に同じ ID があればコピーしない）
-            known = {s.id for s in target.context_sets}
-            for set_id in _set_ids(src_dir / transcript_name(sid), entry):
-                if set_id in known:
-                    continue
-                copied = False
-                for name in (hotwords_name(set_id), context_name(set_id)):
-                    from_path, to_path = src_dir / name, dst_dir / name
-                    if not from_path.is_file() or to_path.exists():
-                        continue
-                    text = from_path.read_text(encoding="utf-8")
-                    atomic_write_text(to_path, text)
-                    undo.created(to_path)
-                    _rewrite_project(to_path, target.path, undo)
-                    copied = True
-                set_entry = next((s for s in source.context_sets if s.id == set_id), None)
-                if copied and set_entry is not None:
-                    target.context_sets.append(ContextSetEntry(**set_entry.model_dump()))
-                    known.add(set_id)
-            target.context_sets.sort(key=lambda s: s.id)
-
-            # セッションのファイルを動かす（同じ home の下なので rename で動く）
-            for path in paths:
-                to_path = dst_dir / path.relative_to(src_dir)
-                to_path.parent.mkdir(parents=True, exist_ok=True)
-                os.replace(path, to_path)
-                undo.moved(path, to_path)
-            with contextlib.suppress(OSError):
-                # .tmp/ が空になったら消す
-                (src_dir / ".tmp").rmdir()
-
-            # フロントマターの project を移動先にする。文字起こしには UUID も残す
-            for path in paths:
-                to_path = dst_dir / path.relative_to(src_dir)
-                if to_path.is_file() and to_path.suffix == ".md":
-                    uuid = entry.uuid if to_path.name == transcript_name(sid) else None
-                    try:
-                        _rewrite_project(to_path, target.path, undo, uuid)
-                    except ValueError as e:
-                        # フロントマターが壊れているファイルは、そのまま移す（読めないのは前から）
-                        log.warning("cannot rewrite the frontmatter of %s: %s", to_path, e)
-
+            _copy_context_sets(source, target, entry, src_dir, dst_dir, undo)
+            _move_files(paths, src_dir, dst_dir, undo)
+            _rewrite_moved(paths, src_dir, dst_dir, target.path, entry, undo)
             # project.json を書き換える（移動先に足してから、元から外す）
             target.sessions.append(entry)
             target.sessions.sort(key=lambda s: s.id)
@@ -193,12 +146,95 @@ def move_session(store: ProjectStore, src: str, dst: str, sid: str) -> SessionEn
                     store.save(dst, original_target)
                 except OSError:
                     log.exception("failed to restore project.json of %s", dst)
-            if isinstance(e, PermissionError):
-                # Windows では、開いているファイル（ほかの端末で再生中の録音など）は動かせない
-                raise ProjectError(
-                    409,
-                    "使われているファイルがあるため移せませんでした（元のままです）。"
-                    "ほかの端末で録音を再生していないか確かめてください",
-                ) from e
-            raise ProjectError(500, f"セッションを移せませんでした（元のままです）: {e}") from e
+            raise move_error(e) from e
         return entry
+
+
+def _check(
+    source: ProjectFile, target: ProjectFile, sid: str, src_dir: Path, dst_dir: Path
+) -> tuple[SessionEntry, list[Path]]:
+    """移せるか確かめて、セッションと動かすファイルを返す。移せなければ ProjectError"""
+    entry = next((s for s in source.sessions if s.id == sid), None)
+    if entry is None:
+        raise ProjectError(404, f"セッション {sid} はありません")
+    if any(s.id == sid for s in target.sessions):
+        raise ProjectError(409, "移動先に同じ ID のセッションがあります")
+    paths = session_paths(src_dir, sid)
+    for path in paths:
+        if (dst_dir / path.relative_to(src_dir)).exists():
+            raise ProjectError(409, f"移動先に同じ名前のファイルがあります: {path.name}")
+    return entry, paths
+
+
+def _copy_context_sets(
+    source: ProjectFile,
+    target: ProjectFile,
+    entry: SessionEntry,
+    src_dir: Path,
+    dst_dir: Path,
+    undo: _Undo,
+) -> None:
+    """参考資料セットをコピーして、移動先の一覧に足す（移動先に同じ ID があればコピーしない）"""
+    known = {s.id for s in target.context_sets}
+    for set_id in _set_ids(src_dir / transcript_name(entry.id), entry):
+        if set_id in known:
+            continue
+        copied = False
+        for name in (hotwords_name(set_id), context_name(set_id)):
+            from_path, to_path = src_dir / name, dst_dir / name
+            if not from_path.is_file() or to_path.exists():
+                continue
+            text = from_path.read_text(encoding="utf-8")
+            atomic_write_text(to_path, text)
+            undo.created(to_path)
+            _rewrite_project(to_path, target.path, undo)
+            copied = True
+        set_entry = next((s for s in source.context_sets if s.id == set_id), None)
+        if copied and set_entry is not None:
+            target.context_sets.append(ContextSetEntry(**set_entry.model_dump()))
+            known.add(set_id)
+    target.context_sets.sort(key=lambda s: s.id)
+
+
+def _move_files(paths: list[Path], src_dir: Path, dst_dir: Path, undo: _Undo) -> None:
+    """セッションのファイルを動かす（同じ home の下なので rename で動く）"""
+    for path in paths:
+        to_path = dst_dir / path.relative_to(src_dir)
+        to_path.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(path, to_path)
+        undo.moved(path, to_path)
+    with contextlib.suppress(OSError):
+        # .tmp/ が空になったら消す
+        (src_dir / ".tmp").rmdir()
+
+
+def _rewrite_moved(
+    paths: list[Path],
+    src_dir: Path,
+    dst_dir: Path,
+    project_path: str,
+    entry: SessionEntry,
+    undo: _Undo,
+) -> None:
+    """動かしたファイルのフロントマターの project を移動先にする。文字起こしには UUID も残す"""
+    for path in paths:
+        to_path = dst_dir / path.relative_to(src_dir)
+        if to_path.is_file() and to_path.suffix == ".md":
+            uuid = entry.uuid if to_path.name == transcript_name(entry.id) else None
+            try:
+                _rewrite_project(to_path, project_path, undo, uuid)
+            except ValueError as e:
+                # フロントマターが壊れているファイルは、そのまま移す（読めないのは前から）
+                log.warning("cannot rewrite the frontmatter of %s: %s", to_path, e)
+
+
+def move_error(e: Exception) -> ProjectError:
+    """移せなかった理由を、API で返すエラーにする（元のままに戻したあと）"""
+    if isinstance(e, PermissionError):
+        # Windows では、開いているファイル（ほかの端末で再生中の録音など）は動かせない
+        return ProjectError(
+            409,
+            "使われているファイルがあるため移せませんでした（元のままです）。"
+            "ほかの端末で録音を再生していないか確かめてください",
+        )
+    return ProjectError(500, f"セッションを移せませんでした（元のままです）: {e}")
