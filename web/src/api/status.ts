@@ -1,0 +1,190 @@
+import type { GpuJobKind, GpuJobProgress, GpuJobs, GpuStats } from '@/api/protocol';
+import type { RecordingState } from '@/features/recording/recording';
+import { LLM_NAMES, type LlmBackend } from '@/features/settings/settings';
+
+// サーバーとブラウザの状態。whisper・ollama・lmstudio・jobs・gpu は WebSocket の status メッセージ（spec/api.md 7.2 節）から、
+// connection は WebSocket がつながっているか、microphone はマイクの許可から、ブラウザ側で決める
+export type ServerStatus = {
+    whisper: 'unloaded' | 'loading' | 'ready' | 'error';
+    ollama: 'ready' | 'error';
+    // LM Studio（#324）。一度も使っていなければ来ない
+    lmstudio?: 'ready' | 'error';
+    connection: 'connected' | 'reconnecting';
+    microphone: 'granted' | 'denied';
+    jobs: GpuJobs;
+    // jobs を受け取った時刻（Date.now()）。経過時間を数え足すのに使う
+    jobsAt: number;
+    gpu: GpuStats | null;
+    // 最終の文字起こしを作っているセッション（#124）
+    transcribing: string[];
+    // 最終の要約を作っているセッション（#118）。移せるかどうか（#172）に使う
+    summarizing: string[];
+};
+
+export const initialServerStatus: ServerStatus = {
+    whisper: 'unloaded',
+    ollama: 'ready',
+    connection: 'connected',
+    microphone: 'granted',
+    jobs: { running: null, waiting: [] },
+    jobsAt: 0,
+    gpu: null,
+    transcribing: [],
+    summarizing: [],
+};
+
+// GPU キューのジョブの種類の名前
+export const jobKindLabel: Record<GpuJobKind, string> = {
+    transcribe: '文字起こし',
+    whisperLoad: '文字起こしのモデル読み込み',
+    liveSummary: 'リアルタイム要約',
+    finalSummary: '最終要約',
+    contextSet: '参考資料の作成',
+    terms: '文字起こしからの用語抽出',
+    finalTranscript: '文字起こしの浄書',
+    materialRange: '扱った範囲での参考資料の再生成',
+    other: 'その他',
+};
+
+// 実行中のジョブの段階の名前（#340。spec/api.md 7.2）
+const jobStepLabel: Partial<Record<GpuJobKind, Record<string, string>>> = {
+    finalSummary: {
+        summary: '要約',
+        parts: '要約詳細',
+        condense: '要約詳細のまとめ',
+        overview: '全体概要',
+        pages: '参考資料のページ付け',
+        title: 'タイトル',
+    },
+    finalTranscript: {
+        load: 'モデルの読み込み',
+        transcribe: '文字起こし',
+        align: '位置合わせ',
+        diarize: '話者分け',
+    },
+};
+
+// 実行中のジョブの進み具合の文（「要約詳細 3/6」「位置合わせ 2/4 37%」）と、バーの割合（0〜1。分からなければ null）
+// 進み具合がない（古いサーバー・ほかのジョブ）・知らない段階なら null（今までどおりの表示にする）
+export function jobProgress(
+    kind: GpuJobKind,
+    progress: GpuJobProgress | undefined,
+): { text: string; ratio: number | null } | null {
+    const label = progress && jobStepLabel[kind]?.[progress.step];
+    if (!progress || !label) {
+        return null;
+    }
+    const { done, total, percent } = progress;
+    const counted = typeof done === 'number' && typeof total === 'number' && total > 0;
+    const hasPercent = typeof percent === 'number' && Number.isFinite(percent);
+    const parts = [label];
+    if (counted) {
+        parts.push(`${done}/${total}`);
+    }
+    if (hasPercent) {
+        parts.push(`${Math.floor(percent)}%`);
+    }
+    // 済んだ数に、今の段階の中の % を足す（段階の重さの差は見ない）
+    const within = hasPercent ? percent / 100 : 0;
+    const ratio = counted ? (done + within) / total : hasPercent ? within : null;
+    return { text: parts.join(' '), ratio: ratio === null ? null : Math.min(1, Math.max(0, ratio)) };
+}
+
+// 文字起こしを待たせている理由
+const blockingReason: Partial<Record<GpuJobKind, string>> = {
+    liveSummary: 'リアルタイム要約の生成中',
+    finalSummary: '最終要約の生成中',
+    contextSet: '参考資料の作成中',
+    terms: '用語抽出中',
+    finalTranscript: '浄書中',
+    materialRange: '参考資料の再生成中',
+};
+
+// このセッションの最終の文字起こし（#121）を作っている・作るのを待っているか
+export function makingFinalTranscript(jobs: GpuJobs, sessionId: string) {
+    const mine = (j: { kind: GpuJobKind; session: string | null } | null) =>
+        j?.kind === 'finalTranscript' && j.session === sessionId;
+    return mine(jobs.running) || jobs.waiting.some(mine);
+}
+
+// 文字起こし以外のジョブ（要約など）が GPU を使っていて、このセッションの文字起こしが後ろで待たされているか
+export function transcriptWaitingFor(jobs: GpuJobs, sessionId: string | null): GpuJobKind | null {
+    const running = jobs.running;
+    if (!sessionId || !running || running.kind === 'transcribe' || running.kind === 'whisperLoad') {
+        return null;
+    }
+    // 文字起こしのモデルの読み込みが待たされているときも同じ（前のセッションの最終の要約の後ろなど）
+    const waiting = jobs.waiting.some(
+        (w) => (w.kind === 'transcribe' || w.kind === 'whisperLoad') && w.session === sessionId,
+    );
+    return waiting ? running.kind : null;
+}
+
+// StatusIndicator に出す内容
+export type Tone = 'idle' | 'active' | 'paused' | 'warning' | 'error';
+export type Status = { tone: Tone; text: string };
+
+// 文字起こしタブ用。sessionId は録音中のセッション
+export function transcriptStatus(state: RecordingState, server: ServerStatus, sessionId: string | null = null): Status {
+    if (state === 'idle') {
+        return server.connection === 'reconnecting'
+            ? { tone: 'warning', text: 'ホストにつながっていません。つなぎ直しています…' }
+            : { tone: 'idle', text: '待機中' };
+    }
+    if (server.connection === 'reconnecting') {
+        // つながり直せば、そのまま続く。待つ時間を過ぎても、あとで同じセッションの続きを録音できる（#101）
+        return {
+            tone: 'warning',
+            text: 'ホストに再接続しています…（録音は手元で続けています）',
+        };
+    }
+    if (state === 'paused') {
+        return { tone: 'paused', text: '一時停止中' };
+    }
+    if (server.whisper === 'error') {
+        return { tone: 'error', text: '文字起こしが止まっています。音声は保存しているので、後から再生成できます' };
+    }
+    // GPU は1つずつしか使えず、実行中の要約は途中で止めないので、終わるまで文字起こしが待たされる（spec/flows.md 6.3）
+    // モデルの読み込みもその後ろで待つので、読み込み中の表示より先に見る
+    const blocking = transcriptWaitingFor(server.jobs, sessionId);
+    if (blocking) {
+        return {
+            tone: 'warning',
+            text: `${blockingReason[blocking] ?? 'ほかの処理'}のため、文字起こしを待っています…（音声は保存しています）`,
+        };
+    }
+    if (server.whisper !== 'ready') {
+        return { tone: 'warning', text: '文字起こしのモデルを読み込んでいます…（音声は保存しています）' };
+    }
+    return { tone: 'active', text: '文字起こし中…' };
+}
+
+// 選んでいる LLM（llm.backend）につながらないか。使っていないほうの状態は見ない（#327）
+export function llmUnavailable(server: Pick<ServerStatus, 'ollama' | 'lmstudio'>, backend: LlmBackend): boolean {
+    return backend === 'lmstudio' ? server.lmstudio === 'error' : server.ollama === 'error';
+}
+
+// 要約タブ用。録音していないときは出さない。backend は設定で選んでいる LLM
+export function summaryStatus(
+    state: RecordingState,
+    server: ServerStatus,
+    intervalMin: number,
+    backend: LlmBackend = 'ollama',
+): Status | null {
+    if (state === 'idle') {
+        return null;
+    }
+    if (server.connection === 'reconnecting') {
+        return { tone: 'warning', text: 'ホストに再接続しています…（録音は続けています）' };
+    }
+    if (llmUnavailable(server, backend)) {
+        return {
+            tone: 'error',
+            text: `${LLM_NAMES[backend]} に接続できず、要約を作れません。録音を終えてから再生成できます`,
+        };
+    }
+    if (state === 'paused') {
+        return { tone: 'paused', text: '一時停止中。再開すると要約の更新も再開します' };
+    }
+    return { tone: 'active', text: `録音中。${intervalMin} 分おきにリアルタイム要約を更新します…` };
+}

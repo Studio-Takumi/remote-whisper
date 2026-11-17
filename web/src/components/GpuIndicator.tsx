@@ -2,12 +2,12 @@ import { useEffect, useState } from 'react';
 
 import { CpuIcon } from 'lucide-react';
 
+import type { GpuJobs } from '@/api/protocol';
+import { jobKindLabel, jobProgress } from '@/api/status';
+import { routePath } from '@/app/router';
+import { useAppStore } from '@/app/store';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import type { GpuJobs } from '@/protocol';
-import { routePath } from '@/router';
-import { jobKindLabel, jobProgress } from '@/status';
-import { useAppStore } from '@/store';
-import { formatElapsed } from '@/time';
+import { formatElapsed } from '@/lib/time';
 
 // 上のバーに小さく出す GPU の状態（使用率と、GPU キューのジョブの数）。押すとジョブの一覧が開く（spec/flows.md 6.3・spec/ui.md 8）
 // 録音中でも見られるよう、設定のロックの外に置く
