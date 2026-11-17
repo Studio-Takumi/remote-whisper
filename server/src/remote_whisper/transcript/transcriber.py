@@ -1,7 +1,7 @@
 """録音後に、保存した録音全体から最終の文字起こしを作る（#121）。spec/flows.md 6.9
 
 - 録音を終えて mp3 に変換したあと、最終の要約の前に作る（最終の要約は、できたものから作る）
-- GPU キュー（優先度 3）で、WhisperX の子プロセス（worker）を動かす。
+- GPU キュー（優先度 3）で、WhisperX の子プロセス（transcript.worker）を動かす。
   VRAM（6GB）を空けるため、前に録音中の文字起こしの Whisper と Ollama のモデルを下ろす
 - 録音中は作らない。作っている途中で録音が始まったら、子プロセスを止めて（VRAM がすぐ空く）、
   録音がすべて終わってから作り直す（録音中の文字起こしの邪魔をしないように）
@@ -34,7 +34,7 @@ from remote_whisper.transcript.worker_job import build_job, result_path, worker_
 from remote_whisper.transcript.worker_steps import STEPS, parse_progress
 
 log = logging.getLogger(__name__)
-# 子プロセス（worker）が書いたもの
+# 子プロセス（transcript.worker）が書いたもの
 worker_log = logging.getLogger("remote_whisper.transcript.worker")
 
 # 録音が始まって止めたら、録音が終わってから作り直す。何度も止められたらあきらめる

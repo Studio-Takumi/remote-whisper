@@ -161,6 +161,7 @@
 | `summary/final_summary.py` | `FinalSummarizer`（読み込み・モデル・タイトル・保存の流れ） |
 | `summary/final_summary_body.py` | `SummaryBody`（一度に・部分ごと・まとめ・概要・参考資料のページ）、`Density` |
 - モジュールの名前を役割に合わせて付け直した（#389）。名前だけで、中身・クラス名・関数名は同じ。ログの名前（`getLogger(__name__)`）はモジュールの名前に従って変わる。浄書の子プロセスは `python -m remote_whisper.transcript.worker`
+- 子プロセスで動く：`worker`・`worker_steps`・`worker_multi`・`multisource`／親で動く：`transcriber`・`worker_job`・`result_save`・`lines`（すべて `transcript/`）
 
 | 今の名前 | 役割 |
 |---|---|

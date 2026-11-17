@@ -185,7 +185,7 @@ def _log_child_line(
         except Exception:  # noqa: BLE001 横取りの失敗でログを止めない
             logger.exception("failed to handle a line of the child")
     level = logging.INFO
-    # 子のログは「レベル 本文」の形（worker）。レベルは親のログのレベルにする
+    # 子のログは「レベル 本文」の形（transcript.worker）。レベルは親のログのレベルにする
     for name in ("CRITICAL", "ERROR", "WARNING", "INFO"):
         if line.startswith(name + " "):
             level = logging.getLevelName(name)

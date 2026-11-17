@@ -393,7 +393,7 @@ def parse_terms(reply: str) -> list[str]:
 # 通し番号にし、範囲は話題ごとに from・to で答えさせる（話題を先に書かせると、話題と章を
 # 結び付けて選ぶ）。
 # 「作り直すか」も答えさせたが、範囲と食い違う答えが多かったので、範囲が資料のほぼ全体かどうかで
-# こちらが決める（material_range.normalize_ranges）
+# こちらが決める（used_range.normalize_ranges）
 SCOPE_FORMAT: dict[str, Any] = {
     "type": "object",
     "properties": {

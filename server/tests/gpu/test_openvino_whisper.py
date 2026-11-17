@@ -321,7 +321,7 @@ def test_worker_child_loads_openvino_for_an_openvino_spec(monkeypatch):
     assert conn.sent == [("ok", None), ("ok", [{"text": "pipe"}])]
 
 
-# --- 浄書（worker） ---
+# --- 浄書（transcript.worker） ---
 
 
 def test_final_worker_transcribes_with_openvino(monkeypatch):

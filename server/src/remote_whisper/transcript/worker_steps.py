@@ -1,7 +1,7 @@
 """浄書の子プロセスの段階（#121）。spec/flows.md 6.9・6.16
 
 進み具合の行（親とのやりとり）、WhisperX の読み込み・文字起こし・位置合わせ・話者分け。
-1 音源（worker）と複数の音源（worker_multi）で共通に使う
+1 音源（transcript.worker）と複数の音源（worker_multi）で共通に使う
 """
 
 import gc
