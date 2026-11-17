@@ -316,6 +316,22 @@ describe('ほかの端末の録音を見る（watch）', () => {
         expect(session(WATCHED)).toMatchObject({ title: '線形代数の講義', provisionalTitle: true });
     });
 
+    it('録音しながら見ているとき、録音の途中の要約の done で、見ている側の下書きを使わない', async () => {
+        await startWatching();
+        store.setState({ selection: { projectId: 'p1', sessionId: null } });
+        const starting = store.getState().startRecording();
+        await vi.waitFor(() => expect(ws.log()).toContain('start'));
+        receive({ type: 'started', session: SESSION, sessionUuid: 'uuid-1' });
+        await starting;
+        store.setState({ selection: { projectId: 'p1', sessionId: WATCHED } });
+        receive({ type: 'watching', session: WATCHED, state: 'recording', transcript: [] });
+
+        receive({ type: 'summary.delta', session: WATCHED, kind: 'live', text: '見ている要約', replace: true });
+        receive({ type: 'summary.done', session: SESSION, kind: 'live' });
+        expect(session()?.liveSummary).toBeUndefined();
+        expect(store.getState().liveDraft).toEqual({ sessionId: WATCHED, text: '見ている要約' });
+    });
+
     it('つながり直したら watch を送り直す', async () => {
         await startWatching();
         ws.disconnect();

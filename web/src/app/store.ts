@@ -527,11 +527,13 @@ export const useAppStore = create<AppState>()((set, get) => {
                     })),
                 }));
             } else if (m.type === 'summary.done' && m.kind === 'live') {
+                // 下書きがほかのセッション（録音しながら見ているもの）のものなら、そのまま残す
                 set((s) => ({
-                    projects: s.liveDraft
-                        ? updateSession(s.projects, m.session, (x) => ({ ...x, liveSummary: s.liveDraft?.text }))
-                        : s.projects,
-                    liveDraft: null,
+                    projects:
+                        s.liveDraft?.sessionId === m.session
+                            ? updateSession(s.projects, m.session, (x) => ({ ...x, liveSummary: s.liveDraft?.text }))
+                            : s.projects,
+                    liveDraft: s.liveDraft?.sessionId === m.session ? null : s.liveDraft,
                 }));
             }
             // 最終の要約・タイトル・要約の失敗は、作り直し（ほかの端末から頼んだものも）でも届くので、
