@@ -190,6 +190,57 @@ def test_disconnected_source_does_not_stop_the_recording_and_can_come_back(clien
     assert meta.sources[1].left_sec is not None
 
 
+def test_source_that_does_not_come_back_is_left(client, project):
+    pid, d = project
+    with client.websocket_connect("/ws") as rec:
+        rec.receive_json()
+        sid = start(rec, pid)
+        with client.websocket_connect("/ws") as src:
+            src.receive_json()
+            join(src, sid)
+        # recording.resumeTimeoutMin（テストでは 0.5 秒）のうちにつなぎ直さなければ抜けたことにする
+        receive_until(rec, lambda m: m["type"] == "sources" and m["sources"][1]["state"] == "left")
+        with client.websocket_connect("/ws") as src:
+            src.receive_json()
+            assert join(src, sid, source=2, nextSeq=0)["code"] == "session_not_found"
+        rec.send_json({"type": "stop"})
+        receive_until(rec, of_type("status", recordings=0))
+    finished(client, sid)
+    meta, _ = read_doc(d / f"transcript-{sid}.md", TranscriptMeta)
+    assert meta.status == "done"
+    assert meta.sources[1].left_sec is not None
+
+
+def test_joined_source_is_not_saved_while_paused(client, project):
+    import wave
+
+    pid, d = project
+    with client.websocket_connect("/ws") as rec, client.websocket_connect("/ws") as src:
+        rec.receive_json()
+        src.receive_json()
+        sid = start(rec, pid)
+        join(src, sid)
+        src.send_bytes(noise(0, QUIET))
+        receive_until(src, of_type("ack", seq=0))
+        rec.send_json({"type": "pause"})
+        rec.send_bytes(noise(0, QUIET))
+        receive_until(rec, of_type("ack", seq=0))
+        # 主の音源が一時停止している間は、ほかの音源の分も保存しないが、受け取ったことにする
+        src.send_bytes(noise(1, QUIET))
+        receive_until(src, of_type("ack", seq=1))
+        rec.send_json({"type": "unpause"})
+        rec.send_bytes(noise(1, QUIET))
+        receive_until(rec, of_type("ack", seq=1))
+        src.send_bytes(noise(2, QUIET))
+        receive_until(src, of_type("ack", seq=2))
+        with wave.open(str(d / ".tmp" / sid / "audio-2.wav")) as w:
+            frames = w.getnframes()
+        rec.send_json({"type": "stop"})
+        receive_until(rec, of_type("status", recordings=0))
+    finished(client, sid)
+    assert frames == 2 * 8000
+
+
 def test_join_is_refused_when_it_cannot(client, project):
     pid, _ = project
     with (

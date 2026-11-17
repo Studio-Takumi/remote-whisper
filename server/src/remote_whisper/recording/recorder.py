@@ -1,936 +1,64 @@
-"""録音マネージャ。WebSocket で届いた音声を受け取って保存する
+"""録音マネージャ（録音中のセッションの開始・続き・再開）と、録音を終えた WAV の mp3 への変換
 
 spec/flows.md 6.1・6.2・spec/notes.md 9.1
-
-GPU に依存させない（Whisper や Ollama が止まっていても、音声の受信と保存は続ける）。
-
-録音を終えたら（stop か interrupted）、すぐに文字起こしの状態・終了日時・長さを確定し、
-残りは後ろで行う: 残りの区間の final → WAV を mp3 に変換して WAV を消す → 最終の要約のジョブを積む。
 """
 
 import asyncio
 import contextlib
-import itertools
-import json
 import logging
-import struct
-import time
-import wave
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any, BinaryIO
+from typing import Any
 
 from fastapi import WebSocket
 
 from remote_whisper.gpu.gpu_queue import GpuQueue, Priority
 from remote_whisper.gpu.whisper_worker import WhisperWorker
-from remote_whisper.hub import Hub, send
+from remote_whisper.hub import Hub
 from remote_whisper.llm.llm import LlmClient
-from remote_whisper.recording.audio_convert import convert_wav, decode_pcm
-from remote_whisper.recording.live_sources import LiveMixer, measure
-from remote_whisper.recording.live_transcriber import LiveTranscriber, load_hotwords
+from remote_whisper.recording.audio_convert import convert_wav
+from remote_whisper.recording.live_transcriber import load_hotwords
 from remote_whisper.recording.recording import RecordingError, check_continuable
-from remote_whisper.settings import Settings, SettingsStore
-from remote_whisper.storage.documents import SourceInfo, TranscriptMeta, recording_name
-from remote_whisper.storage.fsutil import atomic_write_text
+from remote_whisper.recording.session import RecordingSession
+from remote_whisper.settings import SettingsStore
+from remote_whisper.storage.documents import TranscriptMeta, recording_name
 from remote_whisper.storage.projects import ProjectError, ProjectStore
 from remote_whisper.storage.session_writer import SessionWriter
 from remote_whisper.storage.timeutil import make_id, now
-from remote_whisper.summary.live_summary import LiveSummarizer, load_context
-from remote_whisper.transcript.corrections import Correction, apply_all, replace
-from remote_whisper.transcript.term_picker import TermPicker, combine_hotwords
+from remote_whisper.summary.live_summary import load_context
 
 log = logging.getLogger(__name__)
 
-SAMPLE_RATE = 16000
-SAMPLE_WIDTH = 2  # Int16
 
-
-class WavAppender:
-    """`.tmp/<ID>/audio.wav` に追記する。書くたびにヘッダーの長さも直すので、落ちても読める
-
-    restore を渡すと、その音声（前の WAV か、変換済みの mp3・m4a）を頭に書いてから続ける
-    （途中で終わったセッションの続きを録音するとき。#101）。前の WAV が同じファイルなら、
-    名前を変えずにその後ろに書き足す（#174。再生や浄書がそのファイルを読んでいる最中でも、
-    Windows で続きを始められるように。開いているファイルは名前を変えられないため）
-    """
-
-    def __init__(self, path: Path, restore: Path | None = None):
-        path.parent.mkdir(parents=True, exist_ok=True)
-        self.path = path
-        self._file: BinaryIO | None = None
-        previous = None
-        data = _appendable(path) if restore is not None and restore == path else None
-        if data is not None:
-            self._file = path.open("r+b")
-            self._file.truncate(_HEADER + data)
-            self._file.seek(0, 2)
-            self.frames = data // SAMPLE_WIDTH
-            self._sync_header()
-            return
-        if restore is not None and restore == path:
-            # 同じ名前の WAV に書き直すので、前のものは別の名前にしておく
-            previous = path.with_name(path.name + ".prev")
-            path.replace(previous)
-            restore = previous
-        self._wav = wave.open(str(path), "wb")
-        self._wav.setnchannels(1)
-        self._wav.setsampwidth(SAMPLE_WIDTH)
-        self._wav.setframerate(SAMPLE_RATE)
-        self.frames = 0
-        if restore is not None:
-            try:
-                for pcm in decode_pcm(restore):
-                    self.write(pcm)
-            except BaseException:
-                self._wav.close()
-                if previous is not None:
-                    previous.replace(path)
-                raise
-            if previous is not None:
-                previous.unlink()
-
-    def write(self, pcm: bytes) -> None:
-        # Int16 なので、半端な1バイトは捨てる
-        pcm = pcm[: len(pcm) - len(pcm) % SAMPLE_WIDTH]
-        if self._file is not None:
-            self._file.write(pcm)
-            self.frames += len(pcm) // SAMPLE_WIDTH
-            self._sync_header()
-            return
-        self._wav.writeframes(pcm)
-        self.frames += len(pcm) // SAMPLE_WIDTH
-
-    def _sync_header(self) -> None:
-        """書き足したファイルのヘッダーの長さを直す（wave と同じく、書くたびに直す）"""
-        assert self._file is not None
-        data = self.frames * SAMPLE_WIDTH
-        self._file.seek(4)
-        self._file.write(struct.pack("<I", _HEADER - 8 + data))
-        self._file.seek(40)
-        self._file.write(struct.pack("<I", data))
-        self._file.seek(0, 2)
-        self._file.flush()
-
-    @property
-    def seconds(self) -> float:
-        return self.frames / SAMPLE_RATE
-
-    def close(self) -> None:
-        if self._file is not None:
-            self._file.close()
-            return
-        self._wav.close()
-
-
-# wave が書く WAV のヘッダーの長さ（RIFF・fmt・data の見出し）
-_HEADER = 44
-
-
-def _appendable(path: Path) -> int | None:
-    """wave で書いた（ヘッダーが 44 バイトの）16kHz・モノラル・Int16 の WAV なら、音声のバイト数。
-    そうでなければ None（名前を変えて読み直す、今までのやり方にする）"""
+async def convert_session_wavs(writer: SessionWriter, wav: Path) -> None:
+    """WAV を mp3 に変換して WAV を消す。失敗したら WAV を残す（次の起動時に変換し直す: #33）"""
+    # 参加した音源の録音も、音源ごとに変換する（#356）
+    await asyncio.to_thread(convert_source_wavs, writer)
     try:
-        with path.open("rb") as f:
-            head = f.read(_HEADER)
-        size = path.stat().st_size
+        recording = await asyncio.to_thread(convert_wav, wav, writer.files.dir, writer.id)
+    except Exception:  # noqa: BLE001 変換できなくても録音（WAV）は残っている
+        log.exception("failed to convert the recording of %s", writer.id)
+        return
+    try:
+        writer.set_recording(recording.name)
+        refresh_source_recordings(writer)
     except OSError:
-        return None
-    if len(head) < _HEADER or head[:4] != b"RIFF" or head[8:16] != b"WAVEfmt ":
-        return None
-    if head[36:40] != b"data":
-        return None
-    fmt_size, kind, channels, rate, _, _, bits = struct.unpack("<IHHIIHH", head[16:36])
-    if (fmt_size, kind, channels, rate, bits) != (16, 1, 1, SAMPLE_RATE, SAMPLE_WIDTH * 8):
-        return None
-    # ヘッダーの長さではなく、実際に書けていた分を使う（落ちて直す前のものでも読めるように）
-    data = size - _HEADER
-    return data - data % SAMPLE_WIDTH
-
-
-# 1 つのセッションの音源 ID は合わせてここまで（浄書の時間が音源の数に比例するため。flows.md 6.16）
-MAX_SOURCE_IDS = 16
-# GPU キューで録音中の final がこれだけ待っていたら、ほかの音源の partial を積まない（#356）
-PARTIAL_STALL_SEC = 3.0
-
-
-class JoinedSource:
-    """録音中に参加した端末の音源（#241・#356）。`.tmp/<ID>/audio-<音源 ID>.wav` に書く"""
-
-    def __init__(self, sid: int, name: str | None, ws: WebSocket, wav: WavAppender, joined: float):
-        self.id = sid
-        self.name = name
-        self.ws: WebSocket | None = ws
-        self.wav = wav
-        self.last_seq = -1
-        # active（つながっている）/ disconnected（切れて、つなぎ直すのを待っている）/ left（抜けた）
-        self.state = "active"
-        self.joined_sec = joined  # 主の音源の時刻で、参加した時刻
-        self.left_sec: float | None = None
-        self.transcriber: LiveTranscriber | None = None
-        self.expire: asyncio.Task | None = None
-        # (ずれ, ドリフト)。録音中に測り直したもの（ミキサーから外したあとは最後の値）
-        self.alignment = (joined, 0.0)
-
-    def info(self, session: "RecordingSession") -> SourceInfo:
-        if session.mixer is not None and session.mixer.has(self.id):
-            self.alignment = session.mixer.alignment(self.id)
-        offset, drift = self.alignment
-        recording = session.writer.files.source_recording(self.id)
-        return SourceInfo(
-            id=self.id,
-            name=self.name,
-            kind="join",
-            recording=recording.name if recording is not None else None,
-            offset_sec=round(offset, 3),
-            drift_ppm=round(drift, 1),
-            joined_sec=round(self.joined_sec, 2),
-            left_sec=round(self.left_sec, 2) if self.left_sec is not None else None,
-        )
-
-
-class RecordingSession:
-    def __init__(
-        self,
-        manager: "RecordingManager",
-        writer: SessionWriter,
-        ws: WebSocket,
-        restore: Path | None = None,
-    ):
-        """restore は、続きを録音するときの前の録音（WAV か mp3・m4a）。頭に書いてから続ける"""
-        self.manager = manager
-        self.writer = writer
-        self.id = writer.id
-        self.ws: WebSocket | None = ws
-        self.last_seq = -1
-        self.ended = False
-        self.paused = False
-        self.wav = WavAppender(writer.files.dir / ".tmp" / self.id / "audio.wav", restore)
-        # 続きを録音するときの、前の録音の長さ（秒）。文字起こしの時刻はここから続ける
-        self.offset = self.wav.seconds
-        self._expire: asyncio.Task | None = None
-        # 録音中の文字起こし（Whisper がないサーバーではない）
-        self.transcriber: LiveTranscriber | None = None
-        # 途中の要約（Ollama がないサーバーではない）
-        self.summarizer: LiveSummarizer | None = None
-        # 録音中に用語を拾うもの（Ollama がないサーバー・プロジェクトでオフにしたときはない。#103）
-        self.picker: TermPicker | None = None
-        # 参考資料セットの用語（「、」区切り）。拾った語はこの後ろに足す
-        self.base_hotwords: str | None = None
-        self._finishing: asyncio.Task | None = None
-        # 録音を終えたあとの後始末の途中で、続きの録音に引き継がれた（#101）。
-        # mp3 への変換は続きの方で行う
-        self.superseded = False
-        # 引き継いだために後始末を止めたときの、録音を終えた状態（take_back で続きを行う）
-        self._handed_over: str | None = None
-        # mp3 に変換している途中（続きを録音するときは、終わるのを待つ。WAV を読んでいるため）
-        self.converting = False
-        # 最終の要約を作る予定のあいだ、status の summarizing から外すための関数（#118）。
-        # 録音を終えたときに入れ、要約を積んだらキューのジョブに引き渡す
-        self._summary_end: Callable[[], None] | None = None
-        # 録音を終えた時刻（time.monotonic）。続きを録音できる時間（#174）を数える
-        self.ended_at: float | None = None
-        # 普通に録音を終えたあと、続きを録音できる間は mp3 への変換を待たせる（#174）。そのタスク
-        self._deferred: asyncio.Task | None = None
-        # 録音を終えた状態（done・interrupted）。後始末で使う
-        self._status: str | None = None
-        # 浄書・最終の要約を作る段階（_complete）に入った
-        self._completing = False
-        # 積んだ最終の要約のジョブ（待っている間に続きを録音し始めたら、取り消す。#174）
-        self._summary_job: asyncio.Future | None = None
-        # 続きの録音に引き継ぐために、浄書・最終の要約を取り消した（続けられなかったら作り直す）
-        self._completion_cancelled = False
-        # 続きの録音に引き継ぐために、GPU キューで待っていた最終の要約を取り消した（同じく積み直す）
-        self._summary_cancelled = False
-        # --- 複数の音源（#241・#356。spec/flows.md 6.16） ---
-        # 録音中に参加した音源（音源 ID → 音源）。抜けたものも残す
-        self.joined: dict[int, JoinedSource] = {}
-        # 前の録音（続きを録音したとき）までの音源。音源 ID はこれと重ならないように振る
-        self.previous_sources: list[SourceInfo] = list(writer.meta.sources or [])
-        # 一番大きい音源の区間だけを区切りに入れるもの（ほかの音源が参加したら作る）
-        self.mixer: LiveMixer | None = None
-        # チャンクの番号（segment）。音源をまたいだ通し番号（#356）
-        self.numbering = itertools.count()
-        # 文字起こしの行ごとの音源 ID（音源が 2 つ以上のときだけ。lineSources）
-        self.line_sources: list[int] | None = (
-            list(writer.meta.line_sources) if writer.meta.line_sources is not None else None
-        )
-        self._aligning: asyncio.Task | None = None
-        # ほかの音源の文字起こしに使う（Whisper・GPU キュー・文字起こしの設定）。
-        # 録音中に文字起こしするときだけ
-        self.whisper_gpu: tuple[WhisperWorker, GpuQueue, Any] | None = None
-
-    @property
-    def multi(self) -> bool:
-        """音源が 2 つ以上のセッションか（partial・final に source を付ける）"""
-        return bool(self.joined) or len(self.previous_sources) > 1
-
-    def transcribers(self) -> list[LiveTranscriber]:
-        out = [self.transcriber] if self.transcriber is not None else []
-        out += [s.transcriber for s in self.joined.values() if s.transcriber is not None]
-        return out
-
-    def start_transcribing(self, whisper: WhisperWorker, gpu: GpuQueue, settings: Settings) -> None:
-        meta = self.writer.meta
-        self.base_hotwords = (
-            load_hotwords(self.writer.files.dir, meta.context_set) if meta.use_hotwords else None
-        )
-        self.transcriber = LiveTranscriber(
-            whisper,
-            gpu,
-            settings.whisper,
-            self.send,
-            self._append_final,
-            combine_hotwords(self.base_hotwords, meta.picked_terms, meta.manual_terms),
-            session=self.id,
-            offset=self.offset,
-            numbering=self.numbering,
-        )
-        # 画面で足した置き換え（#176）を、以後に確定する文に当てる
-        self.transcriber.correct = lambda text: apply_all(text, self.writer.meta.corrections)
-        self.transcriber.tag_source = lambda: self.multi
-        self.whisper_gpu = (whisper, gpu, settings.whisper)
-
-    def apply_correction(self, correction: Correction) -> None:
-        """置き換え（#176）を、途中の要約と用語拾いが持っている文字起こしにも当てる
-        （全部の置き換えと、録音中の文字起こしの「この行だけ」）"""
-        line = correction.line
-        if line is not None and line.transcript != "live":
-            return
-        for holder in (self.summarizer, self.picker):
-            if holder is None:
-                continue
-            holder.finals = [
-                (start, replace(text, correction.wrong, correction.right))
-                if line is None or line.index == i
-                else (start, text)
-                for i, (start, text) in enumerate(holder.finals)
-            ]
-
-    def apply_hotwords(self) -> None:
-        """手で足した語・参考資料セットの用語・拾った語から、録音中の用語リストを作り直す（次の区間から効く）"""
-        picked = self.picker.picked if self.picker is not None else self.writer.meta.picked_terms
-        for transcriber in self.transcribers():
-            transcriber.hotwords = combine_hotwords(
-                self.base_hotwords, picked, self.writer.meta.manual_terms
-            )
-
-    def start_picking(self, ollama: LlmClient, gpu: GpuQueue, settings: SettingsStore) -> None:
-        """録音中に文字起こしから用語を拾い、用語リストに足す（#103）"""
-        self.picker = TermPicker(
-            ollama,
-            gpu,
-            settings,
-            self.writer,
-            self.send,
-            lambda: self.elapsed,
-            lambda _picked: self.apply_hotwords(),
-        )
-        if self.offset > 0:
-            # 続きを録音するときは、前の文字起こしでも数える（拾い直しはしない）
-            lines = self.writer.final_lines()
-            for start, text in lines:
-                self.picker.add_final(start, text)
-            self.picker.restart_at(self.offset, len(lines))
-
-    def start_summarizing(self, ollama: LlmClient, gpu: GpuQueue, settings: SettingsStore) -> None:
-        meta = self.writer.meta
-        context = (
-            load_context(self.writer.files.dir, meta.context_set)
-            if self.writer.use_context
-            else None
-        )
-        self.summarizer = LiveSummarizer(
-            ollama, gpu, settings, self.writer, self.send, lambda: self.elapsed, context
-        )
-        if self.offset > 0:
-            # 続きを録音するときは、前の文字起こしも途中の要約に入れる
-            for start, text in self.writer.final_lines():
-                self.summarizer.add_final(start, text)
-            # 前回の要約からの時間は、続きを始めたところから数える
-            self.summarizer.restart_at(self.offset)
-
-    def _append_final(self, start: float, text: str, source: int = 1) -> None:
-        """確定した区間を文字起こしのファイルに足し、途中の要約の材料にする。
-        音源が 2 つ以上なら、行の音源も覚える（届いた順。spec/flows.md 6.16）"""
-        self.writer.append_final(start, text)
-        if self.line_sources is not None:
-            self.line_sources.append(source)
-            self._append_line_sources([source])
-        if self.summarizer is not None:
-            self.summarizer.add_final(start, text)
-        if self.picker is not None:
-            self.picker.add_final(start, text)
-
-    async def send(self, message: dict[str, Any]) -> None:
-        """録音しているクライアントと、このセッションを見ているクライアント（#238）に送る"""
-        await self.manager.hub.send_session(self.ws, self.id, message)
-
-    @property
-    def elapsed(self) -> float:
-        """録音した長さ（秒）。一時停止中の音声は届かない（書かない）ので、一時停止していた時間は含まない"""
-        return self.wav.seconds
-
-    # --- ブラウザからの操作 ---
-
-    async def audio(self, seq: int, data: bytes) -> None:
-        # 抜けがあれば受け取らず、受け取り済みの最後の連番を返す（ブラウザが続きから送り直す）
-        if seq == self.last_seq + 1 and not self.paused:
-            try:
-                self.wav.write(data)
-            except OSError as e:
-                # ディスクが一杯などで書けない。受け取らずにエラーを返す（接続は落とさない）
-                log.error("failed to write audio of %s: %s", self.id, e)
-                await self.send(
-                    {
-                        "type": "error",
-                        "code": "write_failed",
-                        "message": f"音声を保存できません: {e}",
-                    }
-                )
-                await self.send({"type": "ack", "seq": self.last_seq})
-                return
-            self.last_seq = seq
-            if self.mixer is not None:
-                # ほかの音源がいるときは、一番大きい区間だけを区切りに入れる（#356）
-                self.mixer.feed_main(data)
-                self._realign()
-            elif self.transcriber is not None:
-                self.transcriber.feed(data)
-        elif seq == self.last_seq + 1:
-            # 一時停止中に届いた分は保存しないが、受け取ったことにする（送り直させない）
-            self.last_seq = seq
-        await self.send({"type": "ack", "seq": self.last_seq})
-
-    def pause(self) -> None:
-        self.paused = True
-
-    def unpause(self) -> None:
-        self.paused = False
-
-    # --- 録音中の参加（#241・#356。spec/flows.md 6.16・spec/api.md 7.2） ---
-
-    def _all_ids(self) -> set[int]:
-        return {1} | {s.id for s in self.previous_sources} | set(self.joined)
-
-    def join_status(self) -> dict[str, Any]:
-        """watching・sources の join。参加できるか、できなければその理由"""
-        limit = self.manager.settings.get().recording.max_sources
-        if limit <= 1:
-            return {"available": False, "reason": "disabled"}
-        connected = 1 + sum(1 for s in self.joined.values() if s.state != "left")
-        if connected >= limit or len(self._all_ids()) >= MAX_SOURCE_IDS:
-            return {"available": False, "reason": "limit"}
-        return {"available": True}
-
-    def sources_message(self) -> dict[str, Any]:
-        main = {"id": 1, "name": None, "kind": "main", "state": "active"}
-        if self.ws is None:
-            main["state"] = "disconnected"
-        listed = [main]
-        for s in self.previous_sources[1:]:
-            listed.append({"id": s.id, "name": s.name, "kind": s.kind, "state": "left"})
-        for s in self.joined.values():
-            listed.append({"id": s.id, "name": s.name, "kind": "join", "state": s.state})
-        return {"type": "sources", "sources": listed, "join": self.join_status()}
-
-    async def send_sources(self) -> None:
-        """音源の一覧が変わった。録音している・見ている・参加しているクライアントに送る"""
-        await self.send(self.sources_message())
-
-    async def join(self, ws: WebSocket, name: str | None) -> JoinedSource:
-        """ほかの端末が音源として参加する。新しい音源 ID を振る"""
-        if self.ended:
-            raise RecordingError("cannot_join", "録音中ではありません")
-        if ws is self.ws:
-            raise RecordingError("cannot_join", "自分で録音しているセッションには参加できません")
-        status = self.join_status()
-        if not status["available"]:
-            message = (
-                "このホストでは参加できません"
-                if status.get("reason") == "disabled"
-                else "参加できる音源の数を超えています"
-            )
-            raise RecordingError("cannot_join", message)
-        sid = max(self._all_ids()) + 1
-        wav = WavAppender(self.writer.files.dir / ".tmp" / self.id / f"audio-{sid}.wav")
-        if self.line_sources is None:
-            # 音源が 2 つ以上になった。そこまでの行は主の音源
-            self.line_sources = [1] * len(self.writer.final_lines())
-        self._append_line_sources([])
-        joined_at = self.elapsed
-        source = JoinedSource(sid, name, ws, wav, joined_at)
-        if self.transcriber is not None and self.whisper_gpu is not None:
-            whisper, gpu, settings = self.whisper_gpu
-            if self.mixer is None:
-                self.mixer = LiveMixer(self.transcriber.feed, self.wav.frames)
-            start = self.mixer.add(sid, lambda pcm: None)
-            source.joined_sec = start
-            source.alignment = (start, 0.0)
-            live = LiveTranscriber(
-                whisper,
-                gpu,
-                settings,
-                self.send,
-                lambda start_sec, text, s=sid: self._append_final(start_sec, text, s),
-                self.transcriber.hotwords,
-                session=self.id,
-                offset=start,
-                source=sid,
-                numbering=self.numbering,
-            )
-            live.correct = self.transcriber.correct
-            live.tag_source = lambda: True
-            live.watch_stall = False
-            live.partial_allowed = lambda: gpu.oldest_waiting("final") < PARTIAL_STALL_SEC
-            self.mixer.tracks[sid].feed = live.feed
-            source.transcriber = live
-        self.joined[sid] = source
-        log.info("source %d joined %s at %.1fs", sid, self.id, source.joined_sec)
-        self._sources_changed()
-        return source
-
-    async def rejoin(
-        self, ws: WebSocket, sid: Any, next_seq: Any, lost: bool = False
-    ) -> JoinedSource:
-        """切れた端末が、同じ音源としてつなぎ直す（続きの連番から送る）
-
-        lost は、端末が手元の音をなくした（読み込み直した）。届かなかった間を無音で埋め、
-        端末が送る連番（next_seq）から受け取る（受け取り済みの連番より前でも）"""
-        if self.ended:
-            raise RecordingError("cannot_join", "録音中ではありません")
-        source = self.joined.get(sid) if isinstance(sid, int) else None
-        if source is None or source.state == "left" or not isinstance(next_seq, int):
-            raise RecordingError("session_not_found", "つなぎ直せる音源がありません")
-        if source.expire is not None:
-            source.expire.cancel()
-            source.expire = None
-        if lost or next_seq > source.last_seq + 1:
-            # 手元の音声をなくした（読み込み直したなど）。届かなかった間は無音で埋める
-            self._fill_gap(source)
-            source.last_seq = next_seq - 1
-        source.ws = ws
-        source.state = "active"
-        if self.mixer is not None:
-            self.mixer.set_connected(source.id, True)
-        log.info("source %d of %s rejoined", source.id, self.id)
-        self._sources_changed()
-        return source
-
-    def _fill_gap(self, source: JoinedSource) -> None:
-        if self.mixer is not None and self.mixer.has(source.id):
-            expected = self.mixer.expected_local(source.id)
-        else:
-            expected = int((self.elapsed - source.joined_sec) * SAMPLE_RATE)
-        gap = expected - source.wav.frames
-        if gap <= 0:
-            return
-        log.info(
-            "source %d of %s: %.1fs of silence for the gap", source.id, self.id, gap / SAMPLE_RATE
-        )
-        try:
-            source.wav.write(bytes(gap * SAMPLE_WIDTH))
-        except OSError as e:
-            log.error("failed to write the gap of source %d of %s: %s", source.id, self.id, e)
-            return
-        if self.mixer is not None:
-            self.mixer.skip(source.id, gap)
-
-    async def source_audio(self, source: JoinedSource, seq: int, data: bytes) -> None:
-        """参加した端末の音声。連番・ack・一時停止の扱いは主の音源と同じ"""
-        if seq == source.last_seq + 1 and not self.paused:
-            try:
-                source.wav.write(data)
-            except OSError as e:
-                log.error("failed to write audio of source %d of %s: %s", source.id, self.id, e)
-                await send(
-                    source.ws,
-                    {
-                        "type": "error",
-                        "session": self.id,
-                        "code": "write_failed",
-                        "message": f"音声を保存できません: {e}",
-                    },
-                )
-                await send(source.ws, {"type": "ack", "session": self.id, "seq": source.last_seq})
-                return
-            source.last_seq = seq
-            if self.mixer is not None:
-                self.mixer.feed_source(source.id, data)
-        elif seq == source.last_seq + 1:
-            # 主の音源が一時停止している間は、ほかの音源の音も保存しない（時刻が合わなくなるため）
-            source.last_seq = seq
-        if source.ws is not None:
-            await send(source.ws, {"type": "ack", "session": self.id, "seq": source.last_seq})
-
-    def source_detached(self, source: JoinedSource) -> None:
-        """参加した端末との接続が切れた。主の録音は止めない。つなぎ直すのを待つ"""
-        if source.state != "active":
-            return
-        source.ws = None
-        source.state = "disconnected"
-        if self.mixer is not None:
-            self.mixer.set_connected(source.id, False)
-        source.expire = asyncio.create_task(self._source_expire_later(source))
-        log.info("source %d of %s disconnected", source.id, self.id)
-        self._sources_changed()
-
-    async def _source_expire_later(self, source: JoinedSource) -> None:
-        await asyncio.sleep(self.manager.resume_timeout_sec())
-        if source.state == "disconnected" and not self.ended:
-            log.info("source %d of %s did not come back", source.id, self.id)
-            await self.leave(source)
-
-    async def leave(self, source: JoinedSource) -> None:
-        """参加した端末が抜けた。音源としては残す（抜けた後は無音）"""
-        if source.state == "left":
-            return
-        if source.expire is not None and source.expire is not asyncio.current_task():
-            source.expire.cancel()
-        source.expire = None
-        source.state = "left"
-        source.ws = None
-        source.left_sec = self.elapsed
-        self._close_source(source)
-        log.info("source %d left %s", source.id, self.id)
-        self._sources_changed()
-        await self.send_sources()
-
-    def _close_source(self, source: JoinedSource) -> None:
-        """音源の音を受け取るのをやめる（話している途中の区間は final にする）"""
-        if self.mixer is not None and self.mixer.has(source.id):
-            source.alignment = self.mixer.alignment(source.id)
-            self.mixer.remove(source.id)
-        if source.transcriber is not None:
-            source.transcriber.flush()
-        with contextlib.suppress(Exception):
-            source.wav.close()
-
-    def _source_infos(self) -> list[SourceInfo]:
-        before = next((s for s in self.previous_sources if s.id == 1), None)
-        main = SourceInfo(
-            id=1,
-            name=before.name if before is not None else None,
-            kind="main",
-            recording=self.writer.meta.recording,
-        )
-        return (
-            [main]
-            + [s for s in self.previous_sources if s.id != 1]
-            + [s.info(self) for s in self.joined.values()]
-        )
-
-    def _sources_changed(self) -> None:
-        """音源の一覧をフロントマターと `.tmp/<ID>/sources.json` に書く（落ちても分かるように）"""
-        infos = self._source_infos()
-        try:
-            self.writer.set_sources(infos)
-            atomic_write_text(
-                self.writer.files.dir / ".tmp" / self.id / "sources.json",
-                json.dumps({"sources": [s.to_json() for s in infos]}, ensure_ascii=False),
-            )
-        except (OSError, ValueError) as e:
-            log.warning("failed to record the sources of %s: %s", self.id, e)
-
-    def _line_sources_path(self) -> Path:
-        return self.writer.files.dir / ".tmp" / self.id / "line-sources.jsonl"
-
-    def _append_line_sources(self, sources: list[int]) -> None:
-        """録音中の行の音源を `.tmp/<ID>/line-sources.jsonl` に 1 行ずつ足す（spec/files.md 5.5）。
-        まだなければ、そこまでの全部を書く"""
-        path = self._line_sources_path()
-        try:
-            if path.is_file():
-                lines, mode = sources, "a"
-            else:
-                lines, mode = self.line_sources or [], "w"
-            with path.open(mode, encoding="utf-8", newline="\n") as f:
-                f.writelines(f"{s}\n" for s in lines)
-        except OSError as e:
-            log.warning("failed to record the line sources of %s: %s", self.id, e)
-
-    def _record_sources(self) -> None:
-        """録音を終えた（残りの final も書き終えた）。行の音源と音源の一覧をフロントマターに書く"""
-        if self.line_sources is not None:
-            try:
-                self.writer.set_line_sources(self.line_sources)
-                self._line_sources_path().unlink(missing_ok=True)
-            except (OSError, ValueError) as e:
-                log.warning("failed to record the line sources of %s: %s", self.id, e)
-        self._sources_changed()
-
-    def _realign(self) -> None:
-        """60 秒ごとに、ほかの音源のずれを測り直す（相互相関は重いので別のスレッドで）"""
-        if self.mixer is None or (self._aligning is not None and not self._aligning.done()):
-            return
-        windows = self.mixer.due()
-        if windows:
-            self._aligning = asyncio.create_task(self._measure(windows))
-
-    async def _measure(self, windows: list) -> None:
-        for window in windows:
-            try:
-                lag, sharpness = await asyncio.to_thread(measure, window)
-            except Exception:  # noqa: BLE001 測れなくても録音は続ける
-                log.exception("failed to measure the offset of source %d", window.source)
-                continue
-            if self.mixer is None or self.ended:
-                return
-            used = self.mixer.apply(window, lag, sharpness)
-            log.info(
-                "source %d of %s: lag %.3fs, sharpness %.0f%s",
-                window.source,
-                self.id,
-                lag / SAMPLE_RATE,
-                sharpness,
-                "" if used else " (not used)",
-            )
-
-    async def stop(self) -> None:
-        await self._end("done")
-
-    def detach(self) -> None:
-        """接続が切れた。recording.resumeTimeoutMin 分のうちに resume されなければ interrupted
-
-        （interrupted になっても、continue で続きから録音できる。#101）"""
-        self.ws = None
-        if not self.ended:
-            self._expire = asyncio.create_task(self._expire_later())
-
-    async def _expire_later(self) -> None:
-        await asyncio.sleep(self.manager.resume_timeout_sec())
-        log.info("session %s interrupted", self.id)
-        await self._end("interrupted")
-
-    async def attach(self, ws: WebSocket) -> None:
-        if self._expire is not None:
-            self._expire.cancel()
-            self._expire = None
-        self.ws = ws
-
-    async def _end(self, status: str) -> None:
-        if self.ended:
-            return
-        self.ended = True
-        self.ended_at = time.monotonic()
-        self._status = status
-        if status == "done" and self.manager.will_summarize():
-            # 録音中の数が減ったことを送る status に、要約を待っていることを含める
-            # （ブラウザは、summarizing から外れたら要約ができたものとして取り直す）
-            self._summary_end = self.manager.hub.begin_summary(self.id)
-        try:
-            self.wav.close()
-            self.writer.finish(self.elapsed, status=status)
-        except OSError:
-            log.exception("failed to finish %s", self.id)
-        finally:
-            # 失敗しても、録音中の数は必ず減らす（設定のロックが外れなくなるため）
-            await self.manager.ended(self)
-        if self.mixer is not None:
-            # 待っている枠を、届いている分で決めて区切りに入れる（#356）
-            self.mixer.flush()
-        # 参加している音源も終える（参加した端末には、見ている側と同じく stopped が届く）
-        for source in self.joined.values():
-            if source.expire is not None:
-                source.expire.cancel()
-                source.expire = None
-            if source.state != "left":
-                source.state = "left"
-                source.ws = None
-                source.left_sec = self.elapsed
-                self._close_source(source)
-        if self.transcriber is not None:
-            # 話している途中の区間を final にする
-            self.transcriber.flush()
-        # 残りの文字起こし・変換・最終の要約は時間がかかるので、受信の処理を止めないように後ろで行う
-        self._finishing = asyncio.create_task(self._finish(status))
-
-    def _settle_summary(self) -> None:
-        """要約を積まずに後始末を終えた（失敗・引き継ぎ）。summarizing から外す"""
-        end, self._summary_end = self._summary_end, None
-        if end is not None:
-            end()
-
-    async def _finish(self, status: str) -> None:
-        try:
-            await self._finish_steps(status)
-        finally:
-            # 要約を積んでいれば、外すのはキューのジョブが終わったとき（_summary_end は None）
-            self._settle_summary()
-
-    async def _finish_steps(self, status: str) -> None:
-        if self.summarizer is not None:
-            # 途中の要約のタイマーを止める。作っている途中のものは、キューの中でそのまま終わる
-            # （最終の要約は優先度が低いので、その後に動く）
-            await self.summarizer.close()
-        if self.picker is not None:
-            # 用語を拾うのもやめる（拾っている途中のものは、そのまま終わる）
-            await self.picker.close()
-        try:
-            transcribers = self.transcribers()
-            try:
-                for transcriber in transcribers:
-                    await transcriber.wait()
-            finally:
-                for transcriber in transcribers:
-                    await transcriber.close()
-                if self._aligning is not None:
-                    self._aligning.cancel()
-                if self.joined or self.line_sources is not None:
-                    # 行の音源と、音源の一覧（抜けた時刻など）を書く
-                    self._record_sources()
-        finally:
-            # 話している途中だった最後の区間まで送ってから、見ているクライアントに
-            # 終わりを知らせる（#238）。続きの録音に引き継いだ（同じ ID で録音中）なら知らせない
-            if not self.superseded:
-                await self.manager.hub.end_watch(self.id)
-        if self.superseded:
-            # 続きの録音が WAV を引き継いだ（変換は続きを録音し終えたときに行う）。
-            # 続けられなかったときは take_back で続きを行う
-            self._handed_over = status
-            return
-        await self._complete(status)
-
-    async def _complete(self, status: str) -> None:
-        """mp3 に変換して、録音を終えたのなら最終の文字起こしを作り（#121）、最終の要約を積む
-
-        最終の要約は、最終の文字起こしができればそちらから作るので、できるまで待つ。
-        普通に録音を終えたとき（done）は、続きを録音できる間（recording.continueWindowMin）は WAV の
-        まま残し、過ぎてから変換する（続けるたびに mp3 をデコードし直さないため。#174）。
-        浄書は WAV からでも作れる
-        """
-        self._completing = True
-        if status == "done" and self.manager.continue_window_sec() > 0:
-            self._defer_convert()
-        else:
-            self.converting = True
-            try:
-                await self._convert()
-            finally:
-                self.converting = False
-        if status == "done":
-            # 大きい資料なら、今回扱った範囲を判断して用語リストを作り直してから浄書し、
-            # 浄書の後にコンテキストを作り直す（#182）
-            material_range = self.manager.material_range
-            plan = None
-            if material_range is not None:
-                lines = [text for _, text in self.writer.final_lines()]
-                plan = await material_range.before_final_transcript(self.writer, lines)
-            await self.manager.make_final_transcript(self)
-            if material_range is not None:
-                await material_range.after_final_transcript(self.writer, plan)
-            self.manager.submit_final_summary(self)
-
-    async def _complete_taken_back(self, status: str) -> None:
-        # 続きの録音に引き継げなかった。引き継ぐ前提で知らせなかった終わりを、見ている側に知らせる
-        await self.manager.hub.end_watch(self.id)
-        try:
-            await self._complete(status)
-        finally:
-            self._settle_summary()
-
-    def hand_over(self) -> None:
-        """続きの録音に引き継ぐ（#101・#174）。mp3 への変換をやめ、普通に録音を終えたあとの
-        浄書・最終の要約は、まだのものを取り消す（続きを録音し終えたら、録音全体で作り直す）。
-        すでに GPU で動いている最終の要約は、そのまま終わらせて前の版として残す
-        （作っている途中の浄書は、録音が始まると止まる。6.9 節）"""
-        self.superseded = True
-        if self._deferred is not None and not self._deferred.done():
-            self._deferred.cancel()
-        finishing = self._finishing
-        if self._status == "done" and self._completing and finishing and not finishing.done():
-            finishing.cancel()
-            self._completion_cancelled = True
-        job, gpu = self._summary_job, self.manager.gpu
-        if job is not None and gpu is not None and gpu.is_waiting(job):
-            job.cancel()
-            self._summary_cancelled = True
-
-    def take_back(self) -> None:
-        """続きの録音に引き継ごうとしたが、続けられなかった。後始末を元どおり行う（#101）"""
-        self.superseded = False
-        if self._handed_over is not None:
-            status, self._handed_over = self._handed_over, None
-            self._finishing = asyncio.create_task(self._complete_taken_back(status))
-        elif self._completion_cancelled:
-            # 取り消した浄書・最終の要約を作り直す（変換も、続きを録音できる時間のあとに行う）
-            self._completion_cancelled = False
-            self._finishing = asyncio.create_task(self._complete_taken_back("done"))
-        else:
-            if self._deferred is not None and self._deferred.cancelled():
-                self._defer_convert()
-            if self._summary_cancelled:
-                # 取り消した（GPU キューで待っていた）最終の要約を積み直す
-                self.manager.submit_final_summary(self)
-        self._summary_cancelled = False
-
-    def _defer_convert(self) -> None:
-        """続きを録音できる時間が過ぎたら、WAV を mp3 に変換する（#174）"""
-        left = self.manager.continue_window_sec() - (time.monotonic() - (self.ended_at or 0.0))
-        self._deferred = asyncio.create_task(self._convert_later(max(0.0, left)))
-
-    async def _convert_later(self, delay: float) -> None:
-        await asyncio.sleep(delay)
-        finishing = self._finishing
-        if finishing is not None and not finishing.done():
-            # 浄書・最終の要約を作っている途中なら、終わるのを待つ（浄書が WAV を読むため）
-            await asyncio.wait({finishing})
-        if self.superseded:
-            return
-        self.converting = True
-        try:
-            await self._convert()
-        finally:
-            self.converting = False
-
-    async def _convert(self) -> None:
-        """WAV を mp3 に変換して WAV を消す。失敗したら WAV を残す（次の起動時に変換し直す: #33）"""
-        wav = self.wav.path
-        # 参加した音源の録音も、音源ごとに変換する（#356）
-        await asyncio.to_thread(convert_source_wavs, self.writer)
-        try:
-            recording = await asyncio.to_thread(convert_wav, wav, self.writer.files.dir, self.id)
-        except Exception:  # noqa: BLE001 変換できなくても録音（WAV）は残っている
-            log.exception("failed to convert the recording of %s", self.id)
-            return
-        try:
-            self.writer.set_recording(recording.name)
-            refresh_source_recordings(self.writer)
-        except OSError:
-            # 記録できなければ WAV を残す（次の起動時に直す: #33）
-            log.exception("failed to record the recording file of %s", self.id)
-            return
-        # 続きを録音したとき、前の録音が別の形式（m4a）だったら、古い方は消す（#101）
-        for ext in ("mp3", "m4a"):
-            old = self.writer.files.dir / recording_name(self.id, ext)
-            if old != recording:
-                with contextlib.suppress(OSError):
-                    old.unlink()
-        with contextlib.suppress(OSError):
-            wav.unlink()
-            if not any(wav.parent.glob("audio-*.wav")):
-                # 音源の一覧は、どの音源の WAV も変換し終えたら要らない
-                (wav.parent / "sources.json").unlink(missing_ok=True)
-            # .tmp/<ID>/ に途中の要約が残っていなければ、ディレクトリごと消す
-            wav.parent.rmdir()
-
-    async def wait_finished(self) -> None:
-        """録音を終えたあとの処理（文字起こし・変換）が終わるまで待つ。
-        続きの録音に引き継いで取り消したもの（#174）は、待たずに終わる"""
-        task = self._finishing
-        if task is not None:
-            await asyncio.wait({task})
-            if not task.cancelled():
-                task.result()
-
-    async def wait_converted(self) -> None:
-        """続きを録音できる時間のあとの mp3 への変換（#174）も含めて、終わるまで待つ"""
-        await self.wait_finished()
-        task = self._deferred
-        if task is not None:
-            await asyncio.wait({task})
-            if not task.cancelled():
-                task.result()
+        # 記録できなければ WAV を残す（次の起動時に直す: #33）
+        log.exception("failed to record the recording file of %s", writer.id)
+        return
+    # 続きを録音したとき、前の録音が別の形式（m4a）だったら、古い方は消す（#101）
+    for ext in ("mp3", "m4a"):
+        old = writer.files.dir / recording_name(writer.id, ext)
+        if old != recording:
+            with contextlib.suppress(OSError):
+                old.unlink()
+    with contextlib.suppress(OSError):
+        wav.unlink()
+        if not any(wav.parent.glob("audio-*.wav")):
+            # 音源の一覧は、どの音源の WAV も変換し終えたら要らない
+            (wav.parent / "sources.json").unlink(missing_ok=True)
+        # .tmp/<ID>/ に途中の要約が残っていなければ、ディレクトリごと消す
+        wav.parent.rmdir()
 
 
 def convert_source_wavs(writer: SessionWriter) -> list[int]:
@@ -1099,13 +227,13 @@ class RecordingManager:
             # 残りの文字起こし（GPU の空きを待つことがある）は待たずに、そのまま続けさせる。
             # その間に WAV を変換し始めないよう、先に止めておく。録音を終えたあとの浄書・
             # 最終の要約でまだのものは取り消す（#174。続けられなければ take_back で戻す）
-            previous.hand_over()
+            previous.finisher.hand_over()
         try:
             session = await self._restore(ws, project, sid)
         except BaseException:
             if previous is not None:
                 # 続けられなかったので、前の録音の変換（と最終の要約）を元どおり行わせる
-                previous.take_back()
+                previous.finisher.take_back()
             raise
         session.writer.reopen()
         if previous is not None:
@@ -1151,15 +279,16 @@ class RecordingManager:
     def _begin(self, session: RecordingSession) -> None:
         """途中の要約と文字起こしを始める"""
         sid = session.id
+        live = session.live
         if self.ollama is not None and self.gpu is not None:
-            session.start_summarizing(self.ollama, self.gpu, self.settings)
+            live.start_summarizing(self.ollama, self.gpu, self.settings)
         if self.whisper is not None and self.gpu is not None:
-            session.start_transcribing(self.whisper, self.gpu, self.settings.get())
+            live.start_transcribing(self.whisper, self.gpu, self.settings.get())
             # 全体設定とプロジェクトの両方でオンのときだけ拾う（#116）
             # 録音中は全体設定を変えられないので、始めるときに一度だけ見る
             picking = self.settings.get().ollama.pick_terms and session.writer.pick_terms
             if self.ollama is not None and picking:
-                session.start_picking(self.ollama, self.gpu, self.settings)
+                live.start_picking(self.ollama, self.gpu, self.settings)
             # Whisper は録音を始めたときに読み込む（読み込み済みなら何もしない）。spec/flows.md 6.2
             # 読み込み中に届いた音声の区間は、キューの後ろで待って、読み込み後に文字起こしする
             loading = self.gpu.submit(
@@ -1201,7 +330,7 @@ class RecordingManager:
                 continue
             if session.transcriber is not None and writer.meta.use_hotwords:
                 # 拾った語（#103）は、セットの用語の後ろに付け直す
-                session.base_hotwords = load_hotwords(writer.files.dir, set_id)
+                session.live.base_hotwords = load_hotwords(writer.files.dir, set_id)
                 session.apply_hotwords()
             if session.summarizer is not None and writer.use_context:
                 session.summarizer.context = load_context(writer.files.dir, set_id)
@@ -1226,8 +355,9 @@ class RecordingManager:
             return
         job = self.final_summary
         # summarizing から外すのは、ジョブが終わったとき（失敗・cancel でも）
-        end = session._summary_end or self.hub.begin_summary(session.id)
-        session._summary_end = None
+        finisher = session.finisher
+        end = finisher.summary_end or self.hub.begin_summary(session.id)
+        finisher.summary_end = None
         try:
             future = self.gpu.submit(
                 Priority.BACKGROUND, lambda: job(session), kind="finalSummary", session=session.id
@@ -1237,30 +367,19 @@ class RecordingManager:
             raise
         future.add_done_callback(_ignore_summary_failure)
         future.add_done_callback(lambda _: end())
-        session._summary_job = future
+        finisher.summary_job = future
+
+    async def convert_recording(self, session: RecordingSession) -> None:
+        """録音を終えたセッションの WAV を mp3 に変換する（SessionFinisher が呼ぶ）"""
+        await convert_session_wavs(session.writer, session.wav.path)
 
     async def close(self) -> None:
         """サーバーを止めるとき。録音中の WAV を閉じ、録音を終えたあとの処理を止める
         （変換できなかった WAV と状態の直しは次の起動時: #33）"""
         for session in self.active():
-            with contextlib.suppress(Exception):
-                session.wav.close()
-            for source in session.joined.values():
-                with contextlib.suppress(Exception):
-                    source.wav.close()
-                if source.expire is not None:
-                    source.expire.cancel()
-            for transcriber in session.transcribers():
-                await transcriber.close()
-            if session.summarizer is not None:
-                await session.summarizer.close()
+            await session.close()
         # 続きを録音できる時間のあとの変換（#174）も止める（WAV は次の起動時に変換する）
-        finishing = [
-            task
-            for s in self.sessions.values()
-            for task in (s._finishing, s._deferred)
-            if task is not None and not task.done()
-        ]
+        finishing = [task for s in self.sessions.values() for task in s.finisher.tasks()]
         for task in finishing:
             task.cancel()
         if finishing:

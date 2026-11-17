@@ -5,6 +5,7 @@ __pycache__/
 .python/
 .uv-cache/
 hf/
+.coverage
 
 # Node (web)
 node_modules/
