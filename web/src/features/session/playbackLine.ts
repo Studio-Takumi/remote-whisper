@@ -1,5 +1,8 @@
 // 録音の再生位置に当たる文字起こしの行（#122）
-import type { Playback } from '@/features/session/Transcript';
+
+// 録音の再生位置。index は再生位置に当たる行（まだ当たる行がなければ null）。
+// seeks はシークした回数（シークしたら、また再生位置を追う）
+export type Playback = { index: number | null; playing: boolean; seeks: number };
 
 // 再生位置（秒）に当たる行。行の始まり（starts は時刻の順）が再生位置以前の、最後の行。まだなければ null
 export function lineAt(starts: number[], sec: number) {

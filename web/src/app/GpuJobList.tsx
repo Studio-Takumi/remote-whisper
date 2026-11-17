@@ -1,6 +1,7 @@
 import type { GpuJobs } from '@/api/protocol';
 import { jobKindLabel, jobProgress } from '@/api/status';
-import { GpuJobRow, type JobSession } from '@/app/GpuJobRow';
+import { GpuJobRow } from '@/app/GpuJobRow';
+import type { JobSession } from '@/app/gpuJobs';
 import { formatElapsed } from '@/lib/time';
 
 // GPU の使用率と、実行中・待っているジョブの一覧（GpuIndicator を押すと開く）

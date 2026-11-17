@@ -1,4 +1,4 @@
-export type JobSession = { title: string; href: string | null; projectId?: string; sessionId?: string };
+import type { JobSession } from '@/app/gpuJobs';
 
 // 実行中・待ちの1行。セッションがあれば行全体がそのセッションのページへのリンクになる（#269）
 // progress があれば（実行中の浄書・最終要約。#340）、種類の横に段階と件数を、下に細いバーを出す

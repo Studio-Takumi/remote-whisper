@@ -1,8 +1,10 @@
 // 上のバーの GPU の状態（GpuIndicator）に出す文と、ジョブのセッションの引き当て（spec/ui.md 8）
 import type { GpuJobs, GpuStats } from '@/api/protocol';
 import type { Project } from '@/api/types';
-import type { JobSession } from '@/app/GpuJobRow';
 import { routePath } from '@/app/router';
+
+// ジョブの行に出すセッション。href が null なら見つからない（リンクにしない）
+export type JobSession = { title: string; href: string | null; projectId?: string; sessionId?: string };
 
 // 待っているジョブの数（まとめてあるものは count の分）
 export function waitingCount(jobs: GpuJobs): number {

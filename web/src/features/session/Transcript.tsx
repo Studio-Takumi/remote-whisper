@@ -7,15 +7,12 @@ import type { LivePartial } from '@/app/store';
 import { Button } from '@/components/ui/button';
 import { PartialLine } from '@/features/session/PartialLine';
 import { TranscriptRow } from '@/features/session/TranscriptRow';
+import type { Playback } from '@/features/session/playbackLine';
 import { useFollowPlayback } from '@/features/session/useFollowPlayback';
 import { useKeepHeight } from '@/features/session/useKeepHeight';
 import { useStickToBottom } from '@/features/session/useStickToBottom';
 
 const NO_NAMES: Record<number, string | null> = {};
-
-// 録音の再生位置（#122）。index は再生位置に当たる行（まだ当たる行がなければ null）。
-// seeks はシークした回数（シークしたら、また再生位置を追う）
-export type Playback = { index: number | null; playing: boolean; seeks: number };
 
 // 文字起こしの本文。確定した行（final）と、文字起こし中の区間（partial）を出す（spec/flows.md 6.2・spec/ui.md 8）
 export function Transcript({
