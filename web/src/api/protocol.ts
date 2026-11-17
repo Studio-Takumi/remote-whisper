@@ -71,9 +71,7 @@ export type ContextSetStatus = 'generating' | 'ready' | 'failed';
 
 // サーバー → ブラウザ。セッションに関係するものには session が付く
 export type ServerMessage =
-    // resumed は再接続（resume）で続きから録音するとき
-    // continued・offsetSec は続きを録音するとき（offsetSec は前の録音の長さ。時刻はここから続く）
-    // sessionUuid は新しく始めたセッションの、画面の URL に出す ID（#177。古いサーバーにはない）
+    // resumed・continued・offsetSec・sessionUuid の意味は spec/api.md 7.2
     | {
           type: 'started';
           session: string;

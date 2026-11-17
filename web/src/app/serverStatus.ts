@@ -12,9 +12,8 @@ function sameOr(next: string[] | undefined, before: string[]) {
     return JSON.stringify(next ?? []) === JSON.stringify(before) ? before : (next ?? []);
 }
 
-// status を画面に出す形にする。recordings と queue は画面に出さない（GPU キューは jobs で出す）。
-// status は GPU の使用率が変わるたびにも届くが、jobs の秒数はキューが変わったときのまま。
-// jobs が変わったときだけ受け取った時刻を記録し直す（経過時間が戻らないように）
+// status を画面に出す形にする（spec/api.md 7.2）。status は GPU の使用率でも届くので、
+// jobs が変わったときだけ受け取った時刻を記録し直す（経過時間が戻らないように。spec/notes.md 9.5）
 function serverFrom(server: AppState['server'], m: StatusMessage): AppState['server'] {
     const jobsChanged = !!m.jobs && JSON.stringify(m.jobs) !== JSON.stringify(server.jobs);
     return {

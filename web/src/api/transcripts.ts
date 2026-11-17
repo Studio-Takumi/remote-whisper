@@ -27,9 +27,8 @@ export const finalTranscriptsQuery = (projectId: string, sessionId: string) =>
         },
     });
 
-// 最終の文字起こし（#121）の 1 つの世代（queryKeys.finalTranscript()）。世代のファイルは書き換わらないので、
-// 一度取ったらキャッシュのものを使う（世代を切り替えて戻ったときに取り直さない）。
-// サーバーが置き換え（#176）を当てて返すので、置き換えが変わったらキャッシュから消す（forgetTranscripts）
+// 最終の文字起こし（#121）の 1 つの世代。書き換わらないのでキャッシュを使い、置き換え（#176）が変わったら
+// forgetTranscripts で消す（spec/notes.md 9.5）
 export const finalTranscriptQuery = (projectId: string, sessionId: string, gid: string) =>
     queryOptions({
         ...KEEP,
@@ -63,12 +62,8 @@ export function fetchFinalTranscripts(projectId: string, sessionId: string) {
     return queryClient.fetchQuery({ ...finalTranscriptsQuery(projectId, sessionId), staleTime: 0 });
 }
 
-// 置き換え（#176）が変わった。そのセッションの文字起こしと最終の文字起こしの世代を、キャッシュから消す（次に取るときに
-// 取り直す）。keep は画面に出していて、すぐ取り直すもの（消すと取れるまで画面から消えるので、消さずに上書きする）。
-// 無効にする（invalidate）だけだと、置き換える前に取り始めていたものがあとで届いたときに、古い中身が新しいものとして
-// 残る（世代は staleTime: Infinity なので取り直されない）。そのため、取っている途中のものは届くのを待ってから消す。
-// 止めて（cancel）すぐ消すと、それを待っている呼び出し（世代の切り替えなど）がエラーになるので止めない。
-// 待っている間に新しく取り始めたもの（置き換えのあとに頼んだもの）は新しい中身なので、消さない
+// 置き換え（#176）が変わったので、そのセッションの文字起こしと世代をキャッシュから消す。keep は消さず上書きする。
+// 取得中のものは、届くのを待ってから消す（invalidate だと古い中身が残り、cancel だと待つ側がエラーになる。spec/notes.md 9.5）
 export async function forgetTranscripts(
     projectId: string,
     sessionId: string,
