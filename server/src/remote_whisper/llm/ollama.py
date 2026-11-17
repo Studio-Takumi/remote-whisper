@@ -1,9 +1,6 @@
 """Ollama とのやりとり。spec/flows.md 6.3・spec/api.md 7.1・spec/notes.md 9.3
 
-- モデルの一覧（/api/tags）と、それぞれが思考モードに対応しているか（/api/show の capabilities）
-- 要約などの生成（/api/chat）。思考モードに対応していないモデルはオフで実行する
-- keep_alive は keepAliveMin 分。録音中は -1（下ろさない）。録音が終わったら keepAliveMin 分に戻す
-- つながらなければ status の ollama を error にする。つながれば ready に戻す
+keep_alive は keepAliveMin 分（録音中は -1）。つながらなければ status の ollama を error にする。
 """
 
 import asyncio
@@ -90,10 +87,8 @@ class OllamaClient:
         await self.hub.set_status(ollama="ready")
 
     async def _failed(self, e: Exception) -> OllamaUnavailable:
-        """失敗を OllamaUnavailable にする
-
-        status の ollama を error にするのは、つながらない・タイムアウト・5xx のときだけ。
-        4xx（モデルがないなど）は Ollama 自体は動いているので変えない"""
+        """失敗を OllamaUnavailable にする。status の ollama を error にするのは、
+        つながらない・タイムアウト・5xx のときだけ"""
         if isinstance(e, httpx.HTTPStatusError) and e.response.status_code < 500:
             log.warning("ollama rejected the request: %s", e)
             await self._ok()
@@ -158,11 +153,8 @@ class OllamaClient:
         return {m["name"] for m in data.get("models", []) if m.get("name")}
 
     async def resolve(self, model: str) -> str:
-        """動かすモデル。入っていなければ、要約詳細のモデル → 全体概要のモデル →
-        入っているうち最初のもの、の順に代わりを選ぶ（#178。動かなくならないように）
-
-        一覧を取れない（つながらない）・何も入っていないときは、そのまま返す（呼んだ先で失敗する）
-        """
+        """動かすモデル。入っていなければ 要約詳細 → 全体概要 → 入っているうち最初のもの、
+        の順に代える（#178）"""
         try:
             installed = await self.installed()
         except OllamaUnavailable:
@@ -182,8 +174,7 @@ class OllamaClient:
         return alternative
 
     async def supports_thinking(self, model: str) -> bool:
-        """`ollama show` の capabilities に thinking が含まれるか（spec/notes.md 9.3）
-
+        """`ollama show` の capabilities に thinking が含まれるか（spec/notes.md 9.3）。
         分からなければ False"""
         return "thinking" in await self._capabilities_of(model)
 
@@ -218,10 +209,8 @@ class OllamaClient:
         format: dict[str, Any] | None = None,
         options: dict[str, Any] | None = None,
     ) -> AsyncIterator[str]:
-        """本文を少しずつ返す（思考の部分は返さない）
-
-        think は、モデルが思考モードに対応していなければオフにする。
-        モデルが入っていなければ、代わりのモデルで動かす（resolve。#178）"""
+        """本文を少しずつ返す（思考の部分は返さない）。
+        モデルが思考に対応していなければ think をオフにする"""
         model = await self.resolve(model)
         if self.recording():
             await self._unload_others(model)
@@ -272,15 +261,8 @@ class OllamaClient:
             raise await self._failed(e) from e
 
     async def _unload_others(self, model: str) -> None:
-        """録音中は、Ollama のモデルを 1 つだけ載せておく（#178）
-
-        処理ごとにモデルを分けると、録音中に途中の要約・タイトル・用語の抽出で別々のモデルを使う。
-        どれも keep_alive: -1 で載せたままにすると、Whisper と合わせて VRAM（6GB）が溢れ、
-        読み込みに 1 分以上かかって文字起こしも止まった。生成の前に、使うモデル以外を下ろす。
-        録音の前に載せたモデル（参考資料を作った gemma4:e4b が keepAliveMin のあいだ残っている
-        など。#328）も下ろすため、載っているモデルを /api/ps で調べる。調べられなければ、録音中に
-        載せたモデルだけを下ろす（下ろせなくても生成は試す）
-        """
+        """録音中は Ollama のモデルを 1 つだけ載せておく（#178）。VRAM が溢れるため。
+        spec/flows.md 6.3"""
         others = set(self._pinned)
         with contextlib.suppress(OllamaUnavailable):
             loaded = await self._request("GET", "/api/ps")
@@ -295,11 +277,8 @@ class OllamaClient:
             self._pinned.discard(other)
 
     async def pull(self, model: str) -> AsyncIterator[PullProgress]:
-        """モデルを取ってくる（`/api/pull`。初回のセットアップ。#291）。進み具合を 1 行ずつ返す
-
-        GPU は使わないので GPU キューには積まない。止めるときは、呼んだ側がタスクを cancel する
-        （接続が切れると Ollama も取るのをやめる。途中まで取った分は、次に取るときに使われる）
-        """
+        """モデルを取ってくる（`/api/pull`。#291）。進み具合を 1 行ずつ返す。
+        GPU キューには積まない"""
         # 数 GB を取るので、届くまでの待ち時間は設けない
         timeout = httpx.Timeout(REQUEST_TIMEOUT, read=None)
         try:
@@ -336,11 +315,8 @@ class OllamaClient:
         return "".join([part async for part in self.chat_stream(model, messages, **kwargs)])
 
     async def unload_all(self, cancelled: Callable[[], bool] | None = None) -> None:
-        """読み込まれているモデルをすべて下ろして VRAM を空ける（最終の文字起こしの前。#121）
-
-        つながらなければ何もしない（下ろせなくても文字起こしは試す）。cancelled() が True に
-        なったら、次のモデルからは下ろさない（切り替えたバックエンドにすぐ戻したとき。LlmSwitch）
-        """
+        """読み込まれているモデルをすべて下ろして VRAM を空ける（最終の文字起こしの前。#121）。
+        cancelled() が True なら次から下ろさない"""
         with contextlib.suppress(OllamaUnavailable):
             loaded = await self._request("GET", "/api/ps")
             for item in loaded.get("models") or []:
@@ -355,9 +331,7 @@ class OllamaClient:
                     self._pinned.discard(name)
 
     async def recording_ended(self) -> None:
-        """録音がすべて終わった
-
-        録音中に下ろさないようにしたモデルを、keepAliveMin 分で下ろすように戻す"""
+        """録音がすべて終わった。録音中は下ろさなかったモデルを keepAliveMin 分で下ろす設定に戻す"""
         if self.recording():
             return
         pinned, self._pinned = self._pinned, set()

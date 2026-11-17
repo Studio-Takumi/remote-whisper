@@ -1,9 +1,5 @@
-"""GPU の使用率と VRAM を数秒おきに取って、status の gpu で送る。spec/api.md 7.2
-
-NVIDIA の GPU がない・ドライバがない・nvidia-ml-py が入っていない環境では何もしない
-（status の gpu は null のまま。サーバーはそのまま動く）。
-Intel の GPU（Arc）で文字起こしするとき（#374）は、Windows の性能カウンターから取る。
-"""
+"""GPU の使用率と VRAM を数秒おきに取って、status の gpu で送る。NVIDIA がなければ null。
+spec/api.md 7.2"""
 
 import asyncio
 import contextlib
@@ -131,9 +127,8 @@ class GpuStats:
         total_mb: int | None,
         active: Callable[[], bool] = lambda: True,
     ) -> None:
-        """NVML の代わりに、Windows の性能カウンターから Intel の GPU の値を取る（#374）。
-        LUID か VRAM の大きさが分からない・Windows でないときは何もしない（今までどおり）。
-        active が False の間（設定 whisper.intelGpu が off）は null を送る"""
+        """NVML の代わりに Windows の性能カウンターから Intel の GPU の値を取る（#374）。
+        取れない・active が False なら null"""
         if sys.platform == "win32" and luid and total_mb:
             self._counters = WindowsGpuCounters(luid, total_mb)
             self._counters_active = active

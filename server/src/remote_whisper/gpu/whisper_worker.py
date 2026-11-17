@@ -1,8 +1,6 @@
 """Whisper を子プロセスで動かす。spec/flows.md 6.1・6.3
 
-CUDA まわりの異常終了がサーバー全体を道連れにしないように、モデルは子プロセスで読み込む。
-親（サーバー）とはパイプで「読み込み」「文字起こし」をやりとりする。子プロセスが落ちても、
-status の whisper を error にするだけで、録音（音声の受信と保存）は続ける。
+CUDA の異常終了がサーバーを道連れにしないよう、モデルは子プロセスで読み込む。落ちても録音は続ける。
 """
 
 import asyncio
@@ -64,19 +62,16 @@ def _add_cuda_dll_dirs() -> None:
 
 
 def _device_for(cuda_devices: int, compute_type: str) -> tuple[str, str]:
-    """使う device と compute_type。CUDA がなければ CPU と int8 にする（#274。Mac など）
-
-    考え方は transcript.worker に合わせる。設定の compute_type は CUDA のときだけ使う
-    """
+    """使う device と compute_type。CUDA がなければ CPU と int8（#274）。
+    設定の compute_type は CUDA のときだけ"""
     if cuda_devices > 0:
         return "cuda", compute_type
     return "cpu", "int8"
 
 
 def default_backend() -> str:
-    """録音中の文字起こしの backend。Apple Silicon の Mac で mlx-whisper が入っていれば、
-    Mac の GPU を使う mlx（#276）。それ以外は faster-whisper
-    """
+    """録音中の文字起こしの backend。Apple Silicon で mlx-whisper があれば mlx（#276）、
+    なければ faster-whisper"""
     if (
         sys.platform == "darwin"
         and platform.machine() == "arm64"
@@ -92,9 +87,8 @@ def _mlx_repo(model: str) -> str:
 
 
 def _speech_range(audio: Any) -> tuple[int, int] | None:
-    """話している範囲（サンプルの位置）。最初に話し始めてから最後に話し終えるまで。
-    話していなければ None。mlx-whisper には VAD がないので faster-whisper の Silero VAD を使う
-    """
+    """話している範囲（サンプルの位置）。話していなければ None。
+    mlx-whisper に VAD がないので Silero VAD を使う"""
     from faster_whisper.vad import get_speech_timestamps
 
     chunks = get_speech_timestamps(audio)
@@ -179,12 +173,8 @@ def _transcribe(backend: str, model: Any, pcm: bytes, options: dict) -> list[dic
 
 
 def _transcribe_mlx(repo: str, audio: Any, options: dict) -> list[dict]:
-    """mlx-whisper で文字起こしする（#276）。faster-whisper にない機能は近い動きで代える
-
-    - VAD: 話している範囲だけを渡す。話していなければ文字起こししない（#81 と同じ目的）
-    - hotwords: プロンプトの後ろに足す（faster-whisper の hotwords もプロンプトに入れる仕組み）
-    - beam_size: mlx-whisper はビームサーチがないので使わない（greedy）
-    """
+    """mlx-whisper で文字起こしする（#276）。
+    VAD は話している範囲だけを渡し、hotwords はプロンプトに足し、greedy で動かす"""
     import mlx_whisper
 
     offset = 0
@@ -268,9 +258,8 @@ class WhisperWorker:
         backend: str = "faster-whisper",
         openvino_device: str | None = None,
     ):
-        """openvino_device は、Intel の GPU を見つけたときのデバイス
-        （#374。openvino_whisper.detect）。設定の whisper.intelGpu が auto なら、
-        faster-whisper の代わりに OpenVINO で動かす"""
+        """openvino_device は Intel の GPU のデバイス（#374）。
+        設定の whisper.intelGpu が auto なら OpenVINO で動かす"""
         self.hub = hub
         self.settings = settings
         self.backend = backend
@@ -424,11 +413,8 @@ class WhisperWorker:
             self._conn.send(("crash",))
 
     async def _call(self, message: tuple) -> Any:
-        """子プロセスに頼んで、返事を待つ。子プロセスが落ちたら WhisperUnavailable
-
-        待っている途中で cancel されたら、子プロセスを止めてから cancel を伝える。
-        裏のスレッドが同じパイプを使い続けて、次の依頼と返事を取り違えないようにするため。
-        """
+        """子プロセスに頼んで、返事を待つ。落ちたら WhisperUnavailable。
+        待つ途中で cancel されたら先に子プロセスを止める"""
         conn, process = self._conn, self._process
         if conn is None or process is None or not process.is_alive():
             raise _ChildDied("Whisper の子プロセスがありません")

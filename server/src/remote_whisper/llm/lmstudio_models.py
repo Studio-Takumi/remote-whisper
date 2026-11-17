@@ -63,9 +63,8 @@ class ModelList:
         self._list_version += 1
 
     async def llms(self, fresh: bool = False) -> dict[str, dict[str, Any]]:
-        """入っている LLM（埋め込みのモデルは除く）。名前（key）→ 一覧の項目。能力も覚える
-
-        LIST_TTL 秒のあいだは、前に取った一覧を返す（fresh なら取り直す）"""
+        """入っている LLM（埋め込みは除く）。名前（key）→ 一覧の項目。
+        LIST_TTL 秒は前の一覧を返す（fresh なら取り直す）"""
         if not fresh and self._list is not None and self._clock() - self._list_at < LIST_TTL:
             return self._list
         version = self._list_version
@@ -112,13 +111,8 @@ class ModelList:
         return set(await self.llms(fresh=True))
 
     async def resolve(self, model: str) -> str:
-        """動かすモデル。入っていなければ、要約詳細のモデル → 全体概要のモデル →
-        入っているうち最初のもの、の順に代わりを選ぶ（#178。Ollama と同じ考え方）
-
-        一覧を取れない・何も入っていないときは、そのまま返す（呼んだ先で失敗する）。
-        要約詳細・全体概要のモデルは lmstudio.models から読む（#325）。一覧は覚えているものを使う
-        （続けて載っているかを見るときに、取り直さない）
-        """
+        """動かすモデル。入っていなければ 要約詳細 → 全体概要 → 入っているうち最初のもの、
+        の順に代える（#178）"""
         try:
             installed = set(await self.llms())
         except LMStudioUnavailable:
@@ -149,8 +143,7 @@ class ModelList:
         return {str(o) for o in reasoning.get("allowed_options") or []}
 
     async def supports_thinking(self, model: str) -> bool:
-        """思考モードを使い分けられるか（allowed_options に on と off の両方がある。#322）
-
+        """思考モードを使い分けられるか（allowed_options に on と off の両方がある。#322）。
         分からなければ False"""
         options = await self.reasoning_options(model)
         return options is not None and {"on", "off"} <= options

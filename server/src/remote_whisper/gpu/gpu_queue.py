@@ -1,18 +1,5 @@
-"""優先度付きの GPU ジョブキュー。GPU を使う処理を1つずつ順番に実行する。spec/flows.md 6.3
-
-| 優先度 | ジョブ |
-|---|---|
-| 1 | 文字起こし（partial と final） |
-| 2 | 途中の要約・仮のタイトル |
-| 3 | 最終の要約・タイトル・参考資料セットの作成・作り直し |
-
-同じ優先度の中では、積んだ順に実行する。実行中のジョブは止めない（優先度の高いジョブは、その次に実行する）。
-
-画面で何が詰まっているかを見られるよう、ジョブには種類とセッションを持たせ、
-実行中のジョブと待っているジョブの一覧（`snapshot`）を status の jobs で送る
-（spec/flows.md 6.3・spec/api.md 7.2）。実行中のジョブは、`report_progress` で
-進み具合（段階と件数）を知らせられる（#340）。
-"""
+"""優先度付きの GPU ジョブキュー。GPU を使う処理を 1 つずつ順番に実行する。
+spec/flows.md 6.3・spec/api.md 7.2"""
 
 import asyncio
 import contextlib
@@ -88,13 +75,8 @@ def report_progress(
     total: int | None = None,
     percent: float | None = None,
 ) -> None:
-    """実行中のジョブの進み具合を知らせる（#340。spec/api.md 7.2）。status の jobs.running.progress
-
-    GPU キューのジョブの中から呼ぶ（ジョブの外から呼んでも何もしない）。step は段階の名前で、
-    画面に出す名前はブラウザが決める。done・total は済んだ数と全体の数（分かるときだけ）、
-    percent は今の段階の中の %（0〜100。分かるときだけ）。送る間隔は GpuQueue の min_interval に従う
-    （その間の変化はまとめて、最新のものだけを送る）
-    """
+    """実行中のジョブの進み具合を知らせる（#340）。GPU キューのジョブの中からだけ有効。
+    spec/api.md 7.2"""
     current = _running.get()
     if current is None:
         return
@@ -114,11 +96,8 @@ class GpuQueue:
         on_change: Callable[[int], Awaitable[None]] | None = None,
         min_interval: float = 0.0,
     ):
-        """on_change は、待っている・実行中のジョブが変わったときに呼ぶ（status の queue と jobs）
-
-        min_interval（秒）を指定すると、通知の間をそれだけ空けて、その間の変化はまとめて送る
-        （partial のたびに大量に送らないため）
-        """
+        """on_change は、待っている・実行中のジョブが変わったときに呼ぶ。
+        min_interval（秒）で通知をまとめる"""
         self._queue: asyncio.PriorityQueue[tuple[int, int, _Job]] = asyncio.PriorityQueue()
         self._order = itertools.count()
         self._on_change = on_change
@@ -137,11 +116,8 @@ class GpuQueue:
         return len(self._waiting) + (self._current is not None)
 
     def snapshot(self) -> dict[str, Any]:
-        """実行中のジョブと、待っているジョブ（実行する順）。status の jobs
-
-        待っているジョブは、続けて並んでいる同じ種類・同じセッションのものを1つにまとめて件数にする
-        （文字起こしの partial が溜まっても長くならないように）。時間は送った時点の経過秒数
-        """
+        """実行中のジョブと、待っているジョブ（実行する順）。status の jobs。
+        同じ種類・セッションの待ちは件数にまとめる"""
         now = time.monotonic()
         running = None
         if self._current is not None and self._current.started_at is not None:
@@ -201,11 +177,8 @@ class GpuQueue:
         session: str | None = None,
         label: str | None = None,
     ) -> asyncio.Future[T]:
-        """ジョブを積む。結果（か例外）は返す Future に入る。cancel すると、まだなら実行しない
-        （実行中のジョブを cancel しても、GPU の処理そのものは止まらない）
-
-        kind と session は画面に出すためのもの（何のジョブか・どのセッションのものか）。
-        kind を省くと優先度から決める。label は画面に出さない印（oldest_waiting で使う）"""
+        """ジョブを積む。結果（か例外）は返す Future に入る。
+        cancel しても実行中の GPU の処理は止まらない"""
         self.start()
         future: asyncio.Future[T] = asyncio.get_running_loop().create_future()
         order = next(self._order)

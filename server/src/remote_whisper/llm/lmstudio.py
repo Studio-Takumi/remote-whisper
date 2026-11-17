@@ -1,7 +1,6 @@
 """LM Studio のクライアント（`llm.LlmClient` の実装）。spec/notes.md 9.3
 
-役割ごとに、`lmstudio_http`（`LMStudioHttp`）・`lmstudio_models`（`ModelList`）・`lmstudio_vram`（`Vram`）・
-`lmstudio_chat`（`Chat`）の 4 つの部品に分け、ここで作ってつなぐ。モデルの取得（`pull`）もここ。
+`lmstudio_http`・`lmstudio_models`・`lmstudio_vram`・`lmstudio_chat` の 4 つの部品を作ってつなぐ。
 """
 
 import asyncio
@@ -56,9 +55,8 @@ class LMStudioClient:
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ):
-        """host・token を省くと、設定（lmstudio.host・lmstudio.token）を使うたびに読む
-
-        clock・sleep は、保持の時間のタイマーと一覧を覚える時間に使う（テストで差し替える）"""
+        """host・token を省くと設定（lmstudio.host・lmstudio.token）を使うたびに読む。
+        clock・sleep はテストで差し替える"""
         self.hub = hub
         self.settings = settings
         self._clock = clock
@@ -116,10 +114,8 @@ class LMStudioClient:
         await self.vram.recording_ended()
 
     async def _wait_listed(self, model: str) -> None:
-        """取り終えたモデルが一覧（GET /api/v1/models）に出るまで、少し待つ
-
-        0.4.28 では、completed になった直後の一覧にはまだ出なかった（数秒後には出る）。
-        出ないまま終えると、画面が「入っていません」のままになるため。出なければ諦める"""
+        """取り終えたモデルが一覧に出るまで少し待つ（completed の直後はまだ出ない。0.4.28）。
+        出なければ諦める"""
         for _ in range(DOWNLOAD_LIST_TRIES):
             if model in await self.model_list.llms(fresh=True):
                 return
@@ -127,10 +123,8 @@ class LMStudioClient:
         log.warning("lmstudio downloaded %s but does not list it yet", model)
 
     async def pull(self, model: str) -> AsyncIterator[PullProgress]:
-        """モデルを取ってくる（#327）。進み具合を、ジョブを 1 つの部分（digest は job_id）として返す
-
-        失敗（カタログにない・LM Studio が failed を返した・つながらない）は LMStudioUnavailable。
-        止める API がないので、呼んだ側がやめても（CancelledError）LM Studio は取り続ける"""
+        """モデルを取ってくる（#327）。止める API はなく、呼んだ側がやめても取り続ける。
+        spec/notes.md 9.3"""
         data = await self.http.request("POST", "/api/v1/models/download", json={"model": model})
         job_id = data.get("job_id")
         if data.get("status") == "already_downloaded" or not job_id:

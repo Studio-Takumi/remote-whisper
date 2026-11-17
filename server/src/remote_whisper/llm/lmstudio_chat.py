@@ -35,11 +35,10 @@ class Chat:
         format: dict[str, Any] | None = None,
         options: dict[str, Any] | None = None,
     ) -> AsyncIterator[str]:
-        """本文を少しずつ返す（思考の部分は返さない）
+        """本文を少しずつ返す（思考の部分は返さない）。num_ctx はいつも NUM_CTX にする（#322）
 
-        options は temperature と num_predict（出力の上限）だけを使う。num_ctx は見ず、
-        いつも NUM_CTX にする（違う値だと 2 つ目のインスタンスが載るため。#322）。
-        モデルが入っていなければ、代わりのモデルで動かす（resolve。#178）"""
+        モデルが入っていなければ代わりのモデルで動かす（resolve。#178）。
+        """
         model = await self.models.resolve(model)
         reasoning = await self.models.reasoning_options(model)
         # 思考をオフにできないモデル（いつも思考する）は、本文が空なら失敗にする（#322）
@@ -76,10 +75,8 @@ class Chat:
         options: dict[str, Any],
         max_tokens: int | None,
     ) -> AsyncIterator[str]:
-        """format あり・思考オフ（#322 の追記）
-
-        `/api/v1/chat`（思考オフ）にスキーマをプロンプトで頼み、合えばその JSON を返す。
-        合わなければ `/v1/chat/completions` の構造化出力でもう一度だけ作る（遅いが必ず合う）"""
+        """format あり・思考オフ（#322）。`/api/v1/chat` にスキーマをプロンプトで頼み、
+        合わなければ 1 回だけ構造化出力で作る"""
         asked = [*messages, {"role": "user", "content": schema_prompt(format)}]
         reply = "".join(
             [
@@ -136,10 +133,8 @@ class Chat:
         return body
 
     def _note_jit_load(self, kind: str, data: dict[str, Any], model: str, ctx: int) -> None:
-        """先に載せたのに /api/v1/chat が読み込んだ（JIT）とき、自分が載せたものに数える
-
-        chat.end まで届かずに閉じても下ろせるように、この時点で数える。覚えている一覧は捨てる。
-        id が来なければ覚えない（名前で覚えると、手で載せた `<key>` を自分のものとみなす）"""
+        """先に載せたのに /api/v1/chat が読み込んだ（JIT）とき、
+        自分が載せたものに数える（id が来なければ覚えない）"""
         jit = data.get("model_instance_id")
         if jit:
             self.vram.note_loaded(str(jit), ctx)
