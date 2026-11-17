@@ -27,8 +27,7 @@ const ICONS: Record<MicIconKind, React.ReactNode> = {
     plus: <PlusIcon className={largeIcon} />,
 };
 
-// sticky + mx-auto で、サイドバーの開閉に関係なくメイン領域の中央下に置く
-// 大きいボタンは開始・一時停止・再開。録音を終えるのは取り返しがつかないので、右横の小さいボタンに分ける
+// sticky + mx-auto で、サイドバーの開閉に関係なくメイン領域の中央下に置く（spec/ui.md 8）。
 // 小さいボタンと経過時間は、マイクボタンが中央からずれないよう絶対配置にする
 export function MicButton() {
     const state = useAppStore((s) => s.recordingState);

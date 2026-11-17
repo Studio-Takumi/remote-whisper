@@ -1,6 +1,5 @@
-// クラウド版の画面のヘッダー（web/public/_headers。#166）の CSP に書いたハッシュが、index.html の
-// インラインのスクリプトと合っているか。index.html を直してハッシュを替え忘れると、CSP を強制にした日に
-// テーマの設定が黙って止まるので、ここで気づく
+// web/public/_headers の CSP のハッシュが index.html のインラインスクリプトと合っているか（#166。spec/cloud.md 10.7）。
+// ずれると CSP を強制にした日にテーマの設定が黙って止まる
 import { describe, expect, it } from 'vitest';
 
 import html from '../../index.html?raw';

@@ -31,11 +31,8 @@ import {
 import { closedIds, loadClosed, openIds, saveClosed } from '@/features/projects/projectFold';
 import { projectIdOf, reorderedIds, sortableId } from '@/features/projects/projectOrder';
 
-// サイドバーのプロジェクト一覧。基本は全部開いておく。閉じることもでき、閉じたものはこの端末に覚える（#318）。
-// セッションをほかのプロジェクト（見出しか一覧の中）へドラッグすると移せる（#172）。
-// プロジェクトの見出しをドラッグすると並び替えられる（#173。セッションは並び替えられない）。
-// マウスは少し動かしたら、指は長押ししてからドラッグが始まる（押すだけ・スクロールは今までどおり）。
-// 並び替えはキーボードでもできる（見出しの握りにフォーカスして Space で持ち上げ、矢印で動かし、Space で離す）
+// サイドバーのプロジェクト一覧。開閉の記憶（#318）、セッションの移動（#172）、プロジェクトの並び替え（#173）は
+// spec/ui.md 8。マウスは少し動かして、指は長押しでドラッグが始まる
 export function ProjectList({
     projects,
     activeProject,
@@ -64,11 +61,8 @@ export function ProjectList({
     const [dragging, setDragging] = useState<Dragging | null>(null);
     // 並び替えのためにドラッグしているプロジェクトがあるか
     const [reordering, setReordering] = useState(false);
-    // 閉じているプロジェクト（#318）。端末ごと・ホストごとに覚える。クラウド版では、ホストにつなぐ前に
-    // 作られることがあるので、つないだホストが変わったら読み直す（ホストを替えるとページごと読み込み直す）
-    // 閉じているプロジェクトのセッションを開いたら（URL・通知・ジョブの一覧から）、そのプロジェクトを開く。
-    // 開いているセッションが変わったときだけ見る（開いたまま見出しを閉じるのは止めない）。作り直したとき
-    // （スマホでシートを開き直す・読み込み直す）は、変わったとはみなさない（閉じたものを開き直さない）
+    // 閉じているプロジェクト（#318）は端末・ホストごとに覚え、ホストが変わったら読み直す。
+    // 開くのは開いているセッションが変わったときだけ（再作成では開き直さない。spec/ui.md 8）
     const hostId = connectedHostId();
     const selected = activeProject !== null && activeSession !== null ? `${activeProject}\n${activeSession}` : null;
     const [fold, setFold] = useState(() => ({ hostId, closed: loadClosed(hostId), selected }));

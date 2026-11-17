@@ -177,9 +177,8 @@ export class Watcher {
             set((s) => ({ watching: s.watching && { ...s.watching, state: m.state } }));
             return;
         }
-        // 録音を終えた。最終の文字起こし・最終要約は、全員に届くもの（status の transcribing・
-        // summarizing と title）で気づける。一覧を取り直して、録音中ではなくする。
-        // サーバーは見ている登録を消したので、まだ録音中なら（すぐ続きを録音した）見直して送り直す
+        // 録音を終えた。最終の文字起こし・要約は status と title で気づけるので、一覧を取り直して録音中ではなくする。
+        // サーバーは見ている登録を消したので、まだ録音中なら（すぐ続きを録音した）見直して送り直す（spec/api.md 7.2）
         this.watched = null;
         set((s) => ({ watching: null, partials: dropSession(s.partials, m.session), liveDraft: null }));
         // 音源が 2 つ以上なら、音源の一覧をフロントマターのもの（参加していた時間）に替える（#357）

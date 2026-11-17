@@ -17,9 +17,8 @@ import { closeRecording, openMicrophone, persistUnsent, startOrContinue } from '
 import type { ErrorMessage, Recorder, StartedMessage } from '@/features/recording/recorderState';
 import { subscribeRecording } from '@/features/recording/recordingMessages';
 
-// 前にページを開いていたときに、サーバーに届かなかった音声が残っていないか。
-// 復旧するのは、今つないでいるホストのものだけ。ほかのホストのものは知らせるだけにして、
-// そのホストにつないだときに復旧する（#227。セルフホスト版はすべて今のホストのもの）
+// 前に届かなかった音声が残っていないか。復旧するのは今のホストのものだけで、
+// ほかのホストのものは知らせるだけにして、そのホストにつないだときに復旧する（#227。spec/cloud.md 10.6）
 export async function loadUnsent(r: Recorder) {
     const { mine: entry, elsewhere } = splitByHost(await listUnsent(), getHostId());
     r.store.setState({ unsentElsewhere: elsewhere });

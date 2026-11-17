@@ -38,11 +38,8 @@ export const selectable = (h: Host) => h.online !== false;
 
 export type Pick = { kind: 'none' } | { kind: 'connect'; host: Host } | { kind: 'choose' };
 
-// 一覧から、どうするかを決める
-// - 0 台: 登録の案内
-// - 選べるものが 1 台だけ（全体も 1 台）: 選ぶ画面を出さずにつなぐ
-// - 前に選んだホストが選べる: それにつなぐ（つないでからも切り替えられる）
-// - ほか: 選ぶ画面
+// 一覧からどうするかを決める（0 台は登録の案内、選べるのが 1 台か前に選んだものならそのままつなぐ、ほかは選ぶ画面。
+// spec/cloud.md 10.6）
 export function pickHost(hosts: Host[], remembered: string | null): Pick {
     if (hosts.length === 0) {
         return { kind: 'none' };

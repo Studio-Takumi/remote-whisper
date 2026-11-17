@@ -1,6 +1,5 @@
-// API・WebSocket の URL を組み立てる、唯一の場所（#156。docs/spec/cloud.md 10.2・10.4 節）。
-// セルフホスト版は /api/...・/ws、クラウド版は /h/<hostId>/api/...・/h/<hostId>/ws。通信の中身は変えない。
-// 画面のほかの場所では、/api や /ws の URL を自分で組み立てずに、ここを通す
+// API・WebSocket の URL を組み立てる唯一の場所（#156。spec/cloud.md 10.2・10.4）。
+// ほかの場所では /api や /ws を自分で組み立てず、ここを通す
 
 export type Mode = 'cloud' | 'direct';
 

@@ -3,8 +3,7 @@ import { useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { DEFAULT_MIC_SHORTCUT, captureShortcut, formatShortcut, isMacPlatform } from '@/features/settings/shortcut';
 
-// キーの組み合わせを決める入力欄（#236）。押してからキーを押すと、その組み合わせが入る。
-// 修飾キー（Ctrl・Alt・Shift・Meta）を 1 つ以上含むものだけ受け付ける。Esc でやめる。
+// キーの組み合わせを決める入力欄（#236。spec/files.md 5.3・spec/ui.md 8）。Esc でやめる。
 // 決めている間は data-shortcut-capture を付け、設定モーダルが Esc で閉じないようにする（SettingsDialog）
 export function ShortcutInput({
     id,

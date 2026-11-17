@@ -29,9 +29,8 @@ export function HostPicker() {
         // ログアウトすると戻る）
         useHostsStore.setState({ autoPicked: true });
         rememberHost(host.id);
-        // このページで前に別のホストにつないでいたら、読み込み直す（#222）。画面の状態（プロジェクト・設定・
-        // 録音の残り）と WebSocket は前のホストのものなので、作り直すより読み込み直す方が確実。
-        // 読み込み直すと、覚えたホスト（いま選んだもの）に自動でつなぐ
+        // 前に別のホストにつないでいたら読み込み直す（#222。spec/cloud.md 10.6）。
+        // 画面の状態と WebSocket は前のホストのものなので、作り直すより確実
         if (needsReload(connectedHostId(), host.id)) {
             page.reload();
             return;

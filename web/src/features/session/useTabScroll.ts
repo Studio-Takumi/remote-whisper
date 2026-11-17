@@ -6,9 +6,8 @@ type Tab = 'transcript' | 'summary';
 
 type TabScroll = { top: number; atBottom: boolean };
 
-// タブごとのスクロール位置を覚えておき、切り替えたら戻す（#78）。ページ全体がスクロールするので window の位置を使う
-// 一番下にいたタブは、離れている間に伸びていても一番下に戻す（録音中の文字起こしを追い続けるため）
-// セッションを替えたら覚えた位置は捨てる（タブはそのまま）
+// タブごとのスクロール位置（window）を覚えて、切り替えたら戻す（#78。spec/ui.md 8）。
+// 一番下にいたタブは伸びていても一番下に戻す。セッションを替えたら捨てる
 export function useTabScroll(sessionId: string | undefined) {
     const [state, setState] = useState<{
         tab: Tab;

@@ -70,6 +70,11 @@
 - 1 つの機能でしか使わないものは、その機能のフォルダに置く。2 つ以上で使うようになったら `components/`・`lib/` に移す
 - ファイル名は、部品なら PascalCase（`MicButton.tsx`）、それ以外は camelCase（`recording.ts`）。同じフォルダで大文字小文字だけが違う名前にしない
 
+### web のデータ取得の決めごと（#383）
+
+- **サーバーのデータのキャッシュ（`app/query.ts`・#361）**: queryKey は API のパス（`/api` を除く）を「/」で分けたものにする（例: `GET /api/projects/{pid}/sessions/{sid}/transcript` は `['projects', pid, 'sessions', sid, 'transcript']`）。セッション ID は日時でプロジェクトをまたぐと重なることがあるので、セッションのものもプロジェクトの下に置く。前方一致で無効にできる（`['projects', pid]` でそのプロジェクトの下を全部）。一覧だけを取り直すときは `exact: true` を付ける。プロジェクト・セッション・参考資料セットの一覧は、画面で見ている部品がなくてもストアが WebSocket の通知で書き換えるので、既定（5 分）で捨てない。セッションの中身も、開き直したときに読み込み直さないよう捨てない。
+- **サーバーのデータを変える操作（`mutate`）**: `useMutation` と同じ順（`onMutate`（楽観的更新）→ `mutationFn` → `onSuccess` か `onError`（巻き戻し）→ `onSettled`）で 1 回行い、失敗したら投げる。ストアからも（WebSocket の通知や、ほかの操作の続きとして）呼ぶので、フックにしない。
+
 ## 9.6 server のモジュールの置き場所（#332）
 
 `server/src/remote_whisper/` は役割ごとのパッケージに分ける。テストは `server/tests/` に同じ分け方で置く。

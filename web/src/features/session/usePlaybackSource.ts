@@ -7,8 +7,7 @@ import { sourceLabel } from '@/features/session/sources';
 export const NO_RECORDING_AT = 'この時刻の録音はありません';
 
 // 再生する音源の切り替え（#371。spec/ui.md 8）。既定は主の音源。切り替えても再生位置（主の音源の時刻）を保ち、
-// ずれ・ドリフトでその音源のファイルの位置に直す。行の時刻を押したときも、選んでいる音源で再生する。
-// 音源を選べない（音源が 1 つ・古いサーバー）ときは主の音源だけで、時刻もそのまま（今までと同じ）
+// 行の時刻を押したときも選んでいる音源で再生する。選べないとき（音源が 1 つ・古いサーバー）は今までと同じ
 export function usePlaybackSource(session: Session | undefined, audio: RefObject<HTMLAudioElement | null>) {
     const sessionId = session?.id;
     const playable = useMemo(
