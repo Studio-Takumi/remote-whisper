@@ -479,6 +479,11 @@ export const useAppStore = create<AppState>()((set, get) => {
                         connection.send({ type: get().recordingState === 'paused' ? 'pause' : 'unpause' });
                     }
                 }
+            } else if (
+                (m.type === 'partial' || m.type === 'final' || m.type === 'terms') &&
+                m.session === get().watching?.sessionId
+            ) {
+                // 録音しながら見ているセッションのものは receiveWatched で受け取る（2 回足さない）
             } else if (m.type === 'partial') {
                 set((s) => ({ partials: upsertPartial(s.partials, partialFrom(m)) }));
             } else if (m.type === 'transcriptionStalled') {

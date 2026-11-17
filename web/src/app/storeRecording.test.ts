@@ -332,6 +332,22 @@ describe('ほかの端末の録音を見る（watch）', () => {
         expect(store.getState().liveDraft).toEqual({ sessionId: WATCHED, text: '見ている要約' });
     });
 
+    it('録音しながら見ているとき、見ているセッションの final は 1 回だけ足す', async () => {
+        await startWatching();
+        store.setState({ selection: { projectId: 'p1', sessionId: null } });
+        const starting = store.getState().startRecording();
+        await vi.waitFor(() => expect(ws.log()).toContain('start'));
+        receive({ type: 'started', session: SESSION, sessionUuid: 'uuid-1' });
+        await starting;
+        store.setState({ selection: { projectId: 'p1', sessionId: WATCHED } });
+        receive({ type: 'watching', session: WATCHED, state: 'recording', transcript: [] });
+
+        receive({ type: 'final', session: WATCHED, segment: 0, start: 0, end: 1, text: '見ている行' });
+        expect(session(WATCHED)?.transcript.map((l) => l.text)).toEqual(['見ている行']);
+        receive({ type: 'final', session: SESSION, segment: 0, start: 0, end: 1, text: '録音の行' });
+        expect(session()?.transcript.map((l) => l.text)).toEqual(['録音の行']);
+    });
+
     it('つながり直したら watch を送り直す', async () => {
         await startWatching();
         ws.disconnect();
