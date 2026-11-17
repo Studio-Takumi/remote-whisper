@@ -20,6 +20,7 @@ const ICONS: Record<MicIconKind, React.ReactNode> = {
     back: <Undo2Icon className={smallIcon} />,
     pause: <PauseIcon className={smallIcon} fill='currentColor' />,
     play: <PlayIcon className={smallIcon} fill='currentColor' />,
+    leave: <MicOffIcon className={smallIcon} />,
     micOff: <MicOffIcon className={largeIcon} />,
     mic: <MicIcon className={largeIcon} />,
     radio: <RadioIcon className={largeIcon} />,

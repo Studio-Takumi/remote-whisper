@@ -1,6 +1,7 @@
 // マイクボタンが状態ごとに何を出し、押すと何をするか（#381 で中の計算を分ける前に確かめる）
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { toast } from 'sonner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ProjectInfo } from '@/api/projects';
@@ -166,4 +167,139 @@ describe('MicButton', () => {
         draw({ current: session({ status: 'recording' }) });
         expect(main().getAttribute('aria-disabled')).toBe('true');
     });
+
+    it('参加できないときに押すと、理由を知らせる', () => {
+        const info = vi.spyOn(toast, 'info').mockReturnValue('');
+        useAppStore.setState({
+            watching: { sessionId: 's1', state: 'recording', join: { available: false, reason: 'full' } },
+        } as never);
+        draw({ current: session({ status: 'recording' }) });
+        fireEvent.click(main());
+        expect(info).toHaveBeenCalledWith('参加できる音源の数に達しています');
+        cleanup();
+        info.mockClear();
+        useAppStore.setState({ watching: null });
+        draw({ current: session({ status: 'recording' }) });
+        fireEvent.click(main());
+        expect(info).toHaveBeenCalledWith('ほかの端末で録音中です。操作はその端末でしてください');
+        info.mockRestore();
+    });
+
+    it('ショートカットのキーで、押したのと同じ動きをする', () => {
+        draw();
+        fireEvent.keyDown(window, { code: 'KeyM', key: 'M', altKey: true, shiftKey: true });
+        expect(actions.startRecording).toHaveBeenCalledTimes(1);
+        // 修飾キーが違えば何もしない
+        fireEvent.keyDown(window, { code: 'KeyM', key: 'm', altKey: true });
+        expect(actions.startRecording).toHaveBeenCalledTimes(1);
+        cleanup();
+        useAppStore.setState({ recordingState: 'recording', recordingSessionId: 's1' });
+        draw({ current: session({ status: 'recording' }) });
+        fireEvent.keyDown(window, { code: 'KeyM', key: 'M', altKey: true, shiftKey: true });
+        expect(actions.pauseRecording).toHaveBeenCalledTimes(1);
+    });
+});
+
+// 状態ごとのボタンのアイコン（lucide の名前と大きさ）と色。録音中の操作と参加中は小さく、待機中は大きく
+describe('MicButton の見た目', () => {
+    const SMALL = 'size-10 md:size-14';
+    const LARGE = 'size-12 md:size-16';
+    const watching = (join: object) =>
+        useAppStore.setState({ watching: { sessionId: 's1', state: 'recording', join } } as never);
+    const cases: {
+        name: string;
+        setup: () => void;
+        current?: Session;
+        projectId?: string | null;
+        icon: string;
+        size: string;
+        color: string;
+    }[] = [
+        { name: 'プロジェクトなし', setup: () => {}, projectId: null, icon: 'mic', size: LARGE, color: 'opacity-50' },
+        { name: '録音開始', setup: () => {}, icon: 'mic', size: LARGE, color: 'bg-blue-500' },
+        {
+            name: 'マイク拒否',
+            setup: () => useAppStore.setState({ server: { ...initialServerStatus, microphone: 'denied' } }),
+            icon: 'mic-off',
+            size: LARGE,
+            color: 'bg-blue-500 opacity-50',
+        },
+        {
+            name: '新しいセッション',
+            setup: () => {},
+            current: session(),
+            icon: 'plus',
+            size: LARGE,
+            color: 'bg-neutral-500',
+        },
+        {
+            name: '続きから録音',
+            setup: () => {},
+            current: session({ endedAt: new Date(Date.now() - 60_000).toISOString() }),
+            icon: 'mic',
+            size: LARGE,
+            color: 'bg-blue-500',
+        },
+        {
+            name: '録音中',
+            setup: () => useAppStore.setState({ recordingState: 'recording', recordingSessionId: 's1' }),
+            current: session({ status: 'recording' }),
+            icon: 'pause',
+            size: SMALL,
+            color: 'bg-red-500',
+        },
+        {
+            name: '一時停止中',
+            setup: () => useAppStore.setState({ recordingState: 'paused', recordingSessionId: 's1' }),
+            current: session({ status: 'recording' }),
+            icon: 'play',
+            size: SMALL,
+            color: 'bg-amber-500',
+        },
+        {
+            name: 'ほかの画面で録音中',
+            setup: () => useAppStore.setState({ recordingState: 'recording', recordingSessionId: 'rec' }),
+            icon: 'undo-2',
+            size: SMALL,
+            color: 'bg-red-500',
+        },
+        {
+            name: '参加できる',
+            setup: () => watching({ available: true }),
+            current: session({ status: 'recording' }),
+            icon: 'mic',
+            size: LARGE,
+            color: 'bg-blue-500',
+        },
+        {
+            name: '参加中',
+            setup: () => {
+                watching({ available: true });
+                useAppStore.setState({ joined: { sessionId: 's1', state: 'joined', source: 2 } });
+            },
+            current: session({ status: 'recording' }),
+            icon: 'mic-off',
+            size: SMALL,
+            color: 'bg-red-500',
+        },
+        {
+            name: '参加できない',
+            setup: () => watching({ available: false, reason: 'full' }),
+            current: session({ status: 'recording' }),
+            icon: 'radio',
+            size: LARGE,
+            color: 'bg-neutral-400',
+        },
+    ];
+
+    for (const c of cases) {
+        it(c.name, () => {
+            c.setup();
+            draw({ current: c.current, projectId: c.projectId === undefined ? 'p1' : c.projectId });
+            const svg = main().querySelector('svg');
+            expect(svg?.getAttribute('class')).toContain(`lucide-${c.icon} `);
+            expect(svg?.getAttribute('class')).toContain(c.size);
+            expect(main().className).toContain(c.color);
+        });
+    }
 });

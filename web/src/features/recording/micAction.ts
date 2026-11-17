@@ -10,7 +10,8 @@ import { describeWatched } from '@/features/recording/watch';
 export type MicTarget = { kind: 'none' } | { kind: 'new' } | { kind: 'session'; projectName: string };
 
 export type MicDo = 'back' | 'pause' | 'resume' | 'leave' | 'join' | 'notice' | 'continue' | 'start';
-export type MicIcon = 'back' | 'pause' | 'play' | 'micOff' | 'mic' | 'radio' | 'plus';
+// leave は参加中（録音中の操作と同じく小さく）、micOff はマイクが許可されていないとき（待機中と同じく大きく）
+export type MicIcon = 'back' | 'pause' | 'play' | 'leave' | 'micOff' | 'mic' | 'radio' | 'plus';
 
 // do は押したときの動き（notice は理由を出すだけ）。hint はタッチのときにボタンの上に出す短い説明
 export type MicAction = {
@@ -80,7 +81,7 @@ function activeAction(s: MicSituation): MicAction | null {
             label: `${s.joinedLabel}。クリックして参加をやめる`,
             hint: '',
             color: 'bg-red-500',
-            icon: 'micOff',
+            icon: 'leave',
         };
     }
     return null;

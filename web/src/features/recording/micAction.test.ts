@@ -50,6 +50,7 @@ describe('micAction', () => {
         expect(micAction({ ...watching, joinReason: null }).do).toBe('join');
         expect(micAction({ ...watching, joinedHere: true, joinedLabel: '音源 2 として参加中' })).toMatchObject({
             do: 'leave',
+            icon: 'leave',
             label: '音源 2 として参加中。クリックして参加をやめる',
         });
         expect(micAction({ ...watching, joinReason: '参加できる音源の数に達しています' })).toMatchObject({
