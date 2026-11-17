@@ -1,4 +1,4 @@
-// セッションを別のプロジェクトへ移す（#172）。移せるかどうかはサーバー（routes/sessions.py の
+// セッションを別のプロジェクトへ移す（#172）。移せるかどうかはサーバー（routes/sessions/ の
 // move_blocker）と同じ条件で、画面でも先に見る（ドラッグを始められないようにして理由を出す）
 import type { GpuJobs } from '@/api/protocol';
 import type { Session } from '@/api/types';

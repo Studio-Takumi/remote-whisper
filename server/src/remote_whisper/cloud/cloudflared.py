@@ -24,12 +24,9 @@ from typing import Any, Literal
 
 import httpx
 
-from remote_whisper.cloud.cloud import (
-    CloudError,
-    RegistrationGone,
-    RelayClient,
-    load_credentials,
-)
+from remote_whisper.cloud.credentials import load_credentials
+from remote_whisper.cloud.errors import CloudError, RegistrationGone
+from remote_whisper.cloud.relay_client import RelayClient
 from remote_whisper.desktop import bundle
 from remote_whisper.settings import is_valid_cloudflared_path
 from remote_whisper.version import app_version

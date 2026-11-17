@@ -11,25 +11,23 @@ import httpx
 import pytest
 from helpers.cloud import ICACLS, SID, fake_icacls
 
-from remote_whisper.cloud import cloud
-from remote_whisper.cloud.cloud import (
+from remote_whisper.cloud import credentials
+from remote_whisper.cloud.cloud import UNDO_FAILED_NOTICE, CloudHost, CloudView
+from remote_whisper.cloud.credentials import (
     CREDENTIALS_PERMISSION_ERROR,
     CREDENTIALS_SAVE_ERROR,
     HOST_HEADER,
-    UNDO_FAILED_NOTICE,
-    CloudError,
-    CloudHost,
-    CloudView,
     Credentials,
     canonical_string,
     load_credentials,
     new_credentials,
     public_key_from_b64,
-    redact_code,
     save_credentials,
     sign_header,
     verify_header,
 )
+from remote_whisper.cloud.errors import CloudError
+from remote_whisper.cloud.relay_client import redact_code
 from remote_whisper.desktop.tray_state import cloud_menu, cloud_text, tray_state
 
 RELAY = "https://relay.example.test"
@@ -280,7 +278,7 @@ def test_pairing_is_undone_when_the_relay_key_cannot_be_written(tmp_path, monkey
     # 権限ではない失敗（ディスクがいっぱい・ほかのプロセスのロックなど）でも取り消す
     worker = FakeWorker(answers=("approved",))
     host, notices = make_host(tmp_path, worker)
-    real = cloud.write_owner_only
+    real = credentials.write_owner_only
     calls = []
 
     def write(path, text):
@@ -289,7 +287,7 @@ def test_pairing_is_undone_when_the_relay_key_cannot_be_written(tmp_path, monkey
             raise OSError(28, "No space left on device")
         real(path, text)
 
-    monkeypatch.setattr(cloud, "write_owner_only", write)
+    monkeypatch.setattr(credentials, "write_owner_only", write)
     assert host.start_pairing()
     host.wait(10)
     assert worker.unpaired == [worker.started["hostId"]]
