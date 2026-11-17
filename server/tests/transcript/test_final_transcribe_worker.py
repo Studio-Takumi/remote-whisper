@@ -18,9 +18,12 @@ Turn = namedtuple("Turn", "start end speaker")
 class FakeWhisperX:
     """呼ばれた順を calls に残す。文字起こしは音の値（音源ごとに違う）から決まった文を返す"""
 
-    def __init__(self, diarize_error: Exception | None = None):
+    def __init__(
+        self, diarize_error: Exception | None = None, assign_error: Exception | None = None
+    ):
         self.calls: list[tuple] = []
         self.diarize_error = diarize_error
+        self.assign_error = assign_error
         fake = self
 
         class Model:
@@ -72,6 +75,8 @@ class FakeWhisperX:
 
     def assign_word_speakers(self, diarized, result):
         self.calls.append(("assign_word_speakers", len(result["segments"])))
+        if self.assign_error is not None:
+            raise self.assign_error
         for s in result["segments"]:
             speaker = "SPEAKER_00" if s["start"] < 1.5 else "SPEAKER_01"
             s["speaker"] = speaker
@@ -82,8 +87,8 @@ class FakeWhisperX:
 
 @pytest.fixture
 def fake_whisperx(monkeypatch):
-    def install(diarize_error=None):
-        fake = FakeWhisperX(diarize_error)
+    def install(diarize_error=None, assign_error=None):
+        fake = FakeWhisperX(diarize_error, assign_error)
         module = types.ModuleType("whisperx")
         for name in ("load_model", "load_align_model", "align", "assign_word_speakers"):
             setattr(module, name, getattr(fake, name))
@@ -192,6 +197,43 @@ def test_diarization_error_is_reported_and_skipped(fake_whisperx):
     assert result["diarizationError"] == "RuntimeError: 403 Forbidden"
     assert result["turns"] == []
     assert result["segments"][0]["speaker"] is None
+
+
+def test_turns_are_kept_when_assigning_speakers_fails(fake_whisperx):
+    # 区間はできたが、単語への話者の割り当てで落ちた。区間は残し、話者は付けない
+    fake_whisperx(assign_error=ValueError("bad frame"))
+    result = worker.run(dict(JOB))
+    assert result["diarization"] == "unavailable"
+    assert result["diarizationError"] == "ValueError: bad frame"
+    assert result["turns"] == [
+        {"start": 0.0, "end": 1.5, "speaker": "SPEAKER_00"},
+        {"start": 1.5, "end": 3.0, "speaker": "SPEAKER_01"},
+    ]
+    assert result["segments"][0]["speaker"] is None
+
+
+def test_hint_conflicts_are_counted_through_run(fake_whisperx, monkeypatch):
+    fake_whisperx()
+    # 3.0〜4.1 秒は音源 1、4.1 秒から音源 7 が一番大きく、どこもはっきりしている。
+    # SPEAKER_01 の語は音源 1 から 4 つ、音源 7 から 2 つなので、2 つが見直しの候補
+    choice = np.array([0] * 41 + [1] * 9)
+    prepared = multisource.Prepared(
+        gated=[np.full(4, 3.0), np.full(4, 4.0)],
+        joined=np.full(4, 5.0),
+        choice=choice,
+        margin=np.full(50, 10.0),
+    )
+    alignment = multisource.Alignment(offset_sec=0.0, drift_ppm=0.0, windows=3)
+    monkeypatch.setattr(multisource, "align", lambda main, other, rough: alignment)
+    monkeypatch.setattr(multisource, "to_main_time", lambda x, a, n: np.asarray(x)[:n])
+    monkeypatch.setattr(multisource, "prepare", lambda sources, present: prepared)
+    job = {
+        **JOB,
+        "sources": [{"id": 1, "audio": "rec-1"}, {"id": 7, "audio": "rec-2"}],
+    }
+    result = worker.run(job)
+    assert result["hintConflicts"] == 2
+    assert result["dominant"] == [[0.0, 4.1, 1], [4.1, 5.0, 7]]
 
 
 def test_multiple_sources_result_calls_and_progress(fake_whisperx, monkeypatch, capsys):
