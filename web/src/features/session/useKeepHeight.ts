@@ -1,12 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 
-// 文字起こしの高さを、同じセッションのあいだは縮めない（#89）
-// 未確定部分は書き換わるたびに短くなることもあり、partial の行は final の行に置き換わったり消えたりする。
-// 一番下を見ているときにページが縮むと位置が詰まり、伸びてまた下へ飛ぶ、を繰り返して揺れて見えるため。
-// 余る高さは partial の 1 行分ほどで、次の行で埋まる
-// 外側の箱に min-height を付け、内側の箱（中身）の高さを測る。min-height を外して測ると、
-// その瞬間にページが縮んでスクロールの位置が詰まってしまう
-// key はセッション（変わったら測り直す）、content は中身（変わったら高さを測る）
+// 文字起こしの高さを、同じセッションのあいだは縮めない（#89。spec/ui.md 8）。縮むと一番下を見ているとき揺れて見える。
+// 外側に min-height を付け、内側の高さを測る（min-height を外して測るとその瞬間に縮む）。key はセッション、content は中身
 export function useKeepHeight(key: string, content: string) {
     const outer = useRef<HTMLDivElement>(null);
     const inner = useRef<HTMLDivElement>(null);

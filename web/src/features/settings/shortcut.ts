@@ -1,7 +1,5 @@
-// マイクボタンのキーボードのショートカット（#236。spec/files.md 5.3・spec/ui.md 8 章）。
-// 全体設定の display.micShortcut に「修飾キー + キー」の形で持つ。修飾キーは Ctrl・Alt・Shift・Meta の順、
-// キーは KeyboardEvent.code（KeyM・Digit1・F2 など）。キーの配列や IME・Mac の Option で
-// key（入る文字）が変わっても同じキーとみなせるよう、key ではなく code で比べる。空なら使わない
+// マイクボタンのキーボードのショートカット（#236。spec/files.md 5.3）。「修飾キー + キー」の形で持つ。
+// キーは key ではなく KeyboardEvent.code で比べる（spec/ui.md 8）
 
 export const DEFAULT_MIC_SHORTCUT = 'Alt+Shift+KeyM';
 

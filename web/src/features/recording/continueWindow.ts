@@ -2,9 +2,8 @@
 // サーバー（recording.py の check_continuable）と同じ条件で、マイクボタンを「続きから録音」にするかを決める
 import type { Session } from '@/api/types';
 
-// 残りの秒数。続けられない（録音中・音声ファイルから作った・時間を過ぎた）なら null。
-// 途中で終わった（interrupted）セッションは、時間を過ぎてもセッション画面のボタンから続けられるが、
-// マイクボタンを「続きから録音」にするのは、普通に終えたときと同じ時間の間だけ
+// 残りの秒数。続けられなければ null。interrupted はセッション画面のボタンからは時間を過ぎても続けられるが、
+// マイクボタンを「続きから録音」にするのは普通に終えたときと同じ時間だけ（spec/flows.md 6.7）
 export function continueLeftSec(
     session: Pick<Session, 'status' | 'endedAt' | 'uploaded'>,
     windowMin: number,

@@ -57,9 +57,8 @@ export async function changeSettings(ctx: ActionContext, next: Settings) {
         if (switched) {
             void get().loadOptions();
         }
-        // 最終の要約のモデル（全体概要か要約詳細。#178）を変えたら、開いているセッションにその組の要約が
-        // なければ作り直す（spec/flows.md 6.5）。録音中は作り直さない（録音中の文字起こしが止まるため。#133）。
-        // LLM を切り替えただけ（モデルの名前の付け方が変わるだけ）では作り直さない
+        // 最終要約のモデルを変えたら、開いているセッションにその組の要約がなければ作り直す（#178。spec/flows.md 6.5）。
+        // 録音中は作り直さない（#133）。LLM を切り替えただけでは作り直さない
         const models = llmModels(get().settings);
         const session = currentSession(get());
         if (

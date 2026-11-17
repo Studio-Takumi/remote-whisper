@@ -16,9 +16,8 @@ const WIDTH = 288;
 // 選んだ文字列と、その場所
 type Picked = { wrong: string; index: number; top: number; left: number; below: boolean };
 
-// 文字起こしの文字を選ぶと、選んだ範囲の近くに出す入力欄（#176）。正しい語に直して Enter で決め、
-// 置き換わる件数を見せてから「全部」か「この行だけ」を選ぶ。スマホでは、ブラウザが選んだ範囲の
-// 上に出すメニューと重ならないよう、範囲の下に出す
+// 文字を選ぶと出す置き換えの入力欄（#176。spec/flows.md 6.13）。
+// スマホではブラウザの選択メニューと重ならないよう、範囲の下に出す
 export function TranscriptCorrection({
     container,
     sessionId,

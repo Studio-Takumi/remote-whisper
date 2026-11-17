@@ -6,9 +6,7 @@ import { MutationObserver, type MutationOptions, QueryClient, notifyManager } fr
 // partial はストアにあるので（#361）、同じメッセージでの両方の変化が、描く前にそろうようにする
 notifyManager.setScheduler(queueMicrotask);
 
-// プロジェクトの一覧・セッションの一覧・参考資料セットの一覧は、画面で見ている部品がなくても、
-// ストアが WebSocket の通知で書き換えて使う。既定（5 分）で捨てられないようにする（量は少ない）。
-// セッションの中身も、開き直したときに読み込み直さないように捨てない（#361。前はストアに持ち続けていた）
+// 一覧とセッションの中身は、WebSocket の通知でストアが書き換えるので、既定の 5 分で捨てない（#361。spec/notes.md 9.5）
 export const KEEP = { gcTime: Infinity } as const;
 
 export const queryClient = new QueryClient({
@@ -22,9 +20,8 @@ export const queryClient = new QueryClient({
     },
 });
 
-// サーバーのデータを変える操作（mutation）を 1 回行う。useMutation と同じく、onMutate（楽観的更新）→
-// mutationFn → onSuccess か onError（巻き戻し）→ onSettled の順に呼ぶ。失敗したら投げる。
-// 操作はストアからも（WebSocket の通知や、ほかの操作の続きとして）呼ぶので、フックではなくこれを使う
+// mutation を 1 回行う（onMutate → mutationFn → onSuccess か onError → onSettled。spec/notes.md 9.5）。
+// ストアからも呼ぶので、フックではなくこれを使う
 export function runMutation<TData, TVariables, TContext>(
     options: MutationOptions<TData, Error, TVariables, TContext>,
     variables: TVariables,
@@ -32,10 +29,8 @@ export function runMutation<TData, TVariables, TContext>(
     return new MutationObserver(queryClient, options).mutate(variables);
 }
 
-// queryKey の決まり。API のパス（/api を除く）を「/」で分けたものにする。
-// 例: GET /api/projects/{pid}/sessions/{sid}/transcript → ['projects', pid, 'sessions', sid, 'transcript']
-// セッション ID は日時なので、プロジェクトをまたぐと重なることがある。そのためセッションのものもプロジェクトの下に置く。
-// 前方一致で無効にできる（['projects', pid] でそのプロジェクトの下を全部）。一覧だけを取り直すときは exact: true を付ける
+// queryKey は API のパス（/api を除く）を「/」で分けたもの。セッションもプロジェクトの下に置く（spec/notes.md 9.5）。
+// 前方一致で無効にでき、一覧だけを取り直すときは exact: true を付ける
 export const queryKeys = {
     // GET /api/projects（プロジェクトの一覧。セッションは入らない）
     projects: () => ['projects'] as const,

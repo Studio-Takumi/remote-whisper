@@ -1,9 +1,8 @@
 // 再生する音源の切り替え（#371。spec/ui.md 8）
 import type { SessionSource } from '@/features/session/sources';
 
-// 再生する音源を選べるときの音源（フロントマターの順）。録音ファイルの残っている音源だけ。
-// recordings（files.sourceRecordings）がない古いサーバーは GET .../recording の source を無視して主の音源を返すので、
-// 選ばせない（spec/api.md 7.1）。選べる音源が 2 つ未満なら空（主の音源だけを再生する）
+// 再生する音源を選べるときの音源（録音ファイルの残っているものだけ）。選べる音源が 2 つ未満なら空。
+// recordings のない古いサーバーは source を無視するので選ばせない（spec/api.md 7.1・spec/ui.md 8）
 export function playableSources(
     stored: SessionSource[] | undefined,
     recordings: number[] | undefined,

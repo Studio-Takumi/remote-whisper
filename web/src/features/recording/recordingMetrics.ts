@@ -1,6 +1,5 @@
-// 録音ごとの数字を手元で集めて、Worker に送る（#206。docs/spec/cloud.md 10.9 節）。クラウド版のときだけ使う。
-// 送るのは数字と、決まった値（モデル名・error の code）だけ。音声、文字起こし・要約・タイトル・用語の本文、
-// プロジェクト名・ファイル名、error の文面、セッション ID は集めない（このファイルに持たない）
+// 録音ごとの数字を集めて Worker に送る（#206。spec/cloud.md 10.9）。クラウド版のときだけ使う。
+// 送るのは数字と決まった値だけで、音声・本文・名前・セッション ID はこのファイルに持たない
 import type { ServerMessage } from '@/api/protocol';
 import { type Settings, llmModels } from '@/features/settings/settings';
 
@@ -142,8 +141,8 @@ export class RecordingMetrics {
     }
 
     // --- 遅延 ---
-    // チャンクを作った。bufferedSec は、そのときサーバーに届いていない音声の秒数
-    // holding は、切れていて送らずに溜めたチャンク。往復には数えない（切れていた時間が混ざるため）
+    // チャンクを作った。bufferedSec はそのときサーバーに届いていない音声の秒数。
+    // holding（切れて送らずに溜めたチャンク）は、切れていた時間が混ざるので往復に数えない
     chunkSent(seq: number, bufferedSec: number, holding = false) {
         this.chunksSent += 1;
         if (!holding) {

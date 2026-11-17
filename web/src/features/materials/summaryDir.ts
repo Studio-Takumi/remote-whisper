@@ -3,9 +3,8 @@ import { isDemo } from '@/api/demo';
 import { projectsQuery } from '@/api/projects';
 import { queryClient } from '@/app/query';
 
-// 最終要約のコピーの置き場所（project.json の summaryDir。spec/files.md 5.4 節、#341）を保存する。
-// 検証はサーバーがする（不正なら 422 の ApiError）。サーバーがそろえた値（./summary/ → summary）を返し、
-// キャッシュのプロジェクトの一覧に入れる（画面のプロジェクトはキャッシュから読む。#361）
+// 最終要約のコピーの置き場所（summaryDir。spec/files.md 5.4、#341）を保存する。検証はサーバー（不正は 422 の ApiError）。
+// 返った値をキャッシュのプロジェクトの一覧に入れる（#361）
 export async function saveSummaryDir(projectId: string, value: string): Promise<string> {
     const summaryDir = isDemo
         ? value

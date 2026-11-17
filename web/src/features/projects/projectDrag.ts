@@ -14,15 +14,13 @@ export type Dragging = { type: 'session'; sessionId: string; projectId: string; 
 // プロジェクトの見出しのドラッグ（並び替え）の data
 export type ProjectDrag = { type: 'project'; projectId: string };
 
-// 同じ DndContext の中に、セッションを別のプロジェクトへ移すドラッグ（離す先はプロジェクトの枠）と、
-// プロジェクトの並び替え（離す先はほかのプロジェクトの見出し）がある。どちらの枠が相手になるかは
-// 枠を有効にするかで分けている（ProjectGroup）ので、判定の方法だけドラッグの種類で変える
+// セッションの移動とプロジェクトの並び替えは同じ DndContext にあり、どちらの枠が相手かは枠の有効・無効で分ける
+// （ProjectGroup）ので、判定の方法だけドラッグの種類で変える（spec/ui.md 8）
 export const collisionDetection: CollisionDetection = (args) =>
     args.active.data.current?.type === 'project' ? closestCenter(args) : rectIntersection(args);
 
-// useDraggable / useSortable の listeners からキーボードの操作を除いたもの。
-// キーボードで始められるのは見出しの握りだけにする（セッションのボタンで Space を押したときに、選ぶ代わりに
-// ドラッグが始まらないように）
+// listeners からキーボードの操作を除いたもの。キーボードで始められるのは見出しの握りだけにする
+// （セッションのボタンで Space を押したときに、選ぶ代わりにドラッグが始まらないように）
 export function pointerOnly(listeners: Record<string, unknown> | undefined) {
     const { onKeyDown, ...rest } = listeners ?? {};
     void onKeyDown;

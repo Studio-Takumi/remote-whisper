@@ -129,9 +129,8 @@ export async function disablePush() {
     await api.delete(`/api/push/subscriptions?endpoint=${encodeURIComponent(endpoint)}`);
 }
 
-// ログアウト・退会の前に呼ぶ（クラウド版。同じブラウザでほかのアカウントがログインしても、前のアカウントの
-// 通知が届かないように）。この端末の購読をやめ、ホストからも消す。失敗しても止めない
-// （購読をやめておけば、ホストが送ったときに push サービスが 410 を返し、ホストが消す）
+// ログアウト・退会の前に呼ぶ（クラウド版。spec/flows.md 6.14）。この端末の購読をやめ、ホストからも消す。失敗しても止めない
+// （同じブラウザで別のアカウントがログインしても、前の人の通知が届かないように。購読をやめておけば push サービスが 410 を返し、ホストが消す）
 export async function stopPushOnSignOut() {
     if (!pushEnabled()) {
         return;
@@ -151,9 +150,8 @@ export async function resyncPush() {
     }
 }
 
-// service worker（push-sw.js）が「今どの画面を出しているか」を聞いてきたら答える。そのセッションを
-// 出していれば通知を出さない。画面は URL を history で書き換えるので、client.url では分からない。
-// 止まっている（裏に回って凍結された）タブは答えないので、出していないものとして扱われる
+// service worker（push-sw.js）が今出している画面を聞いてきたら答える（spec/flows.md 6.14）。
+// URL は history で書き換わるので client.url では分からない。凍結された裏のタブは答えない
 export function answerViewQueries() {
     if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
         return;
