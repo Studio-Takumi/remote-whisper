@@ -13,16 +13,18 @@ from starlette.testclient import TestClient
 
 from remote_whisper.cloud.tunnel import RELAY_HEADER, RelayAuthApp, sign_relay
 from remote_whisper.desktop import bundle
-from remote_whisper.desktop.setup import (
+from remote_whisper.desktop.hf_token import (
     HF_TOKEN_FILE,
-    INSTALL_MARKER,
-    SetupError,
-    SetupService,
-    WhisperXInstaller,
     hf_token_source,
-    locked_entries,
     save_hf_token,
     worker_env,
+)
+from remote_whisper.desktop.setup import SetupService
+from remote_whisper.desktop.setup_error import SetupError
+from remote_whisper.desktop.whisperx_install import (
+    INSTALL_MARKER,
+    WhisperXInstaller,
+    locked_entries,
 )
 
 FAKE_PYTHON = [sys.executable, str(Path(__file__).parents[1] / "helpers" / "fake_python.py")]
@@ -203,7 +205,7 @@ def test_token_permission_failure_is_reported_by_the_api(client, home, monkeypat
     def fail(path, text):
         raise OwnerOnlyError("icacls failed: Access is denied.")
 
-    monkeypatch.setattr("remote_whisper.desktop.setup.write_owner_only", fail)
+    monkeypatch.setattr("remote_whisper.desktop.hf_token.write_owner_only", fail)
     res = client.put("/api/setup/hf-token", json={"token": TOKEN})
     assert res.status_code == 500
     assert "本人だけが読める" in res.json()["detail"]
@@ -719,7 +721,7 @@ def test_install_is_refused_while_recording(home, tmp_path, monkeypatch):
     service = SetupService(
         home, SettingsStore(home), installer=installer, recording=lambda: True, gpu=lambda: "none"
     )
-    from remote_whisper.desktop.setup import SetupError
+    from remote_whisper.desktop.setup_error import SetupError
 
     with pytest.raises(SetupError) as e:
         service.start_install()

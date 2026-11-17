@@ -6,7 +6,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from remote_whisper.context import AppContext
-from remote_whisper.desktop.setup import SetupService, worker_env
+from remote_whisper.desktop.hf_token import worker_env
+from remote_whisper.desktop.setup import SetupService
 from remote_whisper.gpu import openvino_whisper
 from remote_whisper.gpu.gpu_stats import GpuStats
 from remote_whisper.gpu.whisper_worker import WhisperWorker, default_backend
