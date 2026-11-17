@@ -4,8 +4,8 @@ import { toast } from 'sonner';
 
 import type { CorrectionsJson, SessionFiles, TranscriptJson } from '@/api/api';
 import { isDemo } from '@/api/demo';
-import { loadSessionDetail } from '@/api/loadSessionDetail';
 import { projectsQuery } from '@/api/projects';
+import { loadSessionDetail } from '@/api/sessionDetails';
 import { sessionsQuery } from '@/api/sessions';
 import {
     fetchFinalTranscript,

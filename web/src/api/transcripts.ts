@@ -1,10 +1,10 @@
 import { hashKey, queryOptions } from '@tanstack/react-query';
 
 import { type FinalTranscriptJson, type TranscriptJson, api } from '@/api/api';
-import { KEEP, displayTime } from '@/api/queryCommon';
 import type { FinalTranscript, FinalTranscriptInfo } from '@/api/types';
-import { queryClient, queryKeys } from '@/app/query';
+import { KEEP, queryClient, queryKeys } from '@/app/query';
 import { withLineSources } from '@/features/session/sources';
+import { displayTime } from '@/lib/time';
 
 // 文字起こし（queryKeys.transcript()）。録音中・語の変更・置き換えで変わる
 export const transcriptQuery = (projectId: string, sessionId: string) =>

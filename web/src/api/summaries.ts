@@ -1,9 +1,9 @@
 import { queryOptions } from '@tanstack/react-query';
 
 import { type SummaryInfoJson, type SummaryJson, api } from '@/api/api';
-import { KEEP, displayTime } from '@/api/queryCommon';
 import type { Summary } from '@/api/types';
-import { queryKeys } from '@/app/query';
+import { KEEP, queryKeys } from '@/app/query';
+import { displayTime } from '@/lib/time';
 
 // 最終の要約の一覧（queryKeys.summaries()。版 ID・モデル・生成日時）。作り直すと増える
 export const summariesQuery = (projectId: string, sessionId: string) =>

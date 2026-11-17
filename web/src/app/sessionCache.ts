@@ -1,10 +1,9 @@
 // セッションの中身をキャッシュ（#330）から読む・書き戻す（#361）。サーバーのデータはキャッシュにだけ持つ
-import { KEEP } from '@/api/queryCommon';
 import { sessionsQuery } from '@/api/sessions';
 import { liveSummaryQuery, summariesQuery, summaryQuery } from '@/api/summaries';
 import { finalTranscriptQuery, finalTranscriptsQuery, transcriptQuery } from '@/api/transcripts';
 import type { Session } from '@/api/types';
-import { queryClient, queryKeys } from '@/app/query';
+import { KEEP, queryClient, queryKeys } from '@/app/query';
 import type { SessionParts } from '@/features/session/sessionDetail';
 
 // 一覧に出す項目（GET .../sessions の 1 行にあたるもの）

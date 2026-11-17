@@ -1,10 +1,9 @@
 import { queryOptions } from '@tanstack/react-query';
 
 import { type ProjectJson, api } from '@/api/api';
-import { KEEP } from '@/api/queryCommon';
 import { sessionsQuery } from '@/api/sessions';
 import type { ContextSelection, Project } from '@/api/types';
-import { queryClient, queryKeys } from '@/app/query';
+import { KEEP, queryClient, queryKeys } from '@/app/query';
 
 // プロジェクト（セッションの一覧を除いたもの）
 export type ProjectInfo = Omit<Project, 'sessions'>;

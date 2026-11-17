@@ -1,9 +1,9 @@
 import { queryOptions } from '@tanstack/react-query';
 
 import { type SessionJson, api } from '@/api/api';
-import { KEEP, displayTime } from '@/api/queryCommon';
 import type { Session } from '@/api/types';
-import { queryKeys } from '@/app/query';
+import { KEEP, queryKeys } from '@/app/query';
+import { displayTime } from '@/lib/time';
 
 function toSession(json: SessionJson): Session {
     return {

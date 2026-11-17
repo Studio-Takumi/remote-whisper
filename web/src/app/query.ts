@@ -6,6 +6,11 @@ import { MutationObserver, type MutationOptions, QueryClient, notifyManager } fr
 // partial はストアにあるので（#361）、同じメッセージでの両方の変化が、描く前にそろうようにする
 notifyManager.setScheduler(queueMicrotask);
 
+// プロジェクトの一覧・セッションの一覧・参考資料セットの一覧は、画面で見ている部品がなくても、
+// ストアが WebSocket の通知で書き換えて使う。既定（5 分）で捨てられないようにする（量は少ない）。
+// セッションの中身も、開き直したときに読み込み直さないように捨てない（#361。前はストアに持ち続けていた）
+export const KEEP = { gcTime: Infinity } as const;
+
 export const queryClient = new QueryClient({
     defaultOptions: {
         queries: {
