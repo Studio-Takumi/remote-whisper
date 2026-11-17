@@ -68,9 +68,8 @@ def build_parts(home: Path, mock: bool, mock_timing: MockTiming | None) -> Parts
 def _wire_whisper_and_llm(parts: Parts) -> tuple[str, str | None]:
     """Whisper と LLM を作る。使う backend と、Intel の GPU で動かすならその名前を返す"""
     ctx = parts.ctx
-    # モデルは録音を始めたときに読み込む（#23）。ここでは子プロセスはまだ作らない
-    # REMOTE_WHISPER_WHISPER_BACKEND=fake で、GPU を使わない偽物にできる（テスト用）。
-    # 指定がなければ、Apple Silicon の Mac は mlx、ほかは faster-whisper（#276）
+    # モデルは録音を始めたときに読み込む（#23）。
+    # REMOTE_WHISPER_WHISPER_BACKEND=fake で偽物にできる（テスト用）。既定は Mac なら mlx（#276）
     backend = os.environ.get("REMOTE_WHISPER_WHISPER_BACKEND") or default_backend()
     # NVIDIA の GPU がなく、単体の Intel の GPU（Arc）があれば、faster-whisper の代わりに
     # OpenVINO で動かす（#374。extra `openvino` が入っているときだけ。設定 whisper.intelGpu）
@@ -106,9 +105,8 @@ def _make_on_count(parts: Parts):
             # 録音が始まったら、作っている途中の最終の文字起こしを止める（録音が終わったら作り直す）
             ctx.final_transcriber.recordings_changed(n)
         if n == 0 and ctx.ollama is not None:
-            # 録音中は下ろさないようにしていた LLM のモデルを、keepAliveMin 分で下ろすように
-            # 戻す（LM Studio はここからサーバーの中のタイマーで数える。#326）。
-            # 録音中に使う LLM を変えていたら、ここで切り替える（#325）
+            # 録音中は下ろさなかった LLM のモデルを keepAliveMin 分で下ろす設定に戻し（#326）、
+            # 録音中に変えた LLM があれば切り替える（#325）
             task = asyncio.create_task(ctx.ollama.recording_ended())
             parts.background.add(task)
             task.add_done_callback(parts.background.discard)
@@ -136,9 +134,8 @@ def _wire_real(
         gpu=ctx.gpu,
         ollama=ctx.ollama,
     )
-    # 録音を終えたら、録音全体から最終の文字起こしを作る（#121）。
-    # WhisperX が入っていなければ作らない。偽の Whisper（テスト）では作らない
-    # （テストは FinalTranscriber を差し替えて確かめる）
+    # 録音を終えたら録音全体から最終の文字起こしを作る（#121）。
+    # WhisperX がなければ・偽の Whisper（テスト）では作らない
     ctx.final_transcriber = FinalTranscriber(
         ctx.settings,
         ctx.hub,

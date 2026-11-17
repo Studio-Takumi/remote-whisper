@@ -1,22 +1,5 @@
-"""8000 番の Host・Origin の確認（#249。spec/api.md 7.5）
-
-ほかのサイトを開いているブラウザから、8000 番の WebSocket（録音）や API を使われないようにする。
-
-- **Host**: DNS rebinding（攻撃する人の名前を、あとからこの PC のアドレスに向け直す）では、
-  ブラウザは攻撃する人の名前を Host に入れてくる。許可する名前のほかは断る
-  - IP アドレス（LAN・Tailscale のアドレス・127.0.0.1・::1 など）。IP アドレスで開いた画面は
-    そのアドレスのオリジンになるので、向け直しには使えない
-  - `localhost`・`*.ts.net`（tailscale serve）・この PC の名前（`<名前>`・`<名前>.local`）
-  - 起動したときの `--host` の名前と、設定の `network.allowedHosts`
-- **Origin**: クロスサイトの WebSocket の乗っ取り（ほかのサイトの画面から `ws://127.0.0.1:8000/ws`
-  につなぐ）では、Host は正しく Origin がほかのサイトになる。Origin がない（ブラウザ以外）か、
-  Host と同じオリジン（ホスト名とポート）のときだけ通す。`network.allowedHosts` の名前の
-  オリジンも通す（Host を書き換える HTTPS の中継の後ろに置いたとき用）
-- 断るのは 403（WebSocket はつなぐ前に閉じる。HTTP では 403 になる）。ログには断った Host・
-  Origin を書く（接続元の IP は書かない）
-- トンネル（8001 番。`RelayAuthApp` が `via_tunnel` を付ける）からのリクエストは見ない。
-  Worker の署名で守っていて、Origin は Worker が確かめる（spec/cloud.md 10.5）
-"""
+"""8000 番の Host・Origin の確認（#249）。DNS rebinding とクロスサイトの WebSocket を 403 で断る。
+spec/api.md 7.5"""
 
 import ipaddress
 import json

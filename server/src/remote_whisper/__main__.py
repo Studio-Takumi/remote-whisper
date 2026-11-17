@@ -1,16 +1,5 @@
-"""サーバーを起動する
-
-使い方: uv run remote-whisper [--host 127.0.0.1] [--port 8000] [--mock] [--no-tray]
-
-`remote-whisper-gui`（Windows）は同じものを、コンソールを出さずに起動する（#135）。
-状態はタスクトレイ（Mac はメニューバー。#136）のアイコンで見る
-
---auto-port を付けると、8000 番から順に空いている番号を探す（インストーラのショートカット用。#290。
-ports.py）。付けないときは今までどおり 8000 番（か --port の番号）で、使われていれば起動に失敗する。
-すでに同じデータのルートで動いているサーバーがあれば、2 つ目は起動せずにその画面を開く
-
---open-browser を付けると、待ち受けを始めたら画面をブラウザで開く（Mac のアプリを開いたとき。#292）
-"""
+"""サーバーを起動する（uv run remote-whisper。引数は cli.py）。
+`--auto-port` は spec/files.md 5.1（#290）"""
 
 import contextlib
 import logging

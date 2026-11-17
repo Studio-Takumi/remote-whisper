@@ -15,17 +15,9 @@ class OwnerOnlyError(OSError):
 
 
 def write_owner_only(path: Path, text: str) -> None:
-    """path を、本人だけが読み書きできるファイルとして書き換える（一時ファイルから置き換える）
+    """path を、本人だけが読み書きできるファイルとして書き換える（付けられなければ OwnerOnlyError）
 
-    権限を付けられなければ OwnerOnlyError（元のファイルはそのまま。一時のものは残さない）。
-    POSIX は mkstemp の一時ファイルが最初から 600。
-    Windows は、同じフォルダに専用の一時フォルダを作り、継承を切って今のユーザーだけ
-    （`(OI)(CI)` でフォルダの中に作るものにも効く）にしてから、その中で一時ファイルを作って書き、
-    置き換える。一時ファイルを親フォルダに直接作ると、権限を付ける前に親フォルダの権限で
-    ほかのユーザーにハンドルを開かれ、あとから書いた中身を読まれうる（Windows はハンドルを
-    開いたときにしか権限を確かめない）。一時フォルダは中身のないうちに絞るので、そのハンドルを
-    持たれても、中のファイルは開けない。置き換えたあとも親フォルダの継承を受けないように、
-    ファイル自体も継承を切っておく
+    Windows は権限を絞った一時フォルダの中で書く（親に直接作ると他人がハンドルを開ける）。
     """
     if sys.platform != "win32":
         atomic_write_text(path, text)
@@ -50,10 +42,8 @@ def write_owner_only(path: Path, text: str) -> None:
 
 
 def restrict_to_owner(path: Path) -> None:
-    """ファイルを本人だけが読み書きできるようにする。できなければ OwnerOnlyError
-
-    POSIX は 600。Windows は icacls で継承を切り、今のユーザー（SID で指す）だけにする
-    """
+    """ファイルを本人だけが読み書きできるようにする。
+    できなければ OwnerOnlyError（POSIX は 600、Windows は icacls）"""
     if sys.platform != "win32":
         try:
             os.chmod(path, 0o600)
@@ -70,11 +60,8 @@ def _icacls(path: Path, *args: str) -> None:
 
 
 def _current_user_sid() -> str:
-    """今のユーザーの SID（whoami /user）
-
-    名前（USERDOMAIN\\USERNAME）で指すと、SSH のセッションなどで USERDOMAIN が WORKGROUP になり、
-    icacls が名前を SID に変えられずに失敗する
-    """
+    """今のユーザーの SID（whoami /user）。名前で指すと SSH のセッションで icacls
+    が解決できず失敗する"""
     result = _run_windows_tool("whoami.exe", "/user", "/fo", "csv", "/nh")
     sid = result.stdout.strip().rsplit(",", 1)[-1].strip().strip('"')
     if result.returncode != 0 or not sid.startswith("S-1-"):
@@ -84,9 +71,8 @@ def _current_user_sid() -> str:
 
 
 def system32(name: str) -> str:
-    """Windows の System32 のプログラムのフルパス。名前だけで起動すると、CreateProcess は
-    System32 より先にアプリのフォルダとカレントディレクトリを探すので、置かれた偽物を拾いうる
-    """
+    """Windows の System32 のプログラムのフルパス（名前だけだと CreateProcess
+    が先にカレントを探し、偽物を拾いうる）"""
     root = os.environ.get("SystemRoot") or "C:\\Windows"
     return f"{root.rstrip(chr(92))}\\System32\\{name}"
 

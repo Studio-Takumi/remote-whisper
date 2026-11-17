@@ -1,7 +1,5 @@
-"""セッションのファイル（文字起こし・要約・録音）を読む
-
-spec/files.md 5.1・5.5・spec/flows.md 6.5
-"""
+"""セッションのファイル（文字起こし・要約・録音）を読む。
+spec/files.md 5.1・5.5・spec/flows.md 6.5"""
 
 import re
 from pathlib import Path
@@ -142,9 +140,8 @@ class SessionFiles:
             "summaries": len(self.summaries()),
             "liveSummary": self.live_summary.is_file(),
         }
-        # 音源ごとの録音（#371）。ほかの音源の録音があるときだけ付ける。画面はこれがあることで
-        # `GET .../recording?source=` に対応したサーバーだと見分ける
-        # （古いサーバーは source を無視して主の音源を返す）
+        # 音源ごとの録音（#371）。ほかの音源があるときだけ付ける（画面が `?source=`
+        # 対応のサーバーだと見分けるため）
         sources = self.source_recordings()
         if sources:
             result["sourceRecordings"] = sources

@@ -35,10 +35,8 @@ def create_app(
     mock_timing: MockTiming | None = None,
     listen_host: str | None = None,
 ) -> FastAPI:
-    """home はデータのルート。省略すると REMOTE_WHISPER_HOME か ~/.remote-whisper
-
-    mock が True なら、Whisper と Ollama の代わりにダミーを使う（GPU なしでフロントを開発するため）
-    listen_host は起動したときの `--host`。名前なら、その名前で開くのも許す（#249）
+    """home はデータのルート（省略すると REMOTE_WHISPER_HOME か ~/.remote-whisper）。
+    mock ならダミーを使う。listen_host は起動した `--host`（#249）。
     """
     home = home or default_home()
     # バージョンは起動したときのものにする（動いている間に git pull しても変わらないように）

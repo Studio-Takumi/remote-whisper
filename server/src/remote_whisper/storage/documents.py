@@ -1,7 +1,5 @@
-"""プロジェクトのディレクトリに置くファイルの名前と、フロントマターの読み書き
-
-spec/files.md 5.1・5.5
-"""
+"""プロジェクトのディレクトリに置くファイルの名前と、フロントマターの読み書き。
+spec/files.md 5.1・5.5"""
 
 import re
 from pathlib import Path
@@ -129,10 +127,8 @@ class ContextSetMeta(_Meta):
 
 
 class ContextMeta(ContextSetMeta):
-    """コンテキスト `context-<ID>.md` のフロントマター。用語リストの分に、資料の目次が加わる（#181）
-
-    toc が None のものは、目次を取り出す前のセット（以前に作ったもの）。
-    """
+    """コンテキスト `context-<ID>.md` のフロントマター。用語リストの分に資料の目次が加わる（#181。
+    toc が None なら目次の前のセット）"""
 
     toc: list[MaterialToc] | None = None
 

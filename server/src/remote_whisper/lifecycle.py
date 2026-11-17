@@ -105,9 +105,8 @@ async def _stop(parts: Parts, traffic_task: asyncio.Task) -> None:
     await ctx.uploads.close()
     # モデルの取得と WhisperX を入れるのを止める（入れている途中なら、次に起動したときに戻す）
     await ctx.setup.close()
-    # 止めるときは、録音中の WAV を閉じて録音を終えたあとの処理を止め、GPU のジョブキューを止め
-    # （待っているジョブは cancel）、Whisper を下ろす。録音の側を先に止めるのは、止めたキューに
-    # 最終の要約などのジョブが積まれて、ワーカーが作り直されないようにするため
+    # 止める順番: 録音の側 → GPU キュー → Whisper（先に止めないと、
+    # 止めたキューにジョブが積まれてワーカーが作り直される）
     if isinstance(ctx.recorder, RecordingManager):
         await ctx.recorder.close()
     if ctx.final_transcriber is not None:

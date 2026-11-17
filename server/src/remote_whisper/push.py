@@ -1,17 +1,4 @@
-"""最終要約ができたら、通知を許可したクライアントに Web Push を送る（#245）。spec/flows.md 6.14
-
-- VAPID の鍵（P-256）は、ホストが最初に起動したときに作ってデータのルートに置く
-  （`push-vapid.pem`）。秘密鍵はファイルの外に出さない（ログ・API の応答に出さない）。
-  公開鍵だけを API で渡す
-- 購読（PushSubscription）は `push-subscriptions.json` に置く。push サービスが 404・410 を
-  返したら消す
-- 送る中身は「最終要約ができました」とセッションのタイトル・画面の URL だけ
-  （要約の本文は載せない）
-- 暗号化は RFC 8291（aes128gcm）、VAPID は RFC 8292（ES256 の JWT）。依存を増やさないよう
-  cryptography と httpx で作る
-- 送り先（endpoint）は、ブラウザの push サービスの https の URL だけにする（購読は認証なしの
-  API から足せるので、任意の URL へホストから POST させない）
-"""
+"""最終要約ができたら、通知を許可したクライアントに Web Push を送る（#245）。spec/flows.md 6.14"""
 
 import asyncio
 import base64
@@ -57,10 +44,8 @@ RECORD_SIZE = 4096
 
 
 def write_key(path: Path, text: str) -> None:
-    """push の鍵を、本人だけが読み書きできるファイルとして書く（cloud.json と同じ。#252）
-
-    権限を付けられなくても、通知が送れなくなるよりはよいので、警告を出して普通に書く
-    """
+    """push の鍵を本人だけが読み書きできるファイルとして書く（#252）。
+    付けられなくても通知を優先して警告つきで書く"""
     try:
         write_owner_only(path, text)
     except OwnerOnlyError as e:

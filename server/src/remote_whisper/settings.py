@@ -31,10 +31,8 @@ class SettingsLockedError(Exception):
         self.fields = fields
 
 
-# 録音中は変えられない項目（setting.json のキー。spec/files.md 5.3）。
-# 文字起こしのモデルは変えると読み込み直しになり、その間の文字起こしが止まる。
-# 区切りの設定は録音を始めたときに決まるので、今の録音には効かない。
-# マイクの処理は、ブラウザが録音を始めるときにマイクに設定する
+# 録音中は変えられない項目（spec/files.md 5.3）。
+# モデルは読み直しで止まり、区切りは録音の開始時に決まり、マイクはブラウザが開始時に設定する
 RECORDING_LOCKED: tuple[tuple[str, str], ...] = (
     ("whisper", "model"),
     ("whisper", "computeType"),
@@ -48,10 +46,8 @@ RECORDING_LOCKED: tuple[tuple[str, str], ...] = (
     ("recording", "echoCancellation"),
 )
 
-# トンネル（クラウド。8001 番）からは変えさせない項目（#166）。クラウドのログインを盗まれても、
-# 中間サーバーの接続先・cloudflared の場所・参考資料として読めるフォルダと拡張子・要約に文字起こしを
-# 送る Ollama の接続先を変えられないように。同じ値を送るのはかまわない
-# （画面は設定をまるごと送るため）
+# トンネル（クラウド。8001 番）からは変えさせない項目（#166）。
+# ログインを盗まれても接続先・実行ファイル・読めるフォルダを変えさせない
 TUNNEL_LOCKED: tuple[tuple[str, str], ...] = (
     ("cloud", "relayUrl"),
     ("cloud", "cloudflaredPath"),
@@ -104,28 +100,18 @@ class WhisperSettings(_Model):
     intel_gpu: Literal["auto", "off"] = "auto"
 
 
-# 処理ごとのおすすめのモデル（#178）。軽い処理は小さいモデルにする。入っていなければ、
-# 動かすときに入っているモデルで代わりに動かす（OllamaClient.resolve）。
-# 録音中の 3 つ（要約・タイトル・用語）は同じモデルにそろえる。録音中は Ollama のモデルを 1 つしか
-# 載せないので、別々だと区切りごとに読み込み直しになる。0.8b は用語の抽出で文をそのまま返すなど
-# 品質が足りなかったので、録音中は 2b にした。録音のあとの処理は gemma4:e4b を前提にする（#328）
+# 処理ごとのおすすめのモデル（#178）。録音中の 3 つは同じモデルにそろえる（1 つしか載せないため）
+# 。選んだ理由は spec/notes.md 9.3（#328）
 RECOMMENDED_MODELS = {
-    # 参考資料の 3 つ（用語・コンテキスト・図）は同じモデルにして、読み込み直しをなくす。
-    # gemma4:e4b は思考が短く、決算資料（4 部分）で qwen3.5:4b の約 3 分の 1 の時間（5 分）で済み、
-    # qwen3.5 のような数値の取り違え・中国語や英語の混入もなかった（#328）
+    # 参考資料の 3 つ（用語・コンテキスト・図）は同じモデルにする（読み込み直しをなくす。#328）
     "materialTerms": "gemma4:e4b",
     "context": "gemma4:e4b",
-    # 範囲の判断（#182）は、2b だと答えが回ごとにばらつき、温度 0 では目次を全部写すだけだった。
-    # qwen3.5:4b も目次を 1 行ずつ写して上限（10 個）で切れることがあった。gemma4:e4b は話題ごとに
-    # 範囲を答えた（#328）。浄書の後は VRAM が空いていて、続くコンテキスト・要約も同じモデル
+    # 範囲の判断（#182）も gemma4:e4b（小さいモデルは答えがばらつく。#328）
     "scope": "gemma4:e4b",
-    # 図の読み取り（#271）は画像を読めるモデル（Ollama の capabilities に vision があるもの）。
-    # gemma4:e4b は、決算資料の表を Markdown の表にして数値まで正しく写した。qwen3.5:4b は表の数値を
-    # 読まなかったり、増減を取り違えたりした（#328）。1 ページ 10 秒ほどで qwen3.5:4b の約 2 倍
+    # 図の読み取り（#271）は画像を読めるモデル。gemma4:e4b が表の数値を正しく写した（#328）
     "figures": "gemma4:e4b",
-    # 録音中の 3 つは qwen3.5:2b のまま（#328）。gemma4:e4b は Whisper と一緒だと GPU に載りきらず
-    # （43 層のうち 38 層）、区間の要約が約 2.5 倍遅くなった。gemma4:e2b は、区間の要約で前の区間の
-    # 要約をそのまま繰り返した
+    # 録音中の 3 つは qwen3.5:2b のまま（gemma4:e4b は Whisper と一緒だと GPU に載りきらず遅い。
+    # #328）
     "transcriptTerms": "qwen3.5:2b",
     "liveSummary": "qwen3.5:2b",
     "liveTitle": "qwen3.5:2b",
@@ -212,10 +198,8 @@ LEGACY_LIGHT_SOURCES = {
 
 
 def migrate_models(ollama: dict[str, Any], installed: set[str] | None) -> bool:
-    """古いキーしかない ollama の設定に、処理ごとのモデル（models）を足す。足したら True
-
-    installed は Ollama に入っているモデル（分からなければ None。そのときは移行元と同じモデル）
-    """
+    """古いキーしかない ollama の設定に、処理ごとのモデル（models）を足す。足したら True。
+    installed が不明なら移行元と同じモデル"""
     if "models" in ollama or not any(key in ollama for key in LEGACY_MODEL_KEYS):
         return False
     models: dict[str, str] = {}
@@ -333,9 +317,8 @@ class MaterialsSettings(_Model):
     read_figures: bool = True
 
 
-# マイクボタンのショートカットの既定と形（#236。spec/files.md 5.3）。修飾キーは
-# Ctrl・Alt・Shift・Meta の順で重ならず 1 つ以上、最後に修飾キーでないキー
-# （KeyboardEvent.code。KeyM・Digit1・F2・Space など）が 1 つ
+# マイクボタンのショートカットの既定と形（#236。spec/files.md 5.3）。
+# 最後は修飾キーでないキー（KeyboardEvent.code）
 DEFAULT_MIC_SHORTCUT = "Alt+Shift+KeyM"
 _MIC_SHORTCUT_PATTERN = re.compile(
     r"(Ctrl\+)?(Alt\+)?(Shift\+)?(Meta\+)?([A-Za-z][A-Za-z0-9]{0,31})"
@@ -380,11 +363,8 @@ DEFAULT_RELAY_URL = "https://rw-dev.studio-takumi.dev"
 
 
 def is_valid_cloudflared_path(value: str) -> bool:
-    """cloudflared の場所として受け付けるか。空、または絶対パスで UNC でなく、
-    ファイル名が cloudflared / cloudflared.exe（大文字小文字は無視）のもの。存在は実行時に見る
-
-    設定は認証なしの API から変えられるため、任意の実行ファイルや他のマシンのパスは通さない
-    """
+    """cloudflared の場所として受け付けるか（空、
+    または絶対パスで UNC でなく名前が cloudflared のもの）。認証なしの API から変えられるため"""
     if value == "":
         return True
     if "\0" in value or value.startswith(("\\\\", "//")):
@@ -472,9 +452,8 @@ class Settings(_Model):
     display: DisplaySettings = Field(default_factory=DisplaySettings)
     cloud: CloudSettings = Field(default_factory=CloudSettings)
     network: NetworkSettings = Field(default_factory=NetworkSettings)
-    # サイドバーのプロジェクトの並び順（プロジェクト ID。#173）。
-    # ここにないプロジェクトは先頭に出す。消えたプロジェクトの ID が残っていても読むときに無視する。
-    # 録音中も変えられる（#133）
+    # サイドバーのプロジェクトの並び順（プロジェクト ID。#173。録音中も変えられる）。
+    # ここにないものは先頭
     project_order: list[str] = Field(default_factory=list)
 
     @field_validator("project_order")
@@ -502,13 +481,8 @@ class Settings(_Model):
 
 
 def prepare_patch(patch: dict[str, Any]) -> dict[str, Any]:
-    """API から来た部分更新を、保存する形に直す（#325）
-
-    LM Studio のトークンは GET で返さないので、画面は設定をまるごと送っても token を持たない。
-    - `tokenSet`（GET で返した、設定済みかどうか）は捨てる
-    - token がない・空のときは、保存済みのものをそのまま残す
-    - token が null のときは消す（空にする）
-    """
+    """API から来た部分更新を、保存する形に直す（#325）。
+    `tokenSet` は捨て、token が空なら保存済みを残し、null なら消す"""
     lmstudio = patch.get("lmstudio")
     if not isinstance(lmstudio, dict):
         return patch
@@ -583,12 +557,8 @@ class SettingsStore:
         return self._settings
 
     def update(self, patch: dict[str, Any], locked: tuple[tuple[str, str], ...] = ()) -> Settings:
-        """部分更新。検証に通らなければ pydantic.ValidationError を投げ、ファイルは変えない
-
-        locked の項目（録音中は RECORDING_LOCKED）の値が変わるなら SettingsLockedError を投げる。
-        同じ値を送るのはかまわない（画面は設定をまるごと送るため）。
-        LM Studio のトークンの扱いは prepare_patch
-        """
+        """部分更新。検証に通らなければ ValidationError、
+        locked の項目が変わるなら SettingsLockedError（同じ値はよい）"""
         with self._lock:
             before = self._settings.to_json()
             merged = deep_merge(before, prepare_patch(patch))

@@ -1,15 +1,5 @@
-"""サーバーのログ（#134）。spec/flows.md 6.10
-
-- `<データのルート>/log/server.log` に書き、日付が変わったら切り替えて 10 日分残す
-  （`TimedRotatingFileHandler`）。コンソールにも今まで通り出す
-- 書くのは、いつ・何の通信があったかの概略と、Whisper・Ollama・最終の文字起こし・GPU キューの
-  ジョブの「始めた・終わった・失敗した」。文字起こし・要約の本文と音声の中身は書かない
-  （セッションの md と録音に残っているため）
-- partial のように多いものは 1 件ずつ書かず、1 分ごとに数をまとめて書く（`Traffic`）
-- 子プロセス（Whisper のワーカー・最終の文字起こし）のログも同じファイルに入れる。
-  子はファイルを開かず、親に渡して親が書く（子がファイルを開いたままだと、Windows では
-  日付が変わってファイルを切り替える（名前を変える）ときに失敗するため）
-"""
+"""サーバーのログ（#134）。spec/flows.md 6.10。
+子プロセスのログは親が書く（Windows でファイルを切り替えるため）"""
 
 import asyncio
 import contextlib
@@ -157,11 +147,8 @@ async def forward_output(
     logger: logging.Logger,
     intercept: Callable[[str], bool] | None = None,
 ) -> None:
-    """子プロセス（最終の文字起こし）の標準出力・標準エラーを、1 行ずつログにする
-
-    進み具合のバー（tqdm）は書かない。行の頭のレベル（`WARNING` など）があれば、そのレベルで書く。
-    intercept があれば先に行を渡し、True を返したもの（進み具合の行など。#340）は書かない
-    """
+    """子プロセスの標準出力・標準エラーを 1 行ずつログにする。
+    tqdm は書かず、intercept が True を返した行（#340）も書かない"""
     buffer = ""
     while chunk := await stream.read(4096):
         buffer += chunk.decode("utf-8", errors="replace")
