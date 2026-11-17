@@ -22,10 +22,10 @@ function base(id: string): Session {
     };
 }
 
-// メッセージのセッション（S）に、返ってきた書き換えを当てたもの。#361 から書き換えは関数で返り、
-// どこ（手元のセッションかキャッシュか）に当てるかは呼ぶ側が決める。ほかのセッションは変わらない
-function sessionOf(s: LiveChange | null, id = S) {
-    return id === S && s?.session ? s.session(base(id)) : base(id);
+// 返ってきた書き換えを当てたもの。#361 から書き換えは関数で返り、メッセージのセッションにだけ当てるのは
+// 呼ぶ側（applyLive。recordingMessages.test で確かめる）
+function sessionOf(s: LiveChange | null) {
+    return s?.session ? s.session(base(S)) : base(S);
 }
 
 describe('isLiveMessage', () => {
@@ -78,7 +78,6 @@ describe('applyLiveMessage', () => {
             { time: '00:00:00', text: '前の行' },
             { time: '00:01:05', text: '続き' },
         ]);
-        expect(sessionOf(next, OTHER)?.transcript).toHaveLength(1);
     });
 
     it('text が空の final は行にせず、partial を消すだけ', () => {

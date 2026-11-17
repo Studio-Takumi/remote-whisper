@@ -18,12 +18,14 @@ export function applyLive(store: AppStore, m: LiveMessage) {
         return;
     }
     const { session, ...rest } = change;
-    if (session && !findLocal(s.localSessions, m.session)) {
+    const local = !!session && !!findLocal(s.localSessions, m.session);
+    if (session && !local) {
         patchSessionData(store, m.session, session);
     }
+    // 手元のセッションでなければ localSessions は作り直さない（一覧を描き直さないように）
     store.setState((st) => ({
         ...rest,
-        ...(session && { localSessions: patchLocal(st.localSessions, m.session, session) }),
+        ...(local && session && { localSessions: patchLocal(st.localSessions, m.session, session) }),
     }));
 }
 
