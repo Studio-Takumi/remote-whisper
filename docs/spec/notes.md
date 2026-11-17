@@ -148,3 +148,14 @@
 | `cloud/credentials.py` | Ed25519 の鍵・署名（`canonical_string`）・`cloud.json` の読み書き |
 | `storage/owner_only.py` | 本人だけが読めるファイルの書き込み（`write_owner_only`） |
 | `cloud/errors.py` | `CloudError`・`RegistrationGone`・`CloudRefused` |
+- 浄書と最終要約の長い関数を段階ごとに分けた（#390）。出力（保存するファイル・送るメッセージ・子プロセスの入口と標準出力）は分ける前と同じ。依存は表の上から下へ一方向（`final_transcribe_multi` は `final_transcribe_worker` を読み、worker は複数の音源のときだけ関数の中で multi を読む）
+
+| モジュール | 置くもの |
+|---|---|
+| `transcript/final_transcribe_worker.py` | 浄書の子プロセスの入口（`python -m`）・進み具合の行・WhisperX の段階（`begin`・`run_steps`） |
+| `transcript/final_transcribe_multi.py` | 子プロセスの複数の音源（時刻合わせ・`merge_segments`・`hint_conflicts`・`run_multi`） |
+| `transcript/final_transcriber.py` | `FinalTranscriber`（GPU キュー・録音での中断・子プロセスの起動と結果の読み込み） |
+| `transcript/final_transcript_job.py` | 子に渡す指示（`build_job`）と打ち切るまでの時間（`worker_timeout`）、用語リスト |
+| `transcript/final_transcript_save.py` | 子の結果を文ごとの行にして保存する（`render_result`・`save_result`） |
+| `summary/final_summary.py` | `FinalSummarizer`（読み込み・モデル・タイトル・保存の流れ） |
+| `summary/final_summary_body.py` | `SummaryBody`（一度に・部分ごと・まとめ・概要・参考資料のページ）、`Density` |
