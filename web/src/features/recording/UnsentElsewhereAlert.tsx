@@ -9,10 +9,8 @@ import { page, rememberHost, selectable, useHostsStore } from '@/features/cloud/
 // オフラインのホストがあるとき、一覧を読み直す間隔（オンラインになったら「切り替える」を押せるように）
 const RELOAD_HOSTS_MS = 30_000;
 
-// ほかのホストで録音していて、届かなかった音声が残っているとき（クラウド版。#227。spec/cloud.md 10.6）。
-// 復旧はそのホストにつないだときにする。ここでは知らせて、そのホストに切り替えられるようにする。
-// 外したホスト（一覧にない）と、どのホストのものか分からないもの（ホスト ID のない古い行など）は
-// 復旧しないので、まとめて 1 つにして捨てられるようにする
+// ほかのホストに届かなかった音声が残っているときの知らせ（クラウド版。#227。spec/cloud.md 10.6）。
+// 復旧はそのホストにつないだときで、外したホスト・ホスト不明のものはまとめて捨てられるようにする
 export function UnsentElsewhereAlert() {
     const elsewhere = useAppStore((s) => s.unsentElsewhere);
     const idle = useAppStore((s) => s.recordingState === 'idle');
