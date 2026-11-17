@@ -148,11 +148,12 @@
 | `cloud/credentials.py` | Ed25519 の鍵・署名（`canonical_string`）・`cloud.json` の読み書き |
 | `storage/owner_only.py` | 本人だけが読めるファイルの書き込み（`write_owner_only`） |
 | `cloud/errors.py` | `CloudError`・`RegistrationGone`・`CloudRefused` |
-- 浄書と最終要約の長い関数を段階ごとに分けた（#390）。出力（保存するファイル・送るメッセージ・子プロセスの入口と標準出力）は分ける前と同じ。依存は表の上から下へ一方向（`final_transcribe_multi` は `final_transcribe_worker` を読み、worker は複数の音源のときだけ関数の中で multi を読む）
+- 浄書と最終要約の長い関数を段階ごとに分けた（#390）。出力（保存するファイル・送るメッセージ・子プロセスの入口と標準出力）は分ける前と同じ。依存は一方向（子プロセスは `final_transcribe_worker` → `final_transcribe_multi` → `final_transcribe_steps`、worker も steps を読む。親の `final_transcriber` は steps の進み具合の行と worker の終了コードを読む）
 
 | モジュール | 置くもの |
 |---|---|
-| `transcript/final_transcribe_worker.py` | 浄書の子プロセスの入口（`python -m`）・進み具合の行・WhisperX の段階（`begin`・`run_steps`） |
+| `transcript/final_transcribe_worker.py` | 浄書の子プロセスの入口（`python -m`）・終了コード・1 音源の `run` |
+| `transcript/final_transcribe_steps.py` | 進み具合の行（`Progress`・`parse_progress`）と WhisperX の段階（`begin`・`run_steps`・`load_audio`） |
 | `transcript/final_transcribe_multi.py` | 子プロセスの複数の音源（時刻合わせ・`merge_segments`・`hint_conflicts`・`run_multi`） |
 | `transcript/final_transcriber.py` | `FinalTranscriber`（GPU キュー・録音での中断・子プロセスの起動と結果の読み込み） |
 | `transcript/final_transcript_job.py` | 子に渡す指示（`build_job`）と打ち切るまでの時間（`worker_timeout`）、用語リスト |
