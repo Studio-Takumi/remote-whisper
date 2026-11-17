@@ -29,6 +29,7 @@ import { replaceUrlNext } from '@/app/router';
 import type { VersionJson } from '@/app/version';
 import { sortSessions } from '@/features/projects/move';
 import { sortByIds } from '@/features/projects/projectOrder';
+import { updateSession } from '@/features/projects/updateSession';
 import {
     type MicState,
     Microphone,
@@ -257,10 +258,6 @@ export const currentContextSelection = (s: AppState, sets: ContextSet[]): Contex
 // セッションの中身を変える WebSocket の通知（受け取ったら、キャッシュにも入れる）。
 // title・finalTranscript・corrections・sessionMoved などは、それぞれの処理でキャッシュを書き換える・取り直す
 const SESSION_MESSAGES = new Set<ServerMessage['type']>(['final', 'terms', 'summary.done', 'watching']);
-
-function updateSession(projects: Project[], sessionId: string, fn: (s: Session) => Session) {
-    return projects.map((p) => ({ ...p, sessions: p.sessions.map((s) => (s.id === sessionId ? fn(s) : s)) }));
-}
 
 // デモ（?demo）ではサーバーに保存されないので、届いた最終の要約をそのままセッションに足す
 function finishDemoSummary(s: AppState, sessionId: string): Partial<AppState> {
