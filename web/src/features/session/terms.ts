@@ -1,4 +1,4 @@
-// 用語の入力を、足す語に分ける・確かめる（#175）。サーバーの検証（routes/sessions.py の add_term）と合わせる
+// 用語の入力を、足す語に分ける・確かめる（#175）。サーバーの検証（routes/sessions/ の add_term）と合わせる
 
 // 手で足す語の長さ（文字）の上限
 export const MANUAL_MAX_CHARS = 40;
