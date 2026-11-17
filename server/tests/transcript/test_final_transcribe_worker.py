@@ -296,6 +296,16 @@ def test_multiple_sources_result_calls_and_progress(fake_whisperx, monkeypatch, 
     ]
 
 
+def test_merge_segments_tags_the_source_and_sorts_by_start():
+    results = [
+        {"segments": [{"start": 2.0, "end": 3.0, "text": "後"}, {"start": None, "text": "?"}]},
+        {"segments": [{"start": 1.0, "end": 1.5, "text": "先", "words": [{"word": "先"}]}]},
+    ]
+    merged = worker.merge_segments([1, 7], results)
+    assert [(s["text"], s["source"]) for s in merged] == [("?", 1), ("先", 7), ("後", 1)]
+    assert merged[1]["words"] == [{"word": "先", "start": None, "end": None, "speaker": None}]
+
+
 def test_hint_conflicts_counts_words_from_an_unusual_source():
     choice = np.array([0] * 10 + [1] * 10)
     margin = np.array([10.0] * 20)

@@ -33,6 +33,8 @@ import logging
 import os
 import sys
 import time
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -195,18 +197,29 @@ class _Scaled:
         self.progress.percent((self.index * 100 + value) / self.count)
 
 
-def run_multi(job: dict[str, Any]) -> dict[str, Any]:
-    """複数の音源（#241。spec/flows.md 6.16）
+def _percent(progress: Progress, index: int, count: int) -> Callable[[float], None]:
+    """音源が 1 つなら段階の % をそのまま、複数なら段階全体の % にして出す"""
+    return progress.percent if count == 1 else _Scaled(progress, index, count)
 
-    音源ごとに、その音源が一番大きい区間だけを残した音を文字起こし・位置合わせし、
-    話者分けは各時点で一番大きい音源をつないだ 1 本で 1 回だけ行う。時刻は主の音源の時刻にそろえる
-    """
-    import numpy as np
 
-    from remote_whisper.transcript import multisource
+@dataclass
+class _Worker:
+    """読み込んだ torch・WhisperX と、指示から決まる実行の条件"""
 
+    job: dict[str, Any]
+    progress: Progress
+    torch: Any
+    whisperx: Any
+    device: str
+    compute_type: str
+    language: str
+
+
+def _begin(job: dict[str, Any]) -> _Worker:
+    """モデルの読み込みの段階を出し始めて、torch と WhisperX を読み込む"""
     progress = Progress(bool(job.get("diarize")))
     progress.start("load")
+    # torch.hub などのキャッシュも HF_HOME の下に置く（C: の既定の場所に落とさない）
     if os.environ.get("HF_HOME") and not os.environ.get("TORCH_HOME"):
         os.environ["TORCH_HOME"] = str(Path(os.environ["HF_HOME"]) / "torch")
     import torch
@@ -214,17 +227,114 @@ def run_multi(job: dict[str, Any]) -> dict[str, Any]:
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     compute_type = job.get("computeType", "float16") if device == "cuda" else "int8"
-    language = job.get("language", "ja")
-    sources = job["sources"]
-    ids = [int(s["id"]) for s in sources]
+    return _Worker(job, progress, torch, whisperx, device, compute_type, job.get("language", "ja"))
 
-    # 時刻を合わせる（主の音源の時刻に並べ直す）
+
+def _transcribe(w: _Worker, audios: list[Any]) -> list[dict[str, Any]]:
+    """音源ごとに文字起こしする。使い終わったモデルは下ろす"""
+    t = time.monotonic()
+    model = _load_asr(w.job, w.whisperx, w.device, w.compute_type)
+    w.progress.start("transcribe")
+    results = []
+    for k, audio in enumerate(audios):
+        results.append(
+            model.transcribe(
+                audio,
+                batch_size=int(w.job.get("batchSize", 8)),
+                language=w.language,
+                progress_callback=_percent(w.progress, k, len(audios)),
+            )
+        )
+    del model
+    _free(w.torch)
+    log.info(
+        "transcribed %s segments in %.0fs",
+        "+".join(str(len(r["segments"])) for r in results),
+        time.monotonic() - t,
+    )
+    return results
+
+
+def _align(
+    w: _Worker, results: list[dict[str, Any]], audios: list[Any]
+) -> tuple[list[dict[str, Any]], str | None]:
+    """音源ごとに単語の時刻を合わせる。位置合わせのモデルの名前も返す"""
+    t = time.monotonic()
+    w.progress.start("align")
+    align_model, metadata = w.whisperx.load_align_model(language_code=w.language, device=w.device)
+    align_name = getattr(getattr(align_model, "config", None), "_name_or_path", None)
+    aligned = [
+        w.whisperx.align(
+            result["segments"],
+            align_model,
+            metadata,
+            audio,
+            w.device,
+            return_char_alignments=False,
+            progress_callback=_percent(w.progress, k, len(audios)),
+        )
+        for k, (result, audio) in enumerate(zip(results, audios, strict=True))
+    ]
+    del align_model
+    _free(w.torch)
+    log.info("aligned in %.0fs", time.monotonic() - t)
+    return aligned, align_name
+
+
+def _diarize(
+    w: _Worker, audio: Any, results: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """話者分けを 1 回して、各結果の単語に話者を付ける。使えなければ飛ばす"""
+    t = time.monotonic()
+    w.progress.start("diarize")
+    state: dict[str, Any] = {"turns": [], "diarization": "off", "diarizationError": None}
+    try:
+        from whisperx.diarize import DiarizationPipeline
+
+        pipeline = DiarizationPipeline(model_name=w.job.get("diarizationModel"), device=w.device)
+        diarized = pipeline(audio, progress_callback=w.progress.percent)
+        # 行を分けるときに話者の替わり目を見るので、区間もそのまま返す（#141）
+        state["turns"] = [
+            {"start": float(r.start), "end": float(r.end), "speaker": str(r.speaker)}
+            for r in diarized.itertuples()
+        ]
+        results = [w.whisperx.assign_word_speakers(diarized, r) for r in results]
+        del pipeline
+        state["diarization"] = "done"
+        log.info("diarized in %.0fs", time.monotonic() - t)
+    except Exception as e:  # noqa: BLE001 トークンがない・利用条件に同意していないなど
+        error = f"{type(e).__name__}: {str(e).splitlines()[0] if str(e) else ''}"
+        state.update(diarization="unavailable", diarizationError=error)
+        log.warning("diarization skipped: %s", error)
+    _free(w.torch)
+    return results, state
+
+
+def _pipeline(
+    w: _Worker, audios: list[Any], joined: Any
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """文字起こし → 位置合わせ → 話者分け（するときだけ。joined の 1 本で）
+
+    音源ごとの結果と、結果の共通の項目を返す"""
+    results, align_name = _align(w, _transcribe(w, audios), audios)
+    state: dict[str, Any] = {"turns": [], "diarization": "off", "diarizationError": None}
+    if w.job.get("diarize"):
+        results, state = _diarize(w, joined, results)
+    return results, {**state, "alignModel": align_name, "device": w.device}
+
+
+def _align_sources(sources: list[dict[str, Any]]) -> tuple[Any, list[dict[str, Any]]]:
+    """ほかの音源を主の音源の時刻に並べ直して、文字起こし用と話者分け用の音を作る"""
+    import numpy as np
+
+    from remote_whisper.transcript import multisource
+
     t = time.monotonic()
     main = load_audio(sources[0]["audio"])
     aligned = [main]
     present = [np.ones(len(main), dtype=bool)]
     alignments: list[dict[str, Any]] = [
-        {"id": ids[0], "offsetSec": 0.0, "driftPpm": 0.0, "windows": None}
+        {"id": int(sources[0]["id"]), "offsetSec": 0.0, "driftPpm": 0.0, "windows": None}
     ]
     for s in sources[1:]:
         other = load_audio(s["audio"])
@@ -232,14 +342,7 @@ def run_multi(job: dict[str, Any]) -> dict[str, Any]:
         aligned.append(multisource.to_main_time(other, a, len(main)))
         mark = multisource.to_main_time(np.ones(len(other), dtype=np.float32), a, len(main))
         present.append(mark > 0.5)
-        alignments.append(
-            {
-                "id": int(s["id"]),
-                "offsetSec": round(a.offset_sec, 3),
-                "driftPpm": round(a.drift_ppm, 1),
-                "windows": a.windows,
-            }
-        )
+        alignments.append(_alignment_json(int(s["id"]), a))
         log.info(
             "source %s: offset %.3fs, drift %.1fppm (%d windows)",
             s["id"],
@@ -251,85 +354,46 @@ def run_multi(job: dict[str, Any]) -> dict[str, Any]:
     prepared = multisource.prepare(aligned, present)
     del aligned, present
     log.info("prepared %d sources in %.0fs", len(sources), time.monotonic() - t)
+    return prepared, alignments
 
-    t = time.monotonic()
-    model = _load_asr(job, whisperx, device, compute_type)
-    progress.start("transcribe")
-    results = []
-    for k, audio in enumerate(prepared.gated):
-        results.append(
-            model.transcribe(
-                audio,
-                batch_size=int(job.get("batchSize", 8)),
-                language=language,
-                progress_callback=_Scaled(progress, k, len(ids)),
-            )
-        )
-    del model
-    _free(torch)
-    log.info(
-        "transcribed %s segments in %.0fs",
-        "+".join(str(len(r["segments"])) for r in results),
-        time.monotonic() - t,
-    )
 
-    t = time.monotonic()
-    progress.start("align")
-    align_model, metadata = whisperx.load_align_model(language_code=language, device=device)
-    align_name = getattr(getattr(align_model, "config", None), "_name_or_path", None)
-    for k, audio in enumerate(prepared.gated):
-        results[k] = whisperx.align(
-            results[k]["segments"],
-            align_model,
-            metadata,
-            audio,
-            device,
-            return_char_alignments=False,
-            progress_callback=_Scaled(progress, k, len(ids)),
-        )
-    del align_model
-    _free(torch)
-    log.info("aligned in %.0fs", time.monotonic() - t)
+def _alignment_json(source: int, a: Any) -> dict[str, Any]:
+    return {
+        "id": source,
+        "offsetSec": round(a.offset_sec, 3),
+        "driftPpm": round(a.drift_ppm, 1),
+        "windows": a.windows,
+    }
 
-    diarization = "off"
-    error = None
-    turns: list[dict[str, Any]] = []
-    if job.get("diarize"):
-        t = time.monotonic()
-        progress.start("diarize")
-        try:
-            from whisperx.diarize import DiarizationPipeline
 
-            pipeline = DiarizationPipeline(model_name=job.get("diarizationModel"), device=device)
-            diarized = pipeline(prepared.joined, progress_callback=progress.percent)
-            turns = [
-                {"start": float(r.start), "end": float(r.end), "speaker": str(r.speaker)}
-                for r in diarized.itertuples()
-            ]
-            results = [whisperx.assign_word_speakers(diarized, r) for r in results]
-            del pipeline
-            diarization = "done"
-            log.info("diarized in %.0fs", time.monotonic() - t)
-        except Exception as e:  # noqa: BLE001 トークンがない・利用条件に同意していないなど
-            diarization = "unavailable"
-            error = f"{type(e).__name__}: {str(e).splitlines()[0] if str(e) else ''}"
-            log.warning("diarization skipped: %s", error)
-        _free(torch)
-
+def merge_segments(ids: list[int], results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """音源ごとの結果を、音源の ID を付けて始まりの時刻の順に並べる"""
     segments: list[dict[str, Any]] = []
     for source, r in zip(ids, results, strict=True):
         segments += _segments_json(r["segments"], source)
     segments.sort(key=lambda s: s["start"] if s["start"] is not None else 0.0)
+    return segments
+
+
+def run_multi(job: dict[str, Any]) -> dict[str, Any]:
+    """複数の音源（#241。spec/flows.md 6.16）
+
+    音源ごとに、その音源が一番大きい区間だけを残した音を文字起こし・位置合わせし、
+    話者分けは各時点で一番大きい音源をつないだ 1 本で 1 回だけ行う。時刻は主の音源の時刻にそろえる
+    """
+    from remote_whisper.transcript import multisource
+
+    w = _begin(job)
+    ids = [int(s["id"]) for s in job["sources"]]
+    prepared, alignments = _align_sources(job["sources"])
+    results, common = _pipeline(w, prepared.gated, prepared.joined)
+    segments = merge_segments(ids, results)
     hint = hint_conflicts(segments, prepared.choice, prepared.margin, ids)
     if hint is not None:
         log.info("source hint: %d of %d decisive words disagree with the speaker", *hint)
     return {
         "segments": segments,
-        "turns": turns,
-        "diarization": diarization,
-        "diarizationError": error,
-        "alignModel": align_name,
-        "device": device,
+        **common,
         "sources": alignments,
         "dominant": multisource.runs(prepared.choice, ids),
         "hintConflicts": hint[0] if hint is not None else None,
@@ -366,100 +430,10 @@ def hint_conflicts(
 def run(job: dict[str, Any]) -> dict[str, Any]:
     if len(job.get("sources") or []) > 1:
         return run_multi(job)
-    progress = Progress(bool(job.get("diarize")))
-    progress.start("load")
-    # torch.hub などのキャッシュも HF_HOME の下に置く（C: の既定の場所に落とさない）
-    if os.environ.get("HF_HOME") and not os.environ.get("TORCH_HOME"):
-        os.environ["TORCH_HOME"] = str(Path(os.environ["HF_HOME"]) / "torch")
-    import torch
-    import whisperx
-
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    compute_type = job.get("computeType", "float16") if device == "cuda" else "int8"
-    language = job.get("language", "ja")
+    w = _begin(job)
     audio = load_audio(job["audio"])
-
-    t = time.monotonic()
-    model = _load_asr(job, whisperx, device, compute_type)
-    progress.start("transcribe")
-    result = model.transcribe(
-        audio,
-        batch_size=int(job.get("batchSize", 8)),
-        language=language,
-        progress_callback=progress.percent,
-    )
-    del model
-    _free(torch)
-    log.info("transcribed %d segments in %.0fs", len(result["segments"]), time.monotonic() - t)
-
-    t = time.monotonic()
-    progress.start("align")
-    align_model, metadata = whisperx.load_align_model(language_code=language, device=device)
-    align_name = getattr(getattr(align_model, "config", None), "_name_or_path", None)
-    result = whisperx.align(
-        result["segments"],
-        align_model,
-        metadata,
-        audio,
-        device,
-        return_char_alignments=False,
-        progress_callback=progress.percent,
-    )
-    del align_model
-    _free(torch)
-    log.info("aligned in %.0fs", time.monotonic() - t)
-
-    diarization = "off"
-    error = None
-    turns: list[dict[str, Any]] = []
-    if job.get("diarize"):
-        t = time.monotonic()
-        progress.start("diarize")
-        try:
-            from whisperx.diarize import DiarizationPipeline
-
-            pipeline = DiarizationPipeline(model_name=job.get("diarizationModel"), device=device)
-            segments = pipeline(audio, progress_callback=progress.percent)
-            # 行を分けるときに話者の替わり目を見るので、区間もそのまま返す（#141）
-            turns = [
-                {"start": float(r.start), "end": float(r.end), "speaker": str(r.speaker)}
-                for r in segments.itertuples()
-            ]
-            result = whisperx.assign_word_speakers(segments, result)
-            del pipeline
-            diarization = "done"
-            log.info("diarized in %.0fs", time.monotonic() - t)
-        except Exception as e:  # noqa: BLE001 トークンがない・利用条件に同意していないなど
-            diarization = "unavailable"
-            error = f"{type(e).__name__}: {str(e).splitlines()[0] if str(e) else ''}"
-            log.warning("diarization skipped: %s", error)
-        _free(torch)
-
-    return {
-        "segments": [
-            {
-                "start": s.get("start"),
-                "end": s.get("end"),
-                "text": s.get("text", ""),
-                "speaker": s.get("speaker"),
-                "words": [
-                    {
-                        "word": w.get("word", ""),
-                        "start": w.get("start"),
-                        "end": w.get("end"),
-                        "speaker": w.get("speaker"),
-                    }
-                    for w in s.get("words", [])
-                ],
-            }
-            for s in result["segments"]
-        ],
-        "turns": turns,
-        "diarization": diarization,
-        "diarizationError": error,
-        "alignModel": align_name,
-        "device": device,
-    }
+    results, common = _pipeline(w, [audio], audio)
+    return {"segments": _segments_json(results[0]["segments"]), **common}
 
 
 def main() -> None:
