@@ -1,4 +1,4 @@
-// ホストの登録（#157）。ホスト側の署名は、トレイ（server/src/remote_whisper/cloud/cloud.py）と同じ組み立て方
+// ホストの登録（#157）。ホスト側の署名は、トレイ（server/src/remote_whisper/cloud/credentials.py）と同じ組み立て方
 import { SELF, env } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
 

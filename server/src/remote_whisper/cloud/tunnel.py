@@ -18,7 +18,7 @@ from typing import Any
 
 import uvicorn
 
-from remote_whisper.cloud.cloud import (
+from remote_whisper.cloud.credentials import (
     SIGNATURE_VERSION,
     b64url,
     b64url_decode,

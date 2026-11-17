@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 
 import { toast } from 'sonner';
 
-import { isDemo } from '@/api/data';
+import { isDemo } from '@/api/demo';
 import { isCloud } from '@/api/endpoint';
 import { AppSidebar } from '@/app/AppSidebar';
 import { DevPanel } from '@/app/DevPanel';

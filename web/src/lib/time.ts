@@ -58,3 +58,8 @@ export function formatDateTime(date = new Date()) {
     const d = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
     return `${d} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
+
+// 日時（ISO 8601）を画面に出す形にする
+export function displayTime(iso: string | null | undefined) {
+    return iso ? formatDateTime(new Date(iso)) : undefined;
+}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { pickFinalTranscript } from '@/api/data';
+import { pickFinalTranscript } from '@/api/transcripts';
 import type { FinalTranscriptInfo } from '@/api/types';
 
 function info(generationId: string, model: string): FinalTranscriptInfo {

@@ -12,7 +12,12 @@ from fastapi import FastAPI, WebSocket
 from starlette.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from remote_whisper.cloud.cloud import b64url, delete_credentials, new_credentials, save_credentials
+from remote_whisper.cloud.credentials import (
+    b64url,
+    delete_credentials,
+    new_credentials,
+    save_credentials,
+)
 from remote_whisper.cloud.tunnel import (
     RELAY_HEADER,
     RelayAuthApp,

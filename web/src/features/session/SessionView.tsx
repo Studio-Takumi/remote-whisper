@@ -12,9 +12,9 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 
-import { pickFinalTranscript } from '@/api/data';
 import { apiUrl } from '@/api/endpoint';
 import { llmUnavailable, makingFinalTranscript, summaryStatus, transcriptStatus } from '@/api/status';
+import { pickFinalTranscript } from '@/api/transcripts';
 import type { FinalTranscriptInfo, Generating, Session, Summary, TranscriptLine } from '@/api/types';
 import { useCurrentProject, useCurrentSession, useProjects } from '@/app/sessionHooks';
 import { useAppStore } from '@/app/store';

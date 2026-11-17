@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 
 import { type DirListing, api } from '@/api/api';
-import { isDemo } from '@/api/data';
+import { isDemo } from '@/api/demo';
 import { demoDirListing } from '@/api/mock';
 
 // ディレクトリの中身（GET /api/fs）。path を省略すると、読み込めるフォルダ（materials.roots）の一覧

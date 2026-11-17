@@ -102,7 +102,7 @@ cloudflared はホストの中から 127.0.0.1 でつないでくるので、IP 
 - ホストから Worker への API（登録の確認・トンネルのトークンの取得・解除）は、ホストの Ed25519 の秘密鍵で署名する。Worker は登録のときに受け取った公開鍵で確かめる
   - 署名する中身: `v1`・ホスト ID・時刻（UNIX 秒）・メソッド・パス・本文の SHA-256。ヘッダーの形: `X-RW-Host: v1;host=<hostId>;ts=<秒>;sig=<base64url>`
   - 時刻が 60 秒より古い・新しいものは断る（盗んだリクエストを送り直されても、中継の鍵を取られないように）
-  - **署名の対象の文字列（#158 で決めた。Worker の #157 も同じに組み立てる）**: 次の 6 つを改行（`\n`、LF 1 文字）でつなぎ、UTF-8 にしたバイト列。末尾に改行は付けない。ホストの実装は `server/src/remote_whisper/cloud/cloud.py` の `canonical_string`
+  - **署名の対象の文字列（#158 で決めた。Worker の #157 も同じに組み立てる）**: 次の 6 つを改行（`\n`、LF 1 文字）でつなぎ、UTF-8 にしたバイト列。末尾に改行は付けない。ホストの実装は `server/src/remote_whisper/cloud/credentials.py` の `canonical_string`
 
     ```
     v1

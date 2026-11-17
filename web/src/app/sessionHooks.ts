@@ -10,16 +10,10 @@ import {
     useQuery,
 } from '@tanstack/react-query';
 
-import {
-    finalTranscriptQuery,
-    finalTranscriptsQuery,
-    liveSummaryQuery,
-    projectsQuery,
-    sessionsQuery,
-    summariesQuery,
-    summaryQuery,
-    transcriptQuery,
-} from '@/api/data';
+import { projectsQuery } from '@/api/projects';
+import { sessionsQuery } from '@/api/sessions';
+import { liveSummaryQuery, summariesQuery, summaryQuery } from '@/api/summaries';
+import { finalTranscriptQuery, finalTranscriptsQuery, transcriptQuery } from '@/api/transcripts';
 import type { Project, Session } from '@/api/types';
 import { useAppStore } from '@/app/store';
 import { buildProjects } from '@/features/projects/projectsView';
