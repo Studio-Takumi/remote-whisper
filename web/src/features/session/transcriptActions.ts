@@ -2,7 +2,7 @@
 import { toast } from 'sonner';
 
 import { type CorrectionsJson, type TermsJson, api } from '@/api/api';
-import { isDemo } from '@/api/data';
+import { isDemo } from '@/api/demo';
 import type { ActionContext } from '@/app/actionContext';
 import { runMutation } from '@/app/query';
 import { type Correction, applyCorrectionLocally, revertCorrection } from '@/features/session/corrections';

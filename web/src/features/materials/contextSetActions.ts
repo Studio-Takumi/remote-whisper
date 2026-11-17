@@ -2,7 +2,8 @@
 import { toast } from 'sonner';
 
 import { ApiError, type ProjectJson, api } from '@/api/api';
-import { isDemo, projectsQuery, toSelection } from '@/api/data';
+import { isDemo } from '@/api/demo';
+import { projectsQuery, toSelection } from '@/api/projects';
 import type { ContextSelection, ContextSet } from '@/api/types';
 import type { ActionContext } from '@/app/actionContext';
 import type { AppState } from '@/app/appState';

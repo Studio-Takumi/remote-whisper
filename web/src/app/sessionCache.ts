@@ -1,14 +1,8 @@
 // セッションの中身をキャッシュ（#330）から読む・書き戻す（#361）。サーバーのデータはキャッシュにだけ持つ
-import {
-    KEEP,
-    finalTranscriptQuery,
-    finalTranscriptsQuery,
-    liveSummaryQuery,
-    sessionsQuery,
-    summariesQuery,
-    summaryQuery,
-    transcriptQuery,
-} from '@/api/data';
+import { KEEP } from '@/api/queryCommon';
+import { sessionsQuery } from '@/api/sessions';
+import { liveSummaryQuery, summariesQuery, summaryQuery } from '@/api/summaries';
+import { finalTranscriptQuery, finalTranscriptsQuery, transcriptQuery } from '@/api/transcripts';
 import type { Session } from '@/api/types';
 import { queryClient, queryKeys } from '@/app/query';
 import type { SessionParts } from '@/features/session/sessionDetail';

@@ -8,7 +8,9 @@ type Store = typeof useAppStore;
 
 export async function seedProjects(store: Store, projects: Project[]) {
     const { queryClient } = await import('@/app/query');
-    const { projectsQuery, sessionsQuery, transcriptQuery } = await import('@/api/data');
+    const { projectsQuery } = await import('@/api/projects');
+    const { sessionsQuery } = await import('@/api/sessions');
+    const { transcriptQuery } = await import('@/api/transcripts');
     queryClient.setQueryData(
         projectsQuery.queryKey,
         projects.map(({ sessions: _sessions, ...p }) => p),

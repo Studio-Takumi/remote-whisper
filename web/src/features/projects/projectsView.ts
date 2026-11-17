@@ -1,6 +1,6 @@
 // 画面に出すプロジェクトの一覧：キャッシュのプロジェクトとセッションの一覧に、手元で中身を積み上げている
 // セッションを重ねる（#361）。手元のものはサーバーの一覧のものより先に使い、一覧にまだなければ先頭に足す
-import type { ProjectInfo } from '@/api/data';
+import type { ProjectInfo } from '@/api/projects';
 import type { Project, Session } from '@/api/types';
 import type { LocalSession } from '@/features/projects/localSessions';
 

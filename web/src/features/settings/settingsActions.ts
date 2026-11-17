@@ -2,7 +2,7 @@
 import { toast } from 'sonner';
 
 import { ApiError, api } from '@/api/api';
-import { isDemo } from '@/api/data';
+import { isDemo } from '@/api/demo';
 import type { ActionContext } from '@/app/actionContext';
 import { currentSession, needsSummaryFor } from '@/app/selectors';
 import { fetchOptions } from '@/features/settings/options';

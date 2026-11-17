@@ -2,7 +2,8 @@
 import { toast } from 'sonner';
 
 import { ApiError, api } from '@/api/api';
-import { fetchFinalTranscript, isDemo } from '@/api/data';
+import { isDemo } from '@/api/demo';
+import { fetchFinalTranscript } from '@/api/transcripts';
 import type { ActionContext } from '@/app/actionContext';
 import { recordingLocks } from '@/features/recording/recording';
 import { finalModelLabel, llmModels } from '@/features/settings/settings';

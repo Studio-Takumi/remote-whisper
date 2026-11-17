@@ -2,7 +2,7 @@
 // 接続が切れているかどうかは status に含まれないので、ブラウザ側で判定する
 import { api } from '@/api/api';
 import { connection } from '@/api/connection';
-import { isDemo } from '@/api/data';
+import { isDemo } from '@/api/demo';
 import { isCloud } from '@/api/endpoint';
 import type { ServerMessage } from '@/api/protocol';
 import { queryClient } from '@/app/query';

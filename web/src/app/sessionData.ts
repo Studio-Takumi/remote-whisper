@@ -1,6 +1,7 @@
 // ストアの外（操作・WebSocket の受け取り）から、プロジェクトとセッションを読む・書き換える（#361）。
 // サーバーのデータはキャッシュから読み、手元で積み上げているセッション（localSessions）はストアから読む
-import { type ProjectInfo, projectsQuery, sessionsQuery } from '@/api/data';
+import { type ProjectInfo, projectsQuery } from '@/api/projects';
+import { sessionsQuery } from '@/api/sessions';
 import type { Project, Session } from '@/api/types';
 import type { AppState, AppStore } from '@/app/appState';
 import { queryClient } from '@/app/query';

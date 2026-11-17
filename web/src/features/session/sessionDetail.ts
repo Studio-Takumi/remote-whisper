@@ -1,6 +1,6 @@
 // セッションの中身（文字起こし・最終の文字起こし・要約）を、キャッシュにある API の返事から組み立てる（#361）
 import type { SessionFiles, SummaryInfoJson, SummaryJson, TranscriptJson } from '@/api/api';
-import { toSummary } from '@/api/data';
+import { toSummary } from '@/api/summaries';
 import type { FinalTranscript, FinalTranscriptInfo, Session } from '@/api/types';
 import { withLineSources } from '@/features/session/sources';
 

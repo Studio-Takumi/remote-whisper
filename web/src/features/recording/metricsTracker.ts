@@ -1,7 +1,7 @@
 // 録音ごとの数字（#206。クラウド版のときだけ集めて送る）。今の（直近の）録音のものと、
 // 録音を終えて最終の要約を待っているものを持つ
 import type { AudioSender } from '@/api/connection';
-import { isDemo } from '@/api/data';
+import { isDemo } from '@/api/demo';
 import { getHostId, isCloud, meUrl } from '@/api/endpoint';
 import type { ServerMessage } from '@/api/protocol';
 import { RecordingMetrics, metricsSettings, sendRecordingMetrics } from '@/features/recording/recordingMetrics';

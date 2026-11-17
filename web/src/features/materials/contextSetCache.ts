@@ -1,5 +1,5 @@
 // プロジェクトの参考資料セットの一覧。サーバーのデータなのでストアには持たず、キャッシュ（#330）に置く
-import { contextSetsQuery } from '@/api/data';
+import { contextSetsQuery } from '@/api/contextSets';
 import type { ContextSet } from '@/api/types';
 import { queryClient } from '@/app/query';
 
