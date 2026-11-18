@@ -88,8 +88,8 @@ const types = () => received.map((m) => m.type);
 describe('DemoReplayEntry', () => {
     it('録音を終えたときの recordingState は、stop の後に届いた最後の final の直後に足す（サーバーと同じ順）', () => {
         const timeline = replayTimeline(record, SID);
+        // started（録音している端末にだけ届くもの）は流さない
         expect(timeline.map((m) => [m.t, m.msg.type])).toEqual([
-            [0.05, 'started'],
             [5, 'partial'],
             [10, 'final'],
             [603, 'title'],
@@ -136,10 +136,12 @@ describe('DemoReplayEntry', () => {
         await vi.advanceTimersByTimeAsync(0);
         expect(loadProjects).toHaveBeenCalled();
         expect(types()).toEqual(['watching']);
+        await vi.advanceTimersByTimeAsync(4_900);
+        expect(types()).toEqual(['watching']);
         await vi.advanceTimersByTimeAsync(100);
-        expect(types()).toEqual(['watching', 'started']);
-        await vi.advanceTimersByTimeAsync(10_000);
-        expect(types()).toEqual(['watching', 'started', 'partial', 'final']);
+        expect(types()).toEqual(['watching', 'partial']);
+        await vi.advanceTimersByTimeAsync(5_000);
+        expect(types()).toEqual(['watching', 'partial', 'final']);
         // 一覧の行は、流したところまでの形（録音中）
         expect(view.row(PID, { id: SID, files: {} })).toMatchObject({ status: 'recording' });
         await vi.advanceTimersByTimeAsync(700_000);
@@ -153,7 +155,7 @@ describe('DemoReplayEntry', () => {
         const { store, view, loadProjects } = setup();
         store.setState({ selection: target });
         await vi.advanceTimersByTimeAsync(6_000);
-        expect(types()).toEqual(['watching', 'started', 'partial']);
+        expect(types()).toEqual(['watching', 'partial']);
         loadProjects.mockClear();
         store.setState({ selection: { projectId: 'home', sessionId: '20260101-000000' } });
         expect(types().slice(-2)).toEqual(['recordingState', 'status']);
@@ -172,7 +174,7 @@ describe('DemoReplayEntry', () => {
         received.length = 0;
         store.setState({ selection: target });
         await vi.advanceTimersByTimeAsync(5_000);
-        expect(types()).toEqual(['watching', 'started', 'partial']);
+        expect(types()).toEqual(['watching', 'partial']);
     });
 
     it('記録を読んでいる間に閉じたら、始めない', async () => {

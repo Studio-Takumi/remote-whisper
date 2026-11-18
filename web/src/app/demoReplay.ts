@@ -35,10 +35,13 @@ const IDLE_STATUS: ServerMessage = {
     transcribing: [],
 };
 
-// 記録に、録音を終えたときに見ている端末へ届く recordingState を足したもの（時刻の順）。
-// stop の後に届いた最後の区間の final の、すぐ後に入れる（サーバーと同じ順。watchStoppedAt）
+// 録音している端末にだけ届くもの（サーバーの hub.py の OWNER_ONLY）。見ている端末には届かないので流さない
+const OWNER_ONLY = new Set(['ack', 'started', 'error']);
+
+// 記録から見ている端末に届くものだけを残し、録音を終えたときに届く recordingState を足したもの（時刻の順）。
+// stopped は stop の後に届いた最後の区間の final の、すぐ後に入れる（サーバーと同じ順。watchStoppedAt）
 export function replayTimeline(record: DemoReplay, sessionId: string): TimedMessage<ServerMessage>[] {
-    const messages = record.messages as TimedMessage<ServerMessage>[];
+    const messages = (record.messages as TimedMessage<ServerMessage>[]).filter((m) => !OWNER_ONLY.has(m.msg.type));
     const stoppedAt = watchStoppedAt(record);
     const at = messages.findIndex((m) => m.t > stoppedAt);
     const stopped = {
