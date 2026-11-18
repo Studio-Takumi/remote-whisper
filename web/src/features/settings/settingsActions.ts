@@ -2,15 +2,26 @@
 import { toast } from 'sonner';
 
 import { ApiError, api } from '@/api/api';
-import { isDemo } from '@/api/demo';
+import { demoServer, isDemo } from '@/api/demo';
+import { isDemoBuild } from '@/api/demoBuild';
+import type { SettingsOptions } from '@/api/protocol';
 import type { ActionContext } from '@/app/actionContext';
 import { currentSession, needsSummaryFor } from '@/app/selectors';
+import { saveDisplay, withStoredDisplay } from '@/features/settings/demoDisplay';
 import { fetchOptions } from '@/features/settings/options';
 import { type Settings, finalModelLabel, llmBackend, llmModels } from '@/features/settings/settings';
+
+// 同梱したデータのデモ版（#415）は、設定も選べる値も、同梱した setting.json から答える。
+// ?demo とデータなしのデモ版は、ダミーのまま
+const bundledDemo = isDemoBuild && demoServer !== null;
 
 export async function loadOptions(ctx: ActionContext) {
     const set = ctx.store.setState;
     try {
+        if (bundledDemo) {
+            set({ options: await api.get<SettingsOptions>('/api/settings/options') });
+            return;
+        }
         // デモでは、ダミーの一覧のまま
         if (isDemo) {
             return;
@@ -24,6 +35,11 @@ export async function loadOptions(ctx: ActionContext) {
 
 export async function loadSettings(ctx: ActionContext) {
     const set = ctx.store.setState;
+    if (bundledDemo) {
+        // 表示の設定は、この端末で変えたものを重ねる
+        set({ settings: withStoredDisplay(await api.get<Settings>('/api/settings')), settingsLoaded: true });
+        return;
+    }
     if (isDemo) {
         return;
     }
@@ -37,6 +53,11 @@ export async function loadSettings(ctx: ActionContext) {
 // 簡易設定・設定モーダルのどちらからでも呼ぶ。全体設定を保存する（PATCH /api/settings）。保存できたら true
 export async function changeSettings(ctx: ActionContext, next: Settings) {
     const { getState: get, setState: set } = ctx.store;
+    // デモ版（#415）は、表示の設定だけをこの端末に残す。ほかの項目は、画面で変えられない
+    if (isDemoBuild) {
+        set({ settings: saveDisplay(get().settings, next) });
+        return true;
+    }
     if (isDemo) {
         set({ settings: next });
         return true;
