@@ -1,5 +1,6 @@
 // デモ版（#413）で、サーバーの代わりに同梱したデータで API に答える（GET だけ。サーバーにはつながない）。
 // 答える中身と、ないときのステータス・メッセージは、サーバーの routes/projects.py・routes/sessions/read.py と同じ
+import { demoOptions, demoSettings, demoSummaryModels } from '@/api/demoSettings';
 import type { DemoIndex, DemoSession, DemoSummaryInfo } from '@/api/demoTypes';
 
 export type DemoResponse = { status: number; body: unknown };
@@ -14,7 +15,7 @@ const gone = (what: string) => fail(410, `${what}は保存期間を過ぎたた�
 
 // 表示する最終の要約。今の全体概要と要約詳細のモデルの組で作ったうちいちばん新しいもの。
 // その組のものがなければ、モデルを問わずいちばん新しいもの（session_reader.py の pick_latest）
-export function pickLatest(summaries: DemoSummaryInfo[], models: DemoIndex['models']) {
+export function pickLatest(summaries: DemoSummaryInfo[], models: { overview: string; detail: string }) {
     const same = summaries.filter((s) => s.model === models.detail && s.overviewModel === models.overview);
     const pool = same.length > 0 ? same : summaries;
     return pool.reduce<DemoSummaryInfo | undefined>(
@@ -37,6 +38,13 @@ export class DemoServer {
             return fail(403, 'デモ版では変更できません');
         }
         const parts = path.split('?')[0].split('/').filter(Boolean).map(decodeURIComponent);
+        // 設定は、同梱した setting.json の値（#415）
+        if (parts[0] === 'api' && parts[1] === 'settings') {
+            if (parts.length === 2) {
+                return ok(demoSettings(this.index.settings));
+            }
+            return parts.length === 3 && parts[2] === 'options' ? ok(demoOptions) : fail(404, 'デモ版にはありません');
+        }
         if (parts[0] !== 'api' || parts[1] !== 'projects') {
             return fail(404, 'デモ版にはありません');
         }
@@ -100,7 +108,7 @@ export class DemoServer {
     private summary(data: DemoSession, gid: string): DemoResponse {
         let id = gid;
         if (gid === 'latest') {
-            const latest = pickLatest(data.summaries, this.index.models);
+            const latest = pickLatest(data.summaries, demoSummaryModels(this.index.settings));
             if (!latest) {
                 return data.liveSummary !== undefined
                     ? ok({ kind: 'live', text: data.liveSummary })

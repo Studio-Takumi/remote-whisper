@@ -78,7 +78,8 @@ describe('readDemoHome', () => {
             ['b', 'Channel B'],
             ['a', 'Channel A'],
         ]);
-        expect(index.models).toEqual({ overview: 'gemma4:e4b', detail: 'gemma4:e4b' });
+        // 同梱するのは画面で見せる項目だけ（並び順・クラウド版は入れない）
+        expect(index.settings).toEqual({ ollama: { models: { overview: 'gemma4:e4b', detail: 'gemma4:e4b' } } });
     });
 
     it('セッションの行は API と同じ形で、録音はないものとする', () => {

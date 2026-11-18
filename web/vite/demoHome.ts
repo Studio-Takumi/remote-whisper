@@ -15,7 +15,9 @@ const FINAL_TRANSCRIPT_RE = new RegExp(`^transcript-final-(${ID})-(${ID})\\.md$`
 const ID_RE = new RegExp(`^${ID}$`);
 const PID_RE = /^[A-Za-z0-9-]+$/;
 
-const DEFAULT_MODEL = 'gemma4:e4b';
+// 画面に同梱する setting.json の項目。クラウド版・8000 番を開ける名前・並び順（プロジェクトの一覧は並んだ順で
+// 同梱している）は入れない。ここにない項目は、画面の既定値になる（api/demoSettings.ts）
+const SETTING_SECTIONS = ['whisper', 'ollama', 'llm', 'recording', 'retentionDays', 'materials', 'display'];
 
 function readJson(path: string): DemoJson {
     return JSON.parse(readFileSync(path, 'utf8')) as DemoJson;
@@ -209,7 +211,6 @@ function selection(project: DemoJson) {
 export function readDemoHome(home: string): DemoData {
     const settingPath = join(home, 'setting.json');
     const setting = existsSync(settingPath) ? readJson(settingPath) : {};
-    const ollama = ((setting.ollama as DemoJson | undefined)?.models ?? {}) as DemoJson;
     const root = join(home, 'projects');
     const pids = existsSync(root)
         ? readdirSync(root)
@@ -222,7 +223,7 @@ export function readDemoHome(home: string): DemoData {
         projects: [],
         sessions: {},
         contextSets: {},
-        models: { overview: str(ollama.overview) ?? DEFAULT_MODEL, detail: str(ollama.detail) ?? DEFAULT_MODEL },
+        settings: Object.fromEntries(Object.entries(setting).filter(([key]) => SETTING_SECTIONS.includes(key))),
     };
     const sessions: DemoData['sessions'] = [];
     const projects = pids.map((pid) => ({ id: pid, project: readJson(join(root, pid, 'project.json')) }));

@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 
 import { DemoServer } from '@/api/demoServer';
 import type { DemoIndex, DemoSession } from '@/api/demoTypes';
+import type { SettingsOptions } from '@/api/protocol';
 import { toSummary } from '@/api/summaries';
+import { type Settings, defaultSettings, llmModels } from '@/features/settings/settings';
 
 // 小さな偽のデータ（プロジェクト 1 つ、セッション 1 つ、要約 2 版）
 const SID = '20260101-100000';
@@ -12,7 +14,7 @@ const index: DemoIndex = {
     projects: [{ id: 'p1', uuid: 'u1', name: 'Channel', path: 'C:\\bench\\Channel' }],
     sessions: { p1: [{ id: SID, title: '動画', files: { recording: false, transcript: true } }] },
     contextSets: { p1: [] },
-    models: { overview: 'gemma4:e4b', detail: 'gemma4:e4b' },
+    settings: { ollama: { models: { overview: 'gemma4:e4b', detail: 'gemma4:e4b' } } },
 };
 
 const summary = (generationId: string, model: string) => ({
@@ -79,7 +81,38 @@ describe('DemoServer', () => {
         expect((await demo.respond('GET', '/api/projects/nope/sessions')).status).toBe(404);
         expect((await demo.respond('GET', '/api/projects/p1/sessions/20990101-000000')).status).toBe(404);
         expect((await demo.respond('GET', `${BASE}/summaries/20990101-000000`)).status).toBe(404);
-        expect((await demo.respond('GET', '/api/settings')).status).toBe(404);
+        expect((await demo.respond('GET', '/api/setup')).status).toBe(404);
         expect((await demo.respond('POST', `${BASE}/summaries`)).status).toBe(403);
+        expect((await demo.respond('PATCH', '/api/settings')).status).toBe(403);
+    });
+
+    it('設定は同梱した値で、足りない項目と空の relayUrl は既定値になる', async () => {
+        const raw = { ...index.settings, cloud: { relayUrl: '' }, display: { showSpeakers: true } };
+        const demo = new DemoServer({ ...index, settings: raw }, () => null);
+        const settings = (await demo.respond('GET', '/api/settings')).body as Settings;
+        expect(settings.ollama.models.detail).toBe('gemma4:e4b');
+        expect(settings.ollama.host).toBe(defaultSettings.ollama.host);
+        expect(settings.display).toEqual({ ...defaultSettings.display, showSpeakers: true });
+        expect(settings.cloud).toEqual(defaultSettings.cloud);
+    });
+
+    it('選べるモデルは 5 つ', async () => {
+        const { demo } = server();
+        const options = (await demo.respond('GET', '/api/settings/options')).body as SettingsOptions;
+        expect(options.llm.models.map((m) => m.name)).toEqual([
+            'qwen3.5:4b',
+            'qwen3.5:2b',
+            'qwen3.5:0.8b',
+            'gemma4:e4b',
+            'gemma4:e2b',
+        ]);
+    });
+
+    it('要約の既定の版は、設定の全体概要と要約詳細のモデルの組で選ぶ', async () => {
+        const qwen = { ollama: { models: { overview: 'qwen3.5:4b', detail: 'qwen3.5:4b' } } };
+        const demo = new DemoServer({ ...index, settings: qwen }, () => Promise.resolve(session));
+        expect((await demo.respond('GET', `${BASE}/summaries/latest`)).body).toMatchObject({ text: 'qwen の要約' });
+        const settings = (await demo.respond('GET', '/api/settings')).body as Settings;
+        expect(llmModels(settings)).toMatchObject({ overview: 'qwen3.5:4b', detail: 'qwen3.5:4b' });
     });
 });
