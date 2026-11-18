@@ -184,13 +184,15 @@ export function SummaryPanel({
                         variant='outline'
                         size='sm'
                         title='要約を Markdown のままコピーします'
-                        onClick={() =>
-                            blockInDemo('copy') ||
-                            copyText(summary.text ?? '').then(
+                        onClick={() => {
+                            if (blockInDemo('copy')) {
+                                return;
+                            }
+                            void copyText(summary.text ?? '').then(
                                 () => toast.success('要約をコピーしました'),
                                 () => toast.error('要約をコピーできませんでした'),
-                            )
-                        }
+                            );
+                        }}
                     >
                         <CopyIcon />
                         コピー
