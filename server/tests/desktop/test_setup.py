@@ -65,6 +65,7 @@ def tunnel_client(app):
 def test_status_lists_what_is_missing(client):
     data = client.get("/api/setup").json()
     assert data["runtime"] == "dev"
+    assert data["edition"] is None
     assert data["remote"] is False
     assert data["recording"] is False
     assert data["gpu"] in ("nvidia", "mac", "none")
@@ -734,6 +735,37 @@ def test_stopping_the_server_rolls_back_on_the_next_start(tmp_path, monkeypatch)
     assert again.job.rolled_back is True
     assert site_of(site) == BEFORE
     assert not (installer.home / "setup" / INSTALL_MARKER).exists()
+
+
+def test_openvino_edition_installs_the_cpu_torch(home, tmp_path, monkeypatch):
+    # Windows（OpenVINO）版は CPU 版の torch を取り、目安も CPU 版のもの（#408）
+    from remote_whisper.desktop.whisperx_install import TORCH_CPU, TORCH_CUDA
+    from remote_whisper.settings import SettingsStore
+
+    req = tmp_path / "whisperx-requirements.txt"
+    req.write_text(LOCKED, encoding="utf-8")
+    monkeypatch.setattr(bundle, "bundled_python", lambda: Path(sys.executable))
+    monkeypatch.setattr(bundle, "bundled_whisperx_requirements", lambda: req)
+
+    def status_and_args(edition):
+        service = SetupService(
+            home,
+            SettingsStore(home),
+            gpu=lambda: "nvidia",
+            runtime=lambda: "windows-bundle",
+            edition=lambda: edition,
+        )
+        data = asyncio.run(service.status(remote=False))
+        return data, service.installer._install_args()
+
+    data, args = status_and_args("openvino")
+    assert data["edition"] == "openvino"
+    assert data["whisperx"]["downloadGb"] == TORCH_CPU.download_gb
+    assert args[args.index("--extra-index-url") + 1] == "https://download.pytorch.org/whl/cpu"
+    data, args = status_and_args("cuda")
+    assert data["edition"] == "cuda"
+    assert data["whisperx"]["downloadGb"] == TORCH_CUDA.download_gb
+    assert args[args.index("--extra-index-url") + 1] == "https://download.pytorch.org/whl/cu128"
 
 
 def test_install_is_refused_while_recording(home, tmp_path, monkeypatch):

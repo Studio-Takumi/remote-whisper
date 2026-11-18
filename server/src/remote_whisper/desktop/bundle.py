@@ -16,15 +16,33 @@ def bundle_dir() -> Path | None:
     return root if (root / MARKER).is_file() else None
 
 
-def bundled_version() -> str | None:
+def _marker_value(key: str) -> str | None:
     root = bundle_dir()
     if root is None:
         return None
     try:
-        version = json.loads((root / MARKER).read_text(encoding="utf-8-sig")).get("version")
+        value = json.loads((root / MARKER).read_text(encoding="utf-8-sig")).get(key)
     except (OSError, ValueError, AttributeError):
         return None
-    return version if isinstance(version, str) and version else None
+    return value if isinstance(value, str) and value else None
+
+
+def bundled_version() -> str | None:
+    return _marker_value("version")
+
+
+EDITIONS = ("cuda", "openvino", "mlx")
+
+
+def edition() -> str | None:
+    """配布物の種類（#408）。`cuda`・`openvino`（Windows）・`mlx`（Mac）。配布版でなければ None。
+    種類を書いていない古い配布版は、Windows なら cuda（CUDA だけを同梱していた）"""
+    if bundle_dir() is None:
+        return None
+    value = _marker_value("edition")
+    if value in EDITIONS:
+        return value
+    return "cuda" if sys.platform == "win32" else "mlx"
 
 
 def bundled_web_dist() -> Path | None:

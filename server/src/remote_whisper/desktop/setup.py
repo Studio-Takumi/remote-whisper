@@ -19,10 +19,8 @@ from remote_whisper.desktop.hf_token import hf_token_source
 from remote_whisper.desktop.setup_error import SetupError
 from remote_whisper.desktop.whisperx_install import (
     WHISPERX_DEV_COMMAND,
-    WHISPERX_DISK_GB,
-    WHISPERX_DOWNLOAD_GB,
-    WHISPERX_MINUTES,
     WhisperXInstaller,
+    torch_flavor,
 )
 from remote_whisper.llm.llm import LlmUnavailable, backend_of
 from remote_whisper.settings import (
@@ -145,6 +143,7 @@ class SetupService:
         installer: WhisperXInstaller | None = None,
         gpu: Callable[[], str] = detect_gpu,
         runtime: Callable[[], str] = bundle.runtime,
+        edition: Callable[[], str | None] = bundle.edition,
         mock: bool = False,
     ):
         self.home = home
@@ -158,11 +157,13 @@ class SetupService:
                 home,
                 [str(py)] if py is not None else None,
                 bundle.bundled_whisperx_requirements(),
+                torch=torch_flavor(edition()),
             )
         self.installer = installer
         self._gpu = gpu
         self._gpu_kind: str | None = None
         self._runtime = runtime
+        self._edition = edition
         self.mock = mock
         self.pull_job: PullJob | None = None
         self._pull_task: asyncio.Task | None = None
@@ -224,8 +225,12 @@ class SetupService:
         whisperx = self.mock or self.whisperx_installed()
         runtime = self._runtime()
         llm = await self._llm_status()
+        torch = self.installer.torch
         return {
             "runtime": runtime,
+            # 配布物の種類（#408。cuda・openvino・mlx。開発の環境は null）。OpenVINO 版で NVIDIA の
+            # GPU が見つかったら、CUDA 版を案内する
+            "edition": self._edition(),
             "remote": remote,
             "recording": self.recording(),
             "gpu": "nvidia" if self.mock else self.gpu(),
@@ -237,9 +242,9 @@ class SetupService:
             "whisperx": {
                 "installed": whisperx,
                 "installable": self.installer.installable and not self.mock,
-                "downloadGb": WHISPERX_DOWNLOAD_GB,
-                "diskGb": WHISPERX_DISK_GB,
-                "minutes": list(WHISPERX_MINUTES),
+                "downloadGb": torch.download_gb,
+                "diskGb": torch.disk_gb,
+                "minutes": list(torch.minutes),
                 "command": WHISPERX_DEV_COMMAND if runtime == "dev" else None,
                 "install": self.installer.job.to_json() if self.installer.job else None,
             },
