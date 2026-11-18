@@ -6,7 +6,7 @@
 // 記録は録音した端末のものなので、見ている端末にサーバーが送るもの（watching・recordingState）を足して、
 // 「ほかの端末で録音中のセッションを見る」（#238）のと同じ受け取り方にする
 import { connection } from '@/api/connection';
-import type { ReplayTarget, ReplayView } from '@/api/demoReplayView';
+import { type ReplayTarget, type ReplayView, watchStoppedAt } from '@/api/demoReplayView';
 import type { DemoReplay } from '@/api/demoTypes';
 import type { ServerMessage } from '@/api/protocol';
 import type { AppState, AppStore } from '@/app/appState';
@@ -35,12 +35,14 @@ const IDLE_STATUS: ServerMessage = {
     transcribing: [],
 };
 
-// 記録に、録音を終えたときに見ている端末へ届く recordingState を足したもの（時刻の順）
+// 記録に、録音を終えたときに見ている端末へ届く recordingState を足したもの（時刻の順）。
+// stop の後に届いた最後の区間の final の、すぐ後に入れる（サーバーと同じ順。watchStoppedAt）
 export function replayTimeline(record: DemoReplay, sessionId: string): TimedMessage<ServerMessage>[] {
     const messages = record.messages as TimedMessage<ServerMessage>[];
-    const at = messages.findIndex((m) => m.t > record.stopAt);
+    const stoppedAt = watchStoppedAt(record);
+    const at = messages.findIndex((m) => m.t > stoppedAt);
     const stopped = {
-        t: record.stopAt,
+        t: stoppedAt,
         msg: { type: 'recordingState', session: sessionId, state: 'stopped' } as ServerMessage,
     };
     const split = at === -1 ? messages.length : at;

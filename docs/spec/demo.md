@@ -86,7 +86,7 @@
 ### 再生のしかた
 
 - WebSocket は開かない。記録のメッセージを、記録の時刻どおりに `connection.receive`（WebSocket で届いたものを受け取っている全員に渡すところ）に流す。画面の受け取り（`serverConnection.ts` の `receive` から先：`Watcher`・`StatusReceiver`・`receiveServerMessage`）は本物と同じ道を通る
-- 記録は録音した端末から見たものなので、ほかの端末で録音中のセッションを見る（#238）ときにサーバーが送るものを足す。始めに `watching`（録音中・文字起こしは空）、`stop` の時刻に `recordingState`（`stopped`）。partial・final・途中の要約は `Watcher` が `applyLiveMessage` で入れる
+- 記録は録音した端末から見たものなので、ほかの端末で録音中のセッションを見る（#238）ときにサーバーが送るものを足す。始めに `watching`（録音中・文字起こしは空）、録音を終えたら `recordingState`（`stopped`）。`stopped` は、サーバーと同じく話している途中だった最後の区間の final を送り終えてから（`stop` の後に届いた最後の final・partial の直後。なければ `stop` の時刻）流す（`watchStoppedAt`）。partial・final・途中の要約は `Watcher` が `applyLiveMessage` で入れる
 - 待つ時間は、再生を始めた時刻から測る（`web/src/features/replay/replayPlayer.ts`。遅れても積み重ならず、遅れた分はまとめて流して追いつく）
 - 途中で閉じたら、それ以降は流さない。見ている状態は `recordingState`（`stopped`）で、GPU の表示は何もしていない `status` を流して消し、作成中の最終要約も消す
 - 録音を終えた後（最終の文字起こし・最終要約・最終のタイトル）は、本物と同じく API を取り直して出す。そのため、`finalTranscript`・`status` の `summarizing`・最終要約ができたときの取り直しは、`isDemo` ではなく `usesMockData`（ダミーのデータのときだけ）で止める
@@ -97,8 +97,8 @@
 
 | 再生した時刻 | 一覧の行 | 中身 |
 |---|---|---|
-| 再生していない・録音を終えるまで | 録音中（`status: recording`、終わりの時刻・長さなし）。タイトルはそこまでに届いた仮のタイトル（なければなし） | 文字起こしはそこまでに届いた final の行。途中の要約はそこまでにできたもの。浄書・最終要約はなし |
-| 録音を終えてから最終のタイトルまで | 録音を終えた行（タイトルは仮のもの） | 文字起こしはファイルのまま。浄書は `finalTranscript` が届いてから。最終要約はまだなく、途中の要約を出す |
+| 再生していない・`stopped` を流すまで | 録音中（`status: recording`、終わりの時刻・長さなし）。タイトルはそこまでに届いた仮のタイトル（なければなし） | 文字起こしはそこまでに届いた final の行。途中の要約はそこまでにできたもの。浄書・最終要約はなし |
+| `stopped` を流してから最終のタイトルまで | 録音を終えた行（タイトルは仮のもの） | 文字起こしはファイルのまま。浄書は `finalTranscript` が届いてから。最終要約はまだなく、途中の要約を出す |
 | 最終のタイトルが届いた後・最後まで | 同梱したまま | 同梱したまま |
 
 確かめ方: 再生の仕組みと入口は偽の時計のテスト（`replayPlayer.test.ts`・`demoReplay.test.ts`・`demoReplayView.test.ts`）。実時間の 21 分は待たない。画面は Playwright の時計（`page.clock`）を早めて撮る

@@ -19,8 +19,27 @@ const record: DemoReplay = {
         { t: 0.05, msg: { type: 'started', sessionUuid: 'u', session: SID } },
         { t: 5, msg: { type: 'partial', segment: 0, committed: '', tentative: 'こん', session: SID } },
         { t: 10, msg: { type: 'final', segment: 0, start: 1, end: 2, text: 'こんにちは', session: SID } },
+        // stop（600 秒）の後に、話している途中だった最後の区間の final が届く
+        { t: 603, msg: { type: 'title', title: '仮', provisional: true, session: SID } },
+        { t: 605, msg: { type: 'final', segment: 1, start: 590, end: 595, text: '最後の一', session: SID } },
+        { t: 608, msg: { type: 'final', segment: 2, start: 595, end: 600, text: '最後の二', session: SID } },
         { t: 700, msg: { type: 'title', title: '最終', provisional: false, session: SID } },
     ],
+};
+
+const doneData = {
+    finalTranscripts: [],
+    finalTranscriptLines: {},
+    summaries: [],
+    summaryTexts: {},
+    transcript: {
+        meta: {},
+        lines: [
+            { time: '00:00:01', text: 'こんにちは' },
+            { time: '00:09:50', text: '最後の一' },
+            { time: '00:09:55', text: '最後の二' },
+        ],
+    },
 };
 
 let received: ServerMessage[];
@@ -67,15 +86,48 @@ function setup() {
 const types = () => received.map((m) => m.type);
 
 describe('DemoReplayEntry', () => {
-    it('録音を終えたときの recordingState を、stop の時刻に足す', () => {
+    it('録音を終えたときの recordingState は、stop の後に届いた最後の final の直後に足す（サーバーと同じ順）', () => {
         const timeline = replayTimeline(record, SID);
         expect(timeline.map((m) => [m.t, m.msg.type])).toEqual([
             [0.05, 'started'],
             [5, 'partial'],
             [10, 'final'],
-            [600, 'recordingState'],
+            [603, 'title'],
+            [605, 'final'],
+            [608, 'final'],
+            [608, 'recordingState'],
             [700, 'title'],
         ]);
+        // stop の後に final がなければ、stop の時刻
+        const plain = { stopAt: 600, messages: record.messages.slice(0, 3) };
+        expect(replayTimeline(plain, SID).at(-1)).toMatchObject({ t: 600, msg: { type: 'recordingState' } });
+    });
+
+    it('stop の後の final は見ている間に届き、一覧の取り直しでも届く前の行は出ない', async () => {
+        const { store, view } = setup();
+        // 見ている間（stopped の前）に届いた final
+        const watched: string[] = [];
+        cleanups.push(
+            connection.subscribe((m) => {
+                if (m.type === 'final' && store.getState().watching) {
+                    watched.push(m.text);
+                }
+            }),
+        );
+        store.setState({ selection: target });
+        await vi.advanceTimersByTimeAsync(606_000);
+        expect(store.getState().watching).not.toBeNull();
+        // stop の後でも、stopped が届くまでは録音中の行で、届いた final までの行
+        expect(view.row(PID, { id: SID, files: {} })).toMatchObject({ status: 'recording' });
+        expect(view.session(PID, SID, doneData).transcript?.lines.map((l) => l.text)).toEqual([
+            'こんにちは',
+            '最後の一',
+        ]);
+        await vi.advanceTimersByTimeAsync(3_000);
+        expect(watched).toEqual(['こんにちは', '最後の一', '最後の二']);
+        expect(store.getState().watching).toBeNull();
+        expect(view.row(PID, { id: SID, files: {} })).not.toMatchObject({ status: 'recording' });
+        expect(view.session(PID, SID, doneData).transcript?.lines).toEqual(doneData.transcript.lines);
     });
 
     it('開いたら、見始めの watching を流してから、記録の時刻どおりに流す', async () => {
@@ -109,15 +161,7 @@ describe('DemoReplayEntry', () => {
         const count = received.length;
         await vi.advanceTimersByTimeAsync(2000_000);
         expect(received.length).toBe(count);
-        expect(
-            view.session(PID, SID, {
-                finalTranscripts: [],
-                finalTranscriptLines: {},
-                summaries: [],
-                summaryTexts: {},
-                transcript: { meta: {}, lines: [{ time: '00:00:01', text: 'x' }] },
-            }).transcript?.lines,
-        ).toEqual([]);
+        expect(view.session(PID, SID, doneData).transcript?.lines).toEqual([]);
     });
 
     it('もう一度開いたら最初から', async () => {

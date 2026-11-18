@@ -1,6 +1,6 @@
 // デモ版のリプレイ（#416）で、DemoServer が答える一覧の行とセッションの中身を、再生した時刻のときに
 // サーバーが返していたはずの形にする（DemoServer の overlay）。
-// - 録音を終えるまで: 録音中の行。文字起こしはそこまでに届いた final、途中の要約はそこまでにできたもの
+// - 録音を終えたこと（最後の区間の final の後）が届くまで: 録音中の行。文字起こしはそこまでに届いた final、途中の要約はそこまでにできたもの
 // - 録音を終えてから最終のタイトルが届くまで: 録音を終えた行。最終の要約はまだなく、浄書は届いてから
 // - 最終のタイトルが届いた後: 同梱したまま
 import type { DemoOverlay, DemoRow } from '@/api/demoServer';
@@ -26,6 +26,19 @@ function valuesUntil<T>(items: Timed<T>[], t: number): T[] {
     return items.filter((item) => item.t <= t).map((item) => item.value);
 }
 
+// 見ている端末に録音を終えたこと（recordingState の stopped）が届く時刻。サーバーは、話している途中だった
+// 最後の区間の final（と partial）を送り終えてから送る（spec/api.md 7.2）ので、stop の後に届いた最後の
+// final・partial の時刻。なければ stop の時刻
+export function watchStoppedAt(record: DemoReplay) {
+    let at = record.stopAt;
+    for (const { t, msg } of record.messages) {
+        if (t > at && (msg.type === 'final' || msg.type === 'partial')) {
+            at = t;
+        }
+    }
+    return at;
+}
+
 export class ReplayView implements DemoOverlay {
     private readonly target: ReplayTarget;
     // 再生した時刻（録音を始めてからの秒）。再生していないときは 0（録音を始めたところ）、最後まで再生したら Infinity
@@ -43,7 +56,8 @@ export class ReplayView implements DemoOverlay {
 
     // 記録から、時刻ごとの文字起こしの行・途中の要約・タイトルを拾っておく（画面の受け取りと同じ読み方）
     setRecord(record: DemoReplay) {
-        this.stopAt = record.stopAt;
+        // 録音を終えた行にするのは、見ている端末に stopped が届く時刻から（それまでの final は録音中の行として出す）
+        this.stopAt = watchStoppedAt(record);
         this.lines = [];
         this.liveSummaries = [];
         this.titles = [];
