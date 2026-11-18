@@ -45,8 +45,8 @@ import {
     showFinalTranscript,
 } from '@/features/session/regenerateActions';
 import { addCorrection, addTerm, rejectTerm, removeCorrection } from '@/features/session/transcriptActions';
-import { SETTINGS_PAGES, defaultSettings } from '@/features/settings/settings';
-import { changeSettings, loadOptions, loadSettings } from '@/features/settings/settingsActions';
+import { SETTINGS_PAGES, defaultSettings, settingsPageOf } from '@/features/settings/settings';
+import { bundledDemo, changeSettings, loadOptions, loadSettings } from '@/features/settings/settingsActions';
 
 export type { LivePartial } from '@/features/session/livePartials';
 
@@ -90,14 +90,15 @@ export const useAppStore = create<AppState>()((set, _get, store) => {
         liveDraft: null,
         watching: null,
         settings: defaultSettings,
-        settingsLoaded: isDemo,
+        // 同梱した設定のデモ版（#415）は、サーバーと同じく読み終わるまで未読み込み（開いた設定の下書きが古くならないように）
+        settingsLoaded: isDemo && !bundledDemo,
         options: fallbackOptions,
         serverVersion: null,
         server: initialServerStatus,
         contextSelections: {},
         generating: null,
         settingsOpen: false,
-        settingsPage: SETTINGS_PAGES[0],
+        settingsPage: settingsPageOf(SETTINGS_PAGES[0]),
         newProjectOpen: false,
         // ダミーのデータのデモは、一覧を最初から持っている
         projectsLoaded: usesMockData,

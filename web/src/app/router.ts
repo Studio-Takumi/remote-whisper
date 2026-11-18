@@ -1,6 +1,7 @@
 // 画面の URL（#177。spec/ui.md 8）。セッション・プロジェクト・設定モーダルを URL に出し、
 // 戻る・進む・再読み込み・直接開く、のどれでも同じ画面を開く。UUID のないもの（古いサーバー・?demo）は今の ID を使う
 import type { Project } from '@/api/types';
+import { settingsPageOf } from '@/features/settings/settings';
 
 export type Route =
     | { kind: 'home' }
@@ -129,7 +130,7 @@ export function startRouter(store: RouterStore) {
         try {
             if (route.kind === 'settings') {
                 // 設定モーダルの後ろは今の画面のまま（直接開いたときは何も選んでいない画面）
-                store.setState({ settingsOpen: true, settingsPage: route.page, notFound: false });
+                store.setState({ settingsOpen: true, settingsPage: settingsPageOf(route.page), notFound: false });
             } else {
                 const selection = findRoute(s.projects, route);
                 if (selection) {

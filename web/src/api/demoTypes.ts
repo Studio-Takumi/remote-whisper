@@ -38,8 +38,9 @@ export type DemoIndex = {
     sessions: Record<string, (DemoJson & { id: string })[]>;
     // GET /api/projects/{pid}/context-sets
     contextSets: Record<string, DemoJson[]>;
-    // 表示する要約を選ぶモデル（setting.json の全体概要と要約詳細。summaries/latest で使う）
-    models: { overview: string; detail: string };
+    // setting.json の、画面で見せる項目（GET /api/settings の元。api/demoSettings.ts が既定値に重ねる）。
+    // 表示する要約を選ぶモデル（summaries/latest）も、ここの全体概要と要約詳細を見る（#415）
+    settings: DemoJson;
     // リプレイ（#416）するセッション。replay/ がなければない
     replay?: { projectId: string; sessionId: string };
 };

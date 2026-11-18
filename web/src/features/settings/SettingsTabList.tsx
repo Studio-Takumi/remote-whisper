@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 
 import { TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { openablePages } from '@/features/settings/settings';
 
 // 設定のカテゴリ。スマホの幅では上に横並び、それ以外は左に縦並び
 export function SettingsTabList({ isMobile }: { isMobile: boolean }) {
@@ -53,10 +54,13 @@ export function SettingsTabList({ isMobile }: { isMobile: boolean }) {
                 <MonitorIcon />
                 表示・その他
             </TabsTrigger>
-            <TabsTrigger value='setup'>
-                <WrenchIcon />
-                セットアップ
-            </TabsTrigger>
+            {/* セットアップはホストの準備なので、デモ版（#415）には出さない */}
+            {openablePages().includes('setup') && (
+                <TabsTrigger value='setup'>
+                    <WrenchIcon />
+                    セットアップ
+                </TabsTrigger>
+            )}
         </TabsList>
     );
 }
