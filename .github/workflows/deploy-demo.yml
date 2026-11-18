@@ -80,6 +80,19 @@ jobs:
           npm ci
           npm test
 
+      # データの無いデモを出さない（demo/ の名前が変わった・空のとき）
+      - name: Check demo data
+        if: steps.secrets.outputs.enabled == 'true'
+        env:
+          RW_DEMO_DATA: ${{ github.workspace }}/rw-hp-contents/demo
+        run: |
+          for d in home replay; do
+            if [ ! -d "$RW_DEMO_DATA/$d" ]; then
+              echo "::error title=Demo data missing::rw-hp-contents の demo/$d がない"
+              exit 1
+            fi
+          done
+
       - name: Build web
         if: steps.secrets.outputs.enabled == 'true'
         working-directory: web
