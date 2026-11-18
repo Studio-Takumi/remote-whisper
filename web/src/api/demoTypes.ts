@@ -40,4 +40,13 @@ export type DemoIndex = {
     contextSets: Record<string, DemoJson[]>;
     // 表示する要約を選ぶモデル（setting.json の全体概要と要約詳細。summaries/latest で使う）
     models: { overview: string; detail: string };
+    // リプレイ（#416）するセッション。replay/ がなければない
+    replay?: { projectId: string; sessionId: string };
+};
+
+// リプレイ（#416）の記録。サーバーから届いたメッセージ（replay.jsonl の dir が in のもの）を時刻順に。
+// stopAt は録音を終えた（stop を送った）時刻。時刻は録音を始めてからの秒
+export type DemoReplay = {
+    messages: { t: number; msg: DemoJson }[];
+    stopAt: number;
 };
