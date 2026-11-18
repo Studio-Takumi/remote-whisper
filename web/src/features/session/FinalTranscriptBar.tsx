@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 
 import { RefreshCwIcon } from 'lucide-react';
 
+import { isDemoBuild } from '@/api/demoBuild';
 import { pickFinalTranscript } from '@/api/transcripts';
 import type { FinalTranscriptInfo, Session } from '@/api/types';
 import { useAppStore } from '@/app/store';
@@ -63,7 +64,8 @@ export function FinalTranscriptBar({ session, making }: { session: Session; maki
             }}
         />
     );
-    const noRecording = available && done && session.files?.recording === false && (
+    // デモ版（#414）は録音を同梱しないので、どのセッションにも出てしまう。出さない
+    const noRecording = !isDemoBuild && available && done && session.files?.recording === false && (
         <p className='text-xs text-muted-foreground'>録音ファイルがないため、再生成できません</p>
     );
 
