@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { CopyIcon, DownloadIcon, Share2Icon } from 'lucide-react';
 import { toast } from 'sonner';
 
+import { blockInDemo } from '@/app/demoGuard';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -49,6 +50,8 @@ export function ShareButton({ source, initial }: { source: ShareSource; initial:
         <Dialog
             open={open}
             onOpenChange={(o) => {
+                // デモ版（#414）は開かずに止める（共有もコピーの一つとして扱う）
+                if (o && blockInDemo('copy')) return;
                 if (o) setPicked(initial);
                 setOpen(o);
             }}

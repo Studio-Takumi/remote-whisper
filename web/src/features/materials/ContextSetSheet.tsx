@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { ChevronDownIcon, FileTextIcon, PlusIcon } from 'lucide-react';
 
 import { type ContextSet, contextSetName } from '@/api/types';
+import { blockInDemo } from '@/app/demoGuard';
 import { useCurrentProject } from '@/app/sessionHooks';
 import { useAppStore } from '@/app/store';
 import { Button } from '@/components/ui/button';
@@ -44,6 +45,8 @@ export function ContextSetSheet() {
                     参考資料
                 </p>
                 <SheetTrigger
+                    // デモ版（#414）は開かずに止める
+                    onClick={(e) => blockInDemo('contextSet') && e.preventDefault()}
                     title={current ? `${contextSetName(current)}${statusLabel[current.status]}` : 'なし'}
                     className='flex h-8 w-fit max-w-24 items-center justify-between gap-1.5 rounded-lg py-2 pr-2 pl-2.5 text-sm whitespace-nowrap outline-none focus-visible:ring-3 focus-visible:ring-ring/50 sm:max-w-40 md:max-w-48 dark:bg-input/30 dark:hover:bg-input/50'
                 >

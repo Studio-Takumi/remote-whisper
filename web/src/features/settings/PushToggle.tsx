@@ -2,6 +2,7 @@ import { useState } from 'react';
 
 import { toast } from 'sonner';
 
+import { blockInDemo } from '@/app/demoGuard';
 import { Switch } from '@/components/ui/switch';
 import { Row } from '@/features/settings/SettingsParts';
 import { disablePush, enablePush, pushEnabled, pushSupport, pushSupportMessage } from '@/features/settings/push';
@@ -15,6 +16,9 @@ export function PushToggle() {
     const unavailable = support === 'ok' ? null : pushSupportMessage(support);
 
     async function change(next: boolean) {
+        if (blockInDemo('push')) {
+            return;
+        }
         setBusy(true);
         try {
             if (next) {
