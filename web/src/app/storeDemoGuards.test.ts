@@ -107,6 +107,10 @@ describe('デモ版で止める操作', () => {
         await expectRefused('upload', () => useAppStore.getState().pickAudioFiles(meetings.id, [file, file]));
         useAppStore.setState({ pickedAudio: { projectId: meetings.id, files: [file, file] } });
         await useAppStore.getState().uploadSources(0);
+        info.mockClear();
+        useAppStore.setState({ pickedAudio: { projectId: meetings.id, files: [file, file] } });
+        await useAppStore.getState().uploadSeparately();
+        expect(info).toHaveBeenCalledTimes(1);
         expect(info).toHaveBeenLastCalledWith(demoRefusal('upload'), expect.anything());
         expect(useAppStore.getState().uploading).toBeNull();
         expect(calls.every((c) => c.mock.calls.length === 0)).toBe(true);

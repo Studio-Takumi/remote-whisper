@@ -66,7 +66,7 @@ export async function uploadSeparately(ctx: ActionContext) {
     const { getState: get, setState: set } = ctx.store;
     const picked = get().pickedAudio;
     set({ pickedAudio: null });
-    if (!picked) {
+    if (!picked || blockInDemo('upload')) {
         return;
     }
     // 1 つずつ送る（同時に送れるのは 1 つだけ）。最後に作ったセッションが開く
