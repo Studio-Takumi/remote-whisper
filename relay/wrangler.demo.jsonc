@@ -1,0 +1,15 @@
+// デモ版（#412）。画面（web/dist）を静的に配るだけの Worker。relay のコード・D1・secret は持たない
+// デプロイは .github/workflows/deploy-demo.yml（demo ブランチへの push）。手順は docs/deploy.md の「デモ版」
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "remote-whisper-demo",
+  "compatibility_date": "2026-09-01",
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [{ "pattern": "rw-demo.studio-takumi.dev", "custom_domain": true }],
+  // 画面の URL は SPA なので、ないパスは index.html を返す（_headers は web/public から dist に入る）
+  "assets": {
+    "directory": "../web/dist",
+    "not_found_handling": "single-page-application",
+  },
+}
