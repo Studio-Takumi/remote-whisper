@@ -1,6 +1,6 @@
 // サーバー全体の状態（status。spec/api.md 7.2）を受け取る。Whisper・LLM・GPU の状態を画面に出し、
 // 録音中のセッションの数・最終の要約を作っているセッションが変わったら取り直す（#118）
-import { isDemo } from '@/api/demo';
+import { usesMockData } from '@/api/demo';
 import type { ServerMessage } from '@/api/protocol';
 import type { AppState, AppStore } from '@/app/appState';
 import { type Recorder, offlineStoppedSession } from '@/features/recording/recorderState';
@@ -79,8 +79,9 @@ export class StatusReceiver {
             this.lastRecordings = m.recordings;
             void get().loadProjects();
         }
-        // 古いサーバーは summarizing を送らない（そのときは title と error だけで消す）
-        if (m.summarizing && !isDemo) {
+        // 古いサーバーは summarizing を送らない（そのときは title と error だけで消す）。
+        // 同梱したデータのデモ版（リプレイ #416）は、サーバーと同じく取り直せる
+        if (m.summarizing && !usesMockData) {
             this.receiveSummarizing(m.summarizing);
         }
     }

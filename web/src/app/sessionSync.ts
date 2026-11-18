@@ -3,7 +3,7 @@
 import { toast } from 'sonner';
 
 import type { CorrectionsJson, SessionFiles, TranscriptJson } from '@/api/api';
-import { isDemo } from '@/api/demo';
+import { usesMockData } from '@/api/demo';
 import { projectsQuery } from '@/api/projects';
 import { loadSessionDetail } from '@/api/sessionDetails';
 import { sessionsQuery } from '@/api/sessions';
@@ -150,7 +150,8 @@ export class SessionSync {
     reloadAfterFinalSummary = async (sessionId: string) => {
         // まだ送っていなければ、最終の要約ができたか分からないまま外れたもの（成功は title で送り済み）。#206
         this.metrics.finish(sessionId, false);
-        if (isDemo) {
+        // 同梱したデータのデモ版（リプレイ #416）は、サーバーと同じく API（demoServer）から取り直す
+        if (usesMockData) {
             this.store.setState((s) => finishDemoSummary(s, sessionId));
             return;
         }
