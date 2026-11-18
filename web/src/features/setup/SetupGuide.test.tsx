@@ -82,6 +82,20 @@ describe('SetupGuide', () => {
         expect(section('GPU').textContent).toContain('CPU で動きます');
     });
 
+    it('NVIDIA の GPU があるのに OpenVINO 版で動いているときは CUDA 版を案内する', () => {
+        draw(status({ edition: 'cuda' }));
+        expect(screen.queryByRole('heading', { name: 'GPU' })).toBeNull();
+        cleanup();
+        draw(status({ edition: 'openvino', gpu: 'intel' }));
+        expect(screen.queryByRole('heading', { name: 'GPU' })).toBeNull();
+        cleanup();
+        draw(status({ edition: 'openvino' }));
+        expect(section('GPU').textContent).toContain('Windows（OpenVINO）版のため');
+        expect(screen.getByRole('link', { name: /Windows（CUDA）版を入手/ }).getAttribute('href')).toContain(
+            '/releases/latest',
+        );
+    });
+
     it('要約に使うアプリの状態を出し分ける', () => {
         draw(status());
         expect(section('Ollama').textContent).toContain('動いています');

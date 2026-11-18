@@ -1,6 +1,6 @@
 import { toast } from 'sonner';
 
-import { type SetupStatus, type WhisperFlags, missingSteps } from '@/features/setup/setup';
+import { type SetupStatus, type WhisperFlags, missingSteps, needsCudaEdition } from '@/features/setup/setup';
 import { GpuStep } from '@/features/setup/steps/GpuStep';
 import { LlmStep } from '@/features/setup/steps/LlmStep';
 import { ModelsStep } from '@/features/setup/steps/ModelsStep';
@@ -44,6 +44,7 @@ export function SetupGuide({
                 </p>
             )}
             {status.gpu === 'none' && <GpuStep />}
+            {needsCudaEdition(status) && <GpuStep wrongEdition />}
             <LlmStep status={status} ok={!missing.llm} onRefresh={onRefresh} />
             <ModelsStep status={status} ok={!missing.models} locked={locked} act={act} />
             <WhisperXStep status={status} ok={!missing.whisperx} locked={locked} act={act} onRefresh={onRefresh} />
