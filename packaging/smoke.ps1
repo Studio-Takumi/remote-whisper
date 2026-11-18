@@ -46,9 +46,32 @@ $setup = & $python -I -c "from remote_whisper.desktop import bundle; print(bundl
 $expectedSetup = "windows-bundle $python $(Join-Path $AppDir 'whisperx-requirements.txt')"
 Assert-True ($LASTEXITCODE -eq 0 -and "$setup".Trim() -eq $expectedSetup) "the setup guide sees the bundle ($setup)"
 
-# --mock は faster_whisper・ctranslate2・トレイを読み込まないので、本番の経路の依存がそろっているかを別に見る
-& $python -I -c "import faster_whisper, ctranslate2, pystray, PIL, cryptography, nvidia.cublas, nvidia.cudnn"
-Assert-True ($LASTEXITCODE -eq 0) 'faster_whisper, ctranslate2, pystray, PIL and the CUDA libraries can be imported'
+# 配布物の種類（#408）。bundle.json の edition が、アプリからもそのまま見える
+$edition = (Get-Content (Join-Path $AppDir 'bundle.json') -Raw | ConvertFrom-Json).edition
+$seen = & $python -I -c "from remote_whisper.desktop import bundle; print(bundle.edition())"
+Assert-True ($LASTEXITCODE -eq 0 -and $edition -in @('cuda', 'openvino') -and "$seen".Trim() -eq $edition) "the edition is $edition"
+
+# --mock は faster_whisper・ctranslate2・トレイを読み込まないので、本番の経路の依存がそろっているかを別に見る。
+# OpenVINO（Intel の GPU。#374）はどちらの版にも入れる
+& $python -I -c "import faster_whisper, ctranslate2, pystray, PIL, cryptography, openvino_genai"
+Assert-True ($LASTEXITCODE -eq 0) 'faster_whisper, ctranslate2, pystray, PIL and OpenVINO GenAI can be imported'
+# CUDA のライブラリは CUDA 版だけ。OpenVINO 版では入っておらず、NVIDIA の GPU があっても CPU で動かす判定になる
+$cuda = & $python -I -c "from remote_whisper.gpu.whisper_worker import _cuda_libs_present; print(_cuda_libs_present())"
+if ($edition -eq 'cuda') {
+    & $python -I -c "import nvidia.cublas, nvidia.cudnn"
+    Assert-True ($LASTEXITCODE -eq 0 -and "$cuda".Trim() -eq 'True') 'the CUDA libraries are bundled'
+} else {
+    Assert-True (-not (Test-Path (Join-Path $AppDir 'python\Lib\site-packages\nvidia\cublas'))) 'cuBLAS is not bundled'
+    Assert-True (-not (Test-Path (Join-Path $AppDir 'python\Lib\site-packages\nvidia\cudnn'))) 'cuDNN is not bundled'
+    Assert-True ("$cuda".Trim() -eq 'False') 'the CUDA libraries are seen as missing'
+}
+# WhisperX をあとから入れるときの一覧（#291）の torch は、CUDA 版なら cu128、OpenVINO 版なら CPU 版
+$torch = Select-String -Path (Join-Path $AppDir 'whisperx-requirements.txt') -Pattern '^torch==\S+\+(cu128|cpu) ' |
+    ForEach-Object { $_.Matches[0].Groups[1].Value } | Select-Object -First 1
+$expectedTorch = if ($edition -eq 'cuda') { 'cu128' } else { 'cpu' }
+Assert-True ($torch -eq $expectedTorch) "the WhisperX list uses the $expectedTorch torch"
+$cublasLine = Select-String -Path (Join-Path $AppDir 'whisperx-requirements.txt') -Pattern '^nvidia-cublas-cu12=='
+Assert-True (($edition -eq 'cuda') -eq [bool]$cublasLine) 'the WhisperX list has cuBLAS only in the CUDA edition'
 & uv pip check --python $python
 Assert-True ($LASTEXITCODE -eq 0) 'uv pip check finds no broken dependencies'
 

@@ -1,0 +1,21 @@
+Remote Whisper（Mac 版）
+
+Apple シリコン（M1 以降）の Mac、macOS 14 以降で動きます。
+
+■ インストールのしかた
+1. この zip の中の remote-whisper-<版>-mac-mlx.dmg を、ダブルクリックで開きます
+2. 開いた窓の中の「Remote Whisper」を、隣の「Applications」にドラッグします
+3. 「アプリケーション」フォルダの Remote Whisper を開きます
+
+■ 初めて開くときの警告
+アプリに署名をしていないため、初めて開くときに「開いていません」と出ます。
+- macOS 15 以降: 「完了」を押してから、「システム設定」→「プライバシーとセキュリティ」を開き、
+  下の方の「このまま開く」を押します
+- macOS 14: Finder でアプリを右クリック →「開く」→「開く」
+2 回目からは、普通に開けます。
+
+起動すると、画面の右上（メニューバー）にアイコンが出て、ブラウザで画面が開きます。
+録音と文字起こしの記録（ホームフォルダの .remote-whisper）は、アプリを消しても消えません。
+
+■ くわしい説明
+https://github.com/Studio-Takumi/remote-whisper/blob/main/docs/install-mac.md

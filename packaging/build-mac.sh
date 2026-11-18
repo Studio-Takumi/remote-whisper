@@ -3,7 +3,7 @@
 #
 #     packaging/build-mac.sh [--out-dir packaging/out-mac] [--version <文字列>] [--no-dmg]
 #
-# <out-dir>/Remote Whisper.app と <out-dir>/remote-whisper-<版>-mac-arm64.dmg ができる。
+# <out-dir>/Remote Whisper.app と <out-dir>/remote-whisper-<版>-mac-mlx.dmg ができる。
 # .app の中の形（Contents/Resources/app/ の下は Windows の配布用のフォルダと同じ。bundle.py）:
 #
 #     Remote Whisper.app/Contents/Info.plist
@@ -68,7 +68,7 @@ mkdir -p "$out_dir"
 out_dir="$(cd "$out_dir" && pwd -P)"
 app_bundle="$out_dir/$APP_NAME.app"
 work="$out_dir/work"
-dmg="$out_dir/remote-whisper-$version-mac-arm64.dmg"
+dmg="$out_dir/remote-whisper-$version-mac-mlx.dmg"
 
 # 消してよいのは、前のビルドの出力（.app・work・dmg だけがある、または空）に限る。
 # --out-dir に誤ってリポジトリ・その親・ホームなどを渡しても消さない
@@ -83,12 +83,12 @@ for entry in "$out_dir"/* "$out_dir"/.[!.]*; do
     [ -e "$entry" ] || continue
     name="$(basename "$entry")"
     case "$name" in
-        "$APP_NAME.app" | work | remote-whisper-*-mac-arm64.dmg | .DS_Store) ;;
+        "$APP_NAME.app" | work | remote-whisper-*-mac-mlx.dmg | .DS_Store) ;;
         *) echo "refusing to clean $out_dir (unknown entry: $name)" >&2; exit 1 ;;
     esac
 done
 rm -rf "$app_bundle" "$work"
-rm -f "$out_dir"/remote-whisper-*-mac-arm64.dmg
+rm -f "$out_dir"/remote-whisper-*-mac-mlx.dmg
 
 contents="$app_bundle/Contents"
 app="$contents/Resources/app"
@@ -164,8 +164,8 @@ check_sha256 "$work/cloudflared/cloudflared" "$CLOUDFLARED_SHA256"
 cp "$work/cloudflared/cloudflared" "$app/cloudflared"
 chmod 755 "$app/cloudflared"
 
-# 5. ビルドの印（bundle.py が見る。バージョンもここから）
-printf '{\n  "version": "%s",\n  "cloudflared": "%s"\n}\n' "$version" "$CLOUDFLARED_VERSION" \
+# 5. ビルドの印（bundle.py が見る。バージョンもここから。edition は配布物の種類。#408）
+printf '{\n  "version": "%s",\n  "edition": "mlx",\n  "cloudflared": "%s"\n}\n' "$version" "$CLOUDFLARED_VERSION" \
     > "$app/bundle.json"
 
 # 6. .app の外側（起動用のスクリプト・Info.plist・アイコン）

@@ -3,7 +3,10 @@
 # 数 GB のダウンロード・展開があるので、PR では動かさない（PR では packaging/ を変えたときの文法チェックだけ）。
 # 手で動かすとき（Actions の画面から。ブランチと、作るもの（両方・Windows だけ・Mac だけ）を選べる）と、
 # v* のタグを push したときに動く（タグのときは両方）。
-# できたインストーラと .dmg は artifact に置く。タグのときは、下書きのリリースにも付ける
+# 配布物は 3 つ（#408）: Windows（CUDA）版・Windows（OpenVINO）版・Mac 版。それぞれインストーラか .dmg と
+# 説明（README.txt）を zip に包み（remote-whisper-<版>-win-cuda.zip・-win-openvino.zip・-mac-mlx.zip）、
+# artifact に置く。タグのときは、SHA256SUMS.txt と一緒に下書きのリリースにも付ける
+# （- を含むタグ（v1.0.0-rc1 など）はプレリリースにする）
 name: Package
 
 on:
@@ -62,16 +65,22 @@ jobs:
           done
           plutil -lint packaging/mac/Info.plist
 
+  # Windows の 2 つの版（#408）。cuda は CUDA の DLL と OpenVINO、openvino は OpenVINO だけ
   windows:
     if: github.event_name != 'pull_request' && inputs.target != 'mac'
     runs-on: windows-latest
     timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        edition: [cuda, openvino]
     # ビルドには書き込みの権限を付けない（リリースを作るのは、下の別のジョブ）
     permissions:
       contents: read
     env:
       # 本番のサーバー（8000 番）とは別のポート
       SMOKE_PORT: "18168"
+      EDITION: ${{ matrix.edition }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
@@ -109,7 +118,7 @@ jobs:
         shell: pwsh
         env:
           VERSION: ${{ steps.version.outputs.version }}
-        run: ./packaging/build.ps1 -OutDir "$env:RUNNER_TEMP/rw-build" -Version $env:VERSION
+        run: ./packaging/build.ps1 -OutDir "$env:RUNNER_TEMP/rw-build" -Version $env:VERSION -Edition $env:EDITION
 
       # インストールせずに、ビルドしたフォルダから動かして確かめる
       - name: Smoke test (build folder)
@@ -127,7 +136,7 @@ jobs:
         run: |
           $version = $env:VERSION
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-          & $iscc "/DAppVersion=$version" "/DSourceDir=$env:RUNNER_TEMP\rw-build\app" "/DOutputDir=$env:RUNNER_TEMP\rw-installer" packaging/installer.iss
+          & $iscc "/DAppVersion=$version" "/DEdition=$env:EDITION" "/DSourceDir=$env:RUNNER_TEMP\rw-build\app" "/DOutputDir=$env:RUNNER_TEMP\rw-installer" packaging/installer.iss
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed ($LASTEXITCODE)" }
           Get-ChildItem "$env:RUNNER_TEMP\rw-installer" | Format-Table Name, Length
 
@@ -140,7 +149,8 @@ jobs:
       - name: Install silently
         shell: pwsh
         run: |
-          $setup = Get-ChildItem "$env:RUNNER_TEMP\rw-installer" -Filter 'remote-whisper-setup-*.exe' | Select-Object -First 1
+          $setup = Get-ChildItem "$env:RUNNER_TEMP\rw-installer" -Filter "remote-whisper-*-win-$env:EDITION-setup.exe" | Select-Object -First 1
+          if (-not $setup) { throw 'the installer was not found' }
           $dir = "$env:RUNNER_TEMP\rw-installed"
           $p = Start-Process $setup.FullName -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=$dir", '/TASKS=startup', "/LOG=$env:RUNNER_TEMP\setup.log") -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "setup failed ($($p.ExitCode))" }
@@ -175,11 +185,27 @@ jobs:
           if ($run) { throw 'the startup entry was not removed' }
           Write-Host 'ok: uninstalled, the data folder is kept'
 
+      # インストーラと説明を zip に包む（#408）
+      - name: Make the zip
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $setup = Get-ChildItem "$env:RUNNER_TEMP\rw-installer" -Filter "remote-whisper-*-win-$env:EDITION-setup.exe" | Select-Object -First 1
+          $stage = "$env:RUNNER_TEMP\rw-zip-stage"
+          New-Item -ItemType Directory -Force $stage, "$env:RUNNER_TEMP\rw-zip" | Out-Null
+          Copy-Item $setup.FullName $stage
+          Copy-Item packaging/readme/windows.txt (Join-Path $stage 'README.txt')
+          $zip = "$env:RUNNER_TEMP\rw-zip\remote-whisper-$env:VERSION-win-$env:EDITION.zip"
+          Compress-Archive -Path "$stage\*" -DestinationPath $zip
+          Write-Host ('{0}: setup {1:N0} MB, zip {2:N0} MB' -f $env:EDITION, ($setup.Length / 1MB), ((Get-Item $zip).Length / 1MB))
+          Write-Host "SHA256 $((Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant())  $(Split-Path $zip -Leaf)"
+
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: remote-whisper-windows-installer
-          path: ${{ runner.temp }}/rw-installer/remote-whisper-setup-*.exe
-          # exe はすでに圧縮してある
+          name: remote-whisper-win-${{ matrix.edition }}
+          path: ${{ runner.temp }}/rw-zip/remote-whisper-*-win-${{ matrix.edition }}.zip
+          # 中の exe はすでに圧縮してある
           compression-level: 0
           if-no-files-found: error
           retention-days: 14
@@ -188,7 +214,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: setup-log
+          name: setup-log-${{ matrix.edition }}
           path: ${{ runner.temp }}/setup.log
           if-no-files-found: ignore
 
@@ -251,7 +277,7 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf "$RUNNER_TEMP/rw-mac/Remote Whisper.app"
-          dmg="$(ls "$RUNNER_TEMP"/rw-mac/remote-whisper-*-mac-arm64.dmg)"
+          dmg="$(ls "$RUNNER_TEMP"/rw-mac/remote-whisper-*-mac-mlx.dmg)"
           mnt="$RUNNER_TEMP/rw-dmg"
           hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "$dmg"
           ls -la "$mnt"
@@ -265,11 +291,28 @@ jobs:
       - name: Smoke test (installed)
         run: packaging/smoke-mac.sh "$RUNNER_TEMP/rw-installed/Remote Whisper.app" "$RUNNER_TEMP/rw-data-installed" "$SMOKE_PORT"
 
+      # .dmg と説明を zip に包む（#408）
+      - name: Make the zip
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          dmg="$(ls "$RUNNER_TEMP"/rw-mac/remote-whisper-*-mac-mlx.dmg)"
+          stage="$RUNNER_TEMP/rw-zip-stage"
+          mkdir -p "$stage" "$RUNNER_TEMP/rw-zip"
+          cp "$dmg" "$stage/"
+          cp packaging/readme/mac.txt "$stage/README.txt"
+          zip="$RUNNER_TEMP/rw-zip/remote-whisper-$VERSION-mac-mlx.zip"
+          # -j: フォルダを付けない、-X: 拡張属性などを入れない
+          (cd "$stage" && zip -j -X "$zip" ./*)
+          unzip -l "$zip"
+          echo "SHA256 $(shasum -a 256 "$zip" | cut -d ' ' -f 1)  $(basename "$zip")"
+
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: remote-whisper-mac-dmg
-          path: ${{ runner.temp }}/rw-mac/remote-whisper-*-mac-arm64.dmg
-          # dmg はすでに圧縮してある
+          name: remote-whisper-mac-mlx
+          path: ${{ runner.temp }}/rw-zip/remote-whisper-*-mac-mlx.zip
+          # 中の dmg はすでに圧縮してある
           compression-level: 0
           if-no-files-found: error
           retention-days: 14
@@ -286,13 +329,29 @@ jobs:
       GH_REPO: ${{ github.repository }}
       TAG: ${{ github.ref_name }}
     steps:
+      # 3 つの zip（win-cuda・win-openvino・mac-mlx）を 1 つのフォルダに
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: remote-whisper-windows-installer
-          path: installer
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: remote-whisper-mac-dmg
-          path: installer
+          pattern: remote-whisper-*
+          path: dist
+          merge-multiple: true
       - name: Create a draft release
-        run: gh release create "$TAG" installer/remote-whisper-setup-*.exe installer/remote-whisper-*-mac-arm64.dmg --draft --generate-notes --title "$TAG"
+        run: |
+          set -euo pipefail
+          cd dist
+          ls -la
+          test "$(ls remote-whisper-*.zip | wc -l)" -eq 3
+          # 利用者が、落とした zip と比べられるように（docs/install-*.md）。Safari は zip を自動で展開して
+          # 消すので、中のインストーラと .dmg の値も書く
+          sha256sum remote-whisper-*.zip > SHA256SUMS.txt
+          for zip in remote-whisper-*.zip; do
+            for entry in $(unzip -Z1 "$zip" | grep -E '\.(exe|dmg)$'); do
+              echo "$(unzip -p "$zip" "$entry" | sha256sum | cut -d ' ' -f 1)  $entry" >> SHA256SUMS.txt
+            done
+          done
+          cat SHA256SUMS.txt
+          test "$(wc -l < SHA256SUMS.txt)" -eq 6
+          # - を含むタグ（v1.0.0-rc1 など）はプレリリース
+          prerelease=()
+          case "$TAG" in *-*) prerelease=(--prerelease) ;; esac
+          gh release create "$TAG" remote-whisper-*.zip SHA256SUMS.txt --draft "${prerelease[@]}" --generate-notes --title "$TAG"

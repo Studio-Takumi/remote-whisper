@@ -1,9 +1,11 @@
 <#
   配布用のフォルダを作る（#168。Windows）。
 
-    pwsh packaging/build.ps1 [-OutDir packaging/out] [-Version <文字列>]
+    pwsh packaging/build.ps1 [-OutDir packaging/out] [-Version <文字列>] [-Edition cuda|openvino]
 
   <OutDir>/app に、Python ごと同梱したフォルダができる（構成は server/src/remote_whisper/desktop/bundle.py）。
+  -Edition（#408）: cuda は CUDA の DLL（cuBLAS・cuDNN）と OpenVINO、openvino は OpenVINO だけを入れる
+  （Intel の GPU・GPU のない PC 向け。CUDA の約 1.2GB を入れない）。
   これを packaging/installer.iss でインストーラにする。ビルドは GitHub Actions（package.yml）で回す。
   数 GB のダウンロードと展開があるので、手元の PC では普通は回さない。
 
@@ -11,7 +13,8 @@
 #>
 param(
     [string]$OutDir = (Join-Path $PSScriptRoot 'out'),
-    [string]$Version = ''
+    [string]$Version = '',
+    [ValidateSet('cuda', 'openvino')][string]$Edition = 'cuda'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -74,20 +77,29 @@ Get-ChildItem $AppPython -Filter 'EXTERNALLY-MANAGED' -Recurse | Remove-Item -Fo
 $PythonExe = Join-Path $AppPython 'python.exe'
 if (-not (Test-Path (Join-Path $AppPython 'pythonw.exe'))) { throw 'pythonw.exe is missing' }
 
-# 2. server の wheel と、uv.lock の通りの依存（faster-whisper まで。WhisperX の extra は入れない）
-Write-Host '== Python packages'
+# 2. server の wheel と、uv.lock の通りの依存（faster-whisper と OpenVINO まで。WhisperX の extra は入れない）
+Write-Host "== Python packages ($Edition)"
 $Wheels = Join-Path $Work 'wheels'
 $Requirements = Join-Path $Work 'requirements.txt'
+# OpenVINO 版は CUDA の DLL を入れない（一覧から外す。ほかの行のハッシュの固定はそのまま）
+$NoCuda = if ($Edition -eq 'openvino') {
+    @('--no-emit-package', 'nvidia-cublas-cu12', '--no-emit-package', 'nvidia-cudnn-cu12')
+} else { @() }
+# WhisperX の torch: CUDA 版は final（cu128）、OpenVINO 版は final-cpu（CPU 版）
+$FinalExtra = if ($Edition -eq 'openvino') { 'final-cpu' } else { 'final' }
 Push-Location $Server
 try {
     Invoke-Checked uv @('build', '--wheel', '--out-dir', $Wheels)
-    Invoke-Checked uv @('export', '--locked', '--no-dev', '--no-emit-project', '--output-file', $Requirements)
-    # WhisperX（extra final）を後から画面のボタンで入れるときの、版とハッシュを固定した一覧（#291）。
+    Invoke-Checked uv (@(
+        'export', '--locked', '--no-dev', '--no-emit-project', '--extra', 'openvino',
+        '--output-file', $Requirements
+    ) + $NoCuda)
+    # WhisperX（extra final・final-cpu）を後から画面のボタンで入れるときの、版とハッシュを固定した一覧（#291）。
     # 同梱の依存と同じ uv.lock から作るので、入れても同梱のものの版は変わらない
-    Invoke-Checked uv @(
-        'export', '--locked', '--no-dev', '--no-emit-project', '--extra', 'final',
+    Invoke-Checked uv (@(
+        'export', '--locked', '--no-dev', '--no-emit-project', '--extra', $FinalExtra, '--extra', 'openvino',
         '--output-file', (Join-Path $App 'whisperx-requirements.txt')
-    )
+    ) + $NoCuda)
 } finally {
     Pop-Location
 }
@@ -125,9 +137,9 @@ if ($actual -ne $CloudflaredSha256) {
 }
 
 # 5. ビルドの印（bundle.py が見る。バージョンもここから）
-@{ version = $Version; cloudflared = $CloudflaredVersion } | ConvertTo-Json |
+@{ version = $Version; edition = $Edition; cloudflared = $CloudflaredVersion } | ConvertTo-Json |
     Set-Content -Encoding utf8 (Join-Path $App 'bundle.json')
 
 Remove-Item -Recurse -Force $Work
 $size = (Get-ChildItem $App -Recurse -File | Measure-Object Length -Sum).Sum
-Write-Host ('== done: {0} ({1:N0} MB, version {2})' -f $App, ($size / 1MB), $Version)
+Write-Host ('== done: {0} ({1:N0} MB, version {2}, edition {3})' -f $App, ($size / 1MB), $Version, $Edition)

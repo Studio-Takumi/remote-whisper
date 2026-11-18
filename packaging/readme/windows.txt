@@ -1,0 +1,20 @@
+Remote Whisper（Windows 版）
+
+■ インストールのしかた
+1. この zip の中の remote-whisper-<版>-win-<種類>-setup.exe を、ダブルクリックで開きます
+   （zip を「すべて展開」してから開いてください）
+2. 青い画面で「Windows によって PC が保護されました」と出たら、
+   「詳細情報」を押してから「実行」を押します
+   （インストーラに署名をしていないために出る警告です）
+3. 画面の案内に沿って「次へ」を押していきます。最後に「完了」を押すと起動します
+4. 起動すると、画面の右下（タスクトレイ）にアイコンが出て、ブラウザで画面が開きます
+
+■ 版の種類
+- Windows（CUDA）版   : NVIDIA の GPU がある PC 向け
+- Windows（OpenVINO）版: Intel の GPU（Arc）がある PC、GPU のない PC 向け
+間違えて入れても動きます。入れ直すと、もう一方の版に置き換わります。
+録音と文字起こしの記録（ユーザーのフォルダの .remote-whisper）は、入れ直しても、
+アンインストールしても消えません。
+
+■ くわしい説明
+https://github.com/Studio-Takumi/remote-whisper/blob/main/docs/install-windows.md

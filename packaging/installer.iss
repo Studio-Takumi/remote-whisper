@@ -1,7 +1,9 @@
 ﻿; Inno Setup script for Remote Whisper (Windows). See issue 168.
 ;
-;   iscc /DAppVersion=<version> /DSourceDir=<folder made by build.ps1> /DOutputDir=<out> installer.iss
+;   iscc /DAppVersion=<version> /DEdition=<cuda|openvino> /DSourceDir=<folder made by build.ps1> /DOutputDir=<out> installer.iss
 ;
+; - Two editions (issue 408): cuda (CUDA libraries and OpenVINO) and openvino (OpenVINO only). They share the
+;   AppId, so installing one over the other replaces it (the data folder is kept)
 ; - Per-user install (no administrator rights): %LOCALAPPDATA%\Programs\Remote Whisper
 ; - Start menu shortcut, optional desktop shortcut, optional "start at sign-in" task
 ; - The data folder (~/.remote-whisper) is never touched by the installer or the uninstaller
@@ -19,6 +21,16 @@
 #ifndef OutputDir
   #define OutputDir "out"
 #endif
+#ifndef Edition
+  #define Edition "cuda"
+#endif
+#if Edition == "cuda"
+  #define EditionLabel "CUDA"
+#elif Edition == "openvino"
+  #define EditionLabel "OpenVINO"
+#else
+  #error Edition must be cuda or openvino
+#endif
 
 #define AppName "Remote Whisper"
 ; Starts without a console window. The status is shown in the task tray icon.
@@ -30,6 +42,7 @@
 AppId={{6B0C3F7E-5C1E-4D1B-9A6B-2D5E8B7A1168}
 AppName={#AppName}
 AppVersion={#AppVersion}
+AppVerName={#AppName} {#AppVersion} ({#EditionLabel})
 AppPublisher=Studio-Takumi
 AppPublisherURL=https://github.com/Studio-Takumi/remote-whisper
 DefaultDirName={autopf}\{#AppName}
@@ -39,7 +52,7 @@ PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir={#OutputDir}
-OutputBaseFilename=remote-whisper-setup-{#AppVersion}
+OutputBaseFilename=remote-whisper-{#AppVersion}-win-{#Edition}-setup
 Compression=lzma2/fast
 SolidCompression=no
 WizardStyle=modern
@@ -75,6 +88,16 @@ UninstalledBody=アンインストールしました%n%n録音と文字起こし
 [Tasks]
 Name: "startup"; Description: "{cm:StartupTask}"; GroupDescription: "{cm:StartupGroup}"; Flags: unchecked
 Name: "desktopicon"; Description: "{cm:DesktopTask}"; Flags: unchecked
+
+#if Edition == "openvino"
+[InstallDelete]
+; Installing the OpenVINO edition over the CUDA edition: remove the CUDA libraries it left (about 2.5 GB).
+; Without cuBLAS the app runs whisper on the CPU or OpenVINO, so a stale copy must not stay behind.
+Type: filesandordirs; Name: "{app}\python\Lib\site-packages\nvidia\cublas"
+Type: filesandordirs; Name: "{app}\python\Lib\site-packages\nvidia\cudnn"
+Type: filesandordirs; Name: "{app}\python\Lib\site-packages\nvidia_cublas_cu12-*.dist-info"
+Type: filesandordirs; Name: "{app}\python\Lib\site-packages\nvidia_cudnn_cu12-*.dist-info"
+#endif
 
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs

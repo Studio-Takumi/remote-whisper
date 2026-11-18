@@ -23,9 +23,9 @@ Python・uv・cloudflared を自分で入れずに、`.dmg` 1 つで remote-whis
 
 ## 手順（開発の道具が入っていない Mac で確かめる）
 
-1. **ダウンロード**: 取得元は 2 つあります。どちらも、今は匠が使う前提です。
-   - **Actions の artifact**（今の主な取り方）: リポジトリの Actions →「Package」の実行 → 下の Artifacts の `remote-whisper-mac-dmg` をダウンロードする。GitHub にログインしていないと取れず、**14 日で消え**、**zip に包まれて**くる（展開すると `remote-whisper-<版>-mac-arm64.dmg`）。「Run workflow」で、作るもの（`mac` を選ぶと Mac だけ）を選べます。
-   - **Release**: `v*` のタグを push すると、Windows のインストーラと並んで、同じ `.dmg` が**下書き**のリリースに付く（公開されない）。
+1. **ダウンロード**: 取得元は 2 つあります。
+   - **Release**: リリースのページから `remote-whisper-<版>-mac-mlx.zip` を落とす（#408）。zip の中に `.dmg`（`remote-whisper-<版>-mac-mlx.dmg`）と、開き方の説明（`README.txt`）が入っています（Safari は落としたときに自動で展開します）。`v*` のタグを push すると、Windows の 2 つの zip と `SHA256SUMS.txt` と並んで、**下書き**のリリースに付く（公開されない）。
+   - **Actions の artifact**（開発者向け）: リポジトリの Actions →「Package」の実行 → 下の Artifacts の `remote-whisper-mac-mlx` をダウンロードする。GitHub にログインしていないと取れず、**14 日で消え**、Actions の zip の中に、上と同じ zip が入っている。「Run workflow」で、作るもの（`mac` を選ぶと Mac だけ）を選べます。
 2. **入れる**: `.dmg` を開き、`Remote Whisper` を隣の「Applications（アプリケーション）」にドラッグする。`.dmg` の中から直接開くと、「アプリケーションフォルダに移してから開いてください」と出て起動しません（macOS が読み取り専用の仮の場所で動かすため）。入れ終えたら `.dmg` は取り出して消してかまいません。
 3. **初めて開く（Gatekeeper の警告）**: 署名・公証をしていないので、そのままでは開けません。下の「Gatekeeper の警告の開き方」のとおりに開きます。2 回目からは、普通に開けます。
 4. **起動**: アプリを開くと、メニューバー（画面の右上）にアイコン（「>」とカーソル）が出て、ブラウザで画面が開きます。Dock にはアイコンを出しません。動いているときにもう一度アプリを開くと、2 つ目は起動せず、画面をブラウザで開きます。
@@ -52,10 +52,10 @@ Python・uv・cloudflared を自分で入れずに、`.dmg` 1 つで remote-whis
   1. 手元の `.dmg` の SHA256 を出す
 
      ```sh
-     shasum -a 256 ~/Downloads/remote-whisper-*-mac-arm64.dmg
+     shasum -a 256 ~/Downloads/remote-whisper-*-mac-mlx.dmg
      ```
 
-  2. GitHub の値と比べる。Release から落としたときは、リリースの画面の `.dmg` の行に出る `sha256:…`（asset の digest。`gh release view <タグ> --json assets` の `digest` でも見られる）。Actions の artifact から落としたときは、Package の実行のログの「Build the app and the dmg」の最後に出る `SHA256` の行（artifact の zip を展開した中の `.dmg` と比べる）。**違っていたら開かずに消して**、落とし直す
+  2. GitHub の値と比べる。Release から落としたときは、リリースに付いている `SHA256SUMS.txt` の `.dmg` の行（zip と、zip の中の `.dmg` の両方の値が書いてある。#408）。Actions の artifact から落としたときは、Package の実行のログの「Build the app and the dmg」の最後に出る `SHA256` の行。**違っていたら開かずに消して**、落とし直す
   3. 同じなら、印を外す
 
      ```sh
@@ -140,4 +140,4 @@ packaging/build-mac.sh --no-dmg       # .app だけ
 packaging/smoke-mac.sh "packaging/out-mac/Remote Whisper.app" /tmp/rw-smoke-data
 ```
 
-uv・Node.js・git が要ります。1GB ほどダウンロードします。CI では `.github/workflows/package.yml` の `mac` のジョブ（`macos-latest`）で、ビルド・`.dmg` から写した `.app` の確認（`--mock` で `/api/health` まで）をして、`.dmg` を artifact に置きます。アイコン（`packaging/icon/remote-whisper.icns`）は `packaging/make-icon.py` でロゴから作ります。
+uv・Node.js・git が要ります。1GB ほどダウンロードします。CI では `.github/workflows/package.yml` の `mac` のジョブ（`macos-latest`）で、ビルド・`.dmg` から写した `.app` の確認（`--mock` で `/api/health` まで）をして、`.dmg` と説明（`packaging/readme/mac.txt` を `README.txt` として）を zip に包んで artifact に置きます（#408）。アイコン（`packaging/icon/remote-whisper.icns`）は `packaging/make-icon.py` でロゴから作ります。
