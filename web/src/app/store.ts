@@ -4,7 +4,7 @@ import { create } from 'zustand';
 
 import { connection } from '@/api/connection';
 import { contextSetsQuery } from '@/api/contextSets';
-import { isDemo } from '@/api/demo';
+import { isDemo, usesMockData } from '@/api/demo';
 import { demoProjects, fallbackOptions, initialContextSets } from '@/api/mock';
 import { projectsQuery } from '@/api/projects';
 import { initialServerStatus } from '@/api/status';
@@ -68,7 +68,7 @@ export const useAppStore = create<AppState>()((set, _get, store) => {
     let serverSubscribed = false;
 
     return {
-        localSessions: isDemo
+        localSessions: usesMockData
             ? demoProjects.flatMap((p) => p.sessions.map((session) => ({ projectId: p.id, session })))
             : [],
         loadedSessions: {},
@@ -97,8 +97,8 @@ export const useAppStore = create<AppState>()((set, _get, store) => {
         settingsOpen: false,
         settingsPage: SETTINGS_PAGES[0],
         newProjectOpen: false,
-        // デモはダミーの一覧を最初から持っている
-        projectsLoaded: isDemo,
+        // ダミーのデータのデモは、一覧を最初から持っている
+        projectsLoaded: usesMockData,
         notFound: false,
         uploading: null,
         pickedAudio: null,
@@ -168,9 +168,9 @@ export const useAppStore = create<AppState>()((set, _get, store) => {
     };
 });
 
-// デモではダミーのプロジェクトの一覧と参考資料セットを最初からキャッシュに入れておく（サーバーにつなぐときは、
-// プロジェクトの一覧と一緒に取る）。セッションはサーバーに保存しないので、手元のセッションとして持つ
-if (isDemo) {
+// ダミーのデータのデモでは、プロジェクトの一覧と参考資料セットを最初からキャッシュに入れておく（サーバーにつなぐときと
+// 同梱したデータのデモ版は、プロジェクトの一覧と一緒に取る）。セッションはサーバーに保存しないので、手元のセッションとして持つ
+if (usesMockData) {
     const infos = demoProjects.map(({ sessions: _sessions, ...p }) => p);
     void queryClient.prefetchQuery({ ...projectsQuery, queryFn: () => infos });
     for (const [pid, sets] of Object.entries(initialContextSets)) {

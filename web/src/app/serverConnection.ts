@@ -74,5 +74,8 @@ export function connectServer(ctx: ServerContext) {
     }
     connection.onStateChange((connected) => connectionChanged(ctx, connected));
     connection.subscribe((m) => receive(ctx, m));
-    connection.start();
+    // デモ（#413）はサーバーにつながない（つながっていない表示も出さない）
+    if (!isDemo) {
+        connection.start();
+    }
 }
