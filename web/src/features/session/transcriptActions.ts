@@ -4,12 +4,13 @@ import { toast } from 'sonner';
 import { type CorrectionsJson, type TermsJson, api } from '@/api/api';
 import { isDemo } from '@/api/demo';
 import type { ActionContext } from '@/app/actionContext';
+import { blockInDemo } from '@/app/demoGuard';
 import { runMutation } from '@/app/query';
 import { type Correction, applyCorrectionLocally, revertCorrection } from '@/features/session/corrections';
 
 export async function rejectTerm(ctx: ActionContext, sessionId: string, term: string) {
     const projectId = ctx.sessions.projectIdOf(sessionId);
-    if (!projectId) {
+    if (!projectId || blockInDemo('terms')) {
         return;
     }
     const drop = (terms?: string[]) => terms?.filter((t) => t !== term);
@@ -52,7 +53,7 @@ export async function rejectTerm(ctx: ActionContext, sessionId: string, term: st
 
 export async function addTerm(ctx: ActionContext, sessionId: string, term: string) {
     const projectId = ctx.sessions.projectIdOf(sessionId);
-    if (!projectId) {
+    if (!projectId || blockInDemo('terms')) {
         return false;
     }
     // 足せるか（不正な語・上限）はサーバーが決めるので、先には足さない
@@ -87,7 +88,7 @@ export async function addTerm(ctx: ActionContext, sessionId: string, term: strin
 
 export async function addCorrection(ctx: ActionContext, sessionId: string, correction: Correction) {
     const projectId = ctx.sessions.projectIdOf(sessionId);
-    if (!projectId) {
+    if (!projectId || blockInDemo('correct')) {
         return false;
     }
     return runMutation(
@@ -133,7 +134,7 @@ export async function addCorrection(ctx: ActionContext, sessionId: string, corre
 
 export async function removeCorrection(ctx: ActionContext, sessionId: string, correction: Correction) {
     const projectId = ctx.sessions.projectIdOf(sessionId);
-    if (!projectId) {
+    if (!projectId || blockInDemo('correct')) {
         return;
     }
     const same = (c: Correction) => c.from === correction.from && c.to === correction.to;

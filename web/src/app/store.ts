@@ -10,6 +10,7 @@ import { projectsQuery } from '@/api/projects';
 import { initialServerStatus } from '@/api/status';
 import type { ActionContext } from '@/app/actionContext';
 import type { AppState } from '@/app/appState';
+import { blockInDemo } from '@/app/demoGuard';
 import { queryClient } from '@/app/query';
 import { connectServer } from '@/app/serverConnection';
 import { StatusReceiver } from '@/app/serverStatus';
@@ -139,7 +140,11 @@ export const useAppStore = create<AppState>()((set, _get, store) => {
         loadProjects: () => loadProjects(ctx),
         createProject: (path) => createProject(ctx, path),
         selectSession: (projectId, sessionId) => selectSession(ctx, projectId, sessionId),
-        newSession: (projectId) => set({ selection: { projectId, sessionId: null } }),
+        newSession: (projectId) => {
+            if (!blockInDemo('newSession')) {
+                set({ selection: { projectId, sessionId: null } });
+            }
+        },
         showRecordingSession: () => showRecordingSession(ctx),
         moveSession: (fromProjectId, sessionId, toProjectId) => moveSession(ctx, fromProjectId, sessionId, toProjectId),
         reorderProjects: (ids) => reorderProjects(ctx, ids),

@@ -5,11 +5,15 @@ import { ApiError, api } from '@/api/api';
 import { isDemo } from '@/api/demo';
 import { fetchFinalTranscript } from '@/api/transcripts';
 import type { ActionContext } from '@/app/actionContext';
+import { blockInDemo } from '@/app/demoGuard';
 import { recordingLocks } from '@/features/recording/recording';
 import { finalModelLabel, llmModels } from '@/features/settings/settings';
 
 export async function regenerateFinalTranscript(ctx: ActionContext, sessionId: string) {
     const get = ctx.store.getState;
+    if (blockInDemo('regenerateFinalTranscript')) {
+        return;
+    }
     if (isDemo) {
         toast.info('デモでは文字起こしを再生成できません');
         return;
@@ -54,6 +58,9 @@ export async function showFinalTranscript(ctx: ActionContext, sessionId: string,
 
 export async function regenerateSummary(ctx: ActionContext, sessionId: string) {
     const { getState: get, setState: set } = ctx.store;
+    if (blockInDemo('regenerateSummary')) {
+        return;
+    }
     if (isDemo) {
         toast.info('デモでは要約を再生成できません');
         return;

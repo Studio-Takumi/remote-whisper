@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { ArrowRightLeftIcon, PlusIcon, TagsIcon, XIcon } from 'lucide-react';
 
 import type { Session } from '@/api/types';
+import { blockInDemo } from '@/app/demoGuard';
 import { useAppStore } from '@/app/store';
 import { Input } from '@/components/ui/input';
 import { describeCorrection } from '@/features/session/corrections';
@@ -27,7 +28,8 @@ export function SessionTerms({ session, showPicked }: { session: Session; showPi
     // 入力（複数行でもよい）を、確かめてから行ごとに足す。足せなかった語だけを入力欄に残し、理由を出す
     const add = async (text: string, fromPaste = false) => {
         const { valid, invalid } = parseTermInput(text);
-        if (valid.length === 0 && invalid.length === 0) {
+        // デモ版（#414）は、足せなかった理由を出さずにトーストで止める
+        if ((valid.length === 0 && invalid.length === 0) || blockInDemo('terms')) {
             return;
         }
         setBusy(true);

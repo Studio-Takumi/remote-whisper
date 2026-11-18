@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 
 import { isDemo } from '@/api/demo';
 import type { ActionContext } from '@/app/actionContext';
+import { blockInDemo } from '@/app/demoGuard';
 import { UploadError, uploadAudio as sendAudio, uploadSource } from '@/features/recording/upload';
 import { finalModelLabel, llmModels } from '@/features/settings/settings';
 
@@ -20,6 +21,9 @@ async function openUploaded(ctx: ActionContext, projectId: string, sessionId: st
 
 export async function uploadAudio(ctx: ActionContext, projectId: string, file: File) {
     const { getState: get, setState: set } = ctx.store;
+    if (blockInDemo('upload')) {
+        return;
+    }
     if (isDemo) {
         toast.info('デモでは音声ファイルを使えません');
         return;
@@ -44,6 +48,9 @@ export async function uploadAudio(ctx: ActionContext, projectId: string, file: F
 
 export function pickAudioFiles(ctx: ActionContext, projectId: string, files: File[]) {
     const { getState: get, setState: set } = ctx.store;
+    if (files.length > 0 && blockInDemo('upload')) {
+        return;
+    }
     if (files.length === 1) {
         void get().uploadAudio(projectId, files[0]);
     } else if (files.length > 1) {
@@ -91,7 +98,7 @@ export async function uploadSources(ctx: ActionContext, main: number) {
     const { getState: get, setState: set } = ctx.store;
     const picked = get().pickedAudio;
     set({ pickedAudio: null });
-    if (!picked || isDemo || get().uploading) {
+    if (!picked || blockInDemo('upload') || isDemo || get().uploading) {
         return;
     }
     const { projectId } = picked;
