@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { toast } from 'sonner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { demoOptions } from '@/api/demoSettings';
 import type { SettingsOptions } from '@/api/protocol';
 import { demoRefusal } from '@/app/demoGuard';
 import { useAppStore } from '@/app/store';
@@ -33,7 +34,7 @@ afterEach(() => {
     vi.restoreAllMocks();
 });
 
-function draw(page: string) {
+function draw(page: string, shown: SettingsOptions = options) {
     const props = { onOpenChange: vi.fn(), onPageChange: vi.fn(), onRetry: vi.fn(), onSave: vi.fn() };
     render(
         <SettingsDialog
@@ -41,7 +42,7 @@ function draw(page: string) {
             page={page}
             settings={defaultSettings}
             loaded
-            options={options}
+            options={shown}
             recording={false}
             {...props}
         />,
@@ -105,6 +106,25 @@ describe('デモ版の設定の画面', () => {
         expect(settingsPageOf('setup')).toBe('models');
         draw('models');
         expect(screen.getByText('処理ごとのモデルです', { exact: false })).toBeTruthy();
+    });
+
+    it('モデルのページの Select は 5 つの選択肢を開け、選ぶと断って値を変えない', async () => {
+        // jsdom にない、Radix の Select が使うもの
+        Element.prototype.hasPointerCapture = () => false;
+        Element.prototype.setPointerCapture = () => {};
+        Element.prototype.releasePointerCapture = () => {};
+        Element.prototype.scrollIntoView = () => {};
+        const { onSave } = draw('models', demoOptions);
+        const trigger = screen.getByRole('combobox', { name: '全体概要' });
+        expect(trigger.textContent).toContain('gemma4:e4b');
+        fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false, pointerType: 'mouse' });
+        const names = (await screen.findAllByRole('option')).map((o) => o.textContent);
+        expect(names).toEqual(['qwen3.5:4b', 'qwen3.5:2b', 'qwen3.5:0.8b', 'gemma4:e4b', 'gemma4:e2b']);
+        fireEvent.click(screen.getByRole('option', { name: 'qwen3.5:4b' }));
+        expect(toast.info).toHaveBeenCalledWith(demoRefusal('settings'), expect.anything());
+        expect(screen.getByRole('combobox', { name: '全体概要' }).textContent).toContain('gemma4:e4b');
+        fireEvent.click(screen.getByRole('button', { name: '保存' }));
+        expect(onSave.mock.calls[0][0]).toEqual(defaultSettings);
     });
 
     it('モデルのページの「おすすめに戻す」も断る', () => {
