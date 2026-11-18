@@ -1,13 +1,19 @@
 import { TriangleAlertIcon } from 'lucide-react';
 
+import { isDemoBuild } from '@/api/demoBuild';
 import { useAppStore } from '@/app/store';
-import { webVersion } from '@/app/version';
+import { demoVersionLabel, webVersion } from '@/app/version';
 
 // サーバーと画面のバージョン（コミットハッシュ）を並べて出す。
-// 食い違っていたら、ブラウザに古い画面が残っているので、読み込み直すように促す
+// 食い違っていたら、ブラウザに古い画面が残っているので、読み込み直すように促す。
+// デモ版（#414）はホストがないので、もとにしたリリースだけを出す
 export function VersionInfo() {
     const serverVersion = useAppStore((s) => s.serverVersion);
     const mismatch = serverVersion !== null && serverVersion !== webVersion;
+
+    if (isDemoBuild) {
+        return <p className='text-xs text-muted-foreground'>{demoVersionLabel}</p>;
+    }
 
     return (
         <div className='flex flex-col gap-1 text-xs text-muted-foreground'>
