@@ -62,7 +62,8 @@ function summaryInfo(gid: string, meta: DemoJson): DemoSummaryInfo {
     return {
         generationId: gid,
         model,
-        overviewModel: str(meta.overviewModel) ?? model,
+        // サーバーと同じく、ないときも空のときも model（`overview_model or model`）
+        overviewModel: str(meta.overviewModel) || model,
         think: meta.think as boolean,
         generatedAt: meta.generatedAt as string,
         title: str(meta.title),

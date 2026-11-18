@@ -53,13 +53,14 @@ beforeEach(() => {
         join(dir, `transcript-final-${SID}-20260101-110000.md`),
         `---\nid: ${SID}\ngenerationId: 20260101-110000\nmodel: large-v3-turbo\ngeneratedAt: '2026-01-01T11:00:00+09:00'\ndiarization: done\nspeakers: 2\n---\n[00:00:01] 話者 1: こんにちは\n続きの行\n\n[00:00:05] 話者 2: どうも\n`,
     );
+    // overviewModel が空のものは、サーバーと同じく model とみなす
     for (const [gid, model] of [
         ['20260101-120000', 'qwen3.5:4b'],
         ['20260101-130000', 'gemma4:e4b'],
     ]) {
         write(
             join(dir, `summary-${SID}-${gid}.md`),
-            `---\nid: ${SID}\ngenerationId: ${gid}\ntitle: 'タイトル: ${model}'\nstartedAt: '2026-01-01T10:00:00+09:00'\nmodel: ${model}\nthink: true\ngeneratedAt: '2026-01-01T12:00:00+09:00'\n---\nこの要約は〜から生成されています。\n\n## 全体概要\n- ${model}\n`,
+            `---\nid: ${SID}\ngenerationId: ${gid}\ntitle: 'タイトル: ${model}'\nstartedAt: '2026-01-01T10:00:00+09:00'\nmodel: ${model}\noverviewModel: ''\nthink: true\ngeneratedAt: '2026-01-01T12:00:00+09:00'\n---\nこの要約は〜から生成されています。\n\n## 全体概要\n- ${model}\n`,
         );
     }
     // 読めない要約は飛ばす（サーバーと同じ）
