@@ -62,7 +62,7 @@ remote-whisper は、手元の端末に GPU がなくても、別のマシンの
 
 ## サーバーのセットアップ
 
-Windows で Python や uv を入れずに使いたいときは、インストーラを使えます（[docs/install-windows.md](docs/install-windows.md)）。Apple シリコンの Mac 向けには `.dmg` があります（[docs/install-mac.md](docs/install-mac.md)）。以下はリポジトリから動かす開発用の手順です。
+Python や uv を入れずに使いたいときは、[リリース](https://github.com/Studio-Takumi/remote-whisper/releases)から配布物の zip を落とします。Windows は NVIDIA の GPU がある PC 向けの Windows（CUDA）版（`win-cuda`）と、Intel の GPU（Arc）・GPU のない PC 向けの Windows（OpenVINO）版（`win-openvino`）の 2 つ（迷ったら OpenVINO 版。[docs/install-windows.md](docs/install-windows.md)）、Apple シリコンの Mac 向けは Mac 版（`mac-mlx`。中身は `.dmg`。[docs/install-mac.md](docs/install-mac.md)）です。以下はリポジトリから動かす開発用の手順です。
 
 ### 必要なもの
 - NVIDIA GPU と、それに対応したドライバ（Intel Arc でも動きます。下の「Intel の GPU（Arc）で文字起こしする」）

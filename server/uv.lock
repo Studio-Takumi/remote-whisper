@@ -2,9 +2,17 @@ version = 1
 revision = 5
 requires-python = "==3.11.*"
 resolution-markers = [
-    "sys_platform == 'linux' or sys_platform == 'win32'",
-    "sys_platform != 'linux' and sys_platform != 'win32'",
+    "(platform_machine != 'aarch64' and sys_platform == 'linux' and extra != 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (platform_python_implementation != 'CPython' and sys_platform == 'linux' and extra != 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra != 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')",
+    "platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux' and extra != 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu'",
+    "sys_platform != 'linux' and sys_platform != 'win32' and extra != 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu'",
+    "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu')",
+    "sys_platform != 'linux' and sys_platform != 'win32' and extra == 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu'",
+    "extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu'",
 ]
+conflicts = [[
+    { package = "remote-whisper", extra = "final" },
+    { package = "remote-whisper", extra = "final-cpu" },
+]]
 
 [[package]]
 name = "aiohappyeyeballs"
@@ -116,8 +124,9 @@ version = "0.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
-    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux' and sys_platform != 'win32'" },
-    { name = "torch", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'linux' and sys_platform != 'win32' and extra == 'extra-14-remote-whisper-final') or (sys_platform != 'linux' and sys_platform != 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torch", version = "2.8.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torch", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
     { name = "typing-extensions" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/90/fa/5c2be1f96dc179f83cdd3bb267edbd1f47d08f756785c016d5c2163901a7/asteroid-filterbanks-0.4.0.tar.gz", hash = "sha256:415f89d1dcf2b13b35f03f7a9370968ac4e6fa6800633c522dac992b283409b9", size = 24599, upload-time = "2021-04-09T20:03:07.456Z" }
@@ -165,7 +174,7 @@ name = "cffi"
 version = "2.1.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "pycparser", marker = "implementation_name != 'PyPy'" },
+    { name = "pycparser", marker = "implementation_name != 'PyPy' or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/9e/ef/008a1939e372c06329a3fce4279c02f328488f3526744906eeec3da7ad5f/cffi-2.1.1.tar.gz", hash = "sha256:dd31f52ea1086513bb9df30f8fcee9b8918323ae067a3d5b78bc826a000712be", size = 530807, upload-time = "2026-08-03T21:21:18.939Z" }
 wheels = [
@@ -296,7 +305,7 @@ name = "cryptography"
 version = "50.0.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cffi", marker = "platform_python_implementation != 'PyPy'" },
+    { name = "cffi", marker = "platform_python_implementation != 'PyPy' or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/9d/af/182eb91b0df3fe75c4d9f26fe70684569566745f6ba7e5c9c73a862c5252/cryptography-50.0.2.tar.gz", hash = "sha256:7b46165bb56eb4704e2eaaf86f3c940d19154535d9b0ca7d6d590b04060e00d5", size = 880623, upload-time = "2026-09-30T15:30:04.884Z" }
 wheels = [
@@ -618,7 +627,7 @@ source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "filelock" },
     { name = "fsspec" },
-    { name = "hf-xet", marker = "platform_machine == 'aarch64' or platform_machine == 'amd64' or platform_machine == 'arm64' or platform_machine == 'x86_64'" },
+    { name = "hf-xet", marker = "platform_machine == 'aarch64' or platform_machine == 'amd64' or platform_machine == 'arm64' or platform_machine == 'x86_64' or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
     { name = "packaging" },
     { name = "pyyaml" },
     { name = "requests" },
@@ -677,8 +686,9 @@ name = "julius"
 version = "0.2.8"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux' and sys_platform != 'win32'" },
-    { name = "torch", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'linux' and sys_platform != 'win32' and extra == 'extra-14-remote-whisper-final') or (sys_platform != 'linux' and sys_platform != 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torch", version = "2.8.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torch", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/1d/c6/5c2aea2b11ead1680bb5b17c996def31f8ccade471cada37cdb93855e06f/julius-0.2.8.tar.gz", hash = "sha256:d691e651200930affea4f6c849c26e95fec846087281ae3d1a7757eac90253d5", size = 48081, upload-time = "2026-06-03T16:05:34.52Z" }
 wheels = [
@@ -718,13 +728,14 @@ name = "lightning"
 version = "2.6.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "fsspec", extra = ["http"] },
+    { name = "fsspec", extra = ["http"], marker = "extra == 'extra-14-remote-whisper-final' or extra == 'extra-14-remote-whisper-final-cpu'" },
     { name = "lightning-utilities" },
     { name = "packaging" },
     { name = "pytorch-lightning" },
     { name = "pyyaml" },
-    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux' and sys_platform != 'win32'" },
-    { name = "torch", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'linux' and sys_platform != 'win32' and extra == 'extra-14-remote-whisper-final') or (sys_platform != 'linux' and sys_platform != 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torch", version = "2.8.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torch", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
     { name = "torchmetrics" },
     { name = "tqdm" },
     { name = "typing-extensions" },
@@ -754,6 +765,9 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/11/c5/907cec40688a34eb489cded74d555e1ee4af8cf49d83e03dba2c2d4cfe27/llvmlite-0.50.0.tar.gz", hash = "sha256:f2a2cd6ec9ffcc1b7147dea0d7a49efebf17a2b434e0c2844fe175999d571eb4", size = 194522, upload-time = "2026-09-29T18:44:46.782Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/fc/ae/9c41313563a860a69d5c67fb4098ce9b40a09c00b68a177407b7c10950fb/llvmlite-0.50.0-cp311-cp311-macosx_12_0_arm64.whl", hash = "sha256:818b3d4845ac8e126e23cb500867570d0602a42a43e67b14acec31f046e03130", size = 40534276, upload-time = "2026-09-29T18:42:40.983Z" },
+    { url = "https://files.pythonhosted.org/packages/f5/60/99c692a447cb6e148d4ecc30067d5f4ba8a980f1081472103ed0c79b4890/llvmlite-0.50.0-cp311-cp311-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:0225351ad77ea30501fc5b4c09ff6868169fde50c5a576cdfda1645091157616", size = 58344485, upload-time = "2026-09-29T18:42:44.679Z" },
+    { url = "https://files.pythonhosted.org/packages/59/b2/a5234f59ccf69cc90d29c62e01cacd1d60403fc5dfac77b38e019237d301/llvmlite-0.50.0-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:a6ffde00d4be8772a24e3e8b3af6bf86a79e7cf066d944ef56136b3957d707dc", size = 59696588, upload-time = "2026-09-29T18:42:48.871Z" },
+    { url = "https://files.pythonhosted.org/packages/6b/15/db28c1cb84314bdc416f7dbe7688aa9565d36d76c8244a1c8fbf6adf37bf/llvmlite-0.50.0-cp311-cp311-win_amd64.whl", hash = "sha256:ffe46ef508df226e54b5fe1f7bf11122e5297bcdbb3902cc5b670a429d56ff47", size = 41865266, upload-time = "2026-09-29T18:42:52.699Z" },
 ]
 
 [[package]]
@@ -846,12 +860,16 @@ name = "mlx"
 version = "0.32.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "mlx-metal" },
+    { name = "mlx-metal", marker = "sys_platform == 'darwin' or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/7b/fd/f7af63951d6f4d39b47bbda462f2ed0341ce1293967de36ce9bbd4b836a9/mlx-0.32.4-cp311-cp311-macosx_14_0_arm64.whl", hash = "sha256:dd0c9070d9c362fe280a0224806b1b47719b154984735041ebcc907e597c08ca", size = 671764, upload-time = "2026-10-14T21:15:48.321Z" },
     { url = "https://files.pythonhosted.org/packages/56/1d/e23a150073e07212c23358b978af0bfd21b87f0b97937ec1f300cee346ce/mlx-0.32.4-cp311-cp311-macosx_15_0_arm64.whl", hash = "sha256:fbb3fcf1363a631d05aa5adcb30d07655158be07e09339c1fe62f7267b3a78f5", size = 671761, upload-time = "2026-10-14T21:15:49.94Z" },
     { url = "https://files.pythonhosted.org/packages/c7/9b/3e5cfd79fd468dbc7f516e5fa7341419541804c5f8beefe04053326e25e9/mlx-0.32.4-cp311-cp311-macosx_26_0_arm64.whl", hash = "sha256:dfd5269398bb64372137d8c354530b6e81159ce0e92fd1ed7e9140b294fd939a", size = 671758, upload-time = "2026-10-14T21:15:51.859Z" },
+    { url = "https://files.pythonhosted.org/packages/1a/c4/d5dddb368f34cdb52e4b6374fd67a300d9de8aaef32acd9601c64a535d59/mlx-0.32.4-cp311-cp311-manylinux_2_35_aarch64.whl", hash = "sha256:a01855e2c023e64683798d7148f9760c59b32be6e43f4bcbea8eb8137b650a5b", size = 711334, upload-time = "2026-10-14T21:15:53.636Z" },
+    { url = "https://files.pythonhosted.org/packages/c3/f0/1ad671482f63f87960f3e9996d910bc37f50e9d20ff9d20e0c10c4529bc3/mlx-0.32.4-cp311-cp311-manylinux_2_35_x86_64.whl", hash = "sha256:6267be0db81a9d850b3ecd9bf0cf7dd0f439408db9fbc59237e37fda3f7676b0", size = 781644, upload-time = "2026-10-14T21:15:55.499Z" },
+    { url = "https://files.pythonhosted.org/packages/21/b5/477f7486995c4b066238a1080a8450eed34e522c8337bd8989eaf0167849/mlx-0.32.4-cp311-cp311-win_amd64.whl", hash = "sha256:2154f5ce28b51de46b990eb794223bebf8e0a5326ae2658a1e45c247e50779d6", size = 646641, upload-time = "2026-10-14T21:15:57.179Z" },
+    { url = "https://files.pythonhosted.org/packages/88/0c/5670df20ee8769c6009e711c3cc4a81acdf827129698b8577fda6bc55c40/mlx-0.32.4-cp311-cp311-win_arm64.whl", hash = "sha256:d124475e725707a94598211d3c80edfa9755bea9c327e8babff6ce4511344d9f", size = 641333, upload-time = "2026-10-14T21:15:58.867Z" },
 ]
 
 [[package]]
@@ -876,7 +894,9 @@ dependencies = [
     { name = "numpy" },
     { name = "scipy" },
     { name = "tiktoken" },
-    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" } },
+    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'linux' and sys_platform != 'win32') or (sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'linux' and extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torch", version = "2.8.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torch", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
     { name = "tqdm" },
 ]
 wheels = [
@@ -975,6 +995,9 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/4e/cd/e8280f9ffa30fea9fabc5341223701231fcc5d53a31f51419d42d4bec3a6/numba-0.68.0.tar.gz", hash = "sha256:8a781de54b980b98f43bff7f1093701b5f07c80d031c7cfa8a87493d8bf73f2d", size = 2855363, upload-time = "2026-09-30T15:05:44.721Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/54/fc/57b1ce7b92cadbb4084a2ca30d9cfc8937a45ece9a64bc6050e527cbc14b/numba-0.68.0-cp311-cp311-macosx_12_0_arm64.whl", hash = "sha256:50399af9d3799a4677044294861169c614bd7e1d8bbfc9479f78a67ab28ff427", size = 2759814, upload-time = "2026-09-30T15:04:44.039Z" },
+    { url = "https://files.pythonhosted.org/packages/42/14/2ecbe9a046c611077b7b9ac267e9829aec473cf4f4314d181bd043c76fcf/numba-0.68.0-cp311-cp311-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:954e2684bca3ea11235272df28e8ef40f18a682c1c635a2398032b404675d8fa", size = 3547920, upload-time = "2026-09-30T15:04:46.364Z" },
+    { url = "https://files.pythonhosted.org/packages/33/dc/ba4eaf844972bf9647314079f3a4cad79f63614b388b667103a2e7f521df/numba-0.68.0-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:68f92839637a2aaca8ae124c3abf91f648d2fade50953ea8e81ec604ac05a771", size = 3834537, upload-time = "2026-09-30T15:04:48.61Z" },
+    { url = "https://files.pythonhosted.org/packages/41/0e/369fc577564e07820d5f8ddddf9648cf3e31415313c323cbd611f7905101/numba-0.68.0-cp311-cp311-win_amd64.whl", hash = "sha256:d36f7c6a07c27fa175f5a4683083c6a830f7791fbda592a8676ce47a444965f7", size = 2830973, upload-time = "2026-09-30T15:04:50.863Z" },
 ]
 
 [[package]]
@@ -1018,7 +1041,9 @@ name = "nvidia-cuda-cupti-cu12"
 version = "12.8.90"
 source = { registry = "https://pypi.org/simple" }
 wheels = [
+    { url = "https://files.pythonhosted.org/packages/d5/1f/b3bd73445e5cb342727fd24fe1f7b748f690b460acadc27ea22f904502c8/nvidia_cuda_cupti_cu12-12.8.90-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:4412396548808ddfed3f17a467b104ba7751e6b58678a4b840675c56d21cf7ed", size = 9533318, upload-time = "2025-03-07T01:40:10.421Z" },
     { url = "https://files.pythonhosted.org/packages/f8/02/2adcaa145158bf1a8295d83591d22e4103dbfd821bcaf6f3f53151ca4ffa/nvidia_cuda_cupti_cu12-12.8.90-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:ea0cb07ebda26bb9b29ba82cda34849e73c166c18162d3913575b0c9db9a6182", size = 10248621, upload-time = "2025-03-07T01:40:21.213Z" },
+    { url = "https://files.pythonhosted.org/packages/41/bc/83f5426095d93694ae39fe1311431b5d5a9bb82e48bf0dd8e19be2765942/nvidia_cuda_cupti_cu12-12.8.90-py3-none-win_amd64.whl", hash = "sha256:bb479dcdf7e6d4f8b0b01b115260399bf34154a1a2e9fe11c85c517d87efd98e", size = 7015759, upload-time = "2025-03-07T01:51:11.355Z" },
 ]
 
 [[package]]
@@ -1027,6 +1052,8 @@ version = "12.8.93"
 source = { registry = "https://pypi.org/simple" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/05/6b/32f747947df2da6994e999492ab306a903659555dddc0fbdeb9d71f75e52/nvidia_cuda_nvrtc_cu12-12.8.93-py3-none-manylinux2010_x86_64.manylinux_2_12_x86_64.whl", hash = "sha256:a7756528852ef889772a84c6cd89d41dfa74667e24cca16bb31f8f061e3e9994", size = 88040029, upload-time = "2025-03-07T01:42:13.562Z" },
+    { url = "https://files.pythonhosted.org/packages/eb/d1/e50d0acaab360482034b84b6e27ee83c6738f7d32182b987f9c7a4e32962/nvidia_cuda_nvrtc_cu12-12.8.93-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:fc1fec1e1637854b4c0a65fb9a8346b51dd9ee69e61ebaccc82058441f15bce8", size = 43106076, upload-time = "2025-03-07T01:41:59.817Z" },
+    { url = "https://files.pythonhosted.org/packages/45/51/52a3d84baa2136cc8df15500ad731d74d3a1114d4c123e043cb608d4a32b/nvidia_cuda_nvrtc_cu12-12.8.93-py3-none-win_amd64.whl", hash = "sha256:7a4b6b2904850fe78e0bd179c4b655c404d4bb799ef03ddc60804247099ae909", size = 73586838, upload-time = "2025-03-07T01:52:13.483Z" },
 ]
 
 [[package]]
@@ -1034,7 +1061,9 @@ name = "nvidia-cuda-runtime-cu12"
 version = "12.8.90"
 source = { registry = "https://pypi.org/simple" }
 wheels = [
+    { url = "https://files.pythonhosted.org/packages/7c/75/f865a3b236e4647605ea34cc450900854ba123834a5f1598e160b9530c3a/nvidia_cuda_runtime_cu12-12.8.90-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:52bf7bbee900262ffefe5e9d5a2a69a30d97e2bc5bb6cc866688caa976966e3d", size = 965265, upload-time = "2025-03-07T01:39:43.533Z" },
     { url = "https://files.pythonhosted.org/packages/0d/9b/a997b638fcd068ad6e4d53b8551a7d30fe8b404d6f1804abf1df69838932/nvidia_cuda_runtime_cu12-12.8.90-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:adade8dcbd0edf427b7204d480d6066d33902cab2a4707dcfc48a2d0fd44ab90", size = 954765, upload-time = "2025-03-07T01:40:01.615Z" },
+    { url = "https://files.pythonhosted.org/packages/30/a5/a515b7600ad361ea14bfa13fb4d6687abf500adc270f19e89849c0590492/nvidia_cuda_runtime_cu12-12.8.90-py3-none-win_amd64.whl", hash = "sha256:c0c6027f01505bfed6c3b21ec546f69c687689aad5f1a377554bc6ca4aa993a8", size = 944318, upload-time = "2025-03-07T01:51:01.794Z" },
 ]
 
 [[package]]
@@ -1055,10 +1084,12 @@ name = "nvidia-cufft-cu12"
 version = "11.3.3.83"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-nvjitlink-cu12" },
+    { name = "nvidia-nvjitlink-cu12", marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu')" },
 ]
 wheels = [
+    { url = "https://files.pythonhosted.org/packages/60/bc/7771846d3a0272026c416fbb7e5f4c1f146d6d80704534d0b187dd6f4800/nvidia_cufft_cu12-11.3.3.83-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:848ef7224d6305cdb2a4df928759dca7b1201874787083b6e7550dd6765ce69a", size = 193109211, upload-time = "2025-03-07T01:44:56.873Z" },
     { url = "https://files.pythonhosted.org/packages/1f/13/ee4e00f30e676b66ae65b4f08cb5bcbb8392c03f54f2d5413ea99a5d1c80/nvidia_cufft_cu12-11.3.3.83-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:4d2dd21ec0b88cf61b62e6b43564355e5222e4a3fb394cac0db101f2dd0d4f74", size = 193118695, upload-time = "2025-03-07T01:45:27.821Z" },
+    { url = "https://files.pythonhosted.org/packages/7d/ec/ce1629f1e478bb5ccd208986b5f9e0316a78538dd6ab1d0484f012f8e2a1/nvidia_cufft_cu12-11.3.3.83-py3-none-win_amd64.whl", hash = "sha256:7a64a98ef2a7c47f905aaf8931b69a3a43f27c55530c698bb2ed7c75c0b42cb7", size = 192216559, upload-time = "2025-03-07T01:53:57.106Z" },
 ]
 
 [[package]]
@@ -1067,6 +1098,7 @@ version = "1.13.1.3"
 source = { registry = "https://pypi.org/simple" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/bb/fe/1bcba1dfbfb8d01be8d93f07bfc502c93fa23afa6fd5ab3fc7c1df71038a/nvidia_cufile_cu12-1.13.1.3-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:1d069003be650e131b21c932ec3d8969c1715379251f8d23a1860554b1cb24fc", size = 1197834, upload-time = "2025-03-07T01:45:50.723Z" },
+    { url = "https://files.pythonhosted.org/packages/1e/f5/5607710447a6fe9fd9b3283956fceeee8a06cda1d2f56ce31371f595db2a/nvidia_cufile_cu12-1.13.1.3-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:4beb6d4cce47c1a0f1013d72e02b0994730359e17801d395bdcbf20cfb3bb00a", size = 1120705, upload-time = "2025-03-07T01:45:41.434Z" },
 ]
 
 [[package]]
@@ -1074,7 +1106,9 @@ name = "nvidia-curand-cu12"
 version = "10.3.9.90"
 source = { registry = "https://pypi.org/simple" }
 wheels = [
+    { url = "https://files.pythonhosted.org/packages/45/5e/92aa15eca622a388b80fbf8375d4760738df6285b1e92c43d37390a33a9a/nvidia_curand_cu12-10.3.9.90-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:dfab99248034673b779bc6decafdc3404a8a6f502462201f2f31f11354204acd", size = 63625754, upload-time = "2025-03-07T01:46:10.735Z" },
     { url = "https://files.pythonhosted.org/packages/fb/aa/6584b56dc84ebe9cf93226a5cde4d99080c8e90ab40f0c27bda7a0f29aa1/nvidia_curand_cu12-10.3.9.90-py3-none-manylinux_2_27_x86_64.whl", hash = "sha256:b32331d4f4df5d6eefa0554c565b626c7216f87a06a4f56fab27c3b68a830ec9", size = 63619976, upload-time = "2025-03-07T01:46:23.323Z" },
+    { url = "https://files.pythonhosted.org/packages/b9/75/70c05b2f3ed5be3bb30b7102b6eb78e100da4bbf6944fd6725c012831cab/nvidia_curand_cu12-10.3.9.90-py3-none-win_amd64.whl", hash = "sha256:f149a8ca457277da854f89cf282d6ef43176861926c7ac85b2a0fbd237c587ec", size = 62765309, upload-time = "2025-03-07T01:54:20.478Z" },
 ]
 
 [[package]]
@@ -1082,12 +1116,14 @@ name = "nvidia-cusolver-cu12"
 version = "11.7.3.90"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-cublas-cu12" },
-    { name = "nvidia-cusparse-cu12" },
-    { name = "nvidia-nvjitlink-cu12" },
+    { name = "nvidia-cublas-cu12", marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu')" },
+    { name = "nvidia-cusparse-cu12", marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu')" },
+    { name = "nvidia-nvjitlink-cu12", marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu')" },
 ]
 wheels = [
+    { url = "https://files.pythonhosted.org/packages/c8/32/f7cd6ce8a7690544d084ea21c26e910a97e077c9b7f07bf5de623ee19981/nvidia_cusolver_cu12-11.7.3.90-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:db9ed69dbef9715071232caa9b69c52ac7de3a95773c2db65bdba85916e4e5c0", size = 267229841, upload-time = "2025-03-07T01:46:54.356Z" },
     { url = "https://files.pythonhosted.org/packages/85/48/9a13d2975803e8cf2777d5ed57b87a0b6ca2cc795f9a4f59796a910bfb80/nvidia_cusolver_cu12-11.7.3.90-py3-none-manylinux_2_27_x86_64.whl", hash = "sha256:4376c11ad263152bd50ea295c05370360776f8c3427b30991df774f9fb26c450", size = 267506905, upload-time = "2025-03-07T01:47:16.273Z" },
+    { url = "https://files.pythonhosted.org/packages/13/c0/76ca8551b8a84146ffa189fec81c26d04adba4bc0dbe09cd6e6fd9b7de04/nvidia_cusolver_cu12-11.7.3.90-py3-none-win_amd64.whl", hash = "sha256:4a550db115fcabc4d495eb7d39ac8b58d4ab5d8e63274d3754df1c0ad6a22d34", size = 256720438, upload-time = "2025-03-07T01:54:39.898Z" },
 ]
 
 [[package]]
@@ -1095,10 +1131,12 @@ name = "nvidia-cusparse-cu12"
 version = "12.5.8.93"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-nvjitlink-cu12" },
+    { name = "nvidia-nvjitlink-cu12", marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu')" },
 ]
 wheels = [
+    { url = "https://files.pythonhosted.org/packages/bc/f7/cd777c4109681367721b00a106f491e0d0d15cfa1fd59672ce580ce42a97/nvidia_cusparse_cu12-12.5.8.93-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:9b6c161cb130be1a07a27ea6923df8141f3c295852f4b260c65f18f3e0a091dc", size = 288117129, upload-time = "2025-03-07T01:47:40.407Z" },
     { url = "https://files.pythonhosted.org/packages/c2/f5/e1854cb2f2bcd4280c44736c93550cc300ff4b8c95ebe370d0aa7d2b473d/nvidia_cusparse_cu12-12.5.8.93-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:1ec05d76bbbd8b61b06a80e1eaf8cf4959c3d4ce8e711b65ebd0443bb0ebb13b", size = 288216466, upload-time = "2025-03-07T01:48:13.779Z" },
+    { url = "https://files.pythonhosted.org/packages/62/07/f3b2ad63f8e3d257a599f422ae34eb565e70c41031aecefa3d18b62cabd1/nvidia_cusparse_cu12-12.5.8.93-py3-none-win_amd64.whl", hash = "sha256:9a33604331cb2cac199f2e7f5104dfbb8a5a898c367a53dfda9ff2acb6b6b4dd", size = 284937404, upload-time = "2025-03-07T01:55:07.742Z" },
 ]
 
 [[package]]
@@ -1106,7 +1144,9 @@ name = "nvidia-cusparselt-cu12"
 version = "0.7.1"
 source = { registry = "https://pypi.org/simple" }
 wheels = [
+    { url = "https://files.pythonhosted.org/packages/73/b9/598f6ff36faaece4b3c50d26f50e38661499ff34346f00e057760b35cc9d/nvidia_cusparselt_cu12-0.7.1-py3-none-manylinux2014_aarch64.whl", hash = "sha256:8878dce784d0fac90131b6817b607e803c36e629ba34dc5b433471382196b6a5", size = 283835557, upload-time = "2025-02-26T00:16:54.265Z" },
     { url = "https://files.pythonhosted.org/packages/56/79/12978b96bd44274fe38b5dde5cfb660b1d114f70a65ef962bcbbed99b549/nvidia_cusparselt_cu12-0.7.1-py3-none-manylinux2014_x86_64.whl", hash = "sha256:f1bb701d6b930d5a7cea44c19ceb973311500847f81b634d802b7b539dc55623", size = 287193691, upload-time = "2025-02-26T00:15:44.104Z" },
+    { url = "https://files.pythonhosted.org/packages/2f/d8/a6b0d0d0c2435e9310f3e2bb0d9c9dd4c33daef86aa5f30b3681defd37ea/nvidia_cusparselt_cu12-0.7.1-py3-none-win_amd64.whl", hash = "sha256:f67fbb5831940ec829c9117b7f33807db9f9678dc2a617fbe781cac17b4e1075", size = 271020911, upload-time = "2025-02-26T00:14:47.204Z" },
 ]
 
 [[package]]
@@ -1123,6 +1163,7 @@ name = "nvidia-nccl-cu12"
 version = "2.27.3"
 source = { registry = "https://pypi.org/simple" }
 wheels = [
+    { url = "https://files.pythonhosted.org/packages/4b/7b/8354b784cf73b0ba51e566b4baba3ddd44fe8288a3d39ef1e06cd5417226/nvidia_nccl_cu12-2.27.3-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:9ddf1a245abc36c550870f26d537a9b6087fb2e2e3d6e0ef03374c6fd19d984f", size = 322397768, upload-time = "2025-06-03T21:57:30.234Z" },
     { url = "https://files.pythonhosted.org/packages/5c/5b/4e4fff7bad39adf89f735f2bc87248c81db71205b62bcc0d5ca5b606b3c3/nvidia_nccl_cu12-2.27.3-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:adf27ccf4238253e0b826bce3ff5fa532d65fc42322c8bfdfaf28024c0fbe039", size = 322364134, upload-time = "2025-06-03T21:58:04.013Z" },
 ]
 
@@ -1132,6 +1173,8 @@ version = "12.8.93"
 source = { registry = "https://pypi.org/simple" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/f6/74/86a07f1d0f42998ca31312f998bd3b9a7eff7f52378f4f270c8679c77fb9/nvidia_nvjitlink_cu12-12.8.93-py3-none-manylinux2010_x86_64.manylinux_2_12_x86_64.whl", hash = "sha256:81ff63371a7ebd6e6451970684f916be2eab07321b73c9d244dc2b4da7f73b88", size = 39254836, upload-time = "2025-03-07T01:49:55.661Z" },
+    { url = "https://files.pythonhosted.org/packages/2a/a2/8cee5da30d13430e87bf99bb33455d2724d0a4a9cb5d7926d80ccb96d008/nvidia_nvjitlink_cu12-12.8.93-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:adccd7161ace7261e01bb91e44e88da350895c270d23f744f0820c818b7229e7", size = 38386204, upload-time = "2025-03-07T01:49:43.612Z" },
+    { url = "https://files.pythonhosted.org/packages/ed/d7/34f02dad2e30c31b10a51f6b04e025e5dd60e5f936af9045a9b858a05383/nvidia_nvjitlink_cu12-12.8.93-py3-none-win_amd64.whl", hash = "sha256:bd93fbeeee850917903583587f4fc3a4eafa022e34572251368238ab5e6bd67f", size = 268553710, upload-time = "2025-03-07T01:56:24.13Z" },
 ]
 
 [[package]]
@@ -1139,7 +1182,9 @@ name = "nvidia-nvtx-cu12"
 version = "12.8.90"
 source = { registry = "https://pypi.org/simple" }
 wheels = [
+    { url = "https://files.pythonhosted.org/packages/10/c0/1b303feea90d296f6176f32a2a70b5ef230f9bdeb3a72bddb0dc922dc137/nvidia_nvtx_cu12-12.8.90-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:d7ad891da111ebafbf7e015d34879f7112832fc239ff0d7d776b6cb685274615", size = 91161, upload-time = "2025-03-07T01:42:23.922Z" },
     { url = "https://files.pythonhosted.org/packages/a2/eb/86626c1bbc2edb86323022371c39aa48df6fd8b0a1647bc274577f72e90b/nvidia_nvtx_cu12-12.8.90-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:5b17e2001cc0d751a5bc2c6ec6d26ad95913324a4adb86788c944f8ce9ba441f", size = 89954, upload-time = "2025-03-07T01:42:44.131Z" },
+    { url = "https://files.pythonhosted.org/packages/9f/99/4c9c0c329bf9fc125008c3b54c7c94c0023518d06fc025ae36431375e1fe/nvidia_nvtx_cu12-12.8.90-py3-none-win_amd64.whl", hash = "sha256:619c8304aedc69f02ea82dd244541a83c3d9d40993381b3b590f1adaed3db41e", size = 56492, upload-time = "2025-03-07T01:52:24.69Z" },
 ]
 
 [[package]]
@@ -1264,7 +1309,7 @@ source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "googleapis-common-protos" },
     { name = "opentelemetry-api" },
-    { name = "opentelemetry-exporter-http-transport", extra = ["requests"] },
+    { name = "opentelemetry-exporter-http-transport", extra = ["requests"], marker = "extra == 'extra-14-remote-whisper-final' or extra == 'extra-14-remote-whisper-final-cpu'" },
     { name = "opentelemetry-exporter-otlp-common" },
     { name = "opentelemetry-exporter-otlp-proto-common" },
     { name = "opentelemetry-proto" },
@@ -1321,10 +1366,13 @@ name = "openvino"
 version = "2026.4.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "numpy" },
-    { name = "openvino-telemetry" },
+    { name = "numpy", marker = "sys_platform == 'linux' or sys_platform == 'win32' or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu')" },
+    { name = "openvino-telemetry", marker = "sys_platform == 'linux' or sys_platform == 'win32' or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu')" },
 ]
 wheels = [
+    { url = "https://files.pythonhosted.org/packages/39/42/0faa4f36f07768af0128c531459d4d604c5354c75bb1f2bc0eaad0f8d274/openvino-2026.4.1-22982-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:d3740853691ae4a9003bc3417a4625d848e2cc3251af4b815c59199b38be252a", size = 33302114, upload-time = "2026-10-01T09:58:31.973Z" },
+    { url = "https://files.pythonhosted.org/packages/dc/12/dcfe1316704aa47767352001b7351df90b71592bc1ee76a9852bf9850219/openvino-2026.4.1-22982-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:2d22b1da03f7caf74df30e9f6417d0ab2f637e4a38e08e1dcd294d2c37407aaf", size = 59130756, upload-time = "2026-10-01T09:58:35.747Z" },
+    { url = "https://files.pythonhosted.org/packages/1b/82/704955b0134d2be51dd8d476dc60c55c08107d5a404b1a90bd3d8b7227a5/openvino-2026.4.1-22982-cp311-cp311-manylinux_2_35_aarch64.whl", hash = "sha256:bea1eb3733c34ef331adc945da0ccda5937865031139073663be84c517ffda22", size = 30348540, upload-time = "2026-10-01T09:58:39.205Z" },
     { url = "https://files.pythonhosted.org/packages/da/86/4bbb3566e7b8385b6727164a75ad75f3b3a08026d1760a7bf0c55bd50a10/openvino-2026.4.1-22982-cp311-cp311-win_amd64.whl", hash = "sha256:bfddae6d6d3ad240157b946f180c33d0ddfaaae7487995d929a4e6b4bc12b283", size = 84956545, upload-time = "2026-10-01T09:58:44.223Z" },
 ]
 
@@ -1333,9 +1381,12 @@ name = "openvino-genai"
 version = "2026.4.1.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "openvino-tokenizers" },
+    { name = "openvino-tokenizers", marker = "sys_platform == 'linux' or sys_platform == 'win32' or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu')" },
 ]
 wheels = [
+    { url = "https://files.pythonhosted.org/packages/0d/ad/26ab906173de99f407694a9b2fd9d59ade5a3ddbf94645a66d436b09e4bd/openvino_genai-2026.4.1.0-2636-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:eb2d934fef0434c81092456da6b024218ade5d19a42d0bbe153286d08343b10e", size = 4494452, upload-time = "2026-10-01T10:02:39.946Z" },
+    { url = "https://files.pythonhosted.org/packages/9d/01/d2b438c95cedb9e92d8024006c99ccee0a9e77ae34de94f9a6fc81bbe062/openvino_genai-2026.4.1.0-2636-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:445b96c75983847feb4543db49336f67b8eba7c20d00252ef6b930aa5d5d787d", size = 6653001, upload-time = "2026-10-01T10:02:41.516Z" },
+    { url = "https://files.pythonhosted.org/packages/a8/b7/787bdae2359554f02cc34829f36eb7a5dbb096a3e0546685868cd91dc3cb/openvino_genai-2026.4.1.0-2636-cp311-cp311-manylinux_2_31_aarch64.whl", hash = "sha256:ada28be6ca488ebc63f5efb95a4ad07e8eb1af5b5244157e9995a012159352d2", size = 5815099, upload-time = "2026-10-01T10:02:44.949Z" },
     { url = "https://files.pythonhosted.org/packages/9d/70/f0665b8c77dbc3fb9efa861884f902c84b01cdbcfb3b7eb403511dcbc577/openvino_genai-2026.4.1.0-2636-cp311-cp311-win_amd64.whl", hash = "sha256:3c5a00b75f1f7d66f1fd13aa61547f1ab5002862a9dcc03657977e2dacd59ac4", size = 3880172, upload-time = "2026-10-01T10:02:46.301Z" },
 ]
 
@@ -1353,9 +1404,12 @@ name = "openvino-tokenizers"
 version = "2026.4.1.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "openvino" },
+    { name = "openvino", marker = "sys_platform == 'linux' or sys_platform == 'win32' or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu')" },
 ]
 wheels = [
+    { url = "https://files.pythonhosted.org/packages/d7/1e/95206bde53f46bca17e3d9e04e6d8ed4bbf6be56a866d6805ab2bda325c8/openvino_tokenizers-2026.4.1.0-py3-none-macosx_11_0_arm64.whl", hash = "sha256:ebdf1c297aa12abc15b1cccf13c1c47c46308d4b7527d4f05e68cd3e7743ec53", size = 1620236, upload-time = "2026-10-01T10:00:39.741Z" },
+    { url = "https://files.pythonhosted.org/packages/8d/63/03b056370f6fa951256a1190b56e582b9315cab559e5338b3133b6eb87b1/openvino_tokenizers-2026.4.1.0-py3-none-manylinux_2_28_x86_64.whl", hash = "sha256:f30dc9d6dd9e485b10495bcf72fc257f33bf35938da783fbb8f17c98c5ab517f", size = 1857119, upload-time = "2026-10-01T10:00:41.15Z" },
+    { url = "https://files.pythonhosted.org/packages/f0/8b/8ec5330aec4934c56f99959a03c73e45cd64da64182a50fbe86861a468fc/openvino_tokenizers-2026.4.1.0-py3-none-manylinux_2_31_aarch64.whl", hash = "sha256:3281bb8ba2347b3be23b77ac1c9d8ea93b52b66a4ae781d9e0e4ee2b71dea313", size = 1764145, upload-time = "2026-10-01T10:00:42.326Z" },
     { url = "https://files.pythonhosted.org/packages/7a/8f/3d8386a8ad50a02e51320028730aa8e65814c28d3bd9d20d6ecb01636421/openvino_tokenizers-2026.4.1.0-py3-none-win_amd64.whl", hash = "sha256:e6250eae9d00704249d21bfd8ad1600de2e49635aa2dcbb6e54a6aa9087f052d", size = 1560547, upload-time = "2026-10-01T10:00:43.782Z" },
 ]
 
@@ -1509,11 +1563,14 @@ dependencies = [
     { name = "pytorch-metric-learning" },
     { name = "rich" },
     { name = "safetensors" },
-    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux' and sys_platform != 'win32'" },
-    { name = "torch", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'linux' and sys_platform != 'win32' and extra == 'extra-14-remote-whisper-final') or (sys_platform != 'linux' and sys_platform != 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torch", version = "2.8.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torch", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
     { name = "torch-audiomentations" },
-    { name = "torchaudio", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux' and sys_platform != 'win32'" },
-    { name = "torchaudio", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+    { name = "torchaudio", version = "2.8.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (platform_machine != 'aarch64' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (platform_python_implementation != 'CPython' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform != 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torchaudio", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'linux' and sys_platform != 'win32' and extra == 'extra-14-remote-whisper-final') or (sys_platform != 'linux' and sys_platform != 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torchaudio", version = "2.8.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (platform_machine != 'aarch64' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (platform_python_implementation != 'CPython' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform != 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torchaudio", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
     { name = "torchcodec" },
     { name = "torchmetrics" },
 ]
@@ -1681,7 +1738,7 @@ name = "pyobjc-framework-cocoa"
 version = "12.2.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "pyobjc-core" },
+    { name = "pyobjc-core", marker = "(sys_platform != 'linux' and sys_platform != 'win32') or (sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'linux' and extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/75/76/49c6da2c6a831020b4854ba20079d5a1030474bffc776b7b73c2eeff8c15/pyobjc_framework_cocoa-12.2.2.tar.gz", hash = "sha256:c96c0ef69a71afbbb0e6a7d594b455c5fe47d62e0db376ee7a2b4b828c16ace9", size = 3132831, upload-time = "2026-08-11T19:44:02.288Z" }
 wheels = [
@@ -1693,8 +1750,8 @@ name = "pyobjc-framework-quartz"
 version = "12.2.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "pyobjc-core" },
-    { name = "pyobjc-framework-cocoa" },
+    { name = "pyobjc-core", marker = "(sys_platform != 'linux' and sys_platform != 'win32') or (sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'linux' and extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu')" },
+    { name = "pyobjc-framework-cocoa", marker = "(sys_platform != 'linux' and sys_platform != 'win32') or (sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'linux' and extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/35/b1/426a37c7ae37280b3ffca2571fb48f211946aee2f4ca31a603ed1943c4a7/pyobjc_framework_quartz-12.2.2.tar.gz", hash = "sha256:810f97b210cfd93704d240860286dfd6df09f9f1c52525fc5c2166723aea3f9e", size = 3218295, upload-time = "2026-08-11T19:45:15.189Z" }
 wheels = [
@@ -1760,7 +1817,8 @@ version = "0.19.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pillow" },
-    { name = "pyobjc-framework-quartz", marker = "sys_platform != 'win32'" },
+    { name = "pyobjc-framework-quartz", marker = "sys_platform == 'darwin' or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "python-xlib", marker = "sys_platform == 'linux' or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
     { name = "six" },
 ]
 wheels = [
@@ -1772,7 +1830,7 @@ name = "pytest"
 version = "9.1.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "colorama", marker = "sys_platform == 'win32'" },
+    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
     { name = "iniconfig" },
     { name = "packaging" },
     { name = "pluggy" },
@@ -1805,16 +1863,29 @@ wheels = [
 ]
 
 [[package]]
+name = "python-xlib"
+version = "0.33"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "six", marker = "sys_platform == 'linux' or sys_platform == 'win32' or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu')" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/86/f5/8c0653e5bb54e0cbdfe27bf32d41f27bc4e12faa8742778c17f2a71be2c0/python-xlib-0.33.tar.gz", hash = "sha256:55af7906a2c75ce6cb280a584776080602444f75815a7aff4d287bb2d7018b32", size = 269068, upload-time = "2022-12-25T18:53:00.824Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fc/b8/ff33610932e0ee81ae7f1269c890f697d56ff74b9f5b2ee5d9b7fa2c5355/python_xlib-0.33-py2.py3-none-any.whl", hash = "sha256:c3534038d42e0df2f1392a1b30a15a4ff5fdc2b86cfa94f072bf11b10a164398", size = 182185, upload-time = "2022-12-25T18:52:58.662Z" },
+]
+
+[[package]]
 name = "pytorch-lightning"
 version = "2.6.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "fsspec", extra = ["http"] },
+    { name = "fsspec", extra = ["http"], marker = "extra == 'extra-14-remote-whisper-final' or extra == 'extra-14-remote-whisper-final-cpu'" },
     { name = "lightning-utilities" },
     { name = "packaging" },
     { name = "pyyaml" },
-    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux' and sys_platform != 'win32'" },
-    { name = "torch", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'linux' and sys_platform != 'win32' and extra == 'extra-14-remote-whisper-final') or (sys_platform != 'linux' and sys_platform != 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torch", version = "2.8.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torch", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
     { name = "torchmetrics" },
     { name = "tqdm" },
     { name = "typing-extensions" },
@@ -1831,8 +1902,9 @@ source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
     { name = "scikit-learn" },
-    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux' and sys_platform != 'win32'" },
-    { name = "torch", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'linux' and sys_platform != 'win32' and extra == 'extra-14-remote-whisper-final') or (sys_platform != 'linux' and sys_platform != 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torch", version = "2.8.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torch", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
     { name = "tqdm" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/9b/80/6e61b1a91debf4c1b47d441f9a9d7fe2aabcdd9575ed70b2811474eb95c3/pytorch-metric-learning-2.9.0.tar.gz", hash = "sha256:27a626caf5e2876a0fd666605a78cb67ef7597e25d7a68c18053dd503830701f", size = 84530, upload-time = "2025-08-17T17:11:19.501Z" }
@@ -1890,15 +1962,15 @@ dependencies = [
     { name = "fastapi" },
     { name = "faster-whisper" },
     { name = "httpx" },
-    { name = "mlx-whisper", marker = "platform_machine == 'arm64' and sys_platform == 'darwin'" },
+    { name = "mlx-whisper", marker = "(platform_machine == 'arm64' and sys_platform == 'darwin') or (platform_machine != 'arm64' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform != 'darwin' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
     { name = "numpy" },
-    { name = "nvidia-cublas-cu12", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
-    { name = "nvidia-cudnn-cu12", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+    { name = "nvidia-cublas-cu12", marker = "sys_platform == 'linux' or sys_platform == 'win32' or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "nvidia-cudnn-cu12", marker = "sys_platform == 'linux' or sys_platform == 'win32' or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
     { name = "nvidia-ml-py" },
     { name = "pillow" },
     { name = "pypdf", extra = ["crypto"] },
     { name = "pypdfium2" },
-    { name = "pystray", marker = "sys_platform == 'darwin' or sys_platform == 'win32'" },
+    { name = "pystray", marker = "sys_platform == 'darwin' or sys_platform == 'win32' or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
     { name = "pyyaml" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -1906,17 +1978,30 @@ dependencies = [
 [package.optional-dependencies]
 final = [
     { name = "fugashi" },
-    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux' and sys_platform != 'win32'" },
-    { name = "torch", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
-    { name = "torchaudio", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux' and sys_platform != 'win32'" },
-    { name = "torchaudio", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
-    { name = "torchvision", version = "0.23.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux' and sys_platform != 'win32'" },
-    { name = "torchvision", version = "0.23.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'linux' and sys_platform != 'win32' and extra == 'extra-14-remote-whisper-final') or (sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torch", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torchaudio", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'linux' and sys_platform != 'win32' and extra == 'extra-14-remote-whisper-final') or (sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torchaudio", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torchvision", version = "0.23.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'linux' and sys_platform != 'win32' and extra == 'extra-14-remote-whisper-final') or (sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torchvision", version = "0.23.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "unidic-lite" },
+    { name = "whisperx" },
+]
+final-cpu = [
+    { name = "fugashi" },
+    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'linux' and sys_platform != 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torch", version = "2.8.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torchaudio", version = "2.8.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (platform_machine != 'aarch64' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (platform_python_implementation != 'CPython' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform != 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torchaudio", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'linux' and sys_platform != 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torchaudio", version = "2.8.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (platform_machine != 'aarch64' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (platform_python_implementation != 'CPython' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform != 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torchvision", version = "0.23.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (platform_machine != 'aarch64' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (platform_python_implementation != 'CPython' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform != 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torchvision", version = "0.23.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'linux' and sys_platform != 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torchvision", version = "0.23.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (platform_machine != 'aarch64' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (platform_python_implementation != 'CPython' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform != 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
     { name = "unidic-lite" },
     { name = "whisperx" },
 ]
 openvino = [
-    { name = "openvino-genai", marker = "sys_platform == 'win32'" },
+    { name = "openvino-genai", marker = "sys_platform == 'win32' or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
 ]
 
 [package.dev-dependencies]
@@ -1931,6 +2016,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
     { name = "faster-whisper", specifier = ">=1.2" },
     { name = "fugashi", marker = "extra == 'final'", specifier = ">=1.3" },
+    { name = "fugashi", marker = "extra == 'final-cpu'", specifier = ">=1.3" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "mlx-whisper", marker = "platform_machine == 'arm64' and sys_platform == 'darwin'", specifier = ">=0.4.3" },
     { name = "numpy" },
@@ -1943,17 +2029,25 @@ requires-dist = [
     { name = "pypdfium2", specifier = ">=4.30" },
     { name = "pystray", marker = "sys_platform == 'darwin' or sys_platform == 'win32'", specifier = ">=0.19" },
     { name = "pyyaml", specifier = ">=6" },
-    { name = "torch", marker = "(sys_platform == 'linux' and extra == 'final') or (sys_platform == 'win32' and extra == 'final')", specifier = "==2.8.*", index = "https://download.pytorch.org/whl/cu128" },
+    { name = "torch", marker = "(sys_platform == 'linux' and extra == 'final') or (sys_platform == 'win32' and extra == 'final')", specifier = "==2.8.*", index = "https://download.pytorch.org/whl/cu128", conflict = { package = "remote-whisper", extra = "final" } },
+    { name = "torch", marker = "(sys_platform == 'linux' and extra == 'final-cpu') or (sys_platform == 'win32' and extra == 'final-cpu')", specifier = "==2.8.*", index = "https://download.pytorch.org/whl/cpu", conflict = { package = "remote-whisper", extra = "final-cpu" } },
     { name = "torch", marker = "sys_platform != 'linux' and sys_platform != 'win32' and extra == 'final'", specifier = "==2.8.*" },
-    { name = "torchaudio", marker = "(sys_platform == 'linux' and extra == 'final') or (sys_platform == 'win32' and extra == 'final')", specifier = "==2.8.*", index = "https://download.pytorch.org/whl/cu128" },
+    { name = "torch", marker = "sys_platform != 'linux' and sys_platform != 'win32' and extra == 'final-cpu'", specifier = "==2.8.*" },
+    { name = "torchaudio", marker = "(sys_platform == 'linux' and extra == 'final') or (sys_platform == 'win32' and extra == 'final')", specifier = "==2.8.*", index = "https://download.pytorch.org/whl/cu128", conflict = { package = "remote-whisper", extra = "final" } },
+    { name = "torchaudio", marker = "(sys_platform == 'linux' and extra == 'final-cpu') or (sys_platform == 'win32' and extra == 'final-cpu')", specifier = "==2.8.*", index = "https://download.pytorch.org/whl/cpu", conflict = { package = "remote-whisper", extra = "final-cpu" } },
     { name = "torchaudio", marker = "sys_platform != 'linux' and sys_platform != 'win32' and extra == 'final'", specifier = "==2.8.*" },
-    { name = "torchvision", marker = "(sys_platform == 'linux' and extra == 'final') or (sys_platform == 'win32' and extra == 'final')", specifier = "==0.23.*", index = "https://download.pytorch.org/whl/cu128" },
+    { name = "torchaudio", marker = "sys_platform != 'linux' and sys_platform != 'win32' and extra == 'final-cpu'", specifier = "==2.8.*" },
+    { name = "torchvision", marker = "(sys_platform == 'linux' and extra == 'final') or (sys_platform == 'win32' and extra == 'final')", specifier = "==0.23.*", index = "https://download.pytorch.org/whl/cu128", conflict = { package = "remote-whisper", extra = "final" } },
+    { name = "torchvision", marker = "(sys_platform == 'linux' and extra == 'final-cpu') or (sys_platform == 'win32' and extra == 'final-cpu')", specifier = "==0.23.*", index = "https://download.pytorch.org/whl/cpu", conflict = { package = "remote-whisper", extra = "final-cpu" } },
     { name = "torchvision", marker = "sys_platform != 'linux' and sys_platform != 'win32' and extra == 'final'", specifier = "==0.23.*" },
+    { name = "torchvision", marker = "sys_platform != 'linux' and sys_platform != 'win32' and extra == 'final-cpu'", specifier = "==0.23.*" },
     { name = "unidic-lite", marker = "extra == 'final'", specifier = ">=1.0.8" },
+    { name = "unidic-lite", marker = "extra == 'final-cpu'", specifier = ">=1.0.8" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32" },
     { name = "whisperx", marker = "extra == 'final'", specifier = ">=3.8.6,<3.9" },
+    { name = "whisperx", marker = "extra == 'final-cpu'", specifier = ">=3.8.6,<3.9" },
 ]
-provides-extras = ["final", "openvino"]
+provides-extras = ["final", "final-cpu", "openvino"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -2173,7 +2267,13 @@ dependencies = [
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/66/62/167a842aa0429d45f5e797354fd4343a96f6043d67d0513c675c7b8d36e6/tiktoken-0.14.0.tar.gz", hash = "sha256:231dec90efcdccf1b565a1416107736f1e09b1a08fe736ef9d6363e626d03874", size = 38898, upload-time = "2026-08-17T19:49:49.514Z" }
 wheels = [
+    { url = "https://files.pythonhosted.org/packages/8f/c5/9d848b7f408241171e1f843deb8bfa626086452bc9c78beee500829583e3/tiktoken-0.14.0-cp311-cp311-macosx_10_12_x86_64.whl", hash = "sha256:c2edf09b381fafbc014ae8e018ed25087abb9a3dafa8465a0ea63c6558c47a79", size = 1094971, upload-time = "2026-08-17T19:48:40.347Z" },
     { url = "https://files.pythonhosted.org/packages/2d/a9/d94302340304328961d6f0c35ca4e60617fbb57a5cf667e2ed1692cb9e57/tiktoken-0.14.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:cd8ca1305c1c902fe42c486165f2e4808d9997625c98ffb05b9e0366d99d3948", size = 1042916, upload-time = "2026-08-17T19:48:41.541Z" },
+    { url = "https://files.pythonhosted.org/packages/c8/b6/31da98ee871383509cae2ba96a9ddef1965e3c4f8cb6dc7bcda3379398db/tiktoken-0.14.0-cp311-cp311-manylinux_2_28_aarch64.whl", hash = "sha256:1f83081065ee5833d35b49e9180f3d8d15622a603dd1c435da0da6cc12b3662f", size = 1188650, upload-time = "2026-08-17T19:48:42.729Z" },
+    { url = "https://files.pythonhosted.org/packages/24/65/8c5dddd7cb67f6571d154a58d7c6e2f07da54bf84c49b6a1839965b7c35e/tiktoken-0.14.0-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:f5e7665f6624e052e5e7f6a36919ab69279decdc976d7b16b4fa15e1897d0513", size = 1206378, upload-time = "2026-08-17T19:48:44.013Z" },
+    { url = "https://files.pythonhosted.org/packages/d1/04/522ec59d30dd9a2f3ab837011cd4fc5d1178dc4a2fa07c9fa4b90af6ba9d/tiktoken-0.14.0-cp311-cp311-musllinux_1_2_aarch64.whl", hash = "sha256:144a3fc369f92b7d548995217c5d6e84038d3572157a0f6f34080d65291d0f78", size = 1253694, upload-time = "2026-08-17T19:48:45.597Z" },
+    { url = "https://files.pythonhosted.org/packages/69/84/9019e272bad188a1c61ecf44f25a9ba2368744644e3ac1f3d6516f3c9e80/tiktoken-0.14.0-cp311-cp311-musllinux_1_2_x86_64.whl", hash = "sha256:151d37a150c8f3dfc5f4345597b10e101876bd1bd13494e0185af6b508758d2e", size = 1317873, upload-time = "2026-08-17T19:48:46.792Z" },
+    { url = "https://files.pythonhosted.org/packages/24/7f/fff1217240343c0c11b5938b98aeae0e3a266cacfac25f86f91cdcd748f0/tiktoken-0.14.0-cp311-cp311-win_amd64.whl", hash = "sha256:c77d4a3e1deb2707819df92046b89aad1ac81d27e07616b797cbff3f62c037da", size = 944395, upload-time = "2026-08-17T19:48:48.028Z" },
 ]
 
 [[package]]
@@ -2207,18 +2307,62 @@ name = "torch"
 version = "2.8.0"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
-    "sys_platform != 'linux' and sys_platform != 'win32'",
+    "sys_platform != 'linux' and sys_platform != 'win32' and extra != 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu'",
+    "sys_platform != 'linux' and sys_platform != 'win32' and extra == 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu'",
+    "extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu'",
 ]
 dependencies = [
-    { name = "filelock" },
-    { name = "fsspec" },
-    { name = "jinja2" },
-    { name = "networkx" },
-    { name = "sympy" },
-    { name = "typing-extensions" },
+    { name = "filelock", marker = "(sys_platform != 'linux' and sys_platform != 'win32') or (sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'linux' and extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu')" },
+    { name = "fsspec", marker = "(sys_platform != 'linux' and sys_platform != 'win32') or (sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'linux' and extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu')" },
+    { name = "jinja2", marker = "(sys_platform != 'linux' and sys_platform != 'win32') or (sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'linux' and extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu')" },
+    { name = "networkx", marker = "(sys_platform != 'linux' and sys_platform != 'win32') or (sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'linux' and extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu')" },
+    { name = "nvidia-cublas-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "nvidia-cuda-cupti-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "nvidia-cuda-nvrtc-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "nvidia-cuda-runtime-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "nvidia-cudnn-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "nvidia-cufft-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "nvidia-cufile-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "nvidia-curand-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "nvidia-cusolver-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "nvidia-cusparse-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "nvidia-cusparselt-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "nvidia-nccl-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "nvidia-nvjitlink-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "nvidia-nvtx-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "sympy", marker = "(sys_platform != 'linux' and sys_platform != 'win32') or (sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'linux' and extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu')" },
+    { name = "triton", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "typing-extensions", marker = "(sys_platform != 'linux' and sys_platform != 'win32') or (sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'linux' and extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu')" },
 ]
 wheels = [
+    { url = "https://files.pythonhosted.org/packages/8f/c4/3e7a3887eba14e815e614db70b3b529112d1513d9dae6f4d43e373360b7f/torch-2.8.0-cp311-cp311-manylinux_2_28_aarch64.whl", hash = "sha256:220a06fd7af8b653c35d359dfe1aaf32f65aa85befa342629f716acb134b9710", size = 102073391, upload-time = "2025-08-06T14:53:20.937Z" },
+    { url = "https://files.pythonhosted.org/packages/5a/63/4fdc45a0304536e75a5e1b1bbfb1b56dd0e2743c48ee83ca729f7ce44162/torch-2.8.0-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:c12fa219f51a933d5f80eeb3a7a5d0cbe9168c0a14bbb4055f1979431660879b", size = 888063640, upload-time = "2025-08-06T14:55:05.325Z" },
+    { url = "https://files.pythonhosted.org/packages/84/57/2f64161769610cf6b1c5ed782bd8a780e18a3c9d48931319f2887fa9d0b1/torch-2.8.0-cp311-cp311-win_amd64.whl", hash = "sha256:8c7ef765e27551b2fbfc0f41bcf270e1292d9bf79f8e0724848b1682be6e80aa", size = 241366752, upload-time = "2025-08-06T14:53:38.692Z" },
     { url = "https://files.pythonhosted.org/packages/a4/5e/05a5c46085d9b97e928f3f037081d3d2b87fb4b4195030fc099aaec5effc/torch-2.8.0-cp311-none-macosx_11_0_arm64.whl", hash = "sha256:5ae0524688fb6707c57a530c2325e13bb0090b745ba7b4a2cd6a3ce262572916", size = 73621174, upload-time = "2025-08-06T14:53:25.44Z" },
+]
+
+[[package]]
+name = "torch"
+version = "2.8.0+cpu"
+source = { registry = "https://download.pytorch.org/whl/cpu" }
+resolution-markers = [
+    "(platform_machine != 'aarch64' and sys_platform == 'linux') or (platform_python_implementation != 'CPython' and sys_platform == 'linux') or sys_platform == 'win32'",
+    "platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux'",
+]
+dependencies = [
+    { name = "filelock", marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "fsspec", marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "jinja2", marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "networkx", marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "sympy", marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "typing-extensions", marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+]
+wheels = [
+    { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.8.0%2Bcpu-cp311-cp311-linux_s390x.whl", hash = "sha256:2bfc013dd6efdc8f8223a0241d3529af9f315dffefb53ffa3bf14d3f10127da6", upload-time = "2025-10-01T23:33:07Z" },
+    { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.8.0%2Bcpu-cp311-cp311-manylinux_2_28_aarch64.whl", hash = "sha256:680129efdeeec3db5da3f88ee5d28c1b1e103b774aef40f9d638e2cce8f8d8d8", upload-time = "2025-10-01T23:33:11Z" },
+    { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.8.0%2Bcpu-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:cb06175284673a581dd91fb1965662ae4ecaba6e5c357aa0ea7bb8b84b6b7eeb", upload-time = "2025-10-01T23:33:14Z" },
+    { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.8.0%2Bcpu-cp311-cp311-win_amd64.whl", hash = "sha256:7631ef49fbd38d382909525b83696dc12a55d68492ade4ace3883c62b9fc140f", upload-time = "2025-10-01T23:33:20Z" },
+    { url = "https://download-r2.pytorch.org/whl/cpu/torch-2.8.0%2Bcpu-cp311-cp311-win_arm64.whl", hash = "sha256:41e6fc5ec0914fcdce44ccf338b1d19a441b55cafdd741fd0bf1af3f9e4cfd14", upload-time = "2025-10-01T23:33:36Z" },
 ]
 
 [[package]]
@@ -2229,27 +2373,27 @@ resolution-markers = [
     "sys_platform == 'linux' or sys_platform == 'win32'",
 ]
 dependencies = [
-    { name = "filelock" },
-    { name = "fsspec" },
-    { name = "jinja2" },
-    { name = "networkx" },
-    { name = "nvidia-cublas-cu12", marker = "platform_machine == 'x86_64' and sys_platform != 'win32'" },
-    { name = "nvidia-cuda-cupti-cu12", marker = "platform_machine == 'x86_64' and sys_platform != 'win32'" },
-    { name = "nvidia-cuda-nvrtc-cu12", marker = "platform_machine == 'x86_64' and sys_platform != 'win32'" },
-    { name = "nvidia-cuda-runtime-cu12", marker = "platform_machine == 'x86_64' and sys_platform != 'win32'" },
-    { name = "nvidia-cudnn-cu12", marker = "platform_machine == 'x86_64' and sys_platform != 'win32'" },
-    { name = "nvidia-cufft-cu12", marker = "platform_machine == 'x86_64' and sys_platform != 'win32'" },
-    { name = "nvidia-cufile-cu12", marker = "platform_machine == 'x86_64' and sys_platform != 'win32'" },
-    { name = "nvidia-curand-cu12", marker = "platform_machine == 'x86_64' and sys_platform != 'win32'" },
-    { name = "nvidia-cusolver-cu12", marker = "platform_machine == 'x86_64' and sys_platform != 'win32'" },
-    { name = "nvidia-cusparse-cu12", marker = "platform_machine == 'x86_64' and sys_platform != 'win32'" },
-    { name = "nvidia-cusparselt-cu12", marker = "platform_machine == 'x86_64' and sys_platform != 'win32'" },
-    { name = "nvidia-nccl-cu12", marker = "platform_machine == 'x86_64' and sys_platform != 'win32'" },
-    { name = "nvidia-nvjitlink-cu12", marker = "platform_machine == 'x86_64' and sys_platform != 'win32'" },
-    { name = "nvidia-nvtx-cu12", marker = "platform_machine == 'x86_64' and sys_platform != 'win32'" },
-    { name = "sympy" },
-    { name = "triton", marker = "platform_machine == 'x86_64' and sys_platform != 'win32'" },
-    { name = "typing-extensions" },
+    { name = "filelock", marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "fsspec", marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "jinja2", marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "networkx", marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "nvidia-cublas-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (platform_machine != 'x86_64' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform != 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "nvidia-cuda-cupti-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (platform_machine != 'x86_64' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform != 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "nvidia-cuda-nvrtc-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (platform_machine != 'x86_64' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform != 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "nvidia-cuda-runtime-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (platform_machine != 'x86_64' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform != 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "nvidia-cudnn-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (platform_machine != 'x86_64' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform != 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "nvidia-cufft-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (platform_machine != 'x86_64' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform != 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "nvidia-cufile-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (platform_machine != 'x86_64' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform != 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "nvidia-curand-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (platform_machine != 'x86_64' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform != 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "nvidia-cusolver-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (platform_machine != 'x86_64' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform != 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "nvidia-cusparse-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (platform_machine != 'x86_64' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform != 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "nvidia-cusparselt-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (platform_machine != 'x86_64' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform != 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "nvidia-nccl-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (platform_machine != 'x86_64' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform != 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "nvidia-nvjitlink-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (platform_machine != 'x86_64' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform != 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "nvidia-nvtx-cu12", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (platform_machine != 'x86_64' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform != 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "sympy", marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "triton", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (platform_machine != 'x86_64' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform != 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "typing-extensions", marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
 ]
 wheels = [
     { url = "https://download-r2.pytorch.org/whl/cu128/torch-2.8.0%2Bcu128-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:039b9dcdd6bdbaa10a8a5cd6be22c4cb3e3589a341e5f904cbb571ca28f55bed", upload-time = "2025-10-01T23:49:06Z" },
@@ -2262,11 +2406,14 @@ version = "0.12.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "julius" },
-    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux' and sys_platform != 'win32'" },
-    { name = "torch", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'linux' and sys_platform != 'win32' and extra == 'extra-14-remote-whisper-final') or (sys_platform != 'linux' and sys_platform != 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torch", version = "2.8.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torch", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
     { name = "torch-pitch-shift" },
-    { name = "torchaudio", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux' and sys_platform != 'win32'" },
-    { name = "torchaudio", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+    { name = "torchaudio", version = "2.8.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (platform_machine != 'aarch64' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (platform_python_implementation != 'CPython' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform != 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torchaudio", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'linux' and sys_platform != 'win32' and extra == 'extra-14-remote-whisper-final') or (sys_platform != 'linux' and sys_platform != 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torchaudio", version = "2.8.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (platform_machine != 'aarch64' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (platform_python_implementation != 'CPython' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform != 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torchaudio", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/31/8d/2f8fd7e34c75f5ee8de4310c3bd3f22270acd44d1f809e2fe7c12fbf35f8/torch_audiomentations-0.12.0.tar.gz", hash = "sha256:b02d4c5eb86376986a53eb405cca5e34f370ea9284411237508e720c529f7888", size = 52094, upload-time = "2025-01-15T09:07:01.071Z" }
 wheels = [
@@ -2280,14 +2427,32 @@ source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "packaging" },
     { name = "primepy" },
-    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux' and sys_platform != 'win32'" },
-    { name = "torch", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
-    { name = "torchaudio", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux' and sys_platform != 'win32'" },
-    { name = "torchaudio", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'linux' and sys_platform != 'win32' and extra == 'extra-14-remote-whisper-final') or (sys_platform != 'linux' and sys_platform != 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torch", version = "2.8.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torch", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torchaudio", version = "2.8.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (platform_machine != 'aarch64' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (platform_python_implementation != 'CPython' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform != 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torchaudio", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'linux' and sys_platform != 'win32' and extra == 'extra-14-remote-whisper-final') or (sys_platform != 'linux' and sys_platform != 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torchaudio", version = "2.8.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (platform_machine != 'aarch64' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (platform_python_implementation != 'CPython' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform != 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torchaudio", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/79/a6/722a832bca75d5079f6731e005b3d0c2eec7c6c6863d030620952d143d57/torch_pitch_shift-1.2.5.tar.gz", hash = "sha256:6e1c7531f08d0f407a4c55e5ff8385a41355c5c5d27ab7fa08632e51defbd0ed", size = 4725, upload-time = "2024-09-25T19:10:12.922Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/27/4c/96ac2a09efb56cc3c41fb3ce9b6f4d8c0604499f7481d4a13a7b03e21382/torch_pitch_shift-1.2.5-py3-none-any.whl", hash = "sha256:6f8500cbc13f1c98b11cde1805ce5084f82cdd195c285f34287541f168a7c6a7", size = 5005, upload-time = "2024-09-25T19:10:11.521Z" },
+]
+
+[[package]]
+name = "torchaudio"
+version = "2.8.0"
+source = { registry = "https://download.pytorch.org/whl/cpu" }
+resolution-markers = [
+    "platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux'",
+]
+dependencies = [
+    { name = "torch", version = "2.8.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (platform_machine != 'aarch64' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (platform_python_implementation != 'CPython' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform != 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+]
+wheels = [
+    { url = "https://download-r2.pytorch.org/whl/cpu/torchaudio-2.8.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:c9276857d241c6de257af765c0f51fc011af38cb725401495121b280913007cf", upload-time = "2025-08-05T20:12:02Z" },
+    { url = "https://download-r2.pytorch.org/whl/cpu/torchaudio-2.8.0-cp311-cp311-manylinux_2_28_aarch64.whl", hash = "sha256:4573c6042950c20278e3608a9a38050ba0bc72e0049e1bbfd249caf859a8029b", upload-time = "2025-08-05T20:12:02Z" },
 ]
 
 [[package]]
@@ -2298,10 +2463,28 @@ resolution-markers = [
     "sys_platform != 'linux' and sys_platform != 'win32'",
 ]
 dependencies = [
-    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" } },
+    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux' and sys_platform != 'win32'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/dd/bf/6b01ef3defb8d0a772c863588711e9b2b011c27d6b37c1b9d15a359c8442/torchaudio-2.8.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:c9276857d241c6de257af765c0f51fc011af38cb725401495121b280913007cf", size = 1859094, upload-time = "2025-08-06T14:58:35.078Z" },
+    { url = "https://files.pythonhosted.org/packages/75/ca/da5d0a3bb7d114a8b590ecce14859ea0a05102bb4de68cdd1ed7a90634d6/torchaudio-2.8.0-cp311-cp311-manylinux_2_28_aarch64.whl", hash = "sha256:4573c6042950c20278e3608a9a38050ba0bc72e0049e1bbfd249caf859a8029b", size = 1692033, upload-time = "2025-08-06T14:58:37.393Z" },
+    { url = "https://files.pythonhosted.org/packages/b6/ef/62ac736d8f906cc414181050e08a495a637dab985186c34bd76ea37efbc0/torchaudio-2.8.0-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:776c0b4ba84b9e3ddf6304b9c47cd63549d7896a6f3d5184ece074cc3d76ed6b", size = 4011716, upload-time = "2025-08-06T14:58:40.138Z" },
+    { url = "https://files.pythonhosted.org/packages/14/86/015337c8434abc604b8680371df783f66c421a7f211cbe40a374b0540b6d/torchaudio-2.8.0-cp311-cp311-win_amd64.whl", hash = "sha256:078105bf80f725c0215a0bebac8cb2fb1b3993ab32bdc3fcd50145a5b4127001", size = 2505194, upload-time = "2025-08-06T14:58:57.301Z" },
+]
+
+[[package]]
+name = "torchaudio"
+version = "2.8.0+cpu"
+source = { registry = "https://download.pytorch.org/whl/cpu" }
+resolution-markers = [
+    "(platform_machine != 'aarch64' and sys_platform == 'linux') or (platform_python_implementation != 'CPython' and sys_platform == 'linux') or sys_platform == 'win32'",
+]
+dependencies = [
+    { name = "torch", version = "2.8.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (platform_machine != 'aarch64' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (platform_python_implementation != 'CPython' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform != 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+]
+wheels = [
+    { url = "https://download-r2.pytorch.org/whl/cpu/torchaudio-2.8.0%2Bcpu-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:e54bd7fc9472019308097d99102df9acee22aa2451ae808d27840bc874320292", upload-time = "2025-08-05T20:12:02Z" },
+    { url = "https://download-r2.pytorch.org/whl/cpu/torchaudio-2.8.0%2Bcpu-cp311-cp311-win_amd64.whl", hash = "sha256:db37df7eee906f8fe0a639fdc673f3541cb2e173169b16d4133447eb922d1938", upload-time = "2025-08-05T20:12:02Z" },
 ]
 
 [[package]]
@@ -2312,7 +2495,7 @@ resolution-markers = [
     "sys_platform == 'linux' or sys_platform == 'win32'",
 ]
 dependencies = [
-    { name = "torch", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" } },
+    { name = "torch", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
 ]
 wheels = [
     { url = "https://download-r2.pytorch.org/whl/cu128/torchaudio-2.8.0%2Bcu128-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:f4409df567d0723a7a3a89d32c7552a17e0ff6f137ea26a0d268c665259b2995", upload-time = "2025-08-05T20:12:07Z" },
@@ -2337,12 +2520,30 @@ dependencies = [
     { name = "lightning-utilities" },
     { name = "numpy" },
     { name = "packaging" },
-    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux' and sys_platform != 'win32'" },
-    { name = "torch", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'linux' and sys_platform != 'win32' and extra == 'extra-14-remote-whisper-final') or (sys_platform != 'linux' and sys_platform != 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torch", version = "2.8.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torch", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/81/34/39b8b749333db56c0585d7a11fa62a283c087bb1dfc897d69fb8cedbefb1/torchmetrics-1.9.0.tar.gz", hash = "sha256:a488609948600df52d3db4fcdab02e62aab2a85ef34da67037dc3e65b8512faa", size = 581765, upload-time = "2026-03-09T17:41:22.443Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c3/a2/c7f6ebf546f8f644edf0f999aa98ece106986a77a7b922316bf6414ff825/torchmetrics-1.9.0-py3-none-any.whl", hash = "sha256:bfdcbff3dd1d96b3374bb2496eb39f23c4b28b8a845b6a18c313688e0d2d9ca1", size = 983384, upload-time = "2026-03-09T17:41:19.756Z" },
+]
+
+[[package]]
+name = "torchvision"
+version = "0.23.0"
+source = { registry = "https://download.pytorch.org/whl/cpu" }
+resolution-markers = [
+    "platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux'",
+]
+dependencies = [
+    { name = "numpy", marker = "(platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (platform_machine != 'aarch64' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (platform_python_implementation != 'CPython' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform != 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "pillow", marker = "(platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (platform_machine != 'aarch64' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (platform_python_implementation != 'CPython' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform != 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torch", version = "2.8.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (platform_machine != 'aarch64' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (platform_python_implementation != 'CPython' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform != 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+]
+wheels = [
+    { url = "https://download-r2.pytorch.org/whl/cpu/torchvision-0.23.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:49aa20e21f0c2bd458c71d7b449776cbd5f16693dd5807195a820612b8a229b7", upload-time = "2025-08-05T20:11:47Z" },
+    { url = "https://download-r2.pytorch.org/whl/cpu/torchvision-0.23.0-cp311-cp311-manylinux_2_28_aarch64.whl", hash = "sha256:01dc33ee24c79148aee7cdbcf34ae8a3c9da1674a591e781577b716d233b1fa6", upload-time = "2025-08-05T20:11:47Z" },
 ]
 
 [[package]]
@@ -2353,12 +2554,32 @@ resolution-markers = [
     "sys_platform != 'linux' and sys_platform != 'win32'",
 ]
 dependencies = [
-    { name = "numpy" },
-    { name = "pillow" },
-    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" } },
+    { name = "numpy", marker = "sys_platform != 'linux' and sys_platform != 'win32'" },
+    { name = "pillow", marker = "sys_platform != 'linux' and sys_platform != 'win32'" },
+    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux' and sys_platform != 'win32'" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/f0/d7/15d3d7bd8d0239211b21673d1bac7bc345a4ad904a8e25bb3fd8a9cf1fbc/torchvision-0.23.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:49aa20e21f0c2bd458c71d7b449776cbd5f16693dd5807195a820612b8a229b7", size = 1856884, upload-time = "2025-08-06T14:58:00.237Z" },
+    { url = "https://files.pythonhosted.org/packages/dd/14/7b44fe766b7d11e064c539d92a172fa9689a53b69029e24f2f1f51e7dc56/torchvision-0.23.0-cp311-cp311-manylinux_2_28_aarch64.whl", hash = "sha256:01dc33ee24c79148aee7cdbcf34ae8a3c9da1674a591e781577b716d233b1fa6", size = 2395543, upload-time = "2025-08-06T14:58:04.373Z" },
+    { url = "https://files.pythonhosted.org/packages/79/9c/fcb09aff941c8147d9e6aa6c8f67412a05622b0c750bcf796be4c85a58d4/torchvision-0.23.0-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:35c27941831b653f5101edfe62c03d196c13f32139310519e8228f35eae0e96a", size = 8628388, upload-time = "2025-08-06T14:58:07.802Z" },
+    { url = "https://files.pythonhosted.org/packages/93/40/3415d890eb357b25a8e0a215d32365a88ecc75a283f75c4e919024b22d97/torchvision-0.23.0-cp311-cp311-win_amd64.whl", hash = "sha256:09bfde260e7963a15b80c9e442faa9f021c7e7f877ac0a36ca6561b367185013", size = 1600741, upload-time = "2025-08-06T14:57:59.158Z" },
+]
+
+[[package]]
+name = "torchvision"
+version = "0.23.0+cpu"
+source = { registry = "https://download.pytorch.org/whl/cpu" }
+resolution-markers = [
+    "(platform_machine != 'aarch64' and sys_platform == 'linux') or (platform_python_implementation != 'CPython' and sys_platform == 'linux') or sys_platform == 'win32'",
+]
+dependencies = [
+    { name = "numpy", marker = "(platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (platform_machine != 'aarch64' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (platform_python_implementation != 'CPython' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform != 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "pillow", marker = "(platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (platform_machine != 'aarch64' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (platform_python_implementation != 'CPython' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform != 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torch", version = "2.8.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (platform_machine != 'aarch64' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (platform_python_implementation != 'CPython' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform != 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+]
+wheels = [
+    { url = "https://download-r2.pytorch.org/whl/cpu/torchvision-0.23.0%2Bcpu-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:d83d8075db43b8ca89680bdeb2f100c832e2a3aa61ee42c038b1a146e5e511b6", upload-time = "2025-08-05T20:11:47Z" },
+    { url = "https://download-r2.pytorch.org/whl/cpu/torchvision-0.23.0%2Bcpu-cp311-cp311-win_amd64.whl", hash = "sha256:51603eb071d0681abc4db98b10ff394ace31f425852e8de249b91c09c60eb19a", upload-time = "2025-08-05T20:11:47Z" },
 ]
 
 [[package]]
@@ -2369,9 +2590,9 @@ resolution-markers = [
     "sys_platform == 'linux' or sys_platform == 'win32'",
 ]
 dependencies = [
-    { name = "numpy" },
-    { name = "pillow" },
-    { name = "torch", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" } },
+    { name = "numpy", marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "pillow", marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torch", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
 ]
 wheels = [
     { url = "https://download-r2.pytorch.org/whl/cu128/torchvision-0.23.0%2Bcu128-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:93f1b5f56b20cd6869bca40943de4fd3ca9ccc56e1b57f47c671de1cdab39cdb", upload-time = "2025-08-05T20:11:52Z" },
@@ -2383,7 +2604,7 @@ name = "tqdm"
 version = "4.70.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "colorama", marker = "sys_platform == 'win32'" },
+    { name = "colorama", marker = "sys_platform == 'win32' or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/0d/ea/b2a5bd54b28a324dae8211928b2d730b6547500342c7e6c6dea08bd0a485/tqdm-4.70.1.tar.gz", hash = "sha256:cefd0eca11b2a37a3aee776544d4f4ae913f02688135b5556b8788dfa474afc4", size = 171846, upload-time = "2026-09-11T07:25:16.601Z" }
 wheels = [
@@ -2416,7 +2637,7 @@ name = "triton"
 version = "3.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "setuptools" },
+    { name = "setuptools", marker = "(platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu') or (platform_machine != 'aarch64' and sys_platform == 'linux') or (platform_python_implementation != 'CPython' and sys_platform == 'linux') or sys_platform == 'win32' or (sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (sys_platform != 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform != 'linux' and extra != 'extra-14-remote-whisper-final' and extra != 'extra-14-remote-whisper-final-cpu')" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/7d/39/43325b3b651d50187e591eefa22e236b2981afcebaefd4f2fc0ea99df191/triton-3.4.0-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:7b70f5e6a41e52e48cfc087436c8a28c17ff98db369447bcaff3b887a3ab4467", size = 155531138, upload-time = "2025-07-30T19:58:29.908Z" },
@@ -2485,7 +2706,7 @@ standard = [
     { name = "httptools" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
-    { name = "uvloop", marker = "platform_python_implementation != 'PyPy' and sys_platform != 'cygwin' and sys_platform != 'win32'" },
+    { name = "uvloop", marker = "(platform_python_implementation != 'PyPy' and sys_platform != 'cygwin' and sys_platform != 'win32') or (platform_python_implementation == 'PyPy' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'cygwin' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
     { name = "watchfiles" },
     { name = "websockets" },
 ]
@@ -2581,13 +2802,18 @@ dependencies = [
     { name = "omegaconf" },
     { name = "pandas" },
     { name = "pyannote-audio" },
-    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux' and sys_platform != 'win32'" },
-    { name = "torch", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
-    { name = "torchaudio", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux' and sys_platform != 'win32'" },
-    { name = "torchaudio", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+    { name = "torch", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'linux' and sys_platform != 'win32' and extra == 'extra-14-remote-whisper-final') or (sys_platform != 'linux' and sys_platform != 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torch", version = "2.8.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torch", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torchaudio", version = "2.8.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (platform_machine != 'aarch64' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (platform_python_implementation != 'CPython' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform != 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torchaudio", version = "2.8.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'linux' and sys_platform != 'win32' and extra == 'extra-14-remote-whisper-final') or (sys_platform != 'linux' and sys_platform != 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torchaudio", version = "2.8.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (platform_machine != 'aarch64' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (platform_python_implementation != 'CPython' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform != 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torchaudio", version = "2.8.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
     { name = "torchcodec", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin' or sys_platform == 'win32'" },
-    { name = "torchvision", version = "0.23.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux' and sys_platform != 'win32'" },
-    { name = "torchvision", version = "0.23.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+    { name = "torchvision", version = "0.23.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (platform_machine != 'aarch64' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (platform_python_implementation != 'CPython' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform != 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torchvision", version = "0.23.0", source = { registry = "https://pypi.org/simple" }, marker = "(sys_platform != 'linux' and sys_platform != 'win32' and extra == 'extra-14-remote-whisper-final') or (sys_platform != 'linux' and sys_platform != 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torchvision", version = "0.23.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(platform_machine == 'aarch64' and platform_python_implementation == 'CPython' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu') or (platform_machine != 'aarch64' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (platform_python_implementation != 'CPython' and sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final-cpu') or (sys_platform != 'linux' and extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
+    { name = "torchvision", version = "0.23.0+cu128", source = { registry = "https://download.pytorch.org/whl/cu128" }, marker = "(sys_platform == 'linux' and extra == 'extra-14-remote-whisper-final') or (sys_platform == 'win32' and extra == 'extra-14-remote-whisper-final') or (extra == 'extra-14-remote-whisper-final' and extra == 'extra-14-remote-whisper-final-cpu')" },
     { name = "transformers" },
     { name = "triton", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
 ]

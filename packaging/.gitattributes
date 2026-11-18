@@ -2,3 +2,6 @@
 *.sh text eol=lf
 mac/* text eol=lf
 icon/*.icns binary
+# zip に入れる説明（#408）。Windows のメモ帳で開くものは CRLF、Mac のものは LF
+readme/windows.txt text eol=crlf
+readme/mac.txt text eol=lf

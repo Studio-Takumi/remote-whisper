@@ -1,12 +1,29 @@
 # Windows にインストールして使う
 
-Python・uv・cloudflared を自分で入れずに、インストーラ 1 つで remote-whisper のホスト（文字起こしをする PC）を使えるようにするものです（#168）。リアルタイムの文字起こし（faster-whisper）までが入っています。録音後の最終の文字起こし（WhisperX。話者分けを含む）は入っていませんが、初めて画面を開いたときの案内から入れられます（後述）。
+Python・uv・cloudflared を自分で入れずに、インストーラ 1 つで remote-whisper のホスト（文字起こしをする PC）を使えるようにするものです（#168）。リアルタイムの文字起こし（faster-whisper と OpenVINO）までが入っています。録音後の最終の文字起こし（WhisperX。話者分けを含む）は入っていませんが、初めて画面を開いたときの案内から入れられます（後述）。
 
 開発の手順（`uv run remote-whisper`）は今までどおり使えます。このインストーラは、リポジトリを持っていない人向けです。
 
+## 2 つの版（#408）
+
+Windows 向けは 2 つあります。どちらを入れても動きます。
+
+| 版 | 向いている PC | 録音中の文字起こし | ファイル |
+|---|---|---|---|
+| **Windows（CUDA）版** | NVIDIA の GPU がある PC | NVIDIA の GPU（CUDA）。Intel の GPU（OpenVINO）にも対応 | `remote-whisper-<版>-win-cuda.zip` |
+| **Windows（OpenVINO）版** | Intel の GPU（Arc）がある PC、GPU のない PC | Intel の GPU（OpenVINO）か CPU | `remote-whisper-<版>-win-openvino.zip` |
+
+**迷ったら Windows（OpenVINO）版**を入れてください。CUDA の DLL（約 1.2GB）を入れないので、ずっと小さくなります。NVIDIA の GPU がある PC で OpenVINO 版を入れると、GPU を使わずに CPU で動き、初回の案内（設定の「セットアップ」）に「Windows（CUDA）版を入れ直すと速くなる」と出ます。
+
+2 つの版は同じアプリとして入るので、もう一方を入れると置き換わります（並んでは入りません。データは残ります）。CUDA 版の上に OpenVINO 版を入れると、CUDA の DLL を消します。
+
+**WhisperX を入れていたときは、版を入れ替えたら WhisperX を入れ直してください。** WhisperX の torch は版ごとに違い（CUDA 版は CUDA 版の torch、OpenVINO 版は CPU 版の torch）、入れ替えても前の版のものが残ります。OpenVINO 版から CUDA 版にしたのに CPU 版の torch が残っていると、浄書が GPU を使わずに CPU で動きます。確実なのは、アンインストールしてから新しい版を入れ、初回の案内から WhisperX を入れることです（データは残ります）。
+
+OpenVINO 版で WhisperX を入れると、ログ（`whisperx-install.log`）に「remote-whisper requires nvidia-cublas-cu12, which is not installed」のような警告が出ます。OpenVINO 版はわざと入れていないもので、問題ありません。
+
 ## 入っているもの
 
-- Python 3.11（python-build-standalone）と、`server/uv.lock` の通りの依存（faster-whisper、CTranslate2、CUDA 12 の cuBLAS・cuDNN の DLL など）
+- Python 3.11（python-build-standalone）と、`server/uv.lock` の通りの依存（faster-whisper、CTranslate2、OpenVINO GenAI（#374）など。CUDA 版は CUDA 12 の cuBLAS・cuDNN の DLL も）
 - 画面（ブラウザで開くフロント）
 - cloudflared（クラウド版で、ホストを外から見えるようにするトンネル。版と SHA256 を固定して公式から取ったもの）
 
@@ -14,17 +31,18 @@ Python・uv・cloudflared を自分で入れずに、インストーラ 1 つで
 
 ## 手順（何も入っていない Windows で確かめる）
 
-前提: Windows 10/11 の x64 と、NVIDIA の GPU・そのドライバ（CUDA のツールキットは要りません）。
+前提: Windows 10/11 の x64。CUDA 版は NVIDIA の GPU とそのドライバ（CUDA のツールキットは要りません）。OpenVINO 版で Intel の GPU を使うときは、Intel の GPU のドライバ（31.0.101.5445 で動作を確認）。
 
-1. **ダウンロード**: 取得元は 2 つあります。どちらも、今は匠が使う前提です。
-   - **Actions の artifact**（今の主な取り方）: リポジトリの Actions →「Package」の実行 → 下の Artifacts の `remote-whisper-windows-installer` をダウンロードする。GitHub にログインしていないと取れず、**14 日で消え**、**zip に包まれて**くる（展開すると `remote-whisper-setup-<版>.exe`）。実行は「Run workflow」で出すが、このワークフローが main に入るまでは Actions の画面に出ない（それまでは、ブランチへの push で動いた実行から取る）。
-   - **Release**: `v*` のタグを push すると、同じ exe が**下書き**のリリースに付く（公開されない。リポジトリに書き込める人だけが見える）。公開するときは、下書きを確かめて公開する。この場合の版（ファイル名・画面の版）はタグ名（先頭の `v` を除く）になる。それ以外はコミットの短いハッシュ。
-2. **インストール**: exe を実行する。署名していないので、Windows の SmartScreen が「Windows によって PC が保護されました」と出します。「詳細情報」→「実行」で進めてください。インストール中に「ログオン時に自動で起動」を選べます（既定はオフ）。途中の画面に、データの保存場所と、アンインストールしても消えないことが出ます。画面の文言は日本語です。スタートメニュー・デスクトップのショートカット・アンインストールの一覧には、専用のアイコン（`packaging/icon/remote-whisper.ico`。ロゴから `packaging/make-icon.py` で作る）が付きます。（インストール先に、中身のある別のフォルダを選ぶと、「Remote Whisper」というサブフォルダにするか聞かれます。アンインストールは、インストーラが置いた `python`・`web` などだけを消し、選んだフォルダは空でなければ残します）
-3. **起動**: インストールの最後の「今すぐ起動」か、スタートメニューの「Remote Whisper」。コンソールの窓は出ず、右下のタスクトレイにアイコンが出ます（隠れているときは `^` の中）。
-4. **Cloud に登録**: トレイのアイコンを右クリック →「クラウド版にログイン」。ブラウザが開くので、ログインして、画面のコードがトレイの通知と同じかを確かめて承認する。登録できたら、トレイの「トンネル」が「つながっている」になる。
-5. **録音**: ブラウザで Cloud の画面（またはトレイの「画面を開く」。既定は `http://127.0.0.1:8000/`）を開き、プロジェクトを作ってセッションで録音する。
-6. **文字起こし**: 話した内容が文字起こしで出る。**初回は Whisper のモデル（large-v3-turbo。約 1.6GB）のダウンロードがあるので、出るまでに数分かかります**（ダウンロード先は HuggingFace のキャッシュ `%USERPROFILE%\.cache\huggingface`）。
-7. **アンインストール**: 設定の「アプリ」から「Remote Whisper」を削除する。データのフォルダ（`.remote-whisper`）が残っていることを確かめる。
+1. **ダウンロード**: 取得元は 2 つあります。
+   - **Release**: リリースのページから、版に合う zip（`remote-whisper-<版>-win-cuda.zip` か `remote-whisper-<版>-win-openvino.zip`）を落とす。`v*` のタグを push すると、3 つの zip（Windows の 2 つと Mac）と `SHA256SUMS.txt` が**下書き**のリリースに付く（公開されない。リポジトリに書き込める人だけが見える。`-rc1` のように `-` を含むタグはプレリリースになる）。公開するときは、下書きを確かめて公開する。この場合の版（ファイル名・画面の版）はタグ名（先頭の `v` を除く）になる。それ以外はコミットの短いハッシュ。
+   - **Actions の artifact**（開発者向け）: リポジトリの Actions →「Package」の実行 → 下の Artifacts の `remote-whisper-win-cuda`・`remote-whisper-win-openvino` をダウンロードする。GitHub にログインしていないと取れず、**14 日で消え**、Actions の zip の中に、上と同じ zip が入っている。
+2. **展開**: zip を右クリック →「すべて展開」。中に、インストーラ（`remote-whisper-<版>-win-<cuda|openvino>-setup.exe`）と、開き方の説明（`README.txt`）が入っています。
+3. **インストール**: exe を実行する。署名していないので、Windows の SmartScreen が「Windows によって PC が保護されました」と出します。「詳細情報」→「実行」で進めてください。インストール中に「ログオン時に自動で起動」を選べます（既定はオフ）。途中の画面に、データの保存場所と、アンインストールしても消えないことが出ます。画面の文言は日本語です。スタートメニュー・デスクトップのショートカット・アンインストールの一覧には、専用のアイコン（`packaging/icon/remote-whisper.ico`。ロゴから `packaging/make-icon.py` で作る）が付きます。（インストール先に、中身のある別のフォルダを選ぶと、「Remote Whisper」というサブフォルダにするか聞かれます。アンインストールは、インストーラが置いた `python`・`web` などだけを消し、選んだフォルダは空でなければ残します）
+4. **起動**: インストールの最後の「今すぐ起動」か、スタートメニューの「Remote Whisper」。コンソールの窓は出ず、右下のタスクトレイにアイコンが出ます（隠れているときは `^` の中）。
+5. **Cloud に登録**: トレイのアイコンを右クリック →「クラウド版にログイン」。ブラウザが開くので、ログインして、画面のコードがトレイの通知と同じかを確かめて承認する。登録できたら、トレイの「トンネル」が「つながっている」になる。
+6. **録音**: ブラウザで Cloud の画面（またはトレイの「画面を開く」。既定は `http://127.0.0.1:8000/`）を開き、プロジェクトを作ってセッションで録音する。
+7. **文字起こし**: 話した内容が文字起こしで出る。**初回は Whisper のモデル（large-v3-turbo。約 1.6GB。Intel の GPU で OpenVINO を使うときは OpenVINO 版のモデル）のダウンロードがあるので、出るまでに数分かかります**（ダウンロード先は HuggingFace のキャッシュ `%USERPROFILE%\.cache\huggingface`）。
+8. **アンインストール**: 設定の「アプリ」から「Remote Whisper」を削除する。データのフォルダ（`.remote-whisper`）が残っていることを確かめる。
 
 ## ポート番号と二重起動（#290）
 
@@ -40,7 +58,7 @@ Python・uv・cloudflared を自分で入れずに、インストーラ 1 つで
 1. 画面の「詳細情報」を押す
 2. 出てきた「実行」を押す
 
-ブラウザが「一般的にダウンロードされていないファイル」と警告して、ダウンロードを止めることもあります。その場合は、ダウンロードの一覧で「保持する」を選びます。インストール後のアプリ本体（`pythonw.exe`）には、同じ警告は出ません。この扱いで今は足りると考えていますが、配る相手が増えたら署名を検討します（実機で警告の出方を確かめる項目）。
+exe を直接配ると、ブラウザが「一般的にダウンロードされていないファイル」と警告して、ダウンロードを止めやすいため、zip に包んで配ります（#408）。それでも止められたときは、ダウンロードの一覧で「保持する」を選びます。落とした zip が GitHub に置いたものと同じかは、リリースの `SHA256SUMS.txt` の値と、PowerShell の `Get-FileHash <zip>` の値を比べて確かめられます。インストール後のアプリ本体（`pythonw.exe`）には、同じ警告は出ません。この扱いで今は足りると考えていますが、配る相手が増えたら署名を検討します（実機で警告の出方を確かめる項目）。
 
 ## 初回のセットアップ（Ollama・要約のモデル・WhisperX・HuggingFace のトークン）
 
@@ -48,7 +66,7 @@ Python・uv・cloudflared を自分で入れずに、インストーラ 1 つで
 
 1. **Ollama**（要約と用語リストを作るアプリ）: 同梱していません（代わりに LM Studio も使えます。下の「LM Studio を使う場合」）。入っていなければ「ダウンロードのページを開く」で公式のページを開いて入れ、「もう一度確かめる」を押します。入っていない間は、トレイのアイコンのカーソル（縦の棒）が橙になり、要約・用語リストは「Ollama に接続できないため〜を作れませんでした」と出て作りません。
 2. **要約のモデル**: おすすめのモデルのうち入っていないものを、大きさを見て「取得」で取ります（Ollama がダウンロードします。録音中は始められません。途中でやめられます）。
-3. **WhisperX**（浄書と話者分けに使うライブラリ）: 「入れる」で、同梱の Python に入れます。CUDA 版の torch を含むので、画面に出る目安くらいのダウンロードと時間がかかります。入れる中身は、ビルドのときに `uv.lock` から作った `whisperx-requirements.txt`（版とハッシュを固定）なので、同梱の依存の版は変わりません。失敗した・やめたときは、入れる前の状態に戻します（途中で PC やサーバーが止まったときは、次に起動したときに戻します）。pip の出力は `%USERPROFILE%\.remote-whisper\log\whisperx-install.log` に残ります。入れ終えたら、サーバーを再起動しなくても浄書できます。
+3. **WhisperX**（浄書と話者分けに使うライブラリ）: 「入れる」で、同梱の Python に入れます。torch を含むので、画面に出る目安くらいのダウンロードと時間がかかります（CUDA 版は CUDA 版の torch で約 3.6GB、OpenVINO 版は CPU 版の torch で約 0.7GB）。入れる中身は、ビルドのときに `uv.lock` から作った `whisperx-requirements.txt`（版とハッシュを固定）なので、同梱の依存の版は変わりません。失敗した・やめたときは、入れる前の状態に戻します（途中で PC やサーバーが止まったときは、次に起動したときに戻します）。pip の出力は `%USERPROFILE%\.remote-whisper\log\whisperx-install.log` に残ります。入れ終えたら、サーバーを再起動しなくても浄書できます。
 4. **HuggingFace のトークン**（話者分けのモデルを取るためのもの）: 画面のリンクから、話者分けのモデル（`pyannote/speaker-diarization-community-1`）のページで利用条件に同意し、Read のトークンを作って貼り、「保存」を押します。トークンは `%USERPROFILE%\.remote-whisper\huggingface-token`（本人だけが読める権限）にだけ置き、画面・ログには出しません。環境変数 `HF_TOKEN` があれば、そちらを使います。トークンがないと、話者分けはしません。
 
 ### LM Studio を使う場合
@@ -75,7 +93,9 @@ LM Studio を選んでいる間は、トレイのアイコンと画面は LM Stu
 
 ```powershell
 $app = "$env:LOCALAPPDATA\Programs\Remote Whisper"
-uv pip install --python "$app\python\python.exe" --break-system-packages --extra-index-url https://download.pytorch.org/whl/cu128 --require-hashes --requirement "$app\whisperx-requirements.txt"
+# CUDA 版は cu128、OpenVINO 版は cpu
+$torch = "https://download.pytorch.org/whl/cu128"
+uv pip install --python "$app\python\python.exe" --break-system-packages --extra-index-url $torch --require-hashes --requirement "$app\whisperx-requirements.txt"
 ```
 
 ## 方式の選び方（Python ごと同梱 / PyInstaller）
@@ -90,9 +110,9 @@ Python ごと同梱にしました。理由:
 ## わかっている制限
 
 - 署名していない（SmartScreen の警告が出る）。
-- インストーラが大きい（CUDA のライブラリを含み、約 1.4GB）。Inno Setup の単一の exe は 2GB が上限（分割しない場合）なので、ライブラリが増えると近づく。
+- CUDA 版のインストーラが大きい（CUDA のライブラリを含み、約 1.4GB）。Inno Setup の単一の exe は 2GB が上限（分割しない場合）なので、ライブラリが増えると近づく。OpenVINO 版は CUDA のライブラリを含まない。
 - WhisperX を入れられるのは、`whisperx-requirements.txt` を同梱した版から（#291）。それより古い版では画面から入れられないので、新しい版のインストーラを入れる。
-- **GPU（NVIDIA）がないとき**: 録音中の文字起こしは CPU（int8）で動く（#274）。使えますが、GPU よりかなり遅く、リアルタイムに追いつかないことがあります（large-v3-turbo のままだと特に。初回の案内にもその旨を出します）。録音後の最終の文字起こし（WhisperX）は GPU 前提です。CPU で動くかどうかは、実機で確認する項目です。
+- **GPU（NVIDIA・Intel）がないとき**: 録音中の文字起こしは CPU（int8）で動く（#274）。使えますが、GPU よりかなり遅く、リアルタイムに追いつかないことがあります（large-v3-turbo のままだと特に。初回の案内にもその旨を出します）。録音後の最終の文字起こし（WhisperX）は GPU 前提です。CPU で動くかどうかは、実機で確認する項目です。
 - Windows 10/11 の x64 だけ。
 - 自動更新はない。新しい版は、インストーラをもう一度実行して上書きする。
 - Mac 向けは `.dmg`（[install-mac.md](install-mac.md)。#292）。Linux 向けの配布は対象外。

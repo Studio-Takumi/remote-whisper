@@ -22,15 +22,32 @@ from remote_whisper.storage.atomic_write import atomic_write_json, atomic_write_
 
 log = logging.getLogger(__name__)
 
-# WhisperX の大きさと時間の目安（2026-11 に Windows の配布版で測った値。
-# 3.56GB のダウンロード、光回線で約 6 分）
-WHISPERX_DOWNLOAD_GB = 3.6
-WHISPERX_DISK_GB = 8.0
-WHISPERX_MINUTES = (5, 30)
+
+@dataclass(frozen=True)
+class TorchFlavor:
+    """WhisperX と一緒に入れる torch の取り先と、大きさ・時間の目安"""
+
+    index: str
+    download_gb: float
+    disk_gb: float
+    minutes: tuple[int, int]
+
+
+# CUDA 版（server/pyproject.toml の pytorch-cu128 と同じ）。目安は 2026-11 に Windows の配布版で
+# 測った値（3.56GB のダウンロード、光回線で約 6 分）
+TORCH_CUDA = TorchFlavor("https://download.pytorch.org/whl/cu128", 3.6, 8.0, (5, 30))
+# CPU 版（pytorch-cpu。Windows（OpenVINO）版。#408）。目安は uv.lock の wheel の大きさからの見積もり
+# （torch の CPU 版が 0.62GB）
+TORCH_CPU = TorchFlavor("https://download.pytorch.org/whl/cpu", 0.7, 2.5, (2, 15))
+
+
+def torch_flavor(edition: str | None) -> TorchFlavor:
+    """配布物の種類（bundle.edition）に合う torch。OpenVINO 版だけ CPU 版"""
+    return TORCH_CPU if edition == "openvino" else TORCH_CUDA
+
+
 # 開発の環境（uv）で入れるときのコマンド（案内だけ）
 WHISPERX_DEV_COMMAND = "uv sync --extra final"
-# CUDA 版の torch（server/pyproject.toml の pytorch-cu128 と同じ）
-TORCH_INDEX = "https://download.pytorch.org/whl/cu128"
 
 # 入れている途中の印（中身は入れる前の site-packages の一覧）。残っていれば、次に起動したときに戻す
 INSTALL_MARKER = "whisperx-install.json"
@@ -111,10 +128,12 @@ class WhisperXInstaller:
         python: list[str] | None,
         requirements: Path | None = None,
         on_installed: Callable[[], None] = importlib.invalidate_caches,
+        torch: TorchFlavor = TORCH_CUDA,
     ):
         self.home = home
         self.python = python
         self.requirements = requirements
+        self.torch = torch
         self.on_installed = on_installed
         self.job: InstallJob | None = None
         self._proc: asyncio.subprocess.Process | None = None
@@ -269,7 +288,7 @@ class WhisperXInstaller:
             "--progress-bar",
             "off",
             "--extra-index-url",
-            TORCH_INDEX,
+            self.torch.index,
         ]
         # 版とハッシュを固定した一覧（uv.lock と同じ版）。入っているものは、同じ版なのでそのまま
         assert self.requirements is not None
@@ -374,7 +393,7 @@ class WhisperXInstaller:
         """版が変わった・消えたパッケージを、
         入れる前の版で入れ直す（固定した一覧に行があればハッシュ付きで）"""
         args = ["-m", "pip", "install", "--no-input", "--no-deps", "--no-cache-dir"]
-        args += ["--extra-index-url", TORCH_INDEX]
+        args += ["--extra-index-url", self.torch.index]
         entries: dict[tuple[str, str], list[str]] = {}
         if self.requirements is not None and self.requirements.is_file():
             entries = locked_entries(self.requirements.read_text(encoding="utf-8"))

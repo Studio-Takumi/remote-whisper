@@ -32,6 +32,8 @@ export type InstallJob = {
 
 export type SetupStatus = {
     runtime: 'windows-bundle' | 'mac-bundle' | 'dev';
+    // 配布物の種類（#408）。開発の環境は null。#408 より前のホストは返さない
+    edition?: 'cuda' | 'openvino' | 'mlx' | null;
     // トンネル（クラウド版）から見ている。ボタンは押せない
     remote: boolean;
     recording: boolean;
@@ -67,6 +69,13 @@ export type SetupStatus = {
 // 話者分けのモデルのページ（利用条件に同意する）と、トークンを作るページ
 export const DIARIZATION_MODEL_URL = 'https://huggingface.co/pyannote/speaker-diarization-community-1';
 export const HF_TOKENS_URL = 'https://huggingface.co/settings/tokens';
+// 配布物（Windows（CUDA）版など）のダウンロード
+export const RELEASES_URL = 'https://github.com/Studio-Takumi/remote-whisper/releases/latest';
+
+// NVIDIA の GPU があるのに、CUDA を入れていない Windows（OpenVINO）版で動いている（#408）
+export function needsCudaEdition(status: SetupStatus): boolean {
+    return status.gpu === 'nvidia' && status.edition === 'openvino';
+}
 
 // 古いホスト（#327 より前）は llm がなく、同じ中身を ollama で返す（クラウド版では web のほうが新しいことがある）。
 // llm に読み替え、足りない項目は Ollama のときの値で埋める

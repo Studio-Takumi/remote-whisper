@@ -5,6 +5,7 @@ import pytest
 from remote_whisper.gpu.whisper_worker import (
     WhisperUnavailable,
     WhisperWorker,
+    _cuda_libs_present,
     _device_for,
     _mlx_repo,
     _transcribe,
@@ -233,6 +234,19 @@ def test_device_falls_back_to_cpu_without_cuda():
     # CUDA があれば設定の compute_type、なければ CPU と int8（#274）
     assert _device_for(1, "float16") == ("cuda", "float16")
     assert _device_for(0, "float16") == ("cpu", "int8")
+
+
+def test_cuda_libs_are_looked_for_only_on_windows(monkeypatch, tmp_path):
+    # Windows（OpenVINO）版には cuBLAS がない。NVIDIA の GPU があっても CPU で動かす（#408）
+    import sys
+
+    monkeypatch.setattr(sys, "prefix", str(tmp_path))
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert _cuda_libs_present() is True
+    monkeypatch.setattr(sys, "platform", "win32")
+    assert _cuda_libs_present() is False
+    (tmp_path / "Lib" / "site-packages" / "nvidia" / "cublas" / "bin").mkdir(parents=True)
+    assert _cuda_libs_present() is True
 
 
 def test_default_backend_is_mlx_only_on_apple_silicon(monkeypatch):

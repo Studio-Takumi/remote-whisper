@@ -36,6 +36,22 @@ def test_bundle_is_found_from_the_python_prefix(monkeypatch, tmp_path):
     assert bundle.bundled_cloudflared() == root / "cloudflared.exe"
 
 
+def test_edition_comes_from_the_marker(monkeypatch, tmp_path):
+    # 配布物の種類（#408）。書いていない古い配布版は、Windows なら cuda、Mac なら mlx
+    monkeypatch.setenv("REMOTE_WHISPER_BUNDLE_DIR", str(tmp_path))
+    assert bundle.edition() is None
+    marker = tmp_path / "bundle.json"
+    marker.write_text(json.dumps({"version": "1", "edition": "openvino"}), encoding="utf-8")
+    assert bundle.edition() == "openvino"
+    marker.write_text(json.dumps({"version": "1"}), encoding="utf-8")
+    monkeypatch.setattr(sys, "platform", "win32")
+    assert bundle.edition() == "cuda"
+    monkeypatch.setattr(sys, "platform", "darwin")
+    assert bundle.edition() == "mlx"
+    marker.write_text(json.dumps({"version": "1", "edition": "rocm"}), encoding="utf-8")
+    assert bundle.edition() == "mlx"
+
+
 def test_bundle_dir_from_the_environment(monkeypatch, tmp_path):
     root = _make_bundle(tmp_path)
     monkeypatch.setenv("REMOTE_WHISPER_BUNDLE_DIR", str(root))
