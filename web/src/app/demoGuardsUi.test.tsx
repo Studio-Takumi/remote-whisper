@@ -102,6 +102,7 @@ describe('デモ版の画面', () => {
         expect(
             screen.getByText(/いちばん上の「衆議院インターネット審議中継」にある「新しいセッション」を開くと/),
         ).toBeTruthy();
+        expect(screen.getByText(/^一覧（スマホは左上のボタンで開きます）のいちばん上の/)).toBeTruthy();
         expect(screen.getByText(/ベンチマークで生成した文字起こしと要約を見られます/)).toBeTruthy();
         expect(screen.getByText(/性能を測るために公開されている動画から生成したものです。/)).toBeTruthy();
         expect(screen.queryByText(/著作権法|第30条|第40条|第47条/)).toBeNull();

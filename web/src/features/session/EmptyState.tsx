@@ -1,7 +1,7 @@
 import { AudioLinesIcon, FolderPlusIcon } from 'lucide-react';
 
 import { isDemoBuild } from '@/api/demoBuild';
-import { REPLAY_PROJECT_NAME, REPLAY_SESSION_TITLE } from '@/app/demoReplay';
+import { REPLAY_PROJECT_NAME, REPLAY_SESSION_TITLE } from '@/app/demoReplayNames';
 
 // デモ版（#414）の注意書き。文面は匠と合意したもの（2026-11-19 に書き換え）なので、変えるときは Issue で相談する
 const DEMO_NOTICE = [
