@@ -67,20 +67,12 @@ export function SettingsForm({
         setDraft((d) => ({ ...d, lmstudio: { ...defaultLmStudio, ...d.lmstudio, ...patch } }));
     }
 
-    // モデルのページは、デモ版では開かない（#415）
-    function changePage(next: string) {
-        if (next === 'models' && blockInDemo('models')) {
-            return;
-        }
-        onPageChange(next);
-    }
-
     return (
         <>
             {/* スマホの幅では、カテゴリを上に横並びにする */}
             <Tabs
                 value={page}
-                onValueChange={changePage}
+                onValueChange={onPageChange}
                 orientation={isMobile ? 'horizontal' : 'vertical'}
                 className='min-h-0 flex-1 gap-4 md:gap-6'
             >

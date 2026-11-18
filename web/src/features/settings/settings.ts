@@ -232,8 +232,8 @@ export const defaultSettings: Settings = {
 // setup は初回のセットアップの案内（#291）
 export const SETTINGS_PAGES = ['models', 'materials', 'recording', 'whisper', 'ollama', 'storage', 'display', 'setup'];
 
-// デモ版（#415）で開かないページ。モデル（#414 のボタンと同じく止める）・セットアップ（ホストがない）
-const DEMO_CLOSED_PAGES = ['models', 'setup'];
+// デモ版（#415）で開かないページ。セットアップ（ホストがない）。モデルのページは開ける（中の変更は止める）
+const DEMO_CLOSED_PAGES = ['setup'];
 
 // 開いてよいページ（URL の /settings/<ページ>・直接開いた URL・戻る進むのどれも、ここを通す）
 export function openablePages(demoBuild = isDemoBuild): string[] {

@@ -1,4 +1,4 @@
-// デモ版（#415）の設定の画面: 表示の設定だけ変えられて端末に残り、ほかは止める。モデルのページは開かない
+// デモ版（#415）の設定の画面: 表示の設定だけ変えられて端末に残り、ほかは止める。モデルのページは開けて、中の変更は止める
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { toast } from 'sonner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -91,24 +91,28 @@ describe('デモ版の設定の画面', () => {
         expect(toast.info).toHaveBeenCalledWith(demoRefusal('settings'), expect.anything());
     });
 
-    it('モデルのタブは、押しても開かずトーストを出す。セットアップのタブは出さない', () => {
+    it('モデルのタブは開ける。セットアップのタブは出さない', () => {
         const { onPageChange } = draw('materials');
         expect(screen.queryByRole('tab', { name: 'セットアップ' })).toBeNull();
         fireEvent.mouseDown(screen.getByRole('tab', { name: 'モデル' }), { button: 0 });
-        expect(onPageChange).not.toHaveBeenCalled();
-        expect(toast.info).toHaveBeenCalledWith(demoRefusal('models'), expect.anything());
-        fireEvent.mouseDown(screen.getByRole('tab', { name: '録音' }), { button: 0 });
-        expect(onPageChange).toHaveBeenCalledWith('recording');
+        expect(onPageChange).toHaveBeenCalledWith('models');
+        expect(toast.info).not.toHaveBeenCalled();
     });
 
-    it('URL で /settings/models を開いても、モデルのページではなく最初の開けるページを出す', () => {
-        expect(openablePages()).not.toContain('models');
-        expect(settingsPageOf('models')).toBe('materials');
-        expect(settingsPageOf('setup')).toBe('materials');
-        expect(settingsPageOf('display')).toBe('display');
+    it('URL で /settings/models を開くとモデルのページが出て、/settings/setup は最初のページになる', () => {
+        expect(openablePages()).toContain('models');
+        expect(settingsPageOf('models')).toBe('models');
+        expect(settingsPageOf('setup')).toBe('models');
         draw('models');
-        expect(screen.getByRole('tab', { name: '参考資料' }).getAttribute('aria-selected')).toBe('true');
-        expect(screen.queryByText('処理ごとのモデルです', { exact: false })).toBeNull();
+        expect(screen.getByText('処理ごとのモデルです', { exact: false })).toBeTruthy();
+    });
+
+    it('モデルのページの「おすすめに戻す」も断る', () => {
+        const { onSave } = draw('models');
+        fireEvent.click(screen.getByRole('button', { name: 'おすすめに戻す' }));
+        expect(toast.info).toHaveBeenCalledWith(demoRefusal('settings'), expect.anything());
+        fireEvent.click(screen.getByRole('button', { name: '保存' }));
+        expect(onSave.mock.calls[0][0]).toEqual(defaultSettings);
     });
 });
 
