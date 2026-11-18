@@ -99,7 +99,12 @@ describe('デモ版の画面', () => {
         render(<EmptyState hasProjects />);
         expect(screen.getByText('セッションを開くか、新しく録音しましょう')).toBeTruthy();
         expect(screen.getByText(/^これは Remote Whisper のデモ版です。/)).toBeTruthy();
-        expect(screen.getByText(/著作権法第30条の4/)).toBeTruthy();
+        expect(
+            screen.getByText(/いちばん上の「衆議院インターネット審議中継」にある「新しいセッション」を開くと/),
+        ).toBeTruthy();
+        expect(screen.getByText(/ベンチマークで生成した文字起こしと要約を見られます/)).toBeTruthy();
+        expect(screen.getByText(/性能を測るために公開されている動画から生成したものです。/)).toBeTruthy();
+        expect(screen.queryByText(/著作権法|第30条|第40条|第47条/)).toBeNull();
         expect(screen.getByText(/政治的な立場を示すものではありません。$/)).toBeTruthy();
         expect(screen.queryByText(/プロジェクトの ＋ で新しく作れます/)).toBeNull();
     });
