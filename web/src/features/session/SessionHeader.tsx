@@ -1,8 +1,7 @@
 import { FileAudioIcon, MicIcon } from 'lucide-react';
 
-import { isDemoBuild } from '@/api/demoBuild';
 import type { Session } from '@/api/types';
-import { REPLAY_NOTE } from '@/app/demoReplay';
+import { REPLAY_NOTE, isReplaySession } from '@/app/demoReplay';
 import { useAppStore } from '@/app/store';
 import { Button } from '@/components/ui/button';
 import { recordingLocks } from '@/features/recording/recording';
@@ -32,7 +31,7 @@ export function SessionHeader({ session }: { session: Session }) {
                 {session.status === 'recording' &&
                     (session.id === recordingSessionId
                         ? '・録音中'
-                        : isDemoBuild
+                        : isReplaySession(session.id)
                           ? `・${REPLAY_NOTE}`
                           : `・${describeWatched(watching?.sessionId === session.id ? watching.state : undefined)}${joinedHere || canJoin(watching, session.id) ? '' : '（この端末では閲覧専用です）'}`)}
                 {/* 録音している端末には、参加している音源を出す（#357） */}

@@ -6,6 +6,7 @@
 // 記録は録音した端末のものなので、見ている端末にサーバーが送るもの（watching・recordingState）を足して、
 // 「ほかの端末で録音中のセッションを見る」（#238）のと同じ受け取り方にする
 import { connection } from '@/api/connection';
+import { demoReplay } from '@/api/demo';
 import { type ReplayTarget, type ReplayView, watchStoppedAt } from '@/api/demoReplayView';
 import type { DemoReplay } from '@/api/demoTypes';
 import type { ServerMessage } from '@/api/protocol';
@@ -20,8 +21,13 @@ export type ReplaySource = {
     load: () => Promise<DemoReplay> | null;
 };
 
-// デモ版で、録音中のセッション（リプレイ）の見出しに出す説明（「ほかの端末で録音中」の代わり）
+// リプレイのセッションの見出しに出す説明（「ほかの端末で録音中」の代わり）
 export const REPLAY_NOTE = '録音したときの様子を再生しています';
+
+// リプレイするセッションか。リプレイを始める条件（serverConnection の demoReplay）と同じものを見る
+export function isReplaySession(sessionId: string) {
+    return demoReplay?.target.sessionId === sessionId;
+}
 
 // 再生をやめたときに流す、何もしていないサーバーの状態（GPU のジョブの表示を消す）
 const IDLE_STATUS: ServerMessage = {
