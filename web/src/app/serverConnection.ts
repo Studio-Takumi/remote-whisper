@@ -2,9 +2,10 @@
 // 接続が切れているかどうかは status に含まれないので、ブラウザ側で判定する
 import { api } from '@/api/api';
 import { connection } from '@/api/connection';
-import { isDemo } from '@/api/demo';
+import { demoReplay, isDemo } from '@/api/demo';
 import { isCloud } from '@/api/endpoint';
 import type { ServerMessage } from '@/api/protocol';
+import { DemoReplayEntry } from '@/app/demoReplay';
 import { queryClient } from '@/app/query';
 import { type MessageContext, receiveServerMessage } from '@/app/serverMessages';
 import type { StatusReceiver } from '@/app/serverStatus';
@@ -77,5 +78,9 @@ export function connectServer(ctx: ServerContext) {
     // デモ（#413）はサーバーにつながない（つながっていない表示も出さない）
     if (!isDemo) {
         connection.start();
+    }
+    // デモ版のリプレイ（#416）は、記録したメッセージを上の受け取りに流す
+    if (demoReplay) {
+        new DemoReplayEntry(store, demoReplay).attach();
     }
 }

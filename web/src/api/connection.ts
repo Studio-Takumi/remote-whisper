@@ -93,8 +93,7 @@ class Connection {
                 if (typeof e.data !== 'string') {
                     return;
                 }
-                const message = JSON.parse(e.data) as ServerMessage;
-                this.listeners.forEach((l) => l(message));
+                this.receive(JSON.parse(e.data) as ServerMessage);
             };
         }).finally(() => {
             this.opening = null;
@@ -117,6 +116,12 @@ class Connection {
         return () => {
             this.listeners.delete(listener);
         };
+    }
+
+    // 届いたメッセージを、受け取っている全員に渡す。デモ版のリプレイ（#416）は、WebSocket を開かずに
+    // 記録したメッセージをここから流す（WebSocket で届いたときと同じ道を通す）
+    receive(message: ServerMessage) {
+        this.listeners.forEach((l) => l(message));
     }
 
     send(message: ClientMessage) {

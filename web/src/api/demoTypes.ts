@@ -41,4 +41,13 @@ export type DemoIndex = {
     // setting.json の、画面で見せる項目（GET /api/settings の元。api/demoSettings.ts が既定値に重ねる）。
     // 表示する要約を選ぶモデル（summaries/latest）も、ここの全体概要と要約詳細を見る（#415）
     settings: DemoJson;
+    // リプレイ（#416）するセッション。replay/ がなければない
+    replay?: { projectId: string; sessionId: string };
+};
+
+// リプレイ（#416）の記録。サーバーから届いたメッセージ（replay.jsonl の dir が in のもの）を時刻順に。
+// stopAt は録音を終えた（stop を送った）時刻。時刻は録音を始めてからの秒
+export type DemoReplay = {
+    messages: { t: number; msg: DemoJson }[];
+    stopAt: number;
 };

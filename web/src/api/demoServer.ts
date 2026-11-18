@@ -7,6 +7,15 @@ export type DemoResponse = { status: number; body: unknown };
 
 export type LoadDemoSession = (projectId: string, sessionId: string) => Promise<DemoSession> | null;
 
+export type DemoRow = DemoIndex['sessions'][string][number];
+
+// 同梱したデータの見え方を、そのときどきで変えるもの（リプレイ #416 の、録音中・録音を終えた後の形）。
+// row は一覧の行、session はセッションの中身。変えないものはそのまま返す
+export type DemoOverlay = {
+    row(projectId: string, row: DemoRow): DemoRow;
+    session(projectId: string, sessionId: string, data: DemoSession): DemoSession;
+};
+
 const ID_RE = /^\d{8}-\d{6}$/;
 
 const ok = (body: unknown): DemoResponse => ({ status: 200, body });
@@ -27,10 +36,12 @@ export function pickLatest(summaries: DemoSummaryInfo[], models: { overview: str
 export class DemoServer {
     private readonly index: DemoIndex;
     private readonly loadSession: LoadDemoSession;
+    private readonly overlay: DemoOverlay | null;
 
-    constructor(index: DemoIndex, loadSession: LoadDemoSession) {
+    constructor(index: DemoIndex, loadSession: LoadDemoSession, overlay: DemoOverlay | null = null) {
         this.index = index;
         this.loadSession = loadSession;
+        this.overlay = overlay;
     }
 
     async respond(method: string, path: string): Promise<DemoResponse> {
@@ -63,17 +74,21 @@ export class DemoServer {
             return fail(404, 'デモ版にはありません');
         }
         if (sid === undefined) {
-            return ok(rows);
+            return ok(rows.map((r) => this.overlay?.row(pid, r) ?? r));
         }
         const row = rows.find((r) => r.id === sid);
         const load = row && ID_RE.test(sid) ? this.loadSession(pid, sid) : null;
         if (!row || !load) {
             return fail(404, `セッション ${sid} はありません`);
         }
-        return this.sessionPart(row, await load, rest);
+        const data = await load;
+        if (!this.overlay) {
+            return this.sessionPart(row, data, rest);
+        }
+        return this.sessionPart(this.overlay.row(pid, row), this.overlay.session(pid, sid, data), rest);
     }
 
-    private sessionPart(row: DemoIndex['sessions'][string][number], data: DemoSession, rest: string[]): DemoResponse {
+    private sessionPart(row: DemoRow, data: DemoSession, rest: string[]): DemoResponse {
         const [what, gid, ...extra] = rest;
         if (extra.length > 0) {
             return fail(404, 'デモ版にはありません');

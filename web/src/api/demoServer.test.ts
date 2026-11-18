@@ -115,4 +115,15 @@ describe('DemoServer', () => {
         const settings = (await demo.respond('GET', '/api/settings')).body as Settings;
         expect(llmModels(settings)).toMatchObject({ overview: 'qwen3.5:4b', detail: 'qwen3.5:4b' });
     });
+
+    it('見え方を変えるもの（リプレイ #416）があれば、一覧の行と中身をそれで答える', async () => {
+        const demo = new DemoServer(index, () => Promise.resolve(session), {
+            row: (_pid, row) => ({ ...row, status: 'recording' }),
+            session: (_pid, _sid, data) => ({ ...data, summaries: [], summaryTexts: {}, liveSummary: '途中' }),
+        });
+        expect((await demo.respond('GET', '/api/projects/p1/sessions')).body).toMatchObject([{ status: 'recording' }]);
+        expect((await demo.respond('GET', BASE)).body).toMatchObject({ status: 'recording' });
+        expect((await demo.respond('GET', `${BASE}/summaries`)).body).toEqual([]);
+        expect((await demo.respond('GET', `${BASE}/summaries/latest`)).body).toEqual({ kind: 'live', text: '途中' });
+    });
 });

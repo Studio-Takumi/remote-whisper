@@ -2,7 +2,7 @@
 // ほかの端末での変更・要約の失敗・参考資料の進み具合（spec/api.md 7.2）
 import { toast } from 'sonner';
 
-import { isDemo } from '@/api/demo';
+import { isDemo, usesMockData } from '@/api/demo';
 import type { ServerMessage } from '@/api/protocol';
 import type { AppStore } from '@/app/appState';
 import { readProjectInfos } from '@/app/sessionData';
@@ -67,9 +67,10 @@ function receiveSessionChange(ctx: MessageContext, m: ServerMessage) {
     const { sessions } = ctx;
     if (m.type === 'summary.delta' && m.kind === 'final') {
         receiveFinalDelta(ctx, m);
-    } else if (m.type === 'finalTranscript' && !isDemo) {
+    } else if (m.type === 'finalTranscript' && !usesMockData) {
         // 最終の文字起こしができた（#121）。最終の要約を待っている間（一覧の取り直しでは中身を
-        // 置き換えない）でも出せるように、そのセッションの最終の文字起こしだけを取ってきて足す
+        // 置き換えない）でも出せるように、そのセッションの最終の文字起こしだけを取ってきて足す。
+        // 同梱したデータのデモ版（リプレイ #416）も、API（demoServer）から取る
         void sessions.receiveFinalTranscript(m.session, m.generationId);
     } else if (m.type === 'sessionMoved' && !isDemo) {
         // セッションを別のプロジェクトへ移した（#172）

@@ -226,35 +226,42 @@ export function readDemoHome(home: string): DemoData {
         settings: Object.fromEntries(Object.entries(setting).filter(([key]) => SETTING_SECTIONS.includes(key))),
     };
     const sessions: DemoData['sessions'] = [];
-    const projects = pids.map((pid) => ({ id: pid, project: readJson(join(root, pid, 'project.json')) }));
-    for (const { id: pid, project } of orderProjects(projects, (setting.projectOrder ?? []) as string[])) {
-        const path = project.path as string;
-        if (typeof project.uuid !== 'string') {
-            throw new Error(`デモのデータ: ${pid} の project.json に uuid がありません`);
-        }
-        index.projects.push({
-            id: pid,
-            uuid: project.uuid,
-            name: displayName(path),
-            path,
-            selection: selection(project),
-            summaryDir: project.summaryDir ?? '',
-        });
-        index.contextSets[pid] = ((project.contextSets ?? []) as DemoJson[])
-            .filter((s) => !s.session)
-            .map((s) => ({ id: s.id, status: s.status, materials: s.materials ?? [] }));
-        const dir = join(root, pid);
-        const files = readdirSync(dir);
-        const entries = ((project.sessions ?? []) as DemoJson[]).filter((s) => ID_RE.test(String(s.id)));
-        index.sessions[pid] = [...entries].reverse().map((entry) => {
-            const sid = entry.id as string;
-            if (typeof entry.uuid !== 'string') {
-                throw new Error(`デモのデータ: ${pid} のセッション ${sid} に uuid がありません`);
-            }
-            const { data, available } = readSession(dir, files, sid);
-            sessions.push({ projectId: pid, sessionId: sid, data });
-            return sessionRow(entry, available);
-        });
+    const projects = pids.map((pid) => ({ id: pid }));
+    for (const { id: pid } of orderProjects(projects, (setting.projectOrder ?? []) as string[])) {
+        addProject({ index, sessions }, pid, join(root, pid));
     }
     return { index, sessions };
+}
+
+// プロジェクトのディレクトリ（project.json と md）を読んで、一覧とセッションの中身に足す。
+// home/projects/<ID>/ と、リプレイ（#416）の replay/ で使う
+export function addProject(data: DemoData, pid: string, dir: string) {
+    const { index, sessions } = data;
+    const project = readJson(join(dir, 'project.json'));
+    const path = project.path as string;
+    if (typeof project.uuid !== 'string') {
+        throw new Error(`デモのデータ: ${pid} の project.json に uuid がありません`);
+    }
+    index.projects.push({
+        id: pid,
+        uuid: project.uuid,
+        name: displayName(path),
+        path,
+        selection: selection(project),
+        summaryDir: project.summaryDir ?? '',
+    });
+    index.contextSets[pid] = ((project.contextSets ?? []) as DemoJson[])
+        .filter((s) => !s.session)
+        .map((s) => ({ id: s.id, status: s.status, materials: s.materials ?? [] }));
+    const files = readdirSync(dir);
+    const entries = ((project.sessions ?? []) as DemoJson[]).filter((s) => ID_RE.test(String(s.id)));
+    index.sessions[pid] = [...entries].reverse().map((entry) => {
+        const sid = entry.id as string;
+        if (typeof entry.uuid !== 'string') {
+            throw new Error(`デモのデータ: ${pid} のセッション ${sid} に uuid がありません`);
+        }
+        const { data: session, available } = readSession(dir, files, sid);
+        sessions.push({ projectId: pid, sessionId: sid, data: session });
+        return sessionRow(entry, available);
+    });
 }
