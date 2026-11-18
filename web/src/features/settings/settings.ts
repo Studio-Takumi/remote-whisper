@@ -1,3 +1,4 @@
+import { isDemoBuild } from '@/api/demoBuild';
 import { DEFAULT_MIC_SHORTCUT } from '@/features/settings/shortcut';
 
 // Ollama を使う処理ごとのモデル（#178。spec/files.md 5.3）
@@ -230,6 +231,20 @@ export const defaultSettings: Settings = {
 // 設定モーダルのページ（URL の /settings/<ページ>。#177）。最初のものが既定。
 // setup は初回のセットアップの案内（#291）
 export const SETTINGS_PAGES = ['models', 'materials', 'recording', 'whisper', 'ollama', 'storage', 'display', 'setup'];
+
+// デモ版（#415）で開かないページ。セットアップ（ホストがない）。モデルのページは開ける（中の変更は止める）
+const DEMO_CLOSED_PAGES = ['setup'];
+
+// 開いてよいページ（URL の /settings/<ページ>・直接開いた URL・戻る進むのどれも、ここを通す）
+export function openablePages(demoBuild = isDemoBuild): string[] {
+    return demoBuild ? SETTINGS_PAGES.filter((p) => !DEMO_CLOSED_PAGES.includes(p)) : SETTINGS_PAGES;
+}
+
+// 開くページ。知らないページ・開けないページなら、最初の開けるページ
+export function settingsPageOf(page: string, demoBuild = isDemoBuild): string {
+    const pages = openablePages(demoBuild);
+    return pages.includes(page) ? page : pages[0];
+}
 
 // おすすめのモデル（#179。「おすすめに戻す」と、モデルの横の表示）。サーバーの既定値と同じ
 export const recommendedModels: OllamaModels = defaultSettings.ollama.models;

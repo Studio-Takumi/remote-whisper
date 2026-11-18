@@ -146,15 +146,15 @@ describe('デモ版の画面', () => {
         expect(screen.queryByRole('dialog')).toBeNull();
     });
 
-    it('右上のモデルは、設定のモデルのページを開かずに止める', () => {
+    it('右上のモデルは、設定のモデルのページを開く（中の変更は止める。#415）', () => {
         draw(
             <SidebarProvider>
                 <TopBar />
             </SidebarProvider>,
         );
         fireEvent.click(screen.getByRole('button', { name: /^モデルの設定を開く/ }));
-        refused('models');
-        expect(useAppStore.getState().settingsOpen).toBe(false);
+        expect(info).not.toHaveBeenCalled();
+        expect(useAppStore.getState()).toMatchObject({ settingsOpen: true, settingsPage: 'models' });
     });
 
     it('右上の参考資料は開かずに止める', () => {

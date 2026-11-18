@@ -17,7 +17,7 @@ export const DEMO_ACTIONS = {
     correct: '文字起こしを修正すること',
     terms: '用語リストを変更すること',
     contextSet: '参考資料を変更すること',
-    models: 'モデルを変更すること',
+    settings: '設定を変更すること',
     push: '通知を設定すること',
     copy: 'コピーすること',
 } as const;

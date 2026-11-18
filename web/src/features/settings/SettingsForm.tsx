@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
 import type { SettingsOptions } from '@/api/protocol';
+import { blockInDemo } from '@/app/demoGuard';
 import { Button } from '@/components/ui/button';
 import { DialogClose, DialogFooter } from '@/components/ui/dialog';
 import { Tabs, TabsContent } from '@/components/ui/tabs';
@@ -15,6 +16,7 @@ import { StoragePage } from '@/features/settings/StoragePage';
 import { SummaryPage } from '@/features/settings/SummaryPage';
 import { VersionInfo } from '@/features/settings/VersionInfo';
 import { WhisperPage } from '@/features/settings/WhisperPage';
+import { editableInDemo } from '@/features/settings/demoDisplay';
 import type { Settings } from '@/features/settings/settings';
 import {
     type LmStudioSettings,
@@ -49,12 +51,19 @@ export function SettingsForm({
     const lock = (reason: string) => (recording ? reason : undefined);
     const isMobile = useIsMobile();
 
+    // デモ版（#415）は、表示の設定のほかは変えられない。トーストで断って、下書きは変えない
     const update: UpdateSection = (section, patch) => {
+        if (!editableInDemo(section, patch) && blockInDemo('settings')) {
+            return;
+        }
         setDraft((d) => ({ ...d, [section]: { ...d[section], ...patch } }));
     };
 
     // LM Studio の設定（古いサーバーにはないので、既定値に重ねる）
     function updateLmStudio(patch: Partial<LmStudioSettings>) {
+        if (blockInDemo('settings')) {
+            return;
+        }
         setDraft((d) => ({ ...d, lmstudio: { ...defaultLmStudio, ...d.lmstudio, ...patch } }));
     }
 
@@ -89,7 +98,11 @@ export function SettingsForm({
                         draft={draft}
                         saved={settings}
                         update={update}
-                        onChangeBackend={(backend) => setDraft((d) => ({ ...d, llm: { ...d.llm, backend } }))}
+                        onChangeBackend={(backend) => {
+                            if (!blockInDemo('settings')) {
+                                setDraft((d) => ({ ...d, llm: { ...d.llm, backend } }));
+                            }
+                        }}
                         onChangeLmStudio={updateLmStudio}
                     />
                 </TabsContent>
@@ -106,7 +119,11 @@ export function SettingsForm({
                     <DisplayPage
                         draft={draft}
                         update={update}
-                        onChangeAllowedHosts={(allowedHosts) => setDraft((d) => ({ ...d, network: { allowedHosts } }))}
+                        onChangeAllowedHosts={(allowedHosts) => {
+                            if (!blockInDemo('settings')) {
+                                setDraft((d) => ({ ...d, network: { allowedHosts } }));
+                            }
+                        }}
                     />
                 </TabsContent>
                 {/* 初回のセットアップの案内（#291）。全体設定の保存とは別に、ボタンを押した時点で実行する */}
