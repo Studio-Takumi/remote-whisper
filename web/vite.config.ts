@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
+import { demoDataDir, demoDataPlugin } from './vite/demoDataPlugin.ts';
+
 // 開発中は /api と /ws をサーバーへ転送する。本番はサーバーが web/dist を配信するので同じオリジンになる
 const server = process.env.REMOTE_WHISPER_SERVER ?? 'http://localhost:8000';
 
@@ -25,6 +27,8 @@ export default defineConfig({
     plugins: [
         react(),
         tailwindcss(),
+        // デモ版（#413）のデータ（RW_DEMO_DATA の home/）を同梱する
+        demoDataPlugin(demoDataDir(fileURLToPath(new URL('.', import.meta.url)))),
         // PWA（#104）。ホーム画面から単独のアプリとして開けるようにする。
         // キャッシュするのは画面（HTML・JS・CSS・アイコン）だけで、API と WebSocket はキャッシュしない
         VitePWA({
@@ -85,6 +89,8 @@ export default defineConfig({
     ],
     define: {
         __APP_VERSION__: JSON.stringify(appVersion()),
+        // demo ブランチのビルドは、いつもデモ版（#413）
+        __DEMO_BUILD__: 'true',
     },
     resolve: {
         alias: {
