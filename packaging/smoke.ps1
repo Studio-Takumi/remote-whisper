@@ -72,8 +72,17 @@ $expectedTorch = if ($edition -eq 'cuda') { 'cu128' } else { 'cpu' }
 Assert-True ($torch -eq $expectedTorch) "the WhisperX list uses the $expectedTorch torch"
 $cublasLine = Select-String -Path (Join-Path $AppDir 'whisperx-requirements.txt') -Pattern '^nvidia-cublas-cu12=='
 Assert-True (($edition -eq 'cuda') -eq [bool]$cublasLine) 'the WhisperX list has cuBLAS only in the CUDA edition'
-& uv pip check --python $python
-Assert-True ($LASTEXITCODE -eq 0) 'uv pip check finds no broken dependencies'
+# OpenVINO 版は、本体の依存の cuBLAS・cuDNN をわざと入れていない（#408）。その 2 つの行だけは許す
+$check = @(& uv pip check --python $python 2>&1 | ForEach-Object { "$_" })
+$check | Write-Host
+$broken = @($check | Where-Object { $_ -match '^The package `' })
+if ($edition -eq 'openvino') {
+    $broken = @($broken | Where-Object { $_ -notmatch '^The package `remote-whisper` requires `nvidia-(cublas|cudnn)-cu12\b' })
+}
+Assert-True ($broken.Count -eq 0) 'uv pip check finds no broken dependencies (except the CUDA libraries left out of the OpenVINO edition)'
+if ($edition -eq 'cuda') {
+    Assert-True ($check.Count -gt 0 -and -not ($check -match '^The package `')) 'uv pip check finds nothing in the CUDA edition'
+}
 
 # インストール後と同じ起動（コンソールを出さない pythonw）で動かす
 $proc = Start-Process -FilePath $pythonw `

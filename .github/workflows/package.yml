@@ -197,7 +197,8 @@ jobs:
           Copy-Item $setup.FullName $stage
           Copy-Item packaging/readme/windows.txt (Join-Path $stage 'README.txt')
           $zip = "$env:RUNNER_TEMP\rw-zip\remote-whisper-$env:VERSION-win-$env:EDITION.zip"
-          Compress-Archive -Path "$stage\*" -DestinationPath $zip
+          # Compress-Archive は 1 ファイル 2GB までなので、.NET の ZipFile で作る（中は exe と README だけ）
+          [System.IO.Compression.ZipFile]::CreateFromDirectory($stage, $zip, [System.IO.Compression.CompressionLevel]::Optimal, $false)
           Write-Host ('{0}: setup {1:N0} MB, zip {2:N0} MB' -f $env:EDITION, ($setup.Length / 1MB), ((Get-Item $zip).Length / 1MB))
           Write-Host "SHA256 $((Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant())  $(Split-Path $zip -Leaf)"
 

@@ -17,6 +17,10 @@ Windows 向けは 2 つあります。どちらを入れても動きます。
 
 2 つの版は同じアプリとして入るので、もう一方を入れると置き換わります（並んでは入りません。データは残ります）。CUDA 版の上に OpenVINO 版を入れると、CUDA の DLL を消します。
 
+**WhisperX を入れていたときは、版を入れ替えたら WhisperX を入れ直してください。** WhisperX の torch は版ごとに違い（CUDA 版は CUDA 版の torch、OpenVINO 版は CPU 版の torch）、入れ替えても前の版のものが残ります。OpenVINO 版から CUDA 版にしたのに CPU 版の torch が残っていると、浄書が GPU を使わずに CPU で動きます。確実なのは、アンインストールしてから新しい版を入れ、初回の案内から WhisperX を入れることです（データは残ります）。
+
+OpenVINO 版で WhisperX を入れると、ログ（`whisperx-install.log`）に「remote-whisper requires nvidia-cublas-cu12, which is not installed」のような警告が出ます。OpenVINO 版はわざと入れていないもので、問題ありません。
+
 ## 入っているもの
 
 - Python 3.11（python-build-standalone）と、`server/uv.lock` の通りの依存（faster-whisper、CTranslate2、OpenVINO GenAI（#374）など。CUDA 版は CUDA 12 の cuBLAS・cuDNN の DLL も）
