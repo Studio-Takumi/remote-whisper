@@ -1,7 +1,18 @@
 // API・WebSocket の URL を組み立てる唯一の場所（#156。spec/cloud.md 10.2・10.4）。
 // ほかの場所では /api や /ws を自分で組み立てず、ここを通す
+import { isDemoBuild } from '@/api/demoBuild';
 
 export type Mode = 'cloud' | 'direct';
+
+// デモ版のビルド（#413）はサーバーにつながない。API・WebSocket の URL を作ろうとしたら例外にする
+// （main を取り込んで、isDemo を見ずにサーバーへ投げる箇所が増えたときに気づけるように）
+function refuseInDemo(target: string) {
+    if (isDemoBuild) {
+        const error = new Error(`デモ版はサーバーにつながりません: ${target}`);
+        console.error(error);
+        throw error;
+    }
+}
 
 // クラウド用のドメイン（ビルド時に VITE_CLOUD_HOSTS でカンマ区切りで渡す）。何も渡さなければ staging と本番（#167）
 export const DEFAULT_CLOUD_HOSTS = 'rw-dev.studio-takumi.dev,rw.studio-takumi.dev';
@@ -44,6 +55,7 @@ function hostPrefix(m: Mode, hostId: string | null) {
 
 // path は /api/... の形。ホストに届く API の URL にする
 export function apiUrl(path: string, m: Mode = mode, hostId: string | null = currentHostId) {
+    refuseInDemo(path);
     return hostPrefix(m, hostId) + path;
 }
 
@@ -53,6 +65,7 @@ export function wsUrl(
     m: Mode = mode,
     hostId: string | null = currentHostId,
 ) {
+    refuseInDemo('/ws');
     const protocol = where.protocol === 'https:' ? 'wss:' : 'ws:';
     return `${protocol}//${where.host}${hostPrefix(m, hostId)}/ws`;
 }
