@@ -8,6 +8,7 @@
 
 - `demo` ブランチのビルドは、URL に関係なく常にデモ（`vite.config.ts` の `__DEMO_BUILD__`。テストでは `false`）。土台はもとの `?demo`（`web/src/api/demo.ts` の `isDemo`）で、`isDemo` を見ている操作はそのまま
 - サーバーにはつながない。WebSocket を開かず、HTTP の API も投げない（つながらない表示も出ない）。API は `web/src/api/api.ts` の手前で、同梱したデータから答える（下の「API の代わり」）
+- 通信の入口（`web/src/api/endpoint.ts` の `apiUrl`・`wsUrl`）は、デモ版のビルドで呼ぶと例外にする（main を取り込んで `isDemo` を見ずに通信する箇所が増えたら、コンソールのエラーで気づけるように）。直接 `fetch` や `WebSocket` を足すときも `isDemo` を見る
 - 同梱するデータがない（CI など）ときは、`?demo` と同じく `mock.ts` のダミーデータで動く。ビルドとテストはデータなしで通る
 
 ## データ
