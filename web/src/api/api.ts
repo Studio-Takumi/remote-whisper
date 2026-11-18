@@ -1,4 +1,5 @@
 // サーバーの REST API（docs/spec/api.md 7.1 節）を呼ぶ
+import { demoServer } from '@/api/demo';
 import { apiUrl } from '@/api/endpoint';
 import type { Correction } from '@/features/session/corrections';
 import type { SessionSource } from '@/features/session/sources';
@@ -14,6 +15,14 @@ export class ApiError extends Error {
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+    // デモ版（#413）は、サーバーの代わりに同梱したデータで答える
+    if (demoServer) {
+        const reply = await demoServer.respond(method, path);
+        if (reply.status >= 400) {
+            throw new ApiError(reply.status, (reply.body as { detail: string }).detail);
+        }
+        return reply.body as T;
+    }
     let res: Response;
     try {
         res = await fetch(apiUrl(path), {

@@ -3,7 +3,7 @@
 import { isCancelledError } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
-import { isDemo } from '@/api/demo';
+import { usesMockData } from '@/api/demo';
 import { fetchProjects } from '@/api/projects';
 import { sessionsQuery } from '@/api/sessions';
 import type { Project, Session } from '@/api/types';
@@ -63,7 +63,8 @@ function settle(ctx: ActionContext, before: Map<string, Session>, projects: Proj
 }
 
 export async function loadProjects(ctx: ActionContext) {
-    if (isDemo) {
+    // ダミーのデータのデモは一覧を最初から持っている（同梱したデータのデモ版は、API で取る）
+    if (usesMockData) {
         return;
     }
     holdSessions(ctx, heldSessionIds(ctx));

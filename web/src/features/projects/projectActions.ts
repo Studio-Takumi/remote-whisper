@@ -2,7 +2,7 @@
 import { toast } from 'sonner';
 
 import { type ProjectJson, api } from '@/api/api';
-import { isDemo } from '@/api/demo';
+import { isDemo, usesMockData } from '@/api/demo';
 import { projectsQuery } from '@/api/projects';
 import { sessionsQuery } from '@/api/sessions';
 import type { ActionContext } from '@/app/actionContext';
@@ -26,7 +26,7 @@ export function selectSession(ctx: ActionContext, projectId: string, sessionId: 
     const { getState: get, setState: set } = ctx.store;
     set({ selection: { projectId, sessionId } });
     const session = ctx.sessions.projectIdOf(sessionId) === projectId ? readSession(get(), sessionId) : undefined;
-    if (!isDemo && session && !session.loaded) {
+    if (!usesMockData && session && !session.loaded) {
         void ctx.sessions.loadSession(projectId, session);
     }
 }
