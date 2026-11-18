@@ -1,0 +1,125 @@
+# demo ブランチに push したら、デモ版を rw-demo.studio-takumi.dev に出す（#412）
+#
+# デモ版はサーバー・relay・D1 を持たない。画面（web のビルド結果）を Cloudflare Workers の静的アセットで配るだけ。
+# デモのデータは非公開のリポジトリ（rw-hp-contents）の demo/ にあり、ビルドの環境変数 RW_DEMO_DATA で渡す
+# 手順と、リポジトリの外で要る準備は docs/deploy.md の「デモ版」
+name: Deploy demo
+
+on:
+  push:
+    branches: [demo]
+  # 手で出すとき（Actions の画面から。Environment demo が demo 以外のブランチを断る）
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # デプロイを重ねない。実行中のものは止めず、待たせる
+    concurrency:
+      group: deploy-demo
+      cancel-in-progress: false
+    # GitHub の Environments（demo）。Deployment branches は demo だけにしておく（docs/deploy.md）
+    environment:
+      name: demo
+      url: https://rw-demo.studio-takumi.dev
+    env:
+      DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+      DEMO_URL: https://rw-demo.studio-takumi.dev
+    steps:
+      # secret がなければ、赤くせずに終わる（フォークや、まだ登録していないとき）。
+      # 値は渡さず、あるかないか（true/false）だけを渡す
+      - name: Check secrets
+        id: secrets
+        env:
+          HAS_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
+          HAS_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID != '' }}
+          HAS_CONTENTS_TOKEN: ${{ secrets.RW_HP_CONTENTS_TOKEN != '' }}
+        run: |
+          if [ "$HAS_API_TOKEN" != "true" ] || [ "$HAS_ACCOUNT_ID" != "true" ] || [ "$HAS_CONTENTS_TOKEN" != "true" ]; then
+            msg="secret がないのでデプロイしない（docs/deploy.md の「デモ版」）"
+            echo "$msg"
+            echo "::notice title=Deploy skipped::$msg"
+            echo "$msg" >> "$GITHUB_STEP_SUMMARY"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        if: steps.secrets.outputs.enabled == 'true'
+        with:
+          persist-credentials: false
+
+      # デモのデータ（非公開のリポジトリ）。読むだけの token を使う
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        if: steps.secrets.outputs.enabled == 'true'
+        with:
+          repository: Studio-Takumi/rw-hp-contents
+          token: ${{ secrets.RW_HP_CONTENTS_TOKEN }}
+          path: rw-hp-contents
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        if: steps.secrets.outputs.enabled == 'true'
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            web/package-lock.json
+            relay/package-lock.json
+
+      # ビルドとテストが通ったものだけ出す
+      - name: Test web
+        if: steps.secrets.outputs.enabled == 'true'
+        working-directory: web
+        run: |
+          npm ci
+          npm test
+
+      - name: Build web
+        if: steps.secrets.outputs.enabled == 'true'
+        working-directory: web
+        env:
+          RW_DEMO_DATA: ${{ github.workspace }}/rw-hp-contents/demo
+        run: npm run build
+
+      # wrangler は relay の devDependencies のものを使う
+      - name: Install wrangler
+        if: steps.secrets.outputs.enabled == 'true'
+        working-directory: relay
+        run: npm ci
+
+      - name: Deploy
+        if: steps.secrets.outputs.enabled == 'true'
+        working-directory: relay
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          RAW_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        # Account ID の secret に空白・改行・引用符が混じっていても通るよう、16 進の文字だけを残す（deploy.yml と同じ）
+        run: |
+          CLOUDFLARE_ACCOUNT_ID="$(printf '%s' "$RAW_ACCOUNT_ID" | tr -cd '0-9a-fA-F')" npx wrangler deploy --config wrangler.demo.jsonc
+
+      # 反映まで少しかかることがあるので、何回か試す
+      - name: Health check
+        if: steps.secrets.outputs.enabled == 'true'
+        run: |
+          for i in $(seq 1 12); do
+            if curl --fail --silent --show-error --max-time 10 --output /dev/null "$DEMO_URL/"; then
+              exit 0
+            fi
+            echo "$DEMO_URL が開けない（$i 回目）。10 秒待つ"
+            sleep 10
+          done
+          exit 1
+
+      # 失敗の通知は GitHub のものが基本。DISCORD_WEBHOOK_URL の secret があるときだけ Discord にも送る
+      - name: Notify Discord on failure
+        if: failure() && env.DISCORD_WEBHOOK_URL != ''
+        run: |
+          curl --silent --show-error -H "Content-Type: application/json" \
+            -d "{\"content\":\"デモ版のデプロイに失敗: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}\"}" \
+            "$DISCORD_WEBHOOK_URL" || true
