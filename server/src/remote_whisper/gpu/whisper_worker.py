@@ -49,11 +49,23 @@ class ModelSpec:
 # --- 子プロセスの中で動く部分 ---
 
 
+def _cuda_dll_root() -> Path:
+    return Path(sys.prefix) / "Lib" / "site-packages" / "nvidia"
+
+
+def _cuda_libs_present() -> bool:
+    """cuBLAS の DLL があるか（Windows）。Windows（OpenVINO）版の配布物には入っていない（#408）。
+    ほかの OS は見ない"""
+    if sys.platform != "win32":
+        return True
+    return (_cuda_dll_root() / "cublas" / "bin").is_dir()
+
+
 def _add_cuda_dll_dirs() -> None:
     """pip で入れた cuBLAS / cuDNN の DLL を見つけられるようにする（Windows）"""
     if sys.platform != "win32":
         return
-    site = Path(sys.prefix) / "Lib" / "site-packages" / "nvidia"
+    site = _cuda_dll_root()
     for sub in ("cublas", "cudnn", "cuda_nvrtc"):
         dll_dir = site / sub / "bin"
         if dll_dir.exists():
@@ -123,7 +135,9 @@ def _load(backend: str, spec: ModelSpec) -> Any:
     import ctranslate2
     from faster_whisper import WhisperModel
 
-    device, compute_type = _device_for(ctranslate2.get_cuda_device_count(), spec.compute_type)
+    # NVIDIA の GPU があっても、cuBLAS がなければ CUDA では動かない（OpenVINO 版。#408）
+    cuda_devices = ctranslate2.get_cuda_device_count() if _cuda_libs_present() else 0
+    device, compute_type = _device_for(cuda_devices, spec.compute_type)
     log.info("loading whisper %s on %s (%s)", spec.model, device, compute_type)
     return WhisperModel(spec.model, device=device, compute_type=compute_type)
 
