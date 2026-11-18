@@ -94,7 +94,10 @@ export type AppState = {
     // ディレクトリをプロジェクトとして登録する（POST /api/projects）
     createProject: (path: string) => Promise<void>;
     selectSession: (projectId: string, sessionId: string) => void;
+    // サイドバーの ＋ で新規セッション画面を開く（デモ版はトーストで止める）
     newSession: (projectId: string) => void;
+    // URL から新規セッション画面を開く（デモ版は何もしない）
+    openNewSession: (projectId: string) => void;
     // 録音中に別のセッションを開いていたら、録音中のセッションに戻る（#133）
     showRecordingSession: () => void;
     startRecording: () => Promise<void>;

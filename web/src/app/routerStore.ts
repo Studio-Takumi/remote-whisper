@@ -25,7 +25,7 @@ export const routerStore: RouterStore = {
         if (projectId && sessionId) {
             s.selectSession(projectId, sessionId);
         } else if (projectId) {
-            s.newSession(projectId);
+            s.openNewSession(projectId);
         } else {
             useAppStore.setState({ selection: { projectId: null, sessionId: null } });
         }

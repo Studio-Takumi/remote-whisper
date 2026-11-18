@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '@/api/api';
 import { demoProjects } from '@/api/mock';
 import { DEMO_ACTIONS, type DemoAction, blockInDemo, demoRefusal } from '@/app/demoGuard';
+import { startRouter } from '@/app/router';
+import { routerStore } from '@/app/routerStore';
 import { readProjects, readSession } from '@/app/sessionData';
 import { useAppStore } from '@/app/store';
 
@@ -71,6 +73,28 @@ describe('デモ版で止める操作', () => {
 
     it('サイドバーの ＋（新しいセッション）', () =>
         expectRefused('newSession', () => useAppStore.getState().newSession(lectures.id)));
+
+    it('URL（/p/<ID>/new）から新規セッション画面を開こうとしても、開かずトーストも出さない', () => {
+        const before = snapshot();
+        routerStore.open({ projectId: lectures.id, sessionId: null });
+        expect(snapshot()).toEqual(before);
+
+        // 直接開いたときと、戻る・進むで来たとき
+        history.replaceState(null, '', `/p/${lectures.id}/new`);
+        const stop = startRouter(routerStore);
+        try {
+            history.pushState(null, '', `/p/${meetings.id}/new`);
+            window.dispatchEvent(new PopStateEvent('popstate'));
+            expect(useAppStore.getState().selection).toEqual(before.selection);
+        } finally {
+            stop();
+            history.replaceState(null, '', '/');
+        }
+        expect(info).not.toHaveBeenCalled();
+        for (const call of calls) {
+            expect(call).not.toHaveBeenCalled();
+        }
+    });
 
     it('録音と続きから録音', async () => {
         await expectRefused('record', () => useAppStore.getState().startRecording());
