@@ -12,8 +12,8 @@ import { fetchOptions } from '@/features/settings/options';
 import { type Settings, finalModelLabel, llmBackend, llmModels } from '@/features/settings/settings';
 
 // 同梱したデータのデモ版（#415）は、設定も選べる値も、同梱した setting.json から答える。
-// ?demo とデータなしのデモ版は、ダミーのまま
-const bundledDemo = isDemoBuild && demoServer !== null;
+// ?demo とデータなしのデモ版は、ダミーのまま。読み終わるまでは設定の画面を開かない（ストアの settingsLoaded）
+export const bundledDemo = isDemoBuild && demoServer !== null;
 
 export async function loadOptions(ctx: ActionContext) {
     const set = ctx.store.setState;
