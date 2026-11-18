@@ -6,12 +6,16 @@ import { isDemo, usesMockData } from '@/api/demo';
 import { projectsQuery } from '@/api/projects';
 import { sessionsQuery } from '@/api/sessions';
 import type { ActionContext } from '@/app/actionContext';
+import { blockInDemo } from '@/app/demoGuard';
 import { queryClient, runMutation } from '@/app/query';
 import { readProjectInfos, readProjects, readSession } from '@/app/sessionData';
 import { type ProjectOrder, reorderTracker } from '@/features/projects/reorderTracker';
 
 export async function createProject(ctx: ActionContext, path: string) {
     const { getState: get, setState: set } = ctx.store;
+    if (blockInDemo('createProject')) {
+        return;
+    }
     try {
         const project = await api.post<ProjectJson>('/api/projects', { path });
         await get().loadProjects();
@@ -52,7 +56,7 @@ export async function moveSession(ctx: ActionContext, fromProjectId: string, ses
     const from = projects.find((p) => p.id === fromProjectId);
     const to = projects.find((p) => p.id === toProjectId);
     const session = from?.sessions.find((x) => x.id === sessionId);
-    if (!from || !to || !session || from.id === to.id) {
+    if (!from || !to || !session || from.id === to.id || blockInDemo('moveSession')) {
         return;
     }
     await runMutation(
@@ -85,6 +89,9 @@ export async function moveSession(ctx: ActionContext, fromProjectId: string, ses
 
 export async function reorderProjects(ctx: ActionContext, ids: string[]) {
     const { getState: get, setState: set } = ctx.store;
+    if (blockInDemo('reorderProjects')) {
+        return;
+    }
     const tracker = reorderTracker(ctx.store);
     const show = (order: ProjectOrder) => {
         ctx.sessions.sortProjectsBy(order.ids);

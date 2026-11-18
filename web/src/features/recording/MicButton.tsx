@@ -1,11 +1,20 @@
 import { MicIcon, MicOffIcon, PauseIcon, PlayIcon, PlusIcon, RadioIcon, SquareIcon, Undo2Icon } from 'lucide-react';
 import { toast } from 'sonner';
 
+import { isDemoBuild } from '@/api/demoBuild';
+import { blockInDemo, demoRefusal } from '@/app/demoGuard';
 import { useCurrentProject, useCurrentSession, useSessionTitle } from '@/app/sessionHooks';
 import { useAppStore } from '@/app/store';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { joinUnavailable } from '@/features/recording/join';
-import { type MicDo, type MicIcon as MicIconKind, describeJoined, micAction } from '@/features/recording/micAction';
+import {
+    type MicDo,
+    type MicIcon as MicIconKind,
+    type MicSituation,
+    demoMicAction,
+    describeJoined,
+    micAction,
+} from '@/features/recording/micAction';
 import { useContinueLeft } from '@/features/recording/useContinueLeft';
 import { useMicShortcut } from '@/features/recording/useMicShortcut';
 import { recordedElsewhere } from '@/features/recording/watch';
@@ -74,7 +83,7 @@ export function MicButton() {
           ? 'ほかのセッションに参加しています'
           : joinUnavailable(joinAvailability);
 
-    const main = micAction({
+    const situation: MicSituation = {
         state,
         elsewhere,
         recordingTitle,
@@ -92,7 +101,9 @@ export function MicButton() {
                   ? { kind: 'session', projectName }
                   : { kind: 'new' },
         micDenied,
-    });
+    };
+    // デモ版（#414）は、何を開いていても押せない見た目にし、押したら録音できないことだけを出す
+    const main = isDemoBuild ? demoMicAction(demoRefusal('record')) : micAction(situation);
     const actions: Record<MicDo, () => void> = {
         back: onBack,
         pause: onPause,
@@ -103,7 +114,7 @@ export function MicButton() {
         continue: () => session && void onContinue(session.id),
         start: onStart,
     };
-    const onClick = actions[main.do];
+    const onClick = isDemoBuild ? () => void blockInDemo('record') : actions[main.do];
 
     const shortcut = useAppStore((s) => s.settings.display.micShortcut ?? DEFAULT_MIC_SHORTCUT);
     useMicShortcut(shortcut, onClick);

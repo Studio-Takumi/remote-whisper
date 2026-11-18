@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import { toast } from 'sonner';
 
 import { isDemo } from '@/api/demo';
+import { isDemoBuild } from '@/api/demoBuild';
 import { isCloud } from '@/api/endpoint';
 import { AppSidebar } from '@/app/AppSidebar';
 import { DevPanel } from '@/app/DevPanel';
@@ -72,7 +73,8 @@ function AppMain() {
         <SidebarProvider>
             <AppSidebar />
             <SidebarInset className='gap-4 p-4'>
-                <AnnouncementBanner />
+                {/* お知らせはクラウド版だけ。デモ版（#414）は、クラウド用のドメインに置いても出さない */}
+                {!isDemoBuild && <AnnouncementBanner />}
                 <TopBar />
                 <UnsentAlert />
                 <UnsentElsewhereAlert />

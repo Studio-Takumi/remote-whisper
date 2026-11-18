@@ -5,11 +5,13 @@ import { create } from 'zustand';
 import { connection } from '@/api/connection';
 import { contextSetsQuery } from '@/api/contextSets';
 import { isDemo, usesMockData } from '@/api/demo';
+import { isDemoBuild } from '@/api/demoBuild';
 import { demoProjects, fallbackOptions, initialContextSets } from '@/api/mock';
 import { projectsQuery } from '@/api/projects';
 import { initialServerStatus } from '@/api/status';
 import type { ActionContext } from '@/app/actionContext';
 import type { AppState } from '@/app/appState';
+import { blockInDemo } from '@/app/demoGuard';
 import { queryClient } from '@/app/query';
 import { connectServer } from '@/app/serverConnection';
 import { StatusReceiver } from '@/app/serverStatus';
@@ -139,7 +141,18 @@ export const useAppStore = create<AppState>()((set, _get, store) => {
         loadProjects: () => loadProjects(ctx),
         createProject: (path) => createProject(ctx, path),
         selectSession: (projectId, sessionId) => selectSession(ctx, projectId, sessionId),
-        newSession: (projectId) => set({ selection: { projectId, sessionId: null } }),
+        // サイドバーの ＋。デモ版（#414）はトーストで止める
+        newSession: (projectId) => {
+            if (!blockInDemo('newSession')) {
+                store.getState().openNewSession(projectId);
+            }
+        },
+        // URL（/p/<ID>/new。#177）から開くとき。デモ版は開かず、トーストも出さない（選択はそのまま）
+        openNewSession: (projectId) => {
+            if (!isDemoBuild) {
+                set({ selection: { projectId, sessionId: null } });
+            }
+        },
         showRecordingSession: () => showRecordingSession(ctx),
         moveSession: (fromProjectId, sessionId, toProjectId) => moveSession(ctx, fromProjectId, sessionId, toProjectId),
         reorderProjects: (ids) => reorderProjects(ctx, ids),

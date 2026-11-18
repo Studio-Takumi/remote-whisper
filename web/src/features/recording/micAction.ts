@@ -156,3 +156,16 @@ function idleAction(s: MicSituation): MicAction {
 export function micAction(s: MicSituation): MicAction {
     return activeAction(s) ?? (s.watchedElsewhere ? watchingAction(s) : idleAction(s));
 }
+
+// デモ版（#414）のボタン。いつも押せない見た目で、ボタンの上の説明は出さない（押すと reason をトーストで出す）
+export function demoMicAction(reason: string): MicAction {
+    return {
+        do: 'notice',
+        notice: reason,
+        label: reason,
+        hint: '',
+        color: 'cursor-not-allowed bg-neutral-400 dark:bg-neutral-600',
+        icon: 'mic',
+        disabled: true,
+    };
+}

@@ -7,6 +7,7 @@ import { projectsQuery, toSelection } from '@/api/projects';
 import type { ContextSelection, ContextSet } from '@/api/types';
 import type { ActionContext } from '@/app/actionContext';
 import type { AppState } from '@/app/appState';
+import { blockInDemo } from '@/app/demoGuard';
 import { queryClient, runMutation } from '@/app/query';
 import { currentContextSelection, currentProject } from '@/app/selectors';
 import { cachedContextSets, updateCachedContextSets } from '@/features/materials/contextSetCache';
@@ -23,7 +24,7 @@ function clearOverride(s: AppState, pid: string) {
 export async function changeContextSelection(ctx: ActionContext, next: ContextSelection) {
     const { getState: get, setState: set } = ctx.store;
     const project = currentProject(get());
-    if (!project) {
+    if (!project || blockInDemo('contextSet')) {
         return;
     }
     // 保存するまでの間だけ、手元の選択（contextSelections）で上書きして出す
@@ -71,7 +72,7 @@ export async function createContextSet(ctx: ActionContext, materials: string[]) 
     const get = ctx.store.getState;
     const s = get();
     const project = currentProject(s);
-    if (!project) {
+    if (!project || blockInDemo('contextSet')) {
         return;
     }
     const pid = project.id;

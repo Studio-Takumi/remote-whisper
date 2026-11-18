@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { AudioSender, connection } from '@/api/connection';
 import { getHostId } from '@/api/endpoint';
 import type { Session } from '@/api/types';
+import { blockInDemo } from '@/app/demoGuard';
 import { replaceUrlNext } from '@/app/router';
 import { currentProject, currentSession } from '@/app/selectors';
 import { holdSession, projectIdOf } from '@/app/sessionData';
@@ -205,6 +206,9 @@ export async function startOrContinue(r: Recorder, projectId: string, continueSe
 
 // 開いているプロジェクトで、新しいセッションを録音する
 export async function startRecording(r: Recorder) {
+    if (blockInDemo('record')) {
+        return;
+    }
     const s = r.store.getState();
     const project = currentProject(s);
     if (!project) {
@@ -229,6 +233,9 @@ export async function startRecording(r: Recorder) {
 
 // 途中で終わったセッションの続きを、同じセッションのまま録音する（#101）
 export async function continueRecording(r: Recorder, sessionId: string) {
+    if (blockInDemo('record')) {
+        return;
+    }
     const s = r.store.getState();
     const projectId = projectIdOf(s, sessionId);
     if (!projectId || s.recordingState !== 'idle' || r.starting) {

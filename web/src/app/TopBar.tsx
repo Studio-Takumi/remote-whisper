@@ -4,6 +4,7 @@ import { ChevronRightIcon, CpuIcon } from 'lucide-react';
 
 import { isCloud } from '@/api/endpoint';
 import { GpuIndicator } from '@/app/GpuIndicator';
+import { blockInDemo } from '@/app/demoGuard';
 import { useAppStore } from '@/app/store';
 import { SidebarTrigger } from '@/components/ui/sidebar';
 import { CloudHostBadge } from '@/features/cloud/CloudHostBadge';
@@ -18,6 +19,9 @@ export function TopBar() {
     const detailModel = useAppStore((s) => llmModels(s.settings).detail);
     // 設定モーダルの「モデル」ページを開く（URL は /settings/models。戻るで閉じる）
     const openModels = () => {
+        if (blockInDemo('models')) {
+            return;
+        }
         useAppStore.setState({ settingsPage: 'models', settingsOpen: true });
     };
 

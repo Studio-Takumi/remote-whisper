@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 
 import { llmUnavailable } from '@/api/status';
 import type { Generating, Session, Summary } from '@/api/types';
+import { blockInDemo } from '@/app/demoGuard';
 import { useAppStore } from '@/app/store';
 import { Markdown } from '@/components/Markdown';
 import { copyText } from '@/components/copyMarkdown';
@@ -183,12 +184,15 @@ export function SummaryPanel({
                         variant='outline'
                         size='sm'
                         title='要約を Markdown のままコピーします'
-                        onClick={() =>
-                            copyText(summary.text ?? '').then(
+                        onClick={() => {
+                            if (blockInDemo('copy')) {
+                                return;
+                            }
+                            void copyText(summary.text ?? '').then(
                                 () => toast.success('要約をコピーしました'),
                                 () => toast.error('要約をコピーできませんでした'),
-                            )
-                        }
+                            );
+                        }}
                     >
                         <CopyIcon />
                         コピー

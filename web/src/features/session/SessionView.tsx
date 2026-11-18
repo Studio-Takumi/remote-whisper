@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 
+import { isDemoBuild } from '@/api/demoBuild';
 import { apiUrl } from '@/api/endpoint';
 import { makingFinalTranscript, summaryStatus, transcriptStatus } from '@/api/status';
 import { useCurrentProject, useCurrentSession, useProjects } from '@/app/sessionHooks';
@@ -33,6 +34,9 @@ import { llmBackend, llmModels } from '@/features/settings/settings';
 import { clockToSeconds } from '@/lib/time';
 
 const NO_PARTIALS: LivePartial[] = [];
+
+// デモ版（#414）は、文字起こしと要約の本文を選べなくする（コピー対策。技術的には回避できる）
+const demoNoSelect = isDemoBuild ? 'select-none [-webkit-touch-callout:none]' : '';
 
 // メイン画面の中身。何も選んでいない・新しいセッション・既存のセッションの3つを出し分ける
 export function SessionView() {
@@ -190,7 +194,7 @@ export function SessionView() {
                         />
                     )}
                     {session && (
-                        <div ref={transcriptBox}>
+                        <div ref={transcriptBox} className={demoNoSelect}>
                             <Transcript
                                 sessionId={session.id}
                                 lines={lines ?? []}
@@ -221,13 +225,14 @@ export function SessionView() {
                             ほかのセッションで録音中です。終えると、ここから録音できます
                         </p>
                     )}
-                    {/* ほかの端末で録音中のセッションを見ている間は、この端末の状態（待機中）を出さない（#238） */}
-                    {!recordedElsewhere(session, recordingSessionId) && (
+                    {/* ほかの端末で録音中のセッションを見ている間は、この端末の状態（待機中）を出さない（#238）。
+                        デモ版（#414）は録音しないので出さない */}
+                    {!isDemoBuild && !recordedElsewhere(session, recordingSessionId) && (
                         <StatusIndicator status={transcriptStatus(viewState, server, recordingSessionId)} />
                     )}
                 </TabsContent>
 
-                <TabsContent value='summary' className='flex flex-col gap-4'>
+                <TabsContent value='summary' className={`flex flex-col gap-4 ${demoNoSelect}`}>
                     {session ? (
                         <SummaryPanel
                             session={session}
