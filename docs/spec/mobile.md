@@ -10,7 +10,7 @@ iOS の PWA は、画面ロック中やバックグラウンドで録音を続�
 - 置き場所はリポジトリ直下の `mobile/`。独立した npm のパッケージで、web/・server/・relay/ の CI・設定（tsconfig・lint・prettier）には入れない
 - Capacitor 8（`@capacitor/core`・`@capacitor/ios`・`@capacitor/cli` を同じ版で固定）。iOS の依存は Swift Package Manager で入れる（CocoaPods は使わない）
 - アプリ ID（Bundle ID）は `dev.studiotakumi.remotewhisper`（Capacitor はハイフンを許さない）。Capacitor の設定では `appId`、Xcode では `PRODUCT_BUNDLE_IDENTIFIER`（`ios/App/App.xcconfig`）。手元で変えるときは `ios/App/Local.xcconfig`
-- Capacitor は Dependabot に入れず、手で上げる。npm の `@capacitor/*`（3 つとも同じ版）と、`ios/App/CapApp-SPM/Package.swift` の `capacitor-swift-pm` の版は一緒に上げる必要があり、`npx cap sync ios` で `Package.swift` を書き直してからビルドを確かめる
+- Capacitor は Dependabot に入れず、手で上げる。npm の `@capacitor/*`（3 つとも同じ版。web/ の `@capacitor/core` も。11.4 節）と、`ios/App/CapApp-SPM/Package.swift` の `capacitor-swift-pm` の版は一緒に上げる必要があり、`npx cap sync ios` で `Package.swift` を書き直してからビルドを確かめる
 - 録音しながらサーバーへ送る（リアルタイム文字起こし）のは、この検証が通ったら別の Issue で
 
 ## 11.2 画面の開き方（`server.url`）
@@ -115,12 +115,15 @@ iOS の PWA は、画面ロック中やバックグラウンドで録音を続�
 
 - 設定モーダルのタブの最後に「iOS アプリ」を足す（URL は `/settings/ios`）。ブラウザ版ではタブを出さず、`/settings/ios` は知らないページとして最初のページを開く。ブラウザ版のタブの並びは変えない
 - 録音：状態（停止中・録音中・割り込み中）・経過時間（`progress`）・理由（最後の `stateChange` の `reason`）と、録音開始・録音停止のボタン。失敗したら `code` ごとの文言を出す（`no-input` は「マイクが見つかりません」など）
-- 録音ファイル：`listRecordings` の一覧（名前・長さ・大きさ・作成日時）。ファイルごとに「セッションを作る」と「削除」（確かめてから）。録音中のファイルはどちらも押せない。止まったとき（`idle` の `stateChange`）に一覧を取り直す
-- イベント（`stateChange`・`progress`）はページを開いている間だけ購読し、閉じたら外す
+- 録音ファイル：`listRecordings` の一覧（名前・長さ・大きさ・作成日時）。ファイルごとに「セッションを作る」と「削除」（ほかの画面と同じダイアログで確かめてから）。録音中のファイルはどちらも押せない。止まったとき（`idle` の `stateChange`）に一覧を取り直す
+- このタブには保存するものがないので、下の「保存」「キャンセル」は出さない（ほかのタブは今までどおり）
+- イベント（`stateChange`・`progress`）はページを開いている間だけ購読し、閉じたら外す。購読できなかったら（プラグインが登録されていないなど）文言を出す
 
 ### ファイルの渡し方
 
 - 「セッションを作る」は、11.3 節のとおり `readRecording` を 4MiB ずつ `size` に届くまで呼び、base64 を戻してつなぎ、`File`（`type: 'audio/wav'`、`lastModified` は `modifiedAt`）にして、今の「音声ファイルから作る」の処理（ストアの `uploadAudio`。spec/flows.md 6.11）にそのまま渡す。アップロードの処理は変えない
+- 返ってきた `offset` が頼んだ位置と違ったら、つながずに `io` で失敗にする（ネイティブ側の不具合に気づけるように）
+- 分かっていること：読んだ分（`Uint8Array` の配列）と `new File(...)` のコピーが同時に乗るので、メモリはファイルの約 2 倍使う（1 時間で約 230MB）。検証用なのでこのまま。実機で長いファイルが落ちるなら、読みながら `Blob` につなぐ形にする
 - 入れる先は、今開いているプロジェクト（新規セッション画面・セッション画面で開いているもの）。今の「音声ファイルから作る」がそのプロジェクトの新規セッション画面にあるのにそろえた。開いていなければ押せない
 - 読んでいる間は「〜を読み込んでいます… N%」、送っている間は今のアップロードと同じく進み具合を出す。作れたらそのセッションが開く（設定モーダルは開いたまま）
 
