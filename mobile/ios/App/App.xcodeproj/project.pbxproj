@@ -28,6 +28,7 @@
 		A4380003000000000000E004 /* RecordingStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4380003000000000000D004 /* RecordingStoreTests.swift */; };
 		A4380003000000000000E005 /* RecorderStateMachineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4380003000000000000D005 /* RecorderStateMachineTests.swift */; };
 		A4380003000000000000E006 /* RecorderMicTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4380003000000000000D006 /* RecorderMicTests.swift */; };
+		A4380003000000000000E007 /* RecorderConvertTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4380003000000000000D007 /* RecorderConvertTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -66,6 +67,7 @@
 		A4380003000000000000D004 /* RecordingStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingStoreTests.swift; sourceTree = "<group>"; };
 		A4380003000000000000D005 /* RecorderStateMachineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecorderStateMachineTests.swift; sourceTree = "<group>"; };
 		A4380003000000000000D006 /* RecorderMicTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecorderMicTests.swift; sourceTree = "<group>"; };
+		A4380003000000000000D007 /* RecorderConvertTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecorderConvertTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -146,6 +148,7 @@
 				A4380003000000000000D004 /* RecordingStoreTests.swift */,
 				A4380003000000000000D005 /* RecorderStateMachineTests.swift */,
 				A4380003000000000000D006 /* RecorderMicTests.swift */,
+				A4380003000000000000D007 /* RecorderConvertTests.swift */,
 			);
 			path = AppTests;
 			sourceTree = "<group>";
@@ -298,6 +301,7 @@
 				A4380003000000000000E004 /* RecordingStoreTests.swift in Sources */,
 				A4380003000000000000E005 /* RecorderStateMachineTests.swift in Sources */,
 				A4380003000000000000E006 /* RecorderMicTests.swift in Sources */,
+				A4380003000000000000E007 /* RecorderConvertTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
