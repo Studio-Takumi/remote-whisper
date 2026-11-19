@@ -129,10 +129,15 @@ export function SettingsForm({
                 <div className='order-first sm:mr-auto'>
                     <VersionInfo />
                 </div>
-                <DialogClose asChild>
-                    <Button variant='outline'>キャンセル</Button>
-                </DialogClose>
-                <Button onClick={() => onSave(cleanForSave(draft))}>保存</Button>
+                {/* 「iOS アプリ」（#438）には保存するものがないので、ボタンを出さない */}
+                {page !== NATIVE_SETTINGS_PAGE && (
+                    <>
+                        <DialogClose asChild>
+                            <Button variant='outline'>キャンセル</Button>
+                        </DialogClose>
+                        <Button onClick={() => onSave(cleanForSave(draft))}>保存</Button>
+                    </>
+                )}
             </DialogFooter>
         </>
     );

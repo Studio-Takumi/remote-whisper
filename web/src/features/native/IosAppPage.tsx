@@ -7,6 +7,14 @@ import { CircleIcon, FileAudioIcon, SquareIcon, Trash2Icon } from 'lucide-react'
 import { useCurrentProject } from '@/app/sessionHooks';
 import { useAppStore } from '@/app/store';
 import { Button } from '@/components/ui/button';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from '@/components/ui/dialog';
 import { loadRecorder } from '@/features/native/nativePlatform';
 import type { RecorderPlugin, RecorderReason, RecorderState, RecordingFile } from '@/features/native/recorderTypes';
 import { readRecordingFile } from '@/features/native/recordingFile';
@@ -32,6 +40,37 @@ const REASON_LABELS: Record<RecorderReason, string> = {
 
 function formatSize(bytes: number) {
     return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
+}
+
+// 録音ファイルを削除する前の確認（ほかの画面と同じ Dialog の部品。MultiUploadDialog と同じ並び）
+function DeleteRecordingDialog({
+    name,
+    onCancel,
+    onDelete,
+}: {
+    name: string | null;
+    onCancel: () => void;
+    onDelete: (name: string) => void;
+}) {
+    return (
+        <Dialog open={name !== null} onOpenChange={(open) => !open && onCancel()}>
+            <DialogContent className='sm:max-w-md'>
+                <DialogHeader>
+                    <DialogTitle>録音ファイルを削除</DialogTitle>
+                    <DialogDescription className='break-all'>{name} を削除します。元に戻せません</DialogDescription>
+                </DialogHeader>
+                <DialogFooter className='gap-2'>
+                    <Button variant='outline' onClick={onCancel}>
+                        キャンセル
+                    </Button>
+                    <Button variant='destructive' onClick={() => name && onDelete(name)}>
+                        <Trash2Icon />
+                        削除
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
 }
 
 export function IosAppPage() {
@@ -60,6 +99,8 @@ export function IosRecorderPanel({ plugin }: { plugin: RecorderPlugin }) {
     // 録ったファイルを読み込んでいる間（readRecording で分けて読む）
     const [reading, setReading] = useState<{ name: string; percent: number } | null>(null);
     const busy = reading !== null || uploading !== null;
+    // 削除を確かめているファイル
+    const [deleting, setDeleting] = useState<string | null>(null);
     const active = view.state !== 'idle';
 
     // 録ったファイルを「音声ファイルから作る」（spec/flows.md 6.11）と同じ処理に渡す。入れる先は今開いているプロジェクト
@@ -158,11 +199,7 @@ export function IosRecorderPanel({ plugin }: { plugin: RecorderPlugin }) {
                                         variant='ghost'
                                         disabled={busy || recordingThis}
                                         aria-label={`${f.name} を削除`}
-                                        onClick={() => {
-                                            if (confirm(`${f.name} を削除しますか`)) {
-                                                void remove(f.name);
-                                            }
-                                        }}
+                                        onClick={() => setDeleting(f.name)}
                                     >
                                         <Trash2Icon />
                                         削除
@@ -173,6 +210,14 @@ export function IosRecorderPanel({ plugin }: { plugin: RecorderPlugin }) {
                     })
                 )}
             </Section>
+            <DeleteRecordingDialog
+                name={deleting}
+                onCancel={() => setDeleting(null)}
+                onDelete={(name) => {
+                    setDeleting(null);
+                    void remove(name);
+                }}
+            />
         </div>
     );
 }

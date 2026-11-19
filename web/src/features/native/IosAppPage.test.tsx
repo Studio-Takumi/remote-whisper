@@ -1,6 +1,6 @@
 // 「iOS アプリ」ページの録音の操作（#438）。プラグインを偽物にして、開始・停止・イベントの表示・一覧・
 // 録ったファイルを「音声ファイルから作る」に渡すところを確かめる
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Project } from '@/api/types';
@@ -145,13 +145,31 @@ describe('IosRecorderPanel', () => {
         expect(screen.getByText('プロジェクトを開くとセッションを作れます')).toBeTruthy();
     });
 
-    it('削除を確かめてから deleteRecording を呼ぶ', async () => {
+    it('削除はダイアログで確かめてから deleteRecording を呼ぶ。キャンセルなら呼ばない', async () => {
         const { plugin, asPlugin } = fakeRecorder([FILE]);
-        vi.spyOn(window, 'confirm').mockReturnValue(true);
         render(<IosRecorderPanel plugin={asPlugin} />);
         await waitFor(() => expect(screen.getAllByTestId('recording-file')).toHaveLength(1));
+
         fireEvent.click(screen.getByRole('button', { name: `${FILE.name} を削除` }));
+        const dialog = await screen.findByRole('dialog');
+        expect(dialog.textContent).toContain(FILE.name);
+        fireEvent.click(within(dialog).getByRole('button', { name: 'キャンセル' }));
+        await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+        expect(plugin.deleteRecording).not.toHaveBeenCalled();
+
+        fireEvent.click(screen.getByRole('button', { name: `${FILE.name} を削除` }));
+        fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: /削除/ }));
         await waitFor(() => expect(plugin.deleteRecording).toHaveBeenCalledWith({ name: FILE.name }));
+    });
+
+    it('イベントを購読できなくても、未処理の reject にせず文言を出す', async () => {
+        const { plugin, asPlugin } = fakeRecorder();
+        plugin.addListener.mockRejectedValue(Object.assign(new Error('not implemented'), { code: 'UNIMPLEMENTED' }));
+        // 未処理の reject があれば vitest が失敗にする（購読のときと、外すときの両方）
+        const { unmount } = render(<IosRecorderPanel plugin={asPlugin} />);
+        await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('失敗しました（UNIMPLEMENTED）'));
+        unmount();
+        await new Promise((r) => setTimeout(r, 10));
     });
 
     it('録音中のファイルは、作る・削除を押せない', async () => {

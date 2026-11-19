@@ -6,28 +6,32 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { SettingsOptions } from '@/api/protocol';
 import type { RecorderPlugin } from '@/features/native/recorderTypes';
-import { SettingsDialog } from '@/features/settings/SettingsDialog';
 import { SETTINGS_PAGES, defaultSettings } from '@/features/settings/settings';
 
-// 読み込まれたかを数える（vi.mock の中から触るので vi.hoisted にする）
+// 読み込まれたかを数える（vi.mock の中から触るので vi.hoisted にする）。
+// テストごとに vi.resetModules() で読み込み直すので、並び順に依存しない
 const loaded = vi.hoisted(() => ({ bridge: 0, core: 0 }));
 
-const fakeRecorder = vi.hoisted(
-    () =>
-        ({
-            start: async () => ({ file: 'recording-20261119-120000.wav' }),
-            stop: async () => ({ file: {} }),
-            getStatus: async () => ({ state: 'idle', seconds: 0 }),
-            listRecordings: async () => ({ files: [] }),
-            readRecording: async () => ({ data: '', offset: 0, size: 0 }),
-            deleteRecording: async () => {},
-            addListener: async () => ({ remove: async () => {} }),
-        }) as unknown as RecorderPlugin,
-);
+// 録音のプラグインの偽物。本物（Capacitor の Proxy）と同じく、then を聞かれたらメソッドとして返し、
+// その Promise は決して解決しない。Promise の結果にそのまま渡すと await が止まる
+const fakeRecorder = vi.hoisted(() => {
+    const methods: Record<string, unknown> = {
+        start: async () => ({ file: 'recording-20261119-120000.wav' }),
+        stop: async () => ({ file: {} }),
+        getStatus: async () => ({ state: 'idle', seconds: 0 }),
+        listRecordings: async () => ({ files: [] }),
+        readRecording: async () => ({ data: '', offset: 0, size: 0 }),
+        deleteRecording: async () => {},
+        addListener: async () => ({ remove: async () => {} }),
+    };
+    return new Proxy(
+        {},
+        { get: (_, prop) => (prop === 'then' ? () => new Promise(() => {}) : methods[prop as string]) },
+    ) as RecorderPlugin;
+});
 
 const startShell = vi.hoisted(() => vi.fn());
 
-// 一度読み込むとモジュールは使い回されるので、読み込まれたかを見るテスト（ブラウザ）を先に並べる
 vi.mock('@/features/native/nativeBridge', () => {
     loaded.bridge++;
     return { Recorder: fakeRecorder, startNativeShell: startShell };
@@ -43,16 +47,19 @@ const options: SettingsOptions = {
     llm: { backend: 'ollama', models: [{ name: 'gemma4:e4b', thinking: true }] },
 };
 
-function setNative(native: boolean) {
+function setCapacitor(capacitor: { isNativePlatform: () => boolean } | null) {
     const w = window as { Capacitor?: unknown };
-    if (native) {
-        w.Capacitor = { isNativePlatform: () => true };
+    if (capacitor) {
+        w.Capacitor = capacitor;
     } else {
         delete w.Capacitor;
     }
 }
 
-function draw(page: string) {
+const setNative = () => setCapacitor({ isNativePlatform: () => true });
+
+async function draw(page: string) {
+    const { SettingsDialog } = await import('@/features/settings/SettingsDialog');
     render(
         <QueryClientProvider client={new QueryClient()}>
             <SettingsDialog
@@ -71,7 +78,14 @@ function draw(page: string) {
     );
 }
 
+// dynamic import が走る余地を与える
+const settle = () => new Promise((r) => setTimeout(r, 0));
+
 beforeEach(() => {
+    vi.resetModules();
+    loaded.bridge = 0;
+    loaded.core = 0;
+    startShell.mockClear();
     window.matchMedia = ((query: string) => ({
         matches: false,
         media: query,
@@ -82,48 +96,81 @@ beforeEach(() => {
 
 afterEach(() => {
     cleanup();
-    setNative(false);
+    setCapacitor(null);
     document.documentElement.classList.remove('rw-native');
 });
 
 describe('iOS アプリのタブ', () => {
     it('ブラウザでは出さず、/settings/ios は最初のページになる。ネイティブのコードも読み込まない', async () => {
-        draw('ios');
+        await draw('ios');
         const tabs = screen.getAllByRole('tab');
         expect(tabs).toHaveLength(SETTINGS_PAGES.length);
         expect(screen.queryByRole('tab', { name: 'iOS アプリ' })).toBeNull();
         expect(screen.getByRole('tab', { name: 'モデル' }).getAttribute('aria-selected')).toBe('true');
         expect(screen.queryByText('録音開始')).toBeNull();
-        // dynamic import が走る余地を与えてから数える
-        await new Promise((r) => setTimeout(r, 0));
+        // ほかのタブのボタンは今までどおり
+        expect(screen.getByRole('button', { name: '保存' })).toBeTruthy();
+        await settle();
         expect(loaded.bridge).toBe(0);
         expect(loaded.core).toBe(0);
+    });
+
+    it('window.Capacitor があっても isNativePlatform() が false ならブラウザとして扱う', async () => {
+        setCapacitor({ isNativePlatform: () => false });
+        const { isNativeApp, startNativeShell } = await import('@/features/native/nativePlatform');
+        expect(isNativeApp()).toBe(false);
+        startNativeShell();
+        await draw('ios');
+        expect(screen.queryByRole('tab', { name: 'iOS アプリ' })).toBeNull();
+        await settle();
+        expect(document.documentElement.classList.contains('rw-native')).toBe(false);
+        expect(loaded.bridge).toBe(0);
     });
 
     it('startNativeShell はブラウザでは何もしない', async () => {
         const { startNativeShell } = await import('@/features/native/nativePlatform');
         startNativeShell();
-        await new Promise((r) => setTimeout(r, 0));
+        await settle();
         expect(document.documentElement.classList.contains('rw-native')).toBe(false);
         expect(loaded.bridge).toBe(0);
     });
 
-    it('アプリの中では最後に「iOS アプリ」を足し、開くと録音の操作を出す', async () => {
-        setNative(true);
-        draw('ios');
+    it('アプリの中では最後に「iOS アプリ」を足し、開くと録音の操作を出す。保存・キャンセルは出さない', async () => {
+        setNative();
+        await draw('ios');
         const tabs = screen.getAllByRole('tab').map((t) => t.textContent);
         expect(tabs.at(-2)).toBe('セットアップ');
         expect(tabs.at(-1)).toBe('iOS アプリ');
         expect(screen.getByRole('tab', { name: 'iOS アプリ' }).getAttribute('aria-selected')).toBe('true');
         await waitFor(() => expect(screen.getByRole('button', { name: /録音開始/ })).toBeTruthy());
+        expect(screen.queryByRole('button', { name: '保存' })).toBeNull();
+        expect(screen.queryByRole('button', { name: 'キャンセル' })).toBeNull();
         expect(loaded.bridge).toBe(1);
     });
 
+    it('アプリの中でも、ほかのタブでは保存・キャンセルを出す', async () => {
+        setNative();
+        await draw('models');
+        expect(screen.getByRole('tab', { name: 'iOS アプリ' })).toBeTruthy();
+        expect(screen.getByRole('button', { name: '保存' })).toBeTruthy();
+        expect(screen.getByRole('button', { name: 'キャンセル' })).toBeTruthy();
+    });
+
     it('アプリの中では startNativeShell が <html> に rw-native を付け、ネイティブの側を始める', async () => {
-        setNative(true);
+        setNative();
         const { startNativeShell } = await import('@/features/native/nativePlatform');
         startNativeShell();
         expect(document.documentElement.classList.contains('rw-native')).toBe(true);
         await waitFor(() => expect(startShell).toHaveBeenCalledTimes(1));
+    });
+
+    it('loadRecorder はプラグイン（then を持つ Proxy）を { plugin } に包んで返す', async () => {
+        const { loadRecorder } = await import('@/features/native/nativePlatform');
+        const result = await Promise.race([
+            loadRecorder(),
+            new Promise<'timeout'>((r) => setTimeout(() => r('timeout'), 500)),
+        ]);
+        expect(result).not.toBe('timeout');
+        expect((result as { plugin: RecorderPlugin }).plugin).toBe(fakeRecorder);
     });
 });
