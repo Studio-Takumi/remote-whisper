@@ -3,6 +3,7 @@
 #448。spec/flows.md 6.7
 """
 
+import asyncio
 import wave
 from dataclasses import replace
 
@@ -81,6 +82,27 @@ def test_interrupt_a_disconnected_session_without_waiting(client, project, monke
         ws.send_json({"type": "continue", "project": pid, "session": sid})
         assert receive_until(ws, of_type("started"))[-1]["continued"] is True
         ws.send_json({"type": "stop"})
+
+
+def test_timeout_and_interrupt_at_the_same_time_end_once(client, project):
+    pid, _ = project
+    sid = disconnected_session(client, pid)
+    recorder = client.app.state.ctx.recorder
+    session = recorder.sessions[sid]
+    ended = []
+    begin = session.finisher.begin
+    session.finisher.begin = lambda status: (ended.append(status), begin(status))[1]
+
+    async def overlap():
+        # 時間切れの処理（待つ時間 0）と、interrupt 2 回を同時に走らせる
+        recorder.resume_timeout = 0
+        await asyncio.gather(session._expire_later(), session.interrupt(), session.interrupt())
+
+    client.portal.call(overlap)
+    assert ended == ["interrupted"]
+    assert session._expire is None
+    assert client.app.state.ctx.recordings == 0
+    finished(client, sid)
 
 
 def test_interrupt_accepts_the_session_uuid(client, project):
