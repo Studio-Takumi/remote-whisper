@@ -22,10 +22,83 @@ iOS の PWA は、画面ロック中やバックグラウンドで録音を続�
 - 本番の URL は Tailscale の https の前提。http を開ける ATS の例外は **Debug のビルドだけ** に足す（ビルドの途中で、できあがった Info.plist に `NSAllowsLocalNetworking` を足す。開けるのはローカルの宛先だけ）。開発用の Vite（`http://localhost:5190`）をシミュレーターで開くのに使う
 - 署名の個人の値（Team ID・自分用の Bundle ID）は、Git に入れない `ios/App/Local.xcconfig` に書く。`project.pbxproj` には入れない
 - 分かっていること：今の画面は safe area（ノッチ・ステータスバーの領域）を見ていないので、アプリの中で開くと上のバーがステータスバーに重なる（PR1 のシミュレーターで確認。WebView の `contentInset` では fixed の要素は動かないので直らない）。直すなら web/ 側で `env(safe-area-inset-*)` を使う。検証の妨げにならなければ後回し
+- 候補（実機の結果を見て決める）：経路の変化の保険。`AVAudioEngineConfigurationChange` は入力の形式が変わったときだけ来るので、`AVAudioSession.routeChangeNotification` も見て、`recording` なのにエンジンが止まっていたら作り直す（11.3 節）
 
 ## 11.3 録音のプラグイン
 
-PR2 で書く。予定は #438 の本文のとおり（AVAudioSession `.record` ＋ AVAudioEngine、Documents に少しずつ書く、`UIBackgroundModes: audio`、割り込みで止めて終わったら再開、録ったファイルの一覧、`UIFileSharingEnabled`）。
+アプリの中だけのプラグイン（npm のパッケージにしない）。JS からは `Capacitor.Plugins.Recorder`（`registerPlugin('Recorder')`）で呼ぶ。
+
+### 置き場所と登録
+
+- コードは `mobile/ios/App/App/Recorder/`。`MainViewController`（`CAPBridgeViewController` を継承した 1 段だけのクラス。`SceneDelegate` と `Main.storyboard` がこれを使う）の `capacitorDidLoad()` で `bridge?.registerPluginInstance(RecorderPlugin())` する
+- 役割は分けて、継承では重ねない。`RecorderPlugin`（JS との受け渡しだけ）が `Recorder`（AVAudioSession `.record` ＋ AVAudioEngine で録る）と `RecordingStore`（ファイルの置き場）を持つ。状態の移り変わりは `RecorderStateMachine`、WAV の読み書きは `WavWriter`・`WavRepair`
+- Info.plist：`UIBackgroundModes` に `audio`（画面ロック中・バックグラウンドでも録る）、`NSMicrophoneUsageDescription`、ファイルアプリから見えるように `UIFileSharingEnabled`・`LSSupportsOpeningDocumentsInPlace`
+
+### 録音ファイル
+
+- **形式は WAV（16kHz・モノラル・16bit の PCM）。** 理由：
+  - サーバーの「音声ファイルから作る」（spec/flows.md 6.11）は wav を受け付け、録音したときと同じ 64kbps の mp3 に変換して置く。1 時間で約 115MB で、アップロードの上限（`recording.uploadMaxMb`、既定 2048MB）に十分収まる
+  - 少しずつ書いても、落とされたときに録った分が残る。m4a（AAC）は最後に索引（moov）を書くまで読めないので、録音中にアプリを落とされると全部失う
+  - 16kHz・モノラルは Whisper に渡す形で、サーバーのリアルタイム録音と同じ
+- 置き場所はアプリの `Documents/recordings/`（ファイルアプリの「このiPhone内 → Remote Whisper → recordings」）。名前は `recording-YYYYMMDD-HHMMSS.wav`（端末の時刻で、録り始めた時刻。同じ秒に 2 つ目ができたら `-2` を付ける）
+- 書き方：マイクの入力を 16kHz・モノラルの Int16 に変換して、届くたびにファイルの後ろに足す。ヘッダーの長さは 5 秒分ごとと、止めたときに直す。アプリを起動したとき（プラグインを読み込んだとき）に、ヘッダーの長さがファイルの大きさと合わないもの（落とされて閉じられなかったもの）を直す
+
+### 状態と止まる理由
+
+| 状態 | 意味 |
+|---|---|
+| `idle` | 録っていない |
+| `recording` | 録っている |
+| `interrupted` | 電話などの割り込みで止まっている。ファイルは開いたままで、割り込みが終わったら続きを同じファイルに録る |
+
+| 理由（`reason`） | いつ | 状態 |
+|---|---|---|
+| `user` | JS から `start`・`stop` を呼んだ | `recording`・`idle` |
+| `interruption` | 割り込み（電話・Siri・ほかのアプリの録音など）が始まった | `interrupted` |
+| `resumed` | 割り込みが終わった（または前面に戻った）ので、続きを録り始めた | `recording` |
+| `interruptionEnded` | 割り込みが終わったので再開を試みたが、できなかったので止めた（ほかのアプリが音声を使い続けているなど） | `idle` |
+| `routeChange` | 入力の経路が変わった（イヤホンを抜いた・挿したなど）。エンジンを新しい入力で作り直して録り続ける | `recording` |
+| `mediaServicesReset` | メディアサービスがリセットされた。録音中ならエンジンを作り直して録り続ける | `recording` |
+| `error` | 録り続けられなくなった（エンジンを作り直せない・書き込めない） | `idle` |
+
+- **割り込みが終わったら、`shouldResume` の有無にかかわらず再開を試みる。** 講義の録音では画面ロックのままのことが多く、止まっても気づけず残りを全部失う。録音を勝手に再開しても音は鳴らない。`shouldResume` がないのはほかのアプリが音声を使い続けているときが多く、そのときは再開（`setActive(true)`）が失敗するので、`interruptionEnded` で止める。`shouldResume` の有無はログに出す
+- 割り込みの終わりは必ず届くとは限らないので、アプリが前面に戻ったとき（`willEnterForeground`）にまだ `interrupted` なら再開を試みる。できなければ止めずに、割り込みの終わりを待つ
+- 割り込み中の経路の変化・リセットは何もしない（再開するときにエンジンを作り直す）。アプリが止められていたことを後から知らせる割り込み（`appWasSuspended`）は割り込みとして扱わない
+- 割り込みで止まっていた間は録らない（ファイルの時間は詰まる）
+
+### JS 向けの API
+
+型定義は PR3 で web/ に置く。ここに書いたものが正本。
+
+| メソッド | 引数 | 返り値 | |
+|---|---|---|---|
+| `start()` | なし | `{ file: string }`（ファイル名） | マイクの許可をまだ聞いていなければ聞く |
+| `stop()` | なし | `{ file: RecordingFile }` | 割り込み中（`interrupted`）でも止められる |
+| `getStatus()` | なし | `{ state, file?: string, seconds: number }` | |
+| `listRecordings()` | なし | `{ files: RecordingFile[] }` | 新しい順。録音中のファイルも入る |
+| `readRecording({ name, offset?, length? })` | `offset` 既定 0、`length` 既定・上限 4MiB | `{ data: string（base64）, offset: number, size: number（ファイル全体） }` | 終わりを越えたら `data` は空。`offset`・`length` が負なら `invalid-argument` |
+| `deleteRecording({ name })` | | なし | 録音中のファイルは消せない |
+
+`RecordingFile` は `{ name: string, durationSec: number, size: number（バイト）, createdAt: string, modifiedAt: string }`（日時は ISO 8601）。
+
+| イベント | 中身 | いつ |
+|---|---|---|
+| `stateChange` | `{ state, reason, file?: RecordingFile }` | 状態が変わったとき・経路の変化などで作り直したとき。`idle` になったときは録ったファイルが `file` に入る |
+| `progress` | `{ seconds: number }` | 録っている間、1 秒ごと（録った長さ。割り込みで止まっていた間は増えない） |
+
+失敗したときは reject し、`code` は `permission-denied`（マイクが許可されていない）・`already-recording`・`not-recording`・`no-input`（入力の装置がない）・`invalid-name`（このアプリの録音ファイルの名前でない）・`invalid-argument`（`readRecording` の `offset`・`length` が負）・`not-found`・`busy`（録音中のファイルを消そうとした）・`io`（そのほか）。
+
+### ファイルを web に渡す方法
+
+- **`readRecording` で 4MiB ずつ base64 で読み、web でつないで `File` にする。** `File` の名前は `name`、`lastModified` は `modifiedAt`（録り終えた時刻。サーバーは「更新日時 − 長さ」を開始日時にする。spec/flows.md 6.11）にして、今の「音声ファイルから作る」にそのまま渡す
+- `Capacitor.convertFileSrc` の URL は使えない。画面を `server.url`（ホストの URL）で開いているので、変換した URL（`<ホスト>/_capacitor_file_/...`）はアプリの中ではなくホストに取りに行ってしまう
+- 一度に base64 で全部返さないのは、1 時間で約 115MB（base64 で約 155MB）になり、ブリッジとメモリを詰まらせるため
+- ファイルアプリにも出ているので、今の画面の「音声ファイルから作る」でファイルを選んでも送れる（コードは要らない）
+
+### テスト
+
+- `mobile/ios/App/AppTests`（XCTest。App の中で動く）：ファイル名・WAV のヘッダー・ヘッダーを直す間隔と落とされたあとの修復・置き場（一覧・区切って読む・消す・名前の確かめ）・状態の移り変わりの全部・形式の変換（合成した 48kHz・2ch の正弦波を続けて渡し、長さ・欠けがないこと・振幅を見る）
+- 本物のマイクで録るテスト（`RecorderMicTests`）は、`RW_MIC_TEST=1` のときだけ動く（マイクの許可と入力の装置が要るため）
 
 ## 11.4 web からの呼び出し
 
