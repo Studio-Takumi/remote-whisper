@@ -11,3 +11,6 @@ capacitor-cordova-ios-plugins
 # Generated Config files
 App/App/capacitor.config.json
 App/App/config.xml
+
+# 手元だけの署名の設定（Team ID など。Local.xcconfig.example を写して作る）
+App/Local.xcconfig
