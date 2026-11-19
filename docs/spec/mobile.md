@@ -9,7 +9,7 @@ iOS の PWA は、画面ロック中やバックグラウンドで録音を続�
 - **検証用。** 確かめたいのは「画面ロックのまま 30 分録れるか」「割り込み（電話・Siri）でどう動くか」「電池の減り方」。ストアへの提出・クラウド版・ログイン・通知・Android は対象外
 - 置き場所はリポジトリ直下の `mobile/`。独立した npm のパッケージで、web/・server/・relay/ の CI・設定（tsconfig・lint・prettier）には入れない
 - Capacitor 8（`@capacitor/core`・`@capacitor/ios`・`@capacitor/cli` を同じ版で固定）。iOS の依存は Swift Package Manager で入れる（CocoaPods は使わない）
-- アプリ ID（Bundle ID）は `dev.studiotakumi.remotewhisper`（Capacitor はハイフンを許さない）。Capacitor の設定では `appId`、Xcode では `PRODUCT_BUNDLE_IDENTIFIER`（`ios/App/App.xcconfig`）。手元で変えるときは `ios/App/Local.xcconfig`
+- アプリ ID（Bundle ID）は `dev.studiotakumi.remotewhisper`（Capacitor はハイフンを許さない）。Capacitor の設定では `appId`、Xcode では `RW_APP_BUNDLE_IDENTIFIER`（`ios/App/App.xcconfig`。`PRODUCT_BUNDLE_IDENTIFIER` はこれから作る）。手元で変えるときは `ios/App/Local.xcconfig` で `RW_APP_BUNDLE_IDENTIFIER` を書き換える（Widget Extension の Bundle ID も一緒に変わる。11.5 節）
 - Capacitor は Dependabot に入れず、手で上げる。npm の `@capacitor/*`（3 つとも同じ版。web/ の `@capacitor/core` も。11.4 節）と、`ios/App/CapApp-SPM/Package.swift` の `capacitor-swift-pm` の版は一緒に上げる必要があり、`npx cap sync ios` で `Package.swift` を書き直してからビルドを確かめる
 - 録音しながらサーバーへ送る（リアルタイム文字起こし）のは、この検証が通ったら別の Issue で
 
@@ -140,3 +140,80 @@ iOS の PWA は、画面ロック中やバックグラウンドで録音を続�
 
 - web のテスト（vitest）：ブラウザではタブも操作も出ず、`nativeBridge`・`@capacitor/core` を読み込まないこと。偽物のプラグインで、開始・停止・イベントの表示・購読の解除・一覧・「セッションを作る」に渡す `File`。分けて読んでつなぐところ
 - ブラウザ版が変わっていないこと：変更の前後で、Playwright で PC（1280 幅）とスマホ（390 幅）・ライトとダークの画面（最初の画面・新規セッション画面・セッション画面・サイドバー・設定モーダルの全部のタブ）を撮ってピクセルで比べる。`npm run build` の前後で、最初に読むファイル（`index.html` が読む JS・CSS）の数が変わらず、増えたチャンクが `nativeBridge-*.js` だけなことを見る
+
+## 11.5 Live Activity
+
+いつもの Web の録音（WebSocket で送る録音）の状態を、ロック画面の Live Activity とダイナミックアイランドに出し、そこから一時停止・再開・終了できるようにする（#453）。
+
+### 方針
+
+- **録音は Web のまま、ネイティブは表示と入り口だけ。** #438 の実機の確認で、アプリの中の Web の録音は画面ロック中も送り続けられると分かった（裏にいても JS が動く）。録音の処理を Swift に作り直さない。11.3 節の録音のプラグイン（「iOS アプリ」タブの録音）とは別のもので、そちらには関わらない
+- Live Activity のボタンは `LiveActivityIntent`（iOS 17 から）。アプリのプロセスで動くので、プラグインのイベントで web/ に伝え、マイクボタンと同じいつもの一時停止・再開・終了の処理（ストアの `pauseRecording`・`resumeRecording`・`stopRecording`）を通す
+- 版：アプリは iOS 15 から（変えない）。Live Activity は iOS 16.1、ボタンは iOS 17 から（`@available` で分ける）。16.1 より前はプラグインが何もせず `{ shown: false }` を返す。16.1〜16.x はボタンのない Live Activity を出す。ActivityKit・AppIntents は弱いリンクになる（iOS 15 でも起動できる）
+- ブラウザ版（Safari・PWA を含む）は変えない。web/ の呼び出しは `isNativeApp()` のときだけ動き、`nativeBridge-*.js` のチャンクにだけ入る（11.4 節の決まりのまま）
+
+### 置き場所
+
+| パス | 中身 |
+|---|---|
+| `mobile/ios/App/Shared/` | App と Widget Extension の両方に入れるもの。`RecordingActivityAttributes`・`RecordingActivityState`（ContentState）・ボタンの操作（`RecordingActivityAction`）・`LiveActivityIntent` の 3 つ |
+| `mobile/ios/App/App/LiveActivity/` | JS 向けのプラグイン `LiveActivityPlugin`（受け渡しだけ）、出す・変える・終えるを持つ `LiveActivityController`、ActivityKit を呼ぶ `ActivityKitClient`、見た目を確かめる `LiveActivityPreview`（Debug だけ） |
+| `mobile/ios/App/Widgets/` | Widget Extension（ターゲット `Widgets`）。Live Activity とダイナミックアイランドの見た目。ホーム画面のウィジェット（#454）もここに足す |
+| `web/src/features/native/liveActivitySync.ts` | ストアを見てプラグインを呼び、ボタンの操作をストアのアクションに渡す |
+
+- プラグインは `MainViewController` の `capacitorDidLoad()` で `RecorderPlugin` と並べて登録する。クラスは継承で重ねず、`LiveActivityPlugin` が `LiveActivityController` を持ち、`LiveActivityController` が `LiveActivityClient`（本物は `ActivityKitClient`、テストでは偽物）を持つ
+- Widget Extension の Bundle ID はアプリのものの後ろに `.widgets`（`ios/App/Widgets.xcconfig`）。Team ID は App と同じく `Local.xcconfig` から読む。Extension の最低の版は iOS 16.1（それより前の端末では読み込まれない）
+- アプリの `Info.plist` に `NSSupportsLiveActivities`
+
+### 中身（ActivityKit）
+
+- `RecordingActivityAttributes`（変わらないもの）：`sessionId` だけ
+- `RecordingActivityState`（ContentState）：`phase`（`recording`・`paused`）・`startedAt`（経過時間が 0 だった時刻）・`elapsed`（秒）・`title`（セッション名）・`lines`（直近のリアルタイム文字起こし、古い順）
+  - セッション名は録音中に仮のタイトル（途中の要約から作るもの）に変わるので、Attributes ではなく ContentState に持つ
+  - 経過時間は毎秒 update しない。`startedAt = 今 − elapsed` にして、`Text(timerInterval:)` で端末に数えさせる。一時停止中は `pauseTime`（`startedAt + elapsed`）で止めて出す。表示は端末の形（1 時間までは `12:34`、超えたら `1:12:34`）
+  - 行は空のものを除いて最後の 3 行。1 行は 120 文字まで（長いときは後ろ、新しく話したところを残す）。ActivityKit の中身の上限（4KB）に収めるため
+
+### JS 向けの API（`LiveActivity`）
+
+型定義は `web/src/features/native/liveActivityTypes.ts`。
+
+| メソッド | 引数 | 返り値 | |
+|---|---|---|---|
+| `start(o)` | `{ sessionId, state, elapsed, title, lines }` | `{ shown: boolean }` | 同じセッションのものを出していれば中身を変えるだけ。別のセッションのものは終えてから出す。設定で許可されていなければ `shown: false` |
+| `update(o)` | `{ state, elapsed, title, lines }` | `{ shown: boolean }` | 出していなければ何もしない |
+| `end()` | なし | なし | このアプリの Live Activity を全部終える（ロック画面にも残さない） |
+
+`state` は `recording`・`paused`。引数がおかしければ `invalid-argument`、ActivityKit が出せなければ `unavailable` で reject する。
+
+| イベント | 中身 | いつ |
+|---|---|---|
+| `action` | `{ action: 'pause' \| 'resume' \| 'stop' }` | Live Activity のボタンが押された |
+
+### web/ の動き
+
+- 起動したとき（`main.tsx` の `startLiveActivity`）、アプリの中でだけ `nativeBridge` を読み込み、`LiveActivitySync` で見始める
+- 見始めたときにまず `end()` する（画面を読み込み直す前に出したものを残さない）。プラグインも、読み込まれたとき（アプリを開き直したとき）に残っているものを全部終える。アプリが落とされると Web の録音も終わる（#448 で、開き直した画面がそのセッションを終わりにする）ので、どちらでも残さない
+- ストアの `recordingState`・`recordingSessionId` から決める
+  - 録音を始めた（`idle` 以外になった）：`start`。録音中のセッションが変わったときも `start`
+  - 一時停止・再開：すぐ `update`（経過時間もここで合わせ直す）
+  - 文字起こしの行・セッション名が変わった：5 秒に 1 回まで間引いて、そのときの最新のものを `update`（ActivityKit の更新の頻度の制限）。経過時間だけの変化では送らない
+  - 録音を終えた（`idle`）：`end`。待っていた行の更新は捨てる
+- プラグインは呼んだ順に流す。失敗しても録音には関わらないので捨てる
+- `action` は、そのときの状態で押せるものだけ通す（`pause` は録音中、`resume` は一時停止中、`stop` は `idle` 以外）。届くのが遅れて状態が変わっていたら何もしない
+
+### 見た目
+
+匠が Pencil で作った採用案（ライトとダーク）。ボタンの色は本体のマイクボタンと同じ（一時停止＝赤 `#EF4444`、再開＝琥珀 `#F59E0B`、終了＝灰色）。
+
+- ロック画面・録音中：左上に赤い点と経過時間（等幅）、右上にセッション名。直近の文字起こし 3 行（古い行ほど薄く小さく、最後の行は太字）。下に「一時停止」と「終了」
+- ロック画面・一時停止中：琥珀の一時停止の印と経過時間（琥珀）、セッション名、最後の 1 行（薄く）。「再開」と「終了」
+- ダイナミックアイランド（テーマによらず黒）：compact は左に赤い波形の印・右に経過時間、minimal は波形の印だけ。expanded はロック画面の録音中と同じ中身で、行は 2 行。一時停止中は印を琥珀の一時停止の印にする
+- iOS 16.1〜16.x はボタンを出さない
+- ロック画面の色（ライト・ダーク）は iOS が決める外観に従う（端末の設定ではなく、ロック画面の壁紙などで暗い外観になることがある）
+
+### 確かめ方
+
+- Swift のテスト（XCTest。`AppTests/LiveActivityTests.swift`）：ContentState の作り方（経過時間の起点・一時停止の時刻・行の間引き・長い行・4KB に収まること）、JS の引数の読み方、`LiveActivityController` の状態の移り変わり（偽物の `LiveActivityClient` で、出す・変える・終える・別のセッション・許可されていない）
+- web のテスト（vitest。`liveActivity.test.ts`）：ブラウザでは `nativeBridge`・`@capacitor/core` を読み込まないこと。偽物のプラグインで、start・update・end の順と中身、行の間引き、止めたら待っていた更新を捨てること、ボタンのイベントでいつもの一時停止・再開・終了が呼ばれること
+- 見た目：シミュレーターはマイクの入力がなく録音を始められないので、Debug のビルドの起動の引数 `-RWLiveActivityPreview recording`（または `paused`）で見本を出す（`LiveActivityPreview`。Release には入らない）。ロック画面とダイナミックアイランドのライト・ダークを撮って比べる
+- 実機：Web の録音で、ロック画面とダイナミックアイランドに出ること・ボタンで一時停止・再開・終了できること・録音を終えたら消えること・アプリを落としてから開き直したら残っていないこと
