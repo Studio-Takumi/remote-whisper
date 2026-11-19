@@ -1,7 +1,8 @@
 // 録音中のセッションに、この端末のマイクを音源として参加する（#241・#356。spec/flows.md 6.16・spec/api.md 7.2）
 import { AudioSender, connection } from '@/api/connection';
 import type { JoinAvailability, ServerMessage } from '@/api/protocol';
-import { Microphone } from '@/features/recording/audio/microphone';
+import { type ChosenMic, openChosenMicrophone } from '@/features/recording/audio/micDevice';
+import type { Microphone, Processing } from '@/features/recording/audio/microphone';
 
 // joining は返事（joined）待ち、reconnecting はホストとの接続が切れてつなぎ直すのを待っている間
 export type Joined = { sessionId: string; source: number | null; state: 'joining' | 'joined' | 'reconnecting' };
@@ -63,8 +64,6 @@ export function deviceName(ua = navigator.userAgent): string {
     return 'ブラウザ';
 }
 
-type Processing = { noiseSuppression: boolean; autoGainControl: boolean; echoCancellation: boolean };
-
 // 参加しているあいだのマイクと送信。録音しているクライアントと同じく、連番を付けて送り、ack まで手元に残す
 export class SourceJoin {
     readonly sessionId: string;
@@ -98,16 +97,26 @@ export class SourceJoin {
         this.sender.hold();
     }
 
-    // マイクを開いて参加する。rejoin は読み込み直す前に参加していた音源（同じ音源としてつなぎ直す）
-    async start(processing: Processing, rejoin: { source: number; nextSeq: number } | null) {
+    // マイクを開いて参加する。rejoin は読み込み直す前に参加していた音源（同じ音源としてつなぎ直す）。
+    // マイクは設定で選んだもの（#449）。ないときは OS に任せて開き、onFallback で知らせる
+    async start(
+        processing: Processing,
+        rejoin: { source: number; nextSeq: number } | null,
+        onFallback: (chosen: ChosenMic) => void = () => {},
+    ) {
         if (rejoin) {
             // 読み込み直す前の続きの連番から振る（0 から振ると、サーバーが受け取り済みとみなして捨てる）
             this.sender.startFrom(rejoin.nextSeq);
         }
-        this.mic = await Microphone.open((pcm, level) => {
-            this.sender.push(pcm);
-            this.onLevel(level);
-        }, processing);
+        this.mic = await openChosenMicrophone(
+            (pcm, level) => {
+                this.sender.push(pcm);
+                this.onLevel(level);
+            },
+            processing,
+            () => {},
+            onFallback,
+        );
         if (this.ended) {
             this.mic.close();
             return;

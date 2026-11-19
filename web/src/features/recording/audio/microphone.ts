@@ -12,11 +12,17 @@ export type PcmHandler = (pcm: Int16Array, level: number) => void;
 // muted は音が来ていない（OS やほかのアプリが止めている）、suspended は音声の処理が止まった（電話が来たなど）
 export type MicState = 'ok' | 'muted' | 'ended' | 'suspended';
 
-// マイクが使えないときのエラー。denied はユーザーかブラウザが許可しなかったもの
-export class MicrophoneError extends Error {
-    readonly reason: 'denied' | 'unavailable';
+// ブラウザのマイクの処理（getUserMedia の制約。全体設定の recording.noiseSuppression・autoGainControl・echoCancellation）
+export type Processing = { noiseSuppression: boolean; autoGainControl: boolean; echoCancellation: boolean };
 
-    constructor(reason: 'denied' | 'unavailable', message: string) {
+// マイクが使えないときのエラー。denied はユーザーかブラウザが許可しなかったもの、
+// missing は指定したマイク（deviceId）が見つからないもの（#449）
+export type MicrophoneErrorReason = 'denied' | 'unavailable' | 'missing';
+
+export class MicrophoneError extends Error {
+    readonly reason: MicrophoneErrorReason;
+
+    constructor(reason: MicrophoneErrorReason, message: string) {
         super(message);
         this.reason = reason;
     }
@@ -64,12 +70,14 @@ export class Microphone {
         this.node.port.postMessage('discard');
     }
 
-    // processing はブラウザのマイクの処理（全体設定の recording.noiseSuppression・autoGainControl・echoCancellation）
+    // processing はブラウザのマイクの処理
     // onState は、マイクが止まったり戻ったりしたときに呼ぶ（録音が知らないうちに止まらないよう、画面で知らせる）
+    // deviceId は選んだマイク（#449）。ないときは OS に任せる（deviceId を渡さない）
     static async open(
         onPcm: PcmHandler,
-        processing: { noiseSuppression: boolean; autoGainControl: boolean; echoCancellation: boolean },
+        processing: Processing,
         onState: (state: MicState) => void = () => {},
+        deviceId?: string,
     ): Promise<Microphone> {
         if (!navigator.mediaDevices?.getUserMedia) {
             // getUserMedia は安全なコンテキスト（HTTPS か localhost）でしか使えない
@@ -78,11 +86,16 @@ export class Microphone {
         let stream: MediaStream;
         try {
             stream = await navigator.mediaDevices.getUserMedia({
-                audio: { channelCount: 1, ...processing },
+                audio: { channelCount: 1, ...processing, ...(deviceId ? { deviceId: { exact: deviceId } } : {}) },
             });
         } catch (e) {
             if (e instanceof DOMException && (e.name === 'NotAllowedError' || e.name === 'SecurityError')) {
                 throw new MicrophoneError('denied', 'マイクの使用が許可されていません');
+            }
+            // 指定したマイクがない（外した・ID が変わった）とき。OverconstrainedError は DOMException でないブラウザがある
+            const name = (e as { name?: string } | null)?.name;
+            if (deviceId && (name === 'OverconstrainedError' || name === 'NotFoundError')) {
+                throw new MicrophoneError('missing', '選んだマイクが見つかりません');
             }
             throw new MicrophoneError('unavailable', `マイクを開けません: ${(e as Error).message}`);
         }
@@ -115,6 +128,11 @@ export class Microphone {
         }
         // iOS の Safari は、割り込み（電話・Siri など）の間 'interrupted' になる
         return this.context.state === 'running' ? 'ok' : 'suspended';
+    }
+
+    // 開いているマイクの名前（#449。開き直したときに、どのマイクで録っているかを知らせる）
+    label(): string {
+        return this.stream.getAudioTracks()[0]?.label ?? '';
     }
 
     // トラックと音声の処理を見張る（#102）。実機でどのイベントが来るかを Web インスペクタで見られるよう、ログに出す（#447）

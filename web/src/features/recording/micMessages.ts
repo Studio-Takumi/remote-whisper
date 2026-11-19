@@ -17,3 +17,14 @@ export function micStateMessage(state: MicState) {
             return '';
     }
 }
+
+// 選んだマイクがないので、OS に任せて開いたとき（#449）
+export function micFallbackMessage(label: string) {
+    const name = label ? `（${label}）` : '';
+    return `選んだマイク${name}が見つからないため、OS の既定のマイクで録音します`;
+}
+
+// 開き直した・切り替えたあとの知らせに、どのマイクで録っているかを添える（#449。内蔵のマイクに変わったことに気づけるように）
+export function withMicLabel(message: string, label: string | undefined) {
+    return label ? `${message}（${label}）` : message;
+}
