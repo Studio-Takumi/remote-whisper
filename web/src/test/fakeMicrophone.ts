@@ -10,6 +10,8 @@ export type FakeMicrophone = {
     setState: (state: MicState) => void;
     // 次に開くマイクの状態（開き直してもまだ止まっているときを試す）
     openState: MicState;
+    // 置くと、開くのをこれが終わるまで待たせる（開き直している途中を試す）
+    gate: Promise<void> | null;
     opened: number;
     closed: number;
 };
@@ -26,11 +28,15 @@ export function fakeMicrophone(Microphone: typeof RealMicrophone): FakeMicrophon
             }
         },
         openState: 'ok',
+        gate: null,
         opened: 0,
         closed: 0,
     };
     vi.spyOn(Microphone, 'open').mockImplementation(async (handler, _processing, onState) => {
         fake.opened += 1;
+        if (fake.gate) {
+            await fake.gate;
+        }
         onPcm = handler;
         const opened = { state: fake.openState, onState };
         current = opened;

@@ -30,7 +30,7 @@ export function countRecorded(r: Recorder, pcm: Int16Array) {
     }
 }
 
-// 割り込みのあと自動で録音に戻すもの（#447）。戻している間に届かなかった音声は詰める（一時停止と同じ。spec/flows.md 6.7）
+// 割り込みのあと自動で録音に戻すもの（#447）。止まっていた間の時刻の扱いは spec/flows.md 6.7
 function micRecoveryOf(r: Recorder) {
     r.micRecovery ??= new MicRecovery({
         active: () => r.store.getState().recordingState === 'recording' && !!r.mic,
@@ -69,7 +69,9 @@ export async function openMicrophone(r: Recorder) {
             micRecoveryOf(r).changed(micState);
         },
     );
+    // 開いた時点で止まっていたときも戻せるよう、見張り始めてから今の状態を伝える
     micRecoveryOf(r).start();
+    micRecoveryOf(r).changed(mic.state());
     return mic;
 }
 
@@ -342,8 +344,20 @@ export async function reopenMicrophone(r: Recorder) {
     }
 }
 
+// 開き直している途中のもの。手動と自動が重なっても、getUserMedia を 1 本にする（#447）
+const swapping = new WeakMap<Recorder, Promise<void>>();
+
 // 止まったトラックは戻らないので、マイクを開き直す（送信と経過時間はそのまま続く）
-async function swapMicrophone(r: Recorder) {
+function swapMicrophone(r: Recorder) {
+    let running = swapping.get(r);
+    if (!running) {
+        running = replaceMicrophone(r).finally(() => swapping.delete(r));
+        swapping.set(r, running);
+    }
+    return running;
+}
+
+async function replaceMicrophone(r: Recorder) {
     const next = await openMicrophone(r);
     // 開いている間に録音を終えていたら、開いたものを閉じる
     if (!r.mic || r.store.getState().recordingState === 'idle') {

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { useAppStore as Store } from '@/app/store';
+import type { MicState } from '@/features/recording/audio/microphone';
 import { RETRY_DELAYS } from '@/features/recording/micRecovery';
 import { type FakeConnection, fakeConnection } from '@/test/fakeConnection';
 import { type FakeMicrophone, fakeMicrophone } from '@/test/fakeMicrophone';
@@ -13,21 +14,24 @@ let store: typeof Store;
 let ws: FakeConnection;
 let mic: FakeMicrophone;
 
-async function startRecording() {
+// openState は、録音を始めるときに開くマイクの状態
+async function startRecording(openState: MicState = 'ok') {
     vi.resetModules();
     const { connection } = await import('@/api/connection');
     const { Microphone } = await import('@/features/recording/audio/microphone');
     ws = fakeConnection(connection);
     mic = fakeMicrophone(Microphone);
+    mic.openState = openState;
     ({ useAppStore: store } = await import('@/app/store'));
     await seedProjects(store, [{ id: 'p1', name: 'p1', path: '/p1', sessions: [] }]);
     store.setState({ selection: { projectId: 'p1', sessionId: null }, projectsLoaded: true });
     store.getState().connectServer();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     const starting = store.getState().startRecording();
     await vi.waitFor(() => expect(ws.log()).toContain('start'));
     ws.receive({ type: 'started', session: SESSION, sessionUuid: 'uuid-1' });
     await starting;
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    mic.openState = 'ok';
 }
 
 beforeEach(() => {
@@ -43,12 +47,12 @@ afterEach(async () => {
 });
 
 describe('割り込みのあと録音に戻る', () => {
-    it('マイクが止まったら開き直し、同じセッションのまま送り続ける（止まっていた間は詰める）', async () => {
+    it('マイクが止まったら開き直し、同じセッションのまま送り続ける（届いた分だけ数える）', async () => {
         await startRecording();
         mic.speak(8000);
         mic.setState('muted');
         expect(store.getState().micState).toBe('muted');
-        // 止まっている間は何も届かない
+        // 偽のマイクは、止まっている間は何も流さない
         await vi.advanceTimersByTimeAsync(RETRY_DELAYS[0]);
         expect(mic.opened).toBe(2);
         expect(mic.closed).toBe(1);
@@ -83,6 +87,47 @@ describe('割り込みのあと録音に戻る', () => {
         // 自然に戻ったら（unmute）、それ以上は試さない
         mic.setState('ok');
         await vi.advanceTimersByTimeAsync(RETRY_DELAYS.at(-1)! * 2);
+        expect(mic.opened).toBe(2);
+        expect(store.getState().micState).toBe('ok');
+    });
+
+    it('開き直している途中で録音を終えたら、開いたマイクを閉じ、それ以上は開かない', async () => {
+        await startRecording();
+        let release = () => {};
+        mic.gate = new Promise((resolve) => (release = resolve));
+        mic.setState('muted');
+        await vi.advanceTimersByTimeAsync(RETRY_DELAYS[0]);
+        expect(mic.opened).toBe(2);
+        await store.getState().stopRecording();
+        release();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(mic.opened - mic.closed).toBe(0);
+        window.dispatchEvent(new Event('focus'));
+        await vi.advanceTimersByTimeAsync(RETRY_DELAYS.at(-1)! * 2);
+        expect(mic.opened).toBe(2);
+    });
+
+    it('手動の開き直しと自動の開き直しが重なっても、開くのは 1 回で、残るマイクは 1 つ', async () => {
+        await startRecording();
+        let release = () => {};
+        mic.gate = new Promise((resolve) => (release = resolve));
+        mic.setState('ended');
+        await vi.advanceTimersByTimeAsync(RETRY_DELAYS[0]);
+        expect(mic.opened).toBe(2);
+        const manual = store.getState().reopenMicrophone();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(mic.opened).toBe(2);
+        release();
+        await manual;
+        await vi.advanceTimersByTimeAsync(0);
+        expect(mic.opened - mic.closed).toBe(1);
+        expect(store.getState().micState).toBe('ok');
+    });
+
+    it('開いた時点で止まっていても、戻す', async () => {
+        await startRecording('muted');
+        expect(store.getState().micState).toBe('muted');
+        await vi.advanceTimersByTimeAsync(RETRY_DELAYS[0]);
         expect(mic.opened).toBe(2);
         expect(store.getState().micState).toBe('ok');
     });
