@@ -47,6 +47,13 @@ export function useRecorder(plugin: RecorderPlugin) {
 
     useEffect(() => {
         let active = true;
+        // 購読できなかったら（プラグインが登録されていないなど）文言を出し、未処理の reject にしない
+        const failed = (e: unknown) => {
+            if (active) {
+                setView((v) => ({ ...v, error: recorderErrorMessage(e) }));
+            }
+            return null;
+        };
         const handles = [
             plugin.addListener('stateChange', (e) => {
                 setView((v) => ({
@@ -60,7 +67,7 @@ export function useRecorder(plugin: RecorderPlugin) {
                 }
             }),
             plugin.addListener('progress', (e) => setView((v) => ({ ...v, seconds: e.seconds }))),
-        ];
+        ].map((handle) => handle.catch(failed));
         void plugin
             .getStatus()
             .then((s) => active && setView((v) => ({ ...v, state: s.state, file: s.file, seconds: s.seconds })))
@@ -73,7 +80,7 @@ export function useRecorder(plugin: RecorderPlugin) {
             active = false;
             // addListener は Promise を返すので、解決してから外す
             for (const handle of handles) {
-                void handle.then((h) => h.remove());
+                void handle.then((h) => h?.remove()).catch(() => {});
             }
         };
     }, [plugin, refresh]);

@@ -25,6 +25,12 @@ export async function readRecordingFile(
     let size = file.size;
     while (offset < size) {
         const chunk = await plugin.readRecording({ name: file.name, offset, length: READ_CHUNK_BYTES });
+        // 頼んだ位置と違うところを返したら、つなぐと壊れるので止める（ネイティブ側の不具合に気づけるように）
+        if (chunk.offset !== offset) {
+            throw Object.assign(new Error(`readRecording returned offset ${chunk.offset}, expected ${offset}`), {
+                code: 'io',
+            });
+        }
         const bytes = decodeBase64(chunk.data);
         // 終わりを越えたら data は空。読んでいる間に小さくなっても止まる
         if (bytes.length === 0) {

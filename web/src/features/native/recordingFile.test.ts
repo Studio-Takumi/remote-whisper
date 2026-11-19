@@ -67,6 +67,18 @@ describe('readRecordingFile', () => {
         expect(plugin.readRecording).toHaveBeenCalledTimes(2);
     });
 
+    it('頼んだ位置と違う offset が返ったら、io で失敗にする', async () => {
+        const plugin = {
+            readRecording: vi.fn(async ({ offset = 0 }) => ({
+                data: toBase64(new Uint8Array([1, 2, 3])),
+                offset: offset === 0 ? 0 : offset + 1,
+                size: 10,
+            })),
+        };
+        await expect(readRecordingFile(plugin, file(10))).rejects.toMatchObject({ code: 'io' });
+        expect(plugin.readRecording).toHaveBeenCalledTimes(2);
+    });
+
     it('空のファイルは読みに行かない', async () => {
         const plugin = fakePlugin(new Uint8Array(), 1000);
         const result = await readRecordingFile(plugin, file(0));
