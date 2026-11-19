@@ -50,6 +50,31 @@ describe('選んだマイクを覚える', () => {
         expect(loadChosenMic()).toBeNull();
         localStorage.setItem('rw.micDevice', JSON.stringify({ deviceId: '', label: 'x' }));
         expect(loadChosenMic()).toBeNull();
+        localStorage.setItem('rw.micDevice', JSON.stringify({ deviceId: 'usb' }));
+        expect(loadChosenMic()).toBeNull();
+        localStorage.setItem('rw.micDevice', JSON.stringify({ deviceId: 1, label: 'x' }));
+        expect(loadChosenMic()).toBeNull();
+        localStorage.setItem('rw.micDevice', 'null');
+        expect(loadChosenMic()).toBeNull();
+    });
+
+    it('localStorage が例外を投げても、OS に任せる（保存は黙って諦める）', () => {
+        vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+            throw new Error('blocked');
+        });
+        vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+            throw new Error('blocked');
+        });
+        expect(() => saveChosenMic(USB)).not.toThrow();
+        expect(loadChosenMic()).toBeNull();
+    });
+
+    it('localStorage そのものを使えないときも、OS に任せる', () => {
+        vi.spyOn(window, 'localStorage', 'get').mockImplementation(() => {
+            throw new Error('denied');
+        });
+        expect(() => saveChosenMic(USB)).not.toThrow();
+        expect(loadChosenMic()).toBeNull();
     });
 });
 
@@ -153,6 +178,15 @@ describe('選んだマイクで開く', () => {
         saveChosenMic(USB);
         vi.mocked(Microphone.open).mockRejectedValue(new MicrophoneError('denied', '許可されていません'));
         await expect(open()).rejects.toMatchObject({ reason: 'denied' });
+        expect(onFallback).not.toHaveBeenCalled();
+    });
+
+    it('localStorage が例外を投げるときは、今までどおり OS に任せて開く', async () => {
+        vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+            throw new Error('blocked');
+        });
+        await open();
+        expect(opened).toEqual([undefined]);
         expect(onFallback).not.toHaveBeenCalled();
     });
 });
