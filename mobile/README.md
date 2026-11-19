@@ -37,7 +37,7 @@
 
 ### http を開けるのは Debug のビルドだけ
 
-iOS は既定で http を開かない（ATS）。開発用の Vite（`http://localhost:5190`）を開けるよう、Debug のビルドだけ ATS の例外を足している（Build Phases の「Allow http in Debug」が、できあがった Info.plist に `NSAllowsArbitraryLoads` を足す）。Release は https の URL しか開けない。
+iOS は既定で http を開かない（ATS）。開発用の Vite（`http://localhost:5190`）を開けるよう、Debug のビルドだけ ATS の例外を足している（Build Phases の「Allow http in Debug」が、できあがった Info.plist に `NSAllowsLocalNetworking` を足す）。開けるのは localhost・`.local` などのローカルの宛先だけで、Release は https の URL しか開けない。
 
 ## ビルド
 

@@ -18,7 +18,7 @@ iOS の PWA は、画面ロック中やバックグラウンドで録音を続�
   - `webDir` は `../web/dist` を指す。表示には使わないが `cap sync` が要る
   - 開いた画面は普通のブラウザと同じく `/api/...`・`/ws` を同じオリジンで使う。iOS アプリのための API は足さない
 - URL はリポジトリに入れない（公開しているため）。環境変数 `RW_SERVER_URL` か、Git に入れない `mobile/.env.local` から `capacitor.config.ts` が読み、`cap sync` のときにアプリの中の設定に書く。ないときは同梱の `web/dist` を開くだけになる（警告を出す）
-- 本番の URL は Tailscale の https の前提。http を開ける ATS の例外は **Debug のビルドだけ** に足す（ビルドの途中で、できあがった Info.plist に `NSAllowsArbitraryLoads` を足す）。開発用の Vite（`http://localhost:5190`）をシミュレーターで開くのに使う
+- 本番の URL は Tailscale の https の前提。http を開ける ATS の例外は **Debug のビルドだけ** に足す（ビルドの途中で、できあがった Info.plist に `NSAllowsLocalNetworking` を足す。開けるのはローカルの宛先だけ）。開発用の Vite（`http://localhost:5190`）をシミュレーターで開くのに使う
 - 署名の個人の値（Team ID・自分用の Bundle ID）は、Git に入れない `ios/App/Local.xcconfig` に書く。`project.pbxproj` には入れない
 - 分かっていること：今の画面は safe area（ノッチ・ステータスバーの領域）を見ていないので、アプリの中で開くと上のバーがステータスバーに重なる（PR1 のシミュレーターで確認。WebView の `contentInset` では fixed の要素は動かないので直らない）。直すなら web/ 側で `env(safe-area-inset-*)` を使う。検証の妨げにならなければ後回し
 

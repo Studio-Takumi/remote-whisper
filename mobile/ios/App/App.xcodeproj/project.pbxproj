@@ -176,7 +176,7 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			showEnvVarsInLog = 0;
-			shellScript = "# Debug のビルドだけ、開発用の http の URL（Vite など）を開けるように ATS の例外を足す（#438）。\n# Release は足さない（本番の URL は Tailscale の https の前提。mobile/README.md）\nif [ \"${CONFIGURATION}\" = \"Debug\" ]; then\n  plist=\"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\n  /usr/libexec/PlistBuddy -c \"Delete :NSAppTransportSecurity\" \"$plist\" 2>/dev/null || true\n  /usr/libexec/PlistBuddy -c \"Add :NSAppTransportSecurity dict\" -c \"Add :NSAppTransportSecurity:NSAllowsArbitraryLoads bool true\" \"$plist\"\nfi\n";
+			shellScript = "# Debug のビルドだけ、開発用の http の URL（localhost の Vite など）を開けるように ATS の例外を足す（#438）。\n# 範囲はローカルの宛先だけ（NSAllowsLocalNetworking）。Release は足さない（本番の URL は Tailscale の https の前提。mobile/README.md）\nif [ \"${CONFIGURATION}\" = \"Debug\" ]; then\n  plist=\"${TARGET_BUILD_DIR}/${INFOPLIST_PATH}\"\n  /usr/libexec/PlistBuddy -c \"Delete :NSAppTransportSecurity\" \"$plist\" 2>/dev/null || true\n  /usr/libexec/PlistBuddy -c \"Add :NSAppTransportSecurity dict\" -c \"Add :NSAppTransportSecurity:NSAllowsLocalNetworking bool true\" \"$plist\"\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
