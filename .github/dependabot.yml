@@ -34,7 +34,7 @@ updates:
         update-types: [minor, patch]
 
   # server/uv.lock。torch 系は CUDA 12.8 版・torchaudio・pyannote・whisperx との組み合わせを固定しているので、
-  # 単独では上げない（#287）
+  # 単独では上げない（#287。torch が引き込む nvidia-*-cu12 も同じ。#435）
   - package-ecosystem: uv
     directory: /server
     schedule:
@@ -44,6 +44,9 @@ updates:
       - dependency-name: torch
       - dependency-name: torchaudio
       - dependency-name: torchvision
+      # torch が版を固定して引き込む CUDA のライブラリ。単独で上げると解けなくなる（#435）。
+      # nvidia-ml-py は torch と関係ないので対象にしない
+      - dependency-name: "nvidia-*-cu12"
     groups:
       server-minor-and-patch:
         update-types: [minor, patch]
