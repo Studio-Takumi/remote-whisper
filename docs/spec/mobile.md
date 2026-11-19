@@ -22,6 +22,7 @@ iOS の PWA は、画面ロック中やバックグラウンドで録音を続�
 - 本番の URL は Tailscale の https の前提。http を開ける ATS の例外は **Debug のビルドだけ** に足す（ビルドの途中で、できあがった Info.plist に `NSAllowsLocalNetworking` を足す。開けるのはローカルの宛先だけ）。開発用の Vite（`http://localhost:5190`）をシミュレーターで開くのに使う
 - 署名の個人の値（Team ID・自分用の Bundle ID）は、Git に入れない `ios/App/Local.xcconfig` に書く。`project.pbxproj` には入れない
 - 分かっていること：今の画面は safe area（ノッチ・ステータスバーの領域）を見ていないので、アプリの中で開くと上のバーがステータスバーに重なる（PR1 のシミュレーターで確認。WebView の `contentInset` では fixed の要素は動かないので直らない）。直すなら web/ 側で `env(safe-area-inset-*)` を使う。検証の妨げにならなければ後回し
+- 候補（実機の結果を見て決める）：経路の変化の保険。`AVAudioEngineConfigurationChange` は入力の形式が変わったときだけ来るので、`AVAudioSession.routeChangeNotification` も見て、`recording` なのにエンジンが止まっていたら作り直す（11.3 節）
 
 ## 11.3 録音のプラグイン
 
@@ -54,12 +55,14 @@ iOS の PWA は、画面ロック中やバックグラウンドで録音を続�
 |---|---|---|
 | `user` | JS から `start`・`stop` を呼んだ | `recording`・`idle` |
 | `interruption` | 割り込み（電話・Siri・ほかのアプリの録音など）が始まった | `interrupted` |
-| `resumed` | 割り込みが終わり、OS が再開してよいと言った（`shouldResume`）ので続きを録り始めた | `recording` |
-| `interruptionEnded` | 割り込みが終わったが、`shouldResume` がなかったので止めた | `idle` |
+| `resumed` | 割り込みが終わった（または前面に戻った）ので、続きを録り始めた | `recording` |
+| `interruptionEnded` | 割り込みが終わったので再開を試みたが、できなかったので止めた（ほかのアプリが音声を使い続けているなど） | `idle` |
 | `routeChange` | 入力の経路が変わった（イヤホンを抜いた・挿したなど）。エンジンを新しい入力で作り直して録り続ける | `recording` |
 | `mediaServicesReset` | メディアサービスがリセットされた。録音中ならエンジンを作り直して録り続ける | `recording` |
 | `error` | 録り続けられなくなった（エンジンを作り直せない・書き込めない） | `idle` |
 
+- **割り込みが終わったら、`shouldResume` の有無にかかわらず再開を試みる。** 講義の録音では画面ロックのままのことが多く、止まっても気づけず残りを全部失う。録音を勝手に再開しても音は鳴らない。`shouldResume` がないのはほかのアプリが音声を使い続けているときが多く、そのときは再開（`setActive(true)`）が失敗するので、`interruptionEnded` で止める。`shouldResume` の有無はログに出す
+- 割り込みの終わりは必ず届くとは限らないので、アプリが前面に戻ったとき（`willEnterForeground`）にまだ `interrupted` なら再開を試みる。できなければ止めずに、割り込みの終わりを待つ
 - 割り込み中の経路の変化・リセットは何もしない（再開するときにエンジンを作り直す）。アプリが止められていたことを後から知らせる割り込み（`appWasSuspended`）は割り込みとして扱わない
 - 割り込みで止まっていた間は録らない（ファイルの時間は詰まる）
 
@@ -73,7 +76,7 @@ iOS の PWA は、画面ロック中やバックグラウンドで録音を続�
 | `stop()` | なし | `{ file: RecordingFile }` | 割り込み中（`interrupted`）でも止められる |
 | `getStatus()` | なし | `{ state, file?: string, seconds: number }` | |
 | `listRecordings()` | なし | `{ files: RecordingFile[] }` | 新しい順。録音中のファイルも入る |
-| `readRecording({ name, offset?, length? })` | `offset` 既定 0、`length` 既定・上限 4MiB | `{ data: string（base64）, offset: number, size: number（ファイル全体） }` | 終わりを越えたら `data` は空 |
+| `readRecording({ name, offset?, length? })` | `offset` 既定 0、`length` 既定・上限 4MiB | `{ data: string（base64）, offset: number, size: number（ファイル全体） }` | 終わりを越えたら `data` は空。`offset`・`length` が負なら `invalid-argument` |
 | `deleteRecording({ name })` | | なし | 録音中のファイルは消せない |
 
 `RecordingFile` は `{ name: string, durationSec: number, size: number（バイト）, createdAt: string, modifiedAt: string }`（日時は ISO 8601）。
@@ -83,7 +86,7 @@ iOS の PWA は、画面ロック中やバックグラウンドで録音を続�
 | `stateChange` | `{ state, reason, file?: RecordingFile }` | 状態が変わったとき・経路の変化などで作り直したとき。`idle` になったときは録ったファイルが `file` に入る |
 | `progress` | `{ seconds: number }` | 録っている間、1 秒ごと（録った長さ。割り込みで止まっていた間は増えない） |
 
-失敗したときは reject し、`code` は `permission-denied`（マイクが許可されていない）・`already-recording`・`not-recording`・`no-input`（入力の装置がない）・`invalid-name`（このアプリの録音ファイルの名前でない）・`not-found`・`busy`（録音中のファイルを消そうとした）・`io`（そのほか）。
+失敗したときは reject し、`code` は `permission-denied`（マイクが許可されていない）・`already-recording`・`not-recording`・`no-input`（入力の装置がない）・`invalid-name`（このアプリの録音ファイルの名前でない）・`invalid-argument`（`readRecording` の `offset`・`length` が負）・`not-found`・`busy`（録音中のファイルを消そうとした）・`io`（そのほか）。
 
 ### ファイルを web に渡す方法
 
@@ -94,7 +97,7 @@ iOS の PWA は、画面ロック中やバックグラウンドで録音を続�
 
 ### テスト
 
-- `mobile/ios/App/AppTests`（XCTest。App の中で動く）：ファイル名・WAV のヘッダー・ヘッダーを直す間隔と落とされたあとの修復・置き場（一覧・区切って読む・消す・名前の確かめ）・状態の移り変わりの全部
+- `mobile/ios/App/AppTests`（XCTest。App の中で動く）：ファイル名・WAV のヘッダー・ヘッダーを直す間隔と落とされたあとの修復・置き場（一覧・区切って読む・消す・名前の確かめ）・状態の移り変わりの全部・形式の変換（合成した 48kHz・2ch の正弦波を続けて渡し、長さ・欠けがないこと・振幅を見る）
 - 本物のマイクで録るテスト（`RecorderMicTests`）は、`RW_MIC_TEST=1` のときだけ動く（マイクの許可と入力の装置が要るため）
 
 ## 11.4 web からの呼び出し
