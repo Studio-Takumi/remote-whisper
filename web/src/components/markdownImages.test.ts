@@ -52,8 +52,8 @@ describe('Markdown の画像', () => {
         );
         expect(container.querySelector('img')).toBeNull();
         expect(fetchingAttributes(container)).toEqual([]);
-        // 参照の形は Streamdown がブロックごとに読むので画像にならない。大文字のスキームは sanitize が src を落とす
-        expect(links(container)).toEqual(['画像: https://evil.example/p.png']);
+        // 参照の形もほかと同じくリンクにする。大文字のスキームは sanitize が src を落とす
+        expect(links(container)).toEqual(['画像: https://evil.example/ref.png', '画像: https://evil.example/p.png']);
     });
 
     it('raw HTML の画像や、外を読みに行く要素も止める', () => {
