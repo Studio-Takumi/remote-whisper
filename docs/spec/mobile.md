@@ -9,7 +9,8 @@ iOS の PWA は、画面ロック中やバックグラウンドで録音を続�
 - **検証用。** 確かめたいのは「画面ロックのまま 30 分録れるか」「割り込み（電話・Siri）でどう動くか」「電池の減り方」。ストアへの提出・クラウド版・ログイン・通知・Android は対象外
 - 置き場所はリポジトリ直下の `mobile/`。独立した npm のパッケージで、web/・server/・relay/ の CI・設定（tsconfig・lint・prettier）には入れない
 - Capacitor 8（`@capacitor/core`・`@capacitor/ios`・`@capacitor/cli` を同じ版で固定）。iOS の依存は Swift Package Manager で入れる（CocoaPods は使わない）
-- アプリ ID は `dev.studiotakumi.remotewhisper`（Capacitor はハイフンを許さない）。手元で変えるときは `ios/App/Local.xcconfig`
+- アプリ ID（Bundle ID）は `dev.studiotakumi.remotewhisper`（Capacitor はハイフンを許さない）。Capacitor の設定では `appId`、Xcode では `PRODUCT_BUNDLE_IDENTIFIER`（`ios/App/App.xcconfig`）。手元で変えるときは `ios/App/Local.xcconfig`
+- Capacitor は Dependabot に入れず、手で上げる。npm の `@capacitor/*`（3 つとも同じ版）と、`ios/App/CapApp-SPM/Package.swift` の `capacitor-swift-pm` の版は一緒に上げる必要があり、`npx cap sync ios` で `Package.swift` を書き直してからビルドを確かめる
 - 録音しながらサーバーへ送る（リアルタイム文字起こし）のは、この検証が通ったら別の Issue で
 
 ## 11.2 画面の開き方（`server.url`）
