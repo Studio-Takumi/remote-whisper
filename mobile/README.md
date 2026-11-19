@@ -3,7 +3,7 @@
 画面ロック中やバックグラウンドでも録音できるかを確かめるための、iOS アプリの土台（#438。仕様は [spec/mobile.md](../docs/spec/mobile.md)）。
 
 - セルフホスト版の画面を、アプリの中でそのまま開く（Capacitor の `server.url`）。web/ のコピーは持たない
-- 録音だけを Swift のプラグインでやる（#438 の PR2 で足す）
+- 録音だけを Swift のプラグイン（`ios/App/App/Recorder/`）でやる。16kHz・モノラルの WAV を、ファイルアプリから見える `recordings` フォルダに書く。web から呼ぶ操作は #438 の PR3 で足す
 - 検証用。ストアには出さない。クラウド版・Android は対象外
 
 ## 必要なもの
@@ -65,6 +65,23 @@ xcrun simctl launch booted dev.studiotakumi.remotewhisper
 
 シミュレーターの名前は `xcrun simctl list devices` で選ぶ。開発用のサーバーと Vite を開くなら、`RW_SERVER_URL=http://localhost:5190`（シミュレーターの localhost は Mac）にして、サーバーを `--port 8010 --mock`、Vite を `REMOTE_WHISPER_SERVER=http://localhost:8010 npx vite --port 5190` で起動しておく。
 
+### テスト
+
+```sh
+cd ios/App
+xcodebuild test -project App.xcodeproj -scheme App -sdk iphonesimulator \
+  -destination 'platform=iOS Simulator,name=iPhone 17' \
+  -derivedDataPath build CODE_SIGNING_ALLOWED=NO
+```
+
+本物のマイクで数秒録るテストは普段は飛ばす。回すときは、シミュレーターを起動してマイクを許可してから、`TEST_RUNNER_RW_MIC_TEST=1` を付けて上を実行する（Mac にマイクなどの入力の装置が要る。無いと `no-input` で失敗する）。
+
+```sh
+xcrun simctl boot "iPhone 17"
+xcrun simctl privacy "iPhone 17" grant microphone dev.studiotakumi.remotewhisper
+TEST_RUNNER_RW_MIC_TEST=1 xcodebuild test ...（上と同じ）
+```
+
 ### 実機に入れる
 
 1. 上の「設定」の 1・2 をし、「ビルド」の `npm ci`・web の build・`npx cap sync ios` もする（URL は iPhone から届く https のもの）
@@ -82,6 +99,9 @@ xcrun simctl launch booted dev.studiotakumi.remotewhisper
 | `capacitor.config.ts` | アプリ ID（`appId`。iOS の Bundle ID の初期値）・名前・`webDir`・`server.url`（`.env.local` か環境変数から） |
 | `ios/App/App.xcodeproj` | Xcode のプロジェクト（`npx cap add ios` で作ったもの） |
 | `ios/App/App.xcconfig` | Bundle ID など。`Local.xcconfig` があれば読む |
+| `ios/App/App/MainViewController.swift` | アプリの中だけのプラグイン（録音）を登録する画面 |
+| `ios/App/App/Recorder/` | 録音のプラグイン（JS 向けの API は spec/mobile.md 11.3） |
+| `ios/App/AppTests/` | 録音のプラグインのテスト（XCTest） |
 | `ios/App/CapApp-SPM/Package.swift` | Capacitor が管理する Swift Package（`cap sync` が書き直すので手で変えない） |
 
 `ios/App/App/public`・`capacitor.config.json`・`config.xml` は `cap sync` が作るので Git に入れない（`ios/.gitignore`）。
