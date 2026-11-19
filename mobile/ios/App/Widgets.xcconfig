@@ -1,0 +1,9 @@
+// Widget Extension のターゲットの設定（Live Activity。#453）
+// Bundle ID はアプリのもの（RW_APP_BUNDLE_IDENTIFIER）の後ろに .widgets を付ける。
+// Team ID・自分用の Bundle ID は App.xcconfig から読む Local.xcconfig に書く（Git に入れない）。
+// 古い Local.xcconfig で PRODUCT_BUNDLE_IDENTIFIER を書いていると、App だけが変わって Extension の埋め込みの検証で
+// 失敗する。そのときは RW_APP_BUNDLE_IDENTIFIER に書き換える
+
+#include "App.xcconfig"
+
+PRODUCT_BUNDLE_IDENTIFIER = $(RW_APP_BUNDLE_IDENTIFIER).widgets
