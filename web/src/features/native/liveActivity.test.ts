@@ -81,6 +81,7 @@ function makeStore() {
         recordingState: 'idle',
         recordingSessionId: null,
         elapsed: 0,
+        micState: 'ok',
         localSessions: [],
         ...actions,
     }));
@@ -147,6 +148,83 @@ describe('LiveActivitySync', () => {
             ],
             ['end'],
         ]);
+    });
+
+    it('録音中のセッションが変わったら start し直す', async () => {
+        const { store, set } = makeStore();
+        const { plugin, calls } = makePlugin();
+        new LiveActivitySync(store, plugin).start();
+        set({ recordingState: 'recording', recordingSessionId: 's1' });
+        set({ recordingSessionId: 's2', elapsed: 5 });
+        await flush();
+        expect(calls.map((c) => c[0])).toEqual(['end', 'start', 'start']);
+        expect(calls[2][1]).toMatchObject({ sessionId: 's2', elapsed: 5 });
+    });
+
+    it('マイクが止まった・戻ったときも update して経過時間を合わせ直す', async () => {
+        const { store, set } = makeStore();
+        const { plugin, calls } = makePlugin();
+        new LiveActivitySync(store, plugin).start();
+        set({ recordingState: 'recording', recordingSessionId: 's1', elapsed: 10 });
+        set({ micState: 'suspended', elapsed: 12 });
+        set({ micState: 'ok', elapsed: 12 });
+        await flush();
+        expect(calls.map((c) => c[0])).toEqual(['end', 'start', 'update', 'update']);
+        expect(calls[2][1]).toMatchObject({ state: 'recording', elapsed: 12 });
+    });
+
+    it('出せなかったら覚えず、経過時間のほかが変わったときに start し直す', async () => {
+        const { store, set } = makeStore();
+        const { plugin, calls } = makePlugin();
+        let shown = false;
+        plugin.start = async (o) => {
+            calls.push(['start', o]);
+            return { shown };
+        };
+        new LiveActivitySync(store, plugin).start();
+        set({
+            recordingState: 'recording',
+            recordingSessionId: 's1',
+            localSessions: [{ projectId: 'p', session: session(['a']) }],
+        });
+        await flush();
+        // 経過時間だけでは出し直さない
+        set({ elapsed: 1 });
+        set({ elapsed: 2 });
+        await flush();
+        expect(calls.map((c) => c[0])).toEqual(['end', 'start']);
+        // 録音中に設定で許可された。次に行が変わったときに出る
+        shown = true;
+        set({ localSessions: [{ projectId: 'p', session: session(['a', 'b']) }] });
+        await flush();
+        expect(calls.map((c) => c[0])).toEqual(['end', 'start', 'start']);
+        expect(calls[2][1]).toMatchObject({ lines: ['a', 'b'], elapsed: 2 });
+        // 出せたあとは今までどおり
+        set({ recordingState: 'paused' });
+        await flush();
+        expect(calls.map((c) => c[0])).toEqual(['end', 'start', 'start', 'update']);
+    });
+
+    it('start が失敗したら、次の状態の変化で start し直す', async () => {
+        const { store, set } = makeStore();
+        const { plugin, calls } = makePlugin();
+        let fail = true;
+        const start = plugin.start;
+        plugin.start = async (o) => {
+            if (fail) {
+                calls.push(['start-failed']);
+                throw new Error('unavailable');
+            }
+            return start(o);
+        };
+        new LiveActivitySync(store, plugin).start();
+        set({ recordingState: 'recording', recordingSessionId: 's1' });
+        await flush();
+        fail = false;
+        set({ recordingState: 'paused' });
+        await flush();
+        expect(calls.map((c) => c[0])).toEqual(['end', 'start-failed', 'start']);
+        expect(calls[2][1]).toMatchObject({ state: 'paused' });
     });
 
     it('一時停止・再開はすぐ update し、経過時間だけの変化では送らない', async () => {

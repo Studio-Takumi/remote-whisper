@@ -4,13 +4,15 @@
 import type { AppState, AppStore } from '@/app/appState';
 import type { LiveActivityAction, LiveActivityContent, LiveActivityPlugin } from '@/features/native/liveActivityTypes';
 import { findLocal } from '@/features/projects/localSessions';
+import type { MicState } from '@/features/recording/audio/microphone';
 
 // 出す行の数（Live Activity の 3 行）
 const LINES = 3;
 // 文字起こしの行の更新は、これより短い間隔では送らない（ActivityKit の更新の頻度の制限）
 export const LINE_UPDATE_INTERVAL_MS = 5000;
 
-export type LiveActivitySnapshot = LiveActivityContent & { sessionId: string };
+// mic はプラグインには送らない。マイクが止まった・戻ったときに経過時間を合わせ直すために見る（#447）
+export type LiveActivitySnapshot = LiveActivityContent & { sessionId: string; mic: MicState };
 
 // 録音していなければ null
 export function snapshotOf(s: AppState): LiveActivitySnapshot | null {
@@ -24,6 +26,7 @@ export function snapshotOf(s: AppState): LiveActivitySnapshot | null {
         elapsed: s.elapsed,
         title: session?.title ?? '',
         lines: (session?.transcript ?? []).slice(-LINES).map((x) => x.text),
+        mic: s.micState,
     };
 }
 
@@ -33,9 +36,12 @@ function content(s: LiveActivitySnapshot): LiveActivityContent {
     return { state: s.state, elapsed: s.elapsed, title: s.title, lines: s.lines };
 }
 
+// 最後に送ったもの。shown は出せたか（null は start の返事待ち。false は許可されていない・出せなかった）
+type Sent = { snapshot: LiveActivitySnapshot; shown: boolean | null };
+
 export class LiveActivitySync {
-    // 最後にプラグインに送ったもの。出していなければ null
-    private sent: LiveActivitySnapshot | null = null;
+    // 録音していなければ null
+    private sent: Sent | null = null;
     private timer: ReturnType<typeof setTimeout> | null = null;
     // プラグインは呼んだ順に流す（start の前に update が届かないように）
     private queue: Promise<unknown> = Promise.resolve();
@@ -72,35 +78,63 @@ export class LiveActivitySync {
             }
             return;
         }
-        if (!sent || sent.sessionId !== next.sessionId) {
-            this.send(next, true);
+        if (!sent || sent.snapshot.sessionId !== next.sessionId) {
+            this.startActivity(next);
             return;
         }
-        if (sent.state !== next.state) {
-            // 一時停止・再開はすぐ出す（経過時間もここで合わせ直す）
-            this.send(next, false);
+        const prev = sent.snapshot;
+        const linesChanged = !sameLines(prev.lines, next.lines) || prev.title !== next.title;
+        if (sent.shown === false) {
+            // 出せなかった（設定で許可されていないなど）。録音中に許可されたときのため、経過時間のほかが変わったら出し直す
+            if (prev.state !== next.state || prev.mic !== next.mic || linesChanged) {
+                this.startActivity(next);
+            }
+            return;
+        }
+        if (prev.state !== next.state || prev.mic !== next.mic) {
+            // 一時停止・再開はすぐ出す。マイクが止まった・戻ったとき（#447）も、経過時間をここで合わせ直す
+            this.updateActivity(next);
             return;
         }
         // 経過時間は端末が数えるので、変わっても送らない。行とタイトルは間引いて送る
-        if ((!sameLines(sent.lines, next.lines) || sent.title !== next.title) && !this.timer) {
+        if (linesChanged && !this.timer) {
             this.timer = setTimeout(() => {
                 this.timer = null;
                 const latest = snapshotOf(this.store.getState());
-                if (latest && this.sent?.sessionId === latest.sessionId) {
-                    this.send(latest, false);
+                if (latest && this.sent?.snapshot.sessionId === latest.sessionId) {
+                    this.updateActivity(latest);
                 }
             }, LINE_UPDATE_INTERVAL_MS);
         }
     }
 
-    private send(next: LiveActivitySnapshot, start: boolean) {
-        this.sent = next;
+    private startActivity(next: LiveActivitySnapshot) {
+        const sent: Sent = { snapshot: next, shown: null };
+        this.sent = sent;
         this.clearTimer();
+        // 返事が来るまでの間の変化は update で送る（出せていなければネイティブ側が何もしない）
+        const done = (shown: boolean) => {
+            if (this.sent === sent) {
+                sent.shown = shown;
+            }
+        };
         this.call(() =>
-            start
-                ? this.plugin.start({ sessionId: next.sessionId, ...content(next) })
-                : this.plugin.update(content(next)),
+            this.plugin.start({ sessionId: next.sessionId, ...content(next) }).then(
+                (r) => done(r.shown),
+                (e: unknown) => {
+                    done(false);
+                    throw e;
+                },
+            ),
         );
+    }
+
+    private updateActivity(next: LiveActivitySnapshot) {
+        if (this.sent) {
+            this.sent.snapshot = next;
+        }
+        this.clearTimer();
+        this.call(() => this.plugin.update(content(next)));
     }
 
     // Live Activity が出せなくても録音には関わらないので、失敗は捨てる
