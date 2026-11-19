@@ -72,6 +72,9 @@ public class RecorderPlugin: CAPPlugin, CAPBridgedPlugin {
         guard let name = call.getString("name") else { return call.reject("name がありません", "invalid-name") }
         let offset = call.getInt("offset") ?? 0
         let length = call.getInt("length") ?? RecordingStore.maxReadLength
+        guard offset >= 0, length >= 0 else {
+            return call.reject("offset と length は 0 以上にしてください", "invalid-argument")
+        }
         do {
             let size = try store.info(for: store.url(for: name)).size
             let data = try store.read(name: name, offset: offset, length: length)
