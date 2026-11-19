@@ -6,10 +6,14 @@ import { ThemeProvider } from 'next-themes';
 
 import { queryClient } from '@/app/query';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { startNativeShell } from '@/features/native/nativePlatform';
 import { answerViewQueries, resyncPush } from '@/features/settings/push';
 
 import App from './app/App.tsx';
 import './index.css';
+
+// iOS アプリ（#438）の中で開いたときだけ、safe area の余白などを当てる。ブラウザ版では何もしない
+startNativeShell();
 
 // 最終要約の通知（#245）。service worker に開いている画面を答え（そのセッションを開いていれば出さない）、
 // 通知をオンにしている端末では購読をホストに送り直す（クラウド版でホストが決まるのを少し待つ）

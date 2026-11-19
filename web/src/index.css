@@ -132,3 +132,19 @@
     @apply font-sans;
   }
 }
+
+/* iOS アプリ（#438。spec/mobile.md 11.4）の中で開いたときだけ（<html> の rw-native は nativePlatform.ts が付ける）、
+   ステータスバーとホームバーの領域（safe area）を空ける。ブラウザ版（Safari・PWA を含む）には当てない */
+.rw-native [data-slot='top-bar'] {
+  /* 上のバーは上に貼り付けて背景を塗っているので、余白を足せばステータスバーの下まで塗れる。
+     高さは --top-bar-height に出るので、下に貼るタブもずれる */
+  padding-top: calc(var(--spacing) * 4 + env(safe-area-inset-top));
+}
+.rw-native [data-slot='sheet-content'],
+.rw-native [data-slot='sidebar'][data-mobile='true'] {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.rw-native [data-slot='sheet-content'] > [data-slot='sheet-close'] {
+  top: calc(var(--spacing) * 3 + env(safe-area-inset-top));
+}
