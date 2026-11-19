@@ -11,6 +11,7 @@ import type { StatusReceiver } from '@/app/serverStatus';
 import { readProjectInfos } from '@/app/sessionData';
 import type { VersionJson } from '@/app/version';
 import { refreshContextSets } from '@/features/materials/contextSetCache';
+import { interruptOnPageHide, ownedSession } from '@/features/recording/closedRecordings';
 import { recordingConnectionChanged } from '@/features/recording/reconnect';
 import { loadUnsent } from '@/features/recording/unsentRecovery';
 import type { Watcher } from '@/features/recording/watcher';
@@ -46,6 +47,10 @@ function connectionChanged(ctx: ServerContext, connected: boolean) {
     }
     // 録音中に切れていたら、続きから録音する
     recordingConnectionChanged(recorder, connected);
+    if (connected && !isDemo) {
+        // 前にこの端末で録音していたページが閉じられていたら、待たずに終わりにする（#448）
+        void recorder.closed.interruptClosed();
+    }
 }
 
 function receive(ctx: ServerContext, m: ServerMessage) {
@@ -68,6 +73,9 @@ export function connectServer(ctx: ServerContext) {
     if (!isDemo) {
         // 前にページを開いていたときに、サーバーに届かなかった音声が残っていないか（#102）
         void loadUnsent(recorder);
+        // 録音しているセッションを端末に覚え、ページを閉じるときは終わりの合図を送る（#448）
+        store.subscribe(() => recorder.closed.track(ownedSession(recorder)));
+        window.addEventListener('pagehide', (e) => interruptOnPageHide(recorder, e.persisted));
         // 開いているセッションがほかのクライアントで録音中なら見る（#238）。一覧はキャッシュにあるので、両方を見る
         store.subscribe(() => ctx.watcher.sync());
         queryClient.getQueryCache().subscribe(() => ctx.watcher.sync());
