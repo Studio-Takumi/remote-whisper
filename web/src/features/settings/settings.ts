@@ -218,7 +218,7 @@ export const defaultSettings: Settings = {
         micShortcut: DEFAULT_MIC_SHORTCUT,
     },
     cloud: {
-        relayUrl: 'https://rw-dev.studio-takumi.dev',
+        relayUrl: 'https://rw.studio-takumi.dev',
         cloudflaredPath: '',
     },
     network: {

@@ -262,9 +262,9 @@ def test_display_mic_shortcut_rejects(client, value):
 
 
 def test_cloud_relay_url(client):
-    # 中間サーバーの URL は、既定は staging。録音中でも変えられる（#158）
+    # 中間サーバーの URL は、既定は本番（#167）。録音中でも変えられる（#158）
     assert client.get("/api/settings").json()["cloud"]["relayUrl"] == (
-        "https://rw-dev.studio-takumi.dev"
+        "https://rw.studio-takumi.dev"
     )
     res = client.patch("/api/settings", json={"cloud": {"relayUrl": "http://localhost:8787/"}})
     assert res.json()["cloud"]["relayUrl"] == "http://localhost:8787"
