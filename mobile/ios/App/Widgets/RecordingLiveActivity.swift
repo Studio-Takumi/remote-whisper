@@ -33,10 +33,11 @@ struct RecordingLiveActivity: Widget {
                     Wave(heights: [5, 10, 14, 8, 12])
                 }
             } compactTrailing: {
-                ElapsedText(state: state, showsHours: false)
+                // 1 時間を超えたら 1:12:34（時間を出さないと 72:34 になる）
+                ElapsedText(state: state)
                     .font(.system(size: 14, weight: .bold, design: .monospaced))
                     .foregroundColor(state.phase == .paused ? Palette.amber : .white)
-                    .frame(maxWidth: 52, alignment: .trailing)
+                    .frame(maxWidth: 68, alignment: .trailing)
             } minimal: {
                 if state.phase == .paused {
                     PauseMark(size: 12)
@@ -105,7 +106,7 @@ private struct StatusLabel: View {
             } else {
                 Circle().fill(Palette.red).frame(width: 8, height: 8)
             }
-            ElapsedText(state: state, showsHours: true)
+            ElapsedText(state: state)
                 .font(.system(size: size, weight: .bold, design: .monospaced))
                 .foregroundColor(state.phase == .paused ? Palette.amber : textColor)
         }
@@ -116,14 +117,13 @@ private struct StatusLabel: View {
 @available(iOS 16.1, *)
 private struct ElapsedText: View {
     let state: RecordingActivityState
-    let showsHours: Bool
 
     var body: some View {
         Text(
             timerInterval: state.startedAt...Date.distantFuture,
             pauseTime: state.pausedAt,
             countsDown: false,
-            showsHours: showsHours
+            showsHours: true
         )
         .monospacedDigit()
         .multilineTextAlignment(.leading)
