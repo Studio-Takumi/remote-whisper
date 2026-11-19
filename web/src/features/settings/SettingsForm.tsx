@@ -4,6 +4,8 @@ import type { SettingsOptions } from '@/api/protocol';
 import { Button } from '@/components/ui/button';
 import { DialogClose, DialogFooter } from '@/components/ui/dialog';
 import { Tabs, TabsContent } from '@/components/ui/tabs';
+import { IosAppPage } from '@/features/native/IosAppPage';
+import { NATIVE_SETTINGS_PAGE, isNativeApp } from '@/features/native/nativePlatform';
 import { recordingLocks } from '@/features/recording/recording';
 import { DisplayPage } from '@/features/settings/DisplayPage';
 import { MaterialsPage } from '@/features/settings/MaterialsPage';
@@ -48,6 +50,7 @@ export function SettingsForm({
     // 録音中に変えられない項目の理由。録音していなければ undefined（変えられる）
     const lock = (reason: string) => (recording ? reason : undefined);
     const isMobile = useIsMobile();
+    const native = isNativeApp();
 
     const update: UpdateSection = (section, patch) => {
         setDraft((d) => ({ ...d, [section]: { ...d[section], ...patch } }));
@@ -67,7 +70,7 @@ export function SettingsForm({
                 orientation={isMobile ? 'horizontal' : 'vertical'}
                 className='min-h-0 flex-1 gap-4 md:gap-6'
             >
-                <SettingsTabList isMobile={isMobile} />
+                <SettingsTabList isMobile={isMobile} native={native} />
                 <TabsContent value='whisper' className={PAGE}>
                     <WhisperPage draft={draft} options={options} update={update} lock={lock} />
                 </TabsContent>
@@ -113,16 +116,28 @@ export function SettingsForm({
                 <TabsContent value='setup' className={PAGE}>
                     <SetupPage settings={settings} />
                 </TabsContent>
+                {/* iOS アプリの中だけ。録音のプラグインを試す検証用の操作（#438。spec/mobile.md 11.4）。
+                    ネイティブを呼ぶコードは開いたときに別のチャンクから読み込む */}
+                {native && (
+                    <TabsContent value={NATIVE_SETTINGS_PAGE} className={PAGE}>
+                        <IosAppPage />
+                    </TabsContent>
+                )}
             </Tabs>
             <DialogFooter className='sm:items-center'>
                 {/* バージョンは左下に。スマホの幅（縦に逆順で並ぶ）ではボタンの下に回る */}
                 <div className='order-first sm:mr-auto'>
                     <VersionInfo />
                 </div>
-                <DialogClose asChild>
-                    <Button variant='outline'>キャンセル</Button>
-                </DialogClose>
-                <Button onClick={() => onSave(cleanForSave(draft))}>保存</Button>
+                {/* 「iOS アプリ」（#438）には保存するものがないので、ボタンを出さない */}
+                {page !== NATIVE_SETTINGS_PAGE && (
+                    <>
+                        <DialogClose asChild>
+                            <Button variant='outline'>キャンセル</Button>
+                        </DialogClose>
+                        <Button onClick={() => onSave(cleanForSave(draft))}>保存</Button>
+                    </>
+                )}
             </DialogFooter>
         </>
     );

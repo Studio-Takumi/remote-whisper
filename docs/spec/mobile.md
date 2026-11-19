@@ -10,7 +10,7 @@ iOS の PWA は、画面ロック中やバックグラウンドで録音を続�
 - 置き場所はリポジトリ直下の `mobile/`。独立した npm のパッケージで、web/・server/・relay/ の CI・設定（tsconfig・lint・prettier）には入れない
 - Capacitor 8（`@capacitor/core`・`@capacitor/ios`・`@capacitor/cli` を同じ版で固定）。iOS の依存は Swift Package Manager で入れる（CocoaPods は使わない）
 - アプリ ID（Bundle ID）は `dev.studiotakumi.remotewhisper`（Capacitor はハイフンを許さない）。Capacitor の設定では `appId`、Xcode では `PRODUCT_BUNDLE_IDENTIFIER`（`ios/App/App.xcconfig`）。手元で変えるときは `ios/App/Local.xcconfig`
-- Capacitor は Dependabot に入れず、手で上げる。npm の `@capacitor/*`（3 つとも同じ版）と、`ios/App/CapApp-SPM/Package.swift` の `capacitor-swift-pm` の版は一緒に上げる必要があり、`npx cap sync ios` で `Package.swift` を書き直してからビルドを確かめる
+- Capacitor は Dependabot に入れず、手で上げる。npm の `@capacitor/*`（3 つとも同じ版。web/ の `@capacitor/core` も。11.4 節）と、`ios/App/CapApp-SPM/Package.swift` の `capacitor-swift-pm` の版は一緒に上げる必要があり、`npx cap sync ios` で `Package.swift` を書き直してからビルドを確かめる
 - 録音しながらサーバーへ送る（リアルタイム文字起こし）のは、この検証が通ったら別の Issue で
 
 ## 11.2 画面の開き方（`server.url`）
@@ -21,7 +21,7 @@ iOS の PWA は、画面ロック中やバックグラウンドで録音を続�
 - URL はリポジトリに入れない（公開しているため）。環境変数 `RW_SERVER_URL` か、Git に入れない `mobile/.env.local` から `capacitor.config.ts` が読み、`cap sync` のときにアプリの中の設定に書く。ないときは同梱の `web/dist` を開くだけになる（警告を出す）
 - 本番の URL は Tailscale の https の前提。http を開ける ATS の例外は **Debug のビルドだけ** に足す（ビルドの途中で、できあがった Info.plist に `NSAllowsLocalNetworking` を足す。開けるのはローカルの宛先だけ）。開発用の Vite（`http://localhost:5190`）をシミュレーターで開くのに使う
 - 署名の個人の値（Team ID・自分用の Bundle ID）は、Git に入れない `ios/App/Local.xcconfig` に書く。`project.pbxproj` には入れない
-- 分かっていること：今の画面は safe area（ノッチ・ステータスバーの領域）を見ていないので、アプリの中で開くと上のバーがステータスバーに重なる（PR1 のシミュレーターで確認。WebView の `contentInset` では fixed の要素は動かないので直らない）。直すなら web/ 側で `env(safe-area-inset-*)` を使う。検証の妨げにならなければ後回し
+- safe area（ノッチ・ステータスバーの領域）：アプリの中で開くと上のバーがステータスバーに重なっていた（PR1。WebView の `contentInset` では fixed の要素は動かないので直らない）。web/ 側で、アプリの中でだけ `env(safe-area-inset-*)` の余白を当てて直した（11.4 節）
 - 候補（実機の結果を見て決める）：経路の変化の保険。`AVAudioEngineConfigurationChange` は入力の形式が変わったときだけ来るので、`AVAudioSession.routeChangeNotification` も見て、`recording` なのにエンジンが止まっていたら作り直す（11.3 節）
 
 ## 11.3 録音のプラグイン
@@ -68,7 +68,7 @@ iOS の PWA は、画面ロック中やバックグラウンドで録音を続�
 
 ### JS 向けの API
 
-型定義は PR3 で web/ に置く。ここに書いたものが正本。
+型定義は `web/src/features/native/recorderTypes.ts`。ここに書いたものが正本。
 
 | メソッド | 引数 | 返り値 | |
 |---|---|---|---|
@@ -102,4 +102,41 @@ iOS の PWA は、画面ロック中やバックグラウンドで録音を続�
 
 ## 11.4 web からの呼び出し
 
-PR3 で書く。予定は、アプリの中で開いているとき（`Capacitor.isNativePlatform()`）だけ検証用の録音の操作を出し、ネイティブ用のコードは dynamic import にしてブラウザ版のバンドルに入れないこと。
+アプリの中で開いているときだけ、検証用の録音の操作を出す。ブラウザ版（Safari・PWA を含む）の画面・動き・最初に読むファイルは変えない。コードは `web/src/features/native/`。
+
+### 見分け方とコードの分け方
+
+- **アプリの中かどうかは `window.Capacitor?.isNativePlatform()` で見る（`nativePlatform.ts`）。** Capacitor が画面の読み込み前に `window.Capacitor` を差し込むので、`@capacitor/core` を読み込まずに分かる
+- **ネイティブを呼ぶコード（`@capacitor/core`。プラグインの登録・SystemBars）は `nativeBridge.ts` にだけ置き、dynamic import で読み込む。** ブラウザ版では読み込まれない（別のチャンク `nativeBridge-*.js`）。`@capacitor/core` は web/ の依存に入れ、版は `mobile/` と同じにそろえる
+- 画面の部品（「iOS アプリ」ページ）は最初のチャンクに入れる（約 6KB。ブラウザ版では描かない）。部品を `lazy` で別のチャンクにすると、ビルドが共通のランタイムを別のファイルに分け、ブラウザ版の最初に読むファイルが 1 つ増えるため（PWA が最初に取っておくファイルにも入らない）
+- プラグインは Proxy なので、Promise の結果にそのまま渡さない（`then` を呼ばれ、ネイティブのメソッドとして呼びに行く）。`{ plugin }` に包んで返す
+
+### 入口（設定モーダルの「iOS アプリ」）
+
+- 設定モーダルのタブの最後に「iOS アプリ」を足す（URL は `/settings/ios`）。ブラウザ版ではタブを出さず、`/settings/ios` は知らないページとして最初のページを開く。ブラウザ版のタブの並びは変えない
+- 録音：状態（停止中・録音中・割り込み中）・経過時間（`progress`）・理由（最後の `stateChange` の `reason`）と、録音開始・録音停止のボタン。失敗したら `code` ごとの文言を出す（`no-input` は「マイクが見つかりません」など）
+- 録音ファイル：`listRecordings` の一覧（名前・長さ・大きさ・作成日時）。ファイルごとに「セッションを作る」と「削除」（ほかの画面と同じダイアログで確かめてから）。録音中のファイルはどちらも押せない。止まったとき（`idle` の `stateChange`）に一覧を取り直す
+- このタブには保存するものがないので、下の「保存」「キャンセル」は出さない（ほかのタブは今までどおり）
+- イベント（`stateChange`・`progress`）はページを開いている間だけ購読し、閉じたら外す。購読できなかったら（プラグインが登録されていないなど）文言を出す
+
+### ファイルの渡し方
+
+- 「セッションを作る」は、11.3 節のとおり `readRecording` を 4MiB ずつ `size` に届くまで呼び、base64 を戻してつなぎ、`File`（`type: 'audio/wav'`、`lastModified` は `modifiedAt`）にして、今の「音声ファイルから作る」の処理（ストアの `uploadAudio`。spec/flows.md 6.11）にそのまま渡す。アップロードの処理は変えない
+- 返ってきた `offset` が頼んだ位置と違ったら、つながずに `io` で失敗にする（ネイティブ側の不具合に気づけるように）
+- 分かっていること：読んだ分（`Uint8Array` の配列）と `new File(...)` のコピーが同時に乗るので、メモリはファイルの約 2 倍使う（1 時間で約 230MB）。検証用なのでこのまま。実機で長いファイルが落ちるなら、読みながら `Blob` につなぐ形にする
+- 入れる先は、今開いているプロジェクト（新規セッション画面・セッション画面で開いているもの）。今の「音声ファイルから作る」がそのプロジェクトの新規セッション画面にあるのにそろえた。開いていなければ押せない
+- 読んでいる間は「〜を読み込んでいます… N%」、送っている間は今のアップロードと同じく進み具合を出す。作れたらそのセッションが開く（設定モーダルは開いたまま）
+
+### safe area
+
+- アプリの中で開いたときだけ `<html>` に `rw-native` を付け、`index.css` の `.rw-native` の下だけで余白を当てる。ブラウザ版の CSS と `index.html` の meta は変えない（Safari・PWA の見た目が変わるため）
+  - 上のバー（`data-slot='top-bar'`）：上の余白に `env(safe-area-inset-top)` を足す。上に貼り付けて背景を塗っているので、ステータスバーの下まで塗れ、高さ（`--top-bar-height`）に入るので下に貼るタブもずれる
+  - サイドバー（スマホの幅）と参考資料メニューなどのシート：上下に `env(safe-area-inset-top)`・`env(safe-area-inset-bottom)`。閉じるボタンも下げる
+  - マイクボタンは前から `env(safe-area-inset-bottom)` を見ている
+- `env()` は `viewport-fit=cover` のときだけ値が入る。`index.html` の meta に前から付いているが、付いていなければアプリの中でだけ足す
+- ステータスバーの文字の色は、画面のテーマ（`<html>` の `.dark`）に合わせて Capacitor の `SystemBars.setStyle` で変える（既定は端末の外観に合わせるので、画面だけダークにすると文字が溶ける）。Capacitor 8 の SystemBars は iOS では余白を扱わないので、余白は CSS で当てる
+
+### 確かめ方
+
+- web のテスト（vitest）：ブラウザではタブも操作も出ず、`nativeBridge`・`@capacitor/core` を読み込まないこと。偽物のプラグインで、開始・停止・イベントの表示・購読の解除・一覧・「セッションを作る」に渡す `File`。分けて読んでつなぐところ
+- ブラウザ版が変わっていないこと：変更の前後で、Playwright で PC（1280 幅）とスマホ（390 幅）・ライトとダークの画面（最初の画面・新規セッション画面・セッション画面・サイドバー・設定モーダルの全部のタブ）を撮ってピクセルで比べる。`npm run build` の前後で、最初に読むファイル（`index.html` が読む JS・CSS）の数が変わらず、増えたチャンクが `nativeBridge-*.js` だけなことを見る

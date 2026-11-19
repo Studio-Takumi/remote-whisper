@@ -62,6 +62,8 @@ export function TopBar() {
     return (
         <div
             ref={ref}
+            // iOS アプリの中では、ステータスバーの分だけ上に余白を足す（index.css の .rw-native）
+            data-slot='top-bar'
             className='sticky top-0 z-20 -mx-4 -mt-4 flex flex-row items-center gap-1.5 bg-background px-4 pt-4 pb-2 sm:gap-2'
         >
             {/* スマホの幅ではサイドバーが隠れるので、開くボタンをここに出す */}
