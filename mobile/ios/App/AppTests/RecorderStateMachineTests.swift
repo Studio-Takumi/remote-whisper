@@ -19,11 +19,18 @@ final class RecorderStateMachineTests: XCTestCase {
 
     func testInterruptionThatResumes() {
         XCTAssertEqual(next(.recording, .interruptionBegan), t(.interrupted, .interruption, .pause))
-        XCTAssertEqual(next(.interrupted, .interruptionEnded(shouldResume: true)), t(.recording, .resumed, .restartEngine))
+        // shouldResume の有無にかかわらず、終わったら再開を試みる
+        XCTAssertEqual(next(.interrupted, .interruptionEnded), t(.recording, .resumed, .restartEngine))
     }
 
-    func testInterruptionThatDoesNotResumeStops() {
-        XCTAssertEqual(next(.interrupted, .interruptionEnded(shouldResume: false)), t(.idle, .interruptionEnded, .finish))
+    func testInterruptionThatCannotResumeStops() {
+        // 再開を試みてできなかったとき（Recorder が resumeFailed を送る）
+        XCTAssertEqual(next(.interrupted, .resumeFailed), t(.idle, .interruptionEnded, .finish))
+    }
+
+    func testComingToTheForegroundRetriesWhileInterrupted() {
+        XCTAssertEqual(next(.interrupted, .becameActive), t(.recording, .resumed, .restartEngine))
+        XCTAssertNil(next(.recording, .becameActive))
     }
 
     func testStopWhileInterrupted() {
@@ -45,7 +52,7 @@ final class RecorderStateMachineTests: XCTestCase {
     }
 
     func testIdleIgnoresSystemEvents() {
-        for event: RecorderEvent in [.interruptionBegan, .interruptionEnded(shouldResume: true), .routeChanged, .mediaServicesReset, .failed] {
+        for event: RecorderEvent in [.interruptionBegan, .interruptionEnded, .resumeFailed, .becameActive, .routeChanged, .mediaServicesReset, .failed] {
             XCTAssertNil(next(.idle, event), "\(event)")
         }
     }

@@ -18,7 +18,7 @@ enum RecorderReason: String {
     case interruption
     /// 割り込みが終わって、続きを録り始めた
     case resumed
-    /// 割り込みが終わったが、OS が再開してよいと言わなかったので止めた
+    /// 割り込みが終わったので再開を試みたが、できなかったので止めた（ほかのアプリが音声を使い続けているなど）
     case interruptionEnded
     /// 入力の経路が変わった（イヤホンを抜いた・挿したなど）。録音は続けている
     case routeChange
@@ -32,7 +32,13 @@ enum RecorderEvent: Equatable {
     case start
     case stop
     case interruptionBegan
-    case interruptionEnded(shouldResume: Bool)
+    /// 割り込みが終わった。`shouldResume` の有無にかかわらず再開を試みる（講義の録音では、止まると気づけず失うものが大きい。
+    /// 録音を勝手に再開しても音は鳴らない）。`shouldResume` はログにだけ出す
+    case interruptionEnded
+    /// 割り込みの終わりのあと、再開できなかった
+    case resumeFailed
+    /// アプリが前面に戻った。割り込みの終わりが届かなかったときの保険で、まだ止まっていれば再開を試みる
+    case becameActive
     case routeChanged
     case mediaServicesReset
     case failed
@@ -69,9 +75,10 @@ enum RecorderStateMachine {
             return RecorderTransition(to: .idle, reason: .user, action: .finish)
         case (.recording, .interruptionBegan):
             return RecorderTransition(to: .interrupted, reason: .interruption, action: .pause)
-        case (.interrupted, .interruptionEnded(shouldResume: true)):
+        case (.interrupted, .interruptionEnded), (.interrupted, .becameActive):
+            // 再開できなかったら、割り込みの終わりのときは resumeFailed で止め、前面に戻ったときは止まったまま待つ（Recorder）
             return RecorderTransition(to: .recording, reason: .resumed, action: .restartEngine)
-        case (.interrupted, .interruptionEnded(shouldResume: false)):
+        case (.interrupted, .resumeFailed):
             return RecorderTransition(to: .idle, reason: .interruptionEnded, action: .finish)
         case (.recording, .routeChanged):
             return RecorderTransition(to: .recording, reason: .routeChange, action: .restartEngine)

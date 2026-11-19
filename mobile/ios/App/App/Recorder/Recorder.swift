@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import UIKit
 
 enum RecorderError: Error {
     case permissionDenied
@@ -11,7 +12,8 @@ enum RecorderError: Error {
 /// マイクから録って、16kHz・モノラルの WAV に少しずつ書く（spec/mobile.md 11.3）。
 /// AVAudioSession（.record）＋ AVAudioEngine。画面ロック中・バックグラウンドでも録れるよう、
 /// Info.plist の UIBackgroundModes に audio を入れている。
-/// 状態はすべて `queue` の上で変える。コールバックも `queue` から呼ぶ
+/// 状態はすべて `queue` の上で変える。コールバックも `queue` から呼ぶ。
+/// 実機で何が起きたかを追えるよう、割り込み・形式の変化・失敗は `[Recorder]` を付けて NSLog に出す（mobile/README.md）
 final class Recorder {
     struct Status {
         let state: RecorderState
@@ -27,7 +29,8 @@ final class Recorder {
     private let store: RecordingStore
     private let session = AVAudioSession.sharedInstance()
     private let queue = DispatchQueue(label: "dev.studiotakumi.remotewhisper.recorder")
-    private let outputFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16000, channels: 1, interleaved: true)!
+    /// ファイルに書く形式（WavFormat.speech と同じ）
+    static let outputFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16000, channels: 1, interleaved: true)!
 
     private var state: RecorderState = .idle
     private var engine: AVAudioEngine?
@@ -49,8 +52,14 @@ final class Recorder {
             center.addObserver(forName: .AVAudioEngineConfigurationChange, object: nil, queue: nil) { [weak self] note in
                 self?.queue.async {
                     guard let self, let changed = note.object as? AVAudioEngine, changed === self.engine else { return }
+                    // 前の形式は、エンジンを作ったときの「入力の形式」のログ。作り直したあとの形式も同じログに出る
+                    NSLog("[Recorder] 入力の形式が変わりました（経路: \(self.session.currentRoute.inputs.map(\.portName))）")
                     self.handle(.routeChanged)
                 }
+            },
+            // 割り込みの終わりは必ず届くとは限らない。前面に戻ったとき、まだ止まっていれば再開を試みる
+            center.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: nil) { [weak self] _ in
+                self?.queue.async { self?.handle(.becameActive) }
             },
         ]
     }
@@ -58,9 +67,6 @@ final class Recorder {
     deinit {
         observers.forEach(NotificationCenter.default.removeObserver)
     }
-
-    /// 録っているファイル（ヘッダーを直す対象から外す）
-    var currentFileURL: URL? { queue.sync { writer?.url } }
 
     func status() -> Status {
         queue.sync { Status(state: state, file: writer?.url.lastPathComponent, seconds: writer?.seconds ?? 0) }
@@ -115,8 +121,17 @@ final class Recorder {
             do {
                 try restartEngine()
             } catch {
-                NSLog("[Recorder] エンジンを作り直せませんでした: \(error)")
-                return handle(.failed)
+                NSLog("[Recorder] エンジンを作り直せませんでした（\(event)）: \(error)")
+                switch event {
+                case .interruptionEnded:
+                    // 再開を試みたができなかった（ほかのアプリが音声を使い続けているなど）
+                    return handle(.resumeFailed)
+                case .becameActive:
+                    // 割り込みがまだ続いているかもしれないので、止まったまま割り込みの終わりを待つ
+                    return
+                default:
+                    return handle(.failed)
+                }
             }
         case .finish:
             info = finish()
@@ -139,16 +154,18 @@ final class Recorder {
         else { return }
         switch type {
         case .began:
+            let reasonRaw = info[AVAudioSessionInterruptionReasonKey] as? UInt
+            NSLog("[Recorder] 割り込みが始まりました（理由: \(reasonRaw.map { String($0) } ?? "なし")、状態: \(state.rawValue)）")
             // アプリが止められていた（suspended）ことを後から知らせるものは、割り込みではない
-            if let reasonRaw = info[AVAudioSessionInterruptionReasonKey] as? UInt,
-               AVAudioSession.InterruptionReason(rawValue: reasonRaw) == .appWasSuspended {
+            if let reasonRaw, AVAudioSession.InterruptionReason(rawValue: reasonRaw) == .appWasSuspended {
                 return
             }
             handle(.interruptionBegan)
         case .ended:
             let optionsRaw = info[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
             let shouldResume = AVAudioSession.InterruptionOptions(rawValue: optionsRaw).contains(.shouldResume)
-            handle(.interruptionEnded(shouldResume: shouldResume))
+            NSLog("[Recorder] 割り込みが終わりました（shouldResume: \(shouldResume)、状態: \(state.rawValue)）")
+            handle(.interruptionEnded)
         @unknown default:
             break
         }
@@ -157,10 +174,27 @@ final class Recorder {
     // MARK: - ファイルとエンジン
 
     private func begin() throws {
-        try session.setCategory(.record, mode: .default, options: [])
-        try session.setActive(true)
+        try activateSession()
         writer = try WavWriter(url: store.newFileURL())
         try startEngine()
+    }
+
+    private func activateSession() throws {
+        do {
+            try session.setCategory(.record, mode: .default, options: [])
+            try session.setActive(true)
+        } catch {
+            NSLog("[Recorder] 音声のセッションを有効にできませんでした: \(error)")
+            throw error
+        }
+    }
+
+    private func deactivateSession() {
+        do {
+            try session.setActive(false, options: .notifyOthersOnDeactivation)
+        } catch {
+            NSLog("[Recorder] 音声のセッションを無効にできませんでした: \(error)")
+        }
     }
 
     private func finish() -> RecordingInfo? {
@@ -172,7 +206,7 @@ final class Recorder {
         } catch {
             NSLog("[Recorder] ファイルを閉じられませんでした: \(error)")
         }
-        try? session.setActive(false, options: .notifyOthersOnDeactivation)
+        deactivateSession()
         return try? store.info(for: writer.url)
     }
 
@@ -183,13 +217,12 @@ final class Recorder {
             try? FileManager.default.removeItem(at: writer.url)
         }
         writer = nil
-        try? session.setActive(false, options: .notifyOthersOnDeactivation)
+        deactivateSession()
     }
 
     private func restartEngine() throws {
         stopEngine()
-        try session.setCategory(.record, mode: .default, options: [])
-        try session.setActive(true)
+        try activateSession()
         try startEngine()
     }
 
@@ -197,11 +230,11 @@ final class Recorder {
         let engine = AVAudioEngine()
         let input = engine.inputNode
         let inputFormat = input.outputFormat(forBus: 0)
+        NSLog("[Recorder] 入力の形式: \(inputFormat)")
         guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0,
-              let converter = AVAudioConverter(from: inputFormat, to: outputFormat)
+              let converter = Recorder.makeConverter(from: inputFormat)
         else { throw RecorderError.noInput }
-        converter.downmix = true
-        let outputFormat = self.outputFormat
+        let outputFormat = Recorder.outputFormat
         input.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
             // 変換はこのスレッドで済ませ（buffer はこの中でしか使えない）、書くのは queue で
             guard let pcm = Recorder.convert(buffer, with: converter, to: outputFormat) else { return }
@@ -234,7 +267,15 @@ final class Recorder {
         }
     }
 
-    private static func convert(_ buffer: AVAudioPCMBuffer, with converter: AVAudioConverter, to format: AVAudioFormat) -> Data? {
+    /// マイクの形式（48kHz の Float32・2ch など）から、書く形式（16kHz・モノラル・Int16）への変換器
+    static func makeConverter(from inputFormat: AVAudioFormat) -> AVAudioConverter? {
+        let converter = AVAudioConverter(from: inputFormat, to: outputFormat)
+        converter?.downmix = true
+        return converter
+    }
+
+    /// 1 つのバッファを変換する。続けて呼んでも欠けないよう、渡し終えたら `.noDataNow` を返して変換器の状態を引き継ぐ
+    static func convert(_ buffer: AVAudioPCMBuffer, with converter: AVAudioConverter, to format: AVAudioFormat = outputFormat) -> Data? {
         let ratio = format.sampleRate / buffer.format.sampleRate
         let capacity = AVAudioFrameCount((Double(buffer.frameLength) * ratio).rounded(.up)) + 32
         guard let output = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: capacity) else { return nil }
