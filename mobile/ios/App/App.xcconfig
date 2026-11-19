@@ -1,0 +1,11 @@
+// App ターゲットの設定（Debug・Release 共通。#438）
+// 個人の値（Team ID・自分用の Bundle ID）は、Git に入れない Local.xcconfig に書く（Local.xcconfig.example を写す）。
+// Xcode の「Signing & Capabilities」で Team を選ぶと project.pbxproj に Team ID が入るので、そこでは選ばない（mobile/README.md）
+
+PRODUCT_BUNDLE_IDENTIFIER = dev.studiotakumi.remotewhisper
+
+// Debug のビルドだけ http を開けるようにするスクリプト（Build Phases の「Allow http in Debug」）が、
+// できあがった Info.plist を書き換えるため、スクリプトのサンドボックスを切る
+ENABLE_USER_SCRIPT_SANDBOXING = NO
+
+#include? "Local.xcconfig"

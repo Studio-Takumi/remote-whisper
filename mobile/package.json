@@ -1,0 +1,19 @@
+{
+  "name": "remote-whisper-mobile",
+  "private": true,
+  "version": "0.0.0",
+  "description": "remote-whisper の iOS アプリ（検証用。#438）。セルフホスト版の画面を Capacitor の server.url で開く",
+  "scripts": {
+    "sync": "cap sync ios",
+    "open": "cap open ios"
+  },
+  "dependencies": {
+    "@capacitor/core": "8.6.2",
+    "@capacitor/ios": "8.6.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.6.2",
+    "@types/node": "24.19.2",
+    "typescript": "6.0.3"
+  }
+}

@@ -1,0 +1,7 @@
+// 手元だけの署名の設定。このファイルを Local.xcconfig に写して書き換える（Local.xcconfig は Git に入れない）
+// Team ID は Xcode の Settings → Accounts でチームを選ぶと出る（10 文字の英数字）
+
+DEVELOPMENT_TEAM = XXXXXXXXXX
+
+// 無料の Apple ID で dev.studiotakumi.remotewhisper が使えないとき（ほかの人が先に使っている等）は、自分用に変える
+// PRODUCT_BUNDLE_IDENTIFIER = com.example.remotewhisper
