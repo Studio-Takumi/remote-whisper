@@ -11,6 +11,7 @@ import { patchLocal, putLocal } from '@/features/projects/localSessions';
 import { Microphone, MicrophoneError, SAMPLE_RATE } from '@/features/recording/audio/microphone';
 import { clearSession, deleteUpTo, saveChunk } from '@/features/recording/audio/unsentStore';
 import { micStateMessage } from '@/features/recording/micMessages';
+import { MicRecovery } from '@/features/recording/micRecovery';
 import type { ErrorMessage, Recorder, StartedMessage } from '@/features/recording/recorderState';
 import { subscribeRecording } from '@/features/recording/recordingMessages';
 import { recordedSeconds } from '@/features/recording/recordingMetrics';
@@ -29,13 +30,27 @@ export function countRecorded(r: Recorder, pcm: Int16Array) {
     }
 }
 
+// 割り込みのあと自動で録音に戻すもの（#447）。戻している間に届かなかった音声は詰める（一時停止と同じ。spec/flows.md 6.7）
+function micRecoveryOf(r: Recorder) {
+    r.micRecovery ??= new MicRecovery({
+        active: () => r.store.getState().recordingState === 'recording' && !!r.mic,
+        state: () => r.mic?.state() ?? 'ended',
+        resume: async () => {
+            await r.mic?.restart();
+        },
+        reopen: () => swapMicrophone(r),
+        recovered: () => toast.success('録音に戻りました'),
+    });
+    return r.micRecovery;
+}
+
 // マイクを開く。届いた音声を送り、マイクが止まったら画面で知らせる（#102）。
 // 状態は開けたときに最初の知らせで決まる（開き直しに失敗したら、止まったままの警告を残す）
-export function openMicrophone(r: Recorder) {
+export async function openMicrophone(r: Recorder) {
     const { getState: get, setState: set } = r.store;
     // 古いサーバーは echoCancellation を返さない（そのときはオン）
     const { noiseSuppression, autoGainControl, echoCancellation = true } = get().settings.recording;
-    return Microphone.open(
+    const mic = await Microphone.open(
         (pcm, level) => {
             // 一時停止中の音声は送らない
             if (get().recordingState === 'recording' && r.sender) {
@@ -51,8 +66,11 @@ export function openMicrophone(r: Recorder) {
             if (micState !== 'ok' && before === 'ok' && get().recordingState !== 'idle') {
                 toast.error(micStateMessage(micState), { duration: 15000 });
             }
+            micRecoveryOf(r).changed(micState);
         },
     );
+    micRecoveryOf(r).start();
+    return mic;
 }
 
 // 届いていない音声を IndexedDB に置き、サーバーが受け取ったら消す（#102）
@@ -73,6 +91,7 @@ export function persistUnsent(target: AudioSender, sessionId: string, projectId:
 
 // マイクを閉じ、録音のためのメッセージの受け取りをやめる
 export function closeRecording(r: Recorder) {
+    r.micRecovery?.stop();
     r.mic?.close();
     r.mic = null;
     r.sender = null;
@@ -255,6 +274,10 @@ export function unpauseRecording(r: Recorder) {
     r.mic?.discard();
     connection.send({ type: 'unpause' });
     r.store.setState({ recordingState: 'recording' });
+    // 一時停止の間は自動で戻さないので、再開したときに止まっていれば戻す（#447）
+    if (r.mic) {
+        void micRecoveryOf(r).retryNow('unpause');
+    }
 }
 
 // 録音を終えたら、セッションの終了日時と状態を確定して、最終の要約を作り始める
@@ -277,6 +300,7 @@ export async function stopRecording(r: Recorder) {
         r.stoppedWhileOffline = sessionId;
     }
     // 最後に送った音声の ack を受け取れるように、購読は次の録音を始めるまで続ける
+    r.micRecovery?.stop();
     r.mic?.close();
     r.mic = null;
     const endedAt = formatDateTime();
@@ -311,12 +335,22 @@ export async function reopenMicrophone(r: Recorder) {
             await r.mic.restart();
             return;
         }
-        // 止まったトラックは戻らないので、マイクを開き直す（送信と経過時間はそのまま続く）
-        const next = await openMicrophone(r);
-        r.mic.close();
-        r.mic = next;
+        await swapMicrophone(r);
         toast.success('マイクを開き直しました。録音を続けています');
     } catch (e) {
         toast.error(`マイクを開き直せません: ${(e as Error).message}`);
     }
+}
+
+// 止まったトラックは戻らないので、マイクを開き直す（送信と経過時間はそのまま続く）
+async function swapMicrophone(r: Recorder) {
+    const next = await openMicrophone(r);
+    // 開いている間に録音を終えていたら、開いたものを閉じる
+    if (!r.mic || r.store.getState().recordingState === 'idle') {
+        r.micRecovery?.stop();
+        next.close();
+        return;
+    }
+    r.mic.close();
+    r.mic = next;
 }
