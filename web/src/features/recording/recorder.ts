@@ -8,9 +8,10 @@ import { replaceUrlNext } from '@/app/router';
 import { currentProject, currentSession } from '@/app/selectors';
 import { holdSession, projectIdOf } from '@/app/sessionData';
 import { patchLocal, putLocal } from '@/features/projects/localSessions';
-import { Microphone, MicrophoneError, SAMPLE_RATE } from '@/features/recording/audio/microphone';
+import { openChosenMicrophone } from '@/features/recording/audio/micDevice';
+import { MicrophoneError, SAMPLE_RATE } from '@/features/recording/audio/microphone';
 import { clearSession, deleteUpTo, saveChunk } from '@/features/recording/audio/unsentStore';
-import { micStateMessage } from '@/features/recording/micMessages';
+import { micFallbackMessage, micStateMessage, withMicLabel } from '@/features/recording/micMessages';
 import { MicRecovery } from '@/features/recording/micRecovery';
 import type { ErrorMessage, Recorder, StartedMessage } from '@/features/recording/recorderState';
 import { subscribeRecording } from '@/features/recording/recordingMessages';
@@ -39,18 +40,19 @@ function micRecoveryOf(r: Recorder) {
             await r.mic?.restart();
         },
         reopen: () => swapMicrophone(r),
-        recovered: () => toast.success('録音に戻りました'),
+        recovered: () => toast.success(withMicLabel('録音に戻りました', r.mic?.label())),
     });
     return r.micRecovery;
 }
 
 // マイクを開く。届いた音声を送り、マイクが止まったら画面で知らせる（#102）。
-// 状態は開けたときに最初の知らせで決まる（開き直しに失敗したら、止まったままの警告を残す）
+// 状態は開けたときに最初の知らせで決まる（開き直しに失敗したら、止まったままの警告を残す）。
+// 設定で選んだマイクで開き、ないときは OS に任せて知らせる（#449。自動・手動の開き直しも同じ）
 export async function openMicrophone(r: Recorder) {
     const { getState: get, setState: set } = r.store;
     // 古いサーバーは echoCancellation を返さない（そのときはオン）
     const { noiseSuppression, autoGainControl, echoCancellation = true } = get().settings.recording;
-    const mic = await Microphone.open(
+    const mic = await openChosenMicrophone(
         (pcm, level) => {
             // 一時停止中の音声は送らない
             if (get().recordingState === 'recording' && r.sender) {
@@ -68,6 +70,7 @@ export async function openMicrophone(r: Recorder) {
             }
             micRecoveryOf(r).changed(micState);
         },
+        (chosen) => toast.warning(micFallbackMessage(chosen.label), { duration: 15000 }),
     );
     // 開いた時点で止まっていたときも戻せるよう、見張り始めてから今の状態を伝える
     micRecoveryOf(r).start();
@@ -338,9 +341,22 @@ export async function reopenMicrophone(r: Recorder) {
             return;
         }
         await swapMicrophone(r);
-        toast.success('マイクを開き直しました。録音を続けています');
+        toast.success(withMicLabel('マイクを開き直しました。録音を続けています', r.mic?.label()));
     } catch (e) {
         toast.error(`マイクを開き直せません: ${(e as Error).message}`);
+    }
+}
+
+// 設定で録音に使うマイクを選び直したとき（#449）。録音中なら、録音を続けたまま選んだマイクで開き直す
+export async function switchMicrophone(r: Recorder) {
+    if (r.store.getState().recordingState === 'idle' || !r.mic) {
+        return;
+    }
+    try {
+        await swapMicrophone(r);
+        toast.success(withMicLabel('マイクを切り替えました。録音を続けています', r.mic?.label()));
+    } catch (e) {
+        toast.error(`マイクを切り替えられません: ${(e as Error).message}`);
     }
 }
 

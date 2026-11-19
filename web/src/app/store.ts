@@ -31,6 +31,7 @@ import {
     reopenMicrophone,
     startRecording,
     stopRecording,
+    switchMicrophone,
     unpauseRecording,
 } from '@/features/recording/recorder';
 import { createRecorder } from '@/features/recording/recorderState';
@@ -111,6 +112,7 @@ export const useAppStore = create<AppState>()((set, _get, store) => {
         resumeRecording: () => unpauseRecording(recorder),
         stopRecording: () => stopRecording(recorder),
         reopenMicrophone: () => reopenMicrophone(recorder),
+        switchMicrophone: () => switchMicrophone(recorder),
         recoverUnsent: () => recoverUnsent(recorder),
         discardUnsent: () => discardUnsent(recorder),
         discardUnsentElsewhere: (hosts) => discardUnsentElsewhere(recorder, hosts),

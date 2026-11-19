@@ -8,6 +8,7 @@ import type { AppStore } from '@/app/appState';
 import { readProjects } from '@/app/sessionData';
 import type { SessionSync } from '@/app/sessionSync';
 import { SourceJoin, forgetJoin, recalledJoin } from '@/features/recording/join';
+import { micFallbackMessage } from '@/features/recording/micMessages';
 import { applyLive } from '@/features/recording/recordingMessages';
 import { watchTarget } from '@/features/recording/watch';
 import { isLiveMessage } from '@/features/session/liveMessages';
@@ -121,7 +122,9 @@ export class Watcher {
         );
         this.joiner = join;
         try {
-            await join.start({ noiseSuppression, autoGainControl, echoCancellation }, rejoin);
+            await join.start({ noiseSuppression, autoGainControl, echoCancellation }, rejoin, (chosen) =>
+                toast.warning(micFallbackMessage(chosen.label), { duration: 15000 }),
+            );
         } catch (e) {
             this.joiner = null;
             forgetJoin(sessionId);

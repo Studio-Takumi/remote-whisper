@@ -102,6 +102,8 @@ export type AppState = {
     continueRecording: (sessionId: string) => Promise<void>;
     // 止まったマイクを開き直す（録音はそのまま続ける。#102）
     reopenMicrophone: () => Promise<void>;
+    // 設定で録音に使うマイクを選び直したとき。録音中なら、録音を続けたまま選んだマイクで開き直す（#449）
+    switchMicrophone: () => Promise<void>;
     // 拾った語を消す（誤った語。以後そのセッションでは足さない。#103）。手で足した語は外すだけ（#175）
     rejectTerm: (sessionId: string, term: string) => Promise<void>;
     // 用語リストに手で語を足す（#175）。足せたら true
