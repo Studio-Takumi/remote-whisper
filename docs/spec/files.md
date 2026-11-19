@@ -176,7 +176,7 @@
     "micShortcut": "Alt+Shift+KeyM"
   },
   "cloud": {
-    "relayUrl": "https://rw-dev.studio-takumi.dev",
+    "relayUrl": "https://rw.studio-takumi.dev",
     "cloudflaredPath": ""
   },
   "network": {
@@ -238,7 +238,7 @@
 - `display.showPickedTerms` は、文字起こしのタブに、用語リスト（文字起こし抽出）の一覧（`PickedTerms`）を出すか（#147）。既定は出さない。用語を拾うか（`ollama.pickTerms`）とは別の設定で、オフでも用語リスト（文字起こし抽出）は今までどおり hotwords に使う。
 - `display.showSpeakers` は、浄書済み文字起こしの行の頭の「話者 1」などの札と、版の選択肢の「話者 N 人」を出すか（#146）。話者分けの精度がまだ低いので、既定は出さない。話者分け（`whisper.diarize`）の処理と保存するファイル（行の「話者 1: 」を含む）は変えず、画面の表示だけが変わる。文字起こしの書き出しの機能はない。
 - `display.micShortcut` は、マイクボタンのキーボードのショートカット（#236。8 章）。修飾キー（`Ctrl`・`Alt`・`Shift`・`Meta` をこの順で、重ならず 1 つ以上）と、修飾キーでないキー（`KeyboardEvent.code`。`KeyM`・`Digit1`・`F2` など）を `+` でつなぐ。既定は `Alt+Shift+KeyM`。空なら使わない。形が違えば 422。ほかの表示の設定と同じく全体設定なので、どの端末でも同じキーになる。
-- `cloud.relayUrl` は、クラウド版の中間サーバー（Worker）の URL（#158。10.6 節）。トレイの「クラウド版にログイン」で申請する先。既定は staging の `https://rw-dev.studio-takumi.dev`（本番ができたら #167 で本番のドメインにする）。`https://` の URL か、ローカルの開発用の `http://localhost`（`127.0.0.1`）だけを受け付け、パス・クエリは付けられない（末尾の `/` は取る）。登録済みのホストは、登録したときの URL（`cloud.json`）を使い続ける。録音中も変えられる。
+- `cloud.relayUrl` は、クラウド版の中間サーバー（Worker）の URL（#158。10.6 節）。トレイの「クラウド版にログイン」で申請する先。既定は本番の `https://rw.studio-takumi.dev`（#167。staging で試すときは `https://rw-dev.studio-takumi.dev`）。`https://` の URL か、ローカルの開発用の `http://localhost`（`127.0.0.1`）だけを受け付け、パス・クエリは付けられない（末尾の `/` は取る）。登録済みのホストは、登録したときの URL（`cloud.json`）を使い続ける。録音中も変えられる。
 - `cloud.cloudflaredPath` は、cloudflared の実行ファイルの場所（#159。10.6 節）。空、または絶対パス（ネットワークのパス `\\` `//` は不可。`..` を含まない）でファイル名が `cloudflared` か `cloudflared.exe`（大文字小文字は無視）のものだけ受け付ける（違えば 422。設定は認証なしの API から変えられるため）。実行の直前にも同じ検証をし、通らなければ動かさない。空なら、配布用のビルド（`docs/install-windows.md`・`docs/install-mac.md`）に同梱の `cloudflared.exe`（Mac は `cloudflared`）を使い、同梱がなければ PATH の `cloudflared` を使う。どちらもなければトレイで通知して動かさない。録音中も変えられる（次に cloudflared を起動するときから使う）。
 - `network.allowedHosts` は、8000 番を開ける名前のうち、最初から許しているもの（IP アドレス・`localhost`・`*.ts.net`・この PC の名前・`--host` の名前）のほかに足す名前（#249。7.5 節）。HTTPS の中継の名前などを書く。既定は空。ホスト名か IP アドレスだけ（`http://` やポートは付けない。違えば 422）で、`*.example.com` と書くとその下の名前をすべて許す（`example.com` そのものは含まない）。`*.com` のようにラベルが 1 つだけのものと、IP アドレスに付けた `*.` は広すぎるので 422。足した名前のオリジンは、ポートを見ずに許す（7.5 節）。小文字にそろえ、末尾の `.` を取り、重なりは 1 つにする（50 個まで）。設定モーダルの「表示・その他」の「接続」で、カンマで区切って書く。録音中も変えられる（次のリクエストから効く）。**クラウド版（トンネル）からは変えられない**（`403`。ほかの接続先・フォルダの設定と同じ。広げると、ほかのサイトから 8000 番を使われうるため）。
 - `projectOrder` は、サイドバーのプロジェクトの並び順（プロジェクト ID の配列、既定は空。#173）。端末をまたいで同じ並びにするため、クライアントではなくここに持つ。

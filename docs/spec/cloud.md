@@ -25,7 +25,7 @@ Tailscale・uv・Ollama などを自分で入れられる人だけでなく、�
 | 外への通信 | **何も送らない**（お知らせを取りに行くことも含めて） | 中間サーバーとだけ |
 | 広告 | 出さない | 後で出す（10.13 節） |
 - 画面は `location.hostname` がクラウド用のドメイン（ビルド時の設定で渡す）ならクラウド版として動く。コードと設定の値は `cloud`・`direct`
-  - ビルド時の設定は環境変数 `VITE_CLOUD_HOSTS`（カンマ区切り）。渡さなければ staging の `rw-dev.studio-takumi.dev` だけ。本番のドメインは、決まったら足す
+  - ビルド時の設定は環境変数 `VITE_CLOUD_HOSTS`（カンマ区切り）。渡さなければ staging の `rw-dev.studio-takumi.dev` と本番の `rw.studio-takumi.dev`
   - 画面の URL の組み立ては `web/src/api/endpoint.ts` の 1 か所に集め、入口の状態（`login`・`consent`・`hosts`・`ready`）は `web/src/features/cloud/cloud.ts` に持つ。`ready` でホストが決まるまで、今の画面は出さない
   - PWA は API・WebSocket をキャッシュせず、`/h/`・`/auth/`・`/me/`・`/pair`・`/healthz` は画面の読み込み直しの代わり（navigateFallback）にしない
 - セルフホスト版の挙動は変えない。クラウド版のために足す画面（ログイン・同意・ホストの選択・広告・お知らせ）は、セルフホスト版では出さず、そのためのスクリプトも読まない
@@ -219,7 +219,7 @@ sequenceDiagram
 - **ホスト（トレイ）の動き（#158）**
   - 「クラウド版にログイン」を押すと、新しいホスト ID と鍵のペアを作って `cloud.json` に書き（`relayKey` は `null`）、`/pair/start` を呼ぶ。返ってきた URL をブラウザで開き、登録コードをトレイの通知とメニューの行に出す
   - 3 秒ごとに `/pair/poll` を呼ぶ。`approved` なら `relayKey` を `cloud.json` に足して登録済みにする。`rejected`・`expired`・`404`・10 分たった・「登録をやめる」を押した・`401` などの断り（上の箇条）のどれかなら、`cloud.json` を消して登録していない状態に戻す（次は新しいホスト ID で申請する）。つながらない・`5xx`・`429` のときは、期限まで聞き直す
-  - 中間サーバーの URL は全体設定の `cloud.relayUrl`（5.3 節。既定は staging の `https://rw-dev.studio-takumi.dev`。本番を用意したら `https://rw.studio-takumi.dev` に変える。docs/deploy.md の「本番を一から用意する」の 7）。登録したときの URL を `cloud.json` の `relayUrl` に残し、その後のやり取り（解除など）はそこにする
+  - 中間サーバーの URL は全体設定の `cloud.relayUrl`（5.3 節。既定は本番の `https://rw.studio-takumi.dev`（#167。staging で試すときは `https://rw-dev.studio-takumi.dev` に変える）。登録したときの URL を `cloud.json` の `relayUrl` に残し、その後のやり取り（解除など）はそこにする
   - 「クラウド版から外す」を押すと（確認を出す）、`/pair/unpair` を呼び、cloudflared を止め（#159）、`cloud.json` を消す。中間サーバーにつながらないときも、この PC の資格情報は消し、「画面のホストの管理からも外してください」と通知する。`404`・`401` は、Worker 側ではもう外れている（画面から外したなど）とみなす
   - `cloud.json` の形（権限は本人だけ。POSIX は 600、Windows は `icacls` で継承を切って今のユーザーだけにする。ユーザーは `whoami /user` の SID で指す。`USERDOMAIN\USERNAME` の名前は、SSH のセッションなどで `WORKGROUP\…` になり解けないことがある）。`icacls`・`whoami` は `%SystemRoot%\System32` のフルパスで起動する。書き方（#252）: Windows は、同じフォルダに専用の一時フォルダを作り、中身のないうちに継承を切って本人の SID だけ（`(OI)(CI)F`）にしてから、その中で一時ファイルを作って書き、ファイル自体も継承を切ってから `cloud.json` に置き換える。親フォルダに直接一時ファイルを作ると、権限を付ける前に親フォルダの権限でほかのユーザーにハンドルを開かれ、あとから書いた中身を読まれうる（Windows はハンドルを開いたときにしか権限を確かめない）。一時フォルダのハンドルを先に持たれても、中のファイルは開けない。POSIX は mkstemp の一時ファイルが最初から 600。権限を付けられなければ書かずに登録をやめ、トレイで「クラウド版に登録できませんでした: cloud.json を本人だけが読める設定にできません」と知らせる。承認のあとに書けなかったとき（権限・ディスクがいっぱいなど、理由を問わず）は、`/pair/unpair` で Worker の登録も取り消す。取り消せなかった（つながらない・5xx）ときは、通知に「中間サーバーに登録が残っているので、画面のホストの管理からも外してください」と書き足す。push の鍵（`push-vapid.pem`）も同じ書き方だが、権限を付けられなくても警告だけで普通に書く:
 
@@ -229,7 +229,7 @@ sequenceDiagram
       "hostId": "6f1c2a9e-…",
       "privateKey": "<Ed25519 の秘密鍵 32 バイトの base64url>",
       "publicKey": "<公開鍵 32 バイトの base64url>",
-      "relayUrl": "https://rw-dev.studio-takumi.dev",
+      "relayUrl": "https://rw.studio-takumi.dev",
       "relayKey": "<中継の鍵。申請中は null>",
       "registeredAt": 1792000000
     }

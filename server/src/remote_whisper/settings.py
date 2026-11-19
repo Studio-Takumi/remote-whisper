@@ -358,8 +358,8 @@ class DisplaySettings(_Model):
         return value
 
 
-# 中間サーバー（Worker）の URL の既定。今は staging。本番ができたら（#167）本番のドメインにする
-DEFAULT_RELAY_URL = "https://rw-dev.studio-takumi.dev"
+# 中間サーバー（Worker）の URL の既定。本番（#167）
+DEFAULT_RELAY_URL = "https://rw.studio-takumi.dev"
 
 
 def is_valid_cloudflared_path(value: str) -> bool:

@@ -58,7 +58,7 @@
 5. **Analytics Engine**: アカウントで有効にしてあれば、`env.production` の `analytics_engine_datasets` を戻す（有効でないとデプロイが code 10089 で落ちる）
 6. **最初のデプロイ**: Actions → Deploy → Run workflow で、main・行き先 `production` を選ぶ。カスタムドメイン `rw.studio-takumi.dev` は `routes` の `custom_domain` で Worker が付ける（DNS のレコードを手で作らなくてよい。デプロイ用のトークンに Zone ／ Workers Routes ／ Edit が要る。断られたら DNS の権限も見る）。`https://rw.studio-takumi.dev/healthz` が `{"ok":true,"env":"production",...}` を返すのを確かめる
 7. **自動デプロイを本番に替える**: GitHub → Settings → Secrets and variables → Actions → Variables に `PRODUCTION_READY` = `true` を足す
-8. **ホストの既定の接続先を本番にする**: `server/src/remote_whisper/settings.py` の `DEFAULT_RELAY_URL` と `web/src/features/settings/settings.ts` の既定の `relayUrl` を `https://rw.studio-takumi.dev` にして PR を出す（すでに staging に登録したホストは、cloud.json の `relayUrl` を使い続ける）
+8. **ホストの既定の接続先を本番にする**: `server/src/remote_whisper/settings.py` の `DEFAULT_RELAY_URL` と `web/src/features/settings/settings.ts` の既定の `relayUrl` を `https://rw.studio-takumi.dev` にして PR を出す（#167 で済み）。この既定が効くのは新しく入れたホストだけ。今あるホストは `setting.json` に既定値ごと `cloud.relayUrl` を書き出しているので、本番に申請させるときは設定画面か `setting.json` で `cloud.relayUrl` を書き換える。すでに staging に登録したホストは、cloud.json の `relayUrl` を使い続ける（本番に移すときは「クラウド版から外す」→ URL を替える → もう一度ログイン）
 
 ## WAF のレート制限（#166）
 

@@ -42,5 +42,5 @@ curl https://rw-dev.studio-takumi.dev/healthz
 
 - 先に `npx wrangler login`（`npx wrangler whoami` で確かめる）
 - staging の秘密情報は `npx wrangler secret put <名前> --env staging`（値は標準入力で渡し、画面やログに出さない）。入っているものは `npx wrangler secret list --env staging`
-- workers.dev の URL は使わない（`workers_dev: false`）。画面がクラウド版と判定するのは `rw-dev.studio-takumi.dev` だけのため
-- 本番（`--env production`）は #167 で足す
+- workers.dev の URL は使わない（`workers_dev: false`）。画面がクラウド版と判定するのは `rw-dev.studio-takumi.dev` と `rw.studio-takumi.dev` だけのため
+- 本番（`--env production`。`rw.studio-takumi.dev`）は main から自動でデプロイする（[docs/deploy.md](../docs/deploy.md)）
