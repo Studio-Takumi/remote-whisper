@@ -229,7 +229,7 @@ sequenceDiagram
       "hostId": "6f1c2a9e-…",
       "privateKey": "<Ed25519 の秘密鍵 32 バイトの base64url>",
       "publicKey": "<公開鍵 32 バイトの base64url>",
-      "relayUrl": "https://rw-dev.studio-takumi.dev",
+      "relayUrl": "https://rw.studio-takumi.dev",
       "relayKey": "<中継の鍵。申請中は null>",
       "registeredAt": 1792000000
     }
