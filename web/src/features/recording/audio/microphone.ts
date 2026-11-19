@@ -104,22 +104,31 @@ export class Microphone {
         }
     }
 
-    // トラックと音声の処理を見張る（#102）
+    // 今のマイクの状態
+    state(): MicState {
+        const track = this.stream.getAudioTracks()[0];
+        if (!track || track.readyState === 'ended') {
+            return 'ended';
+        }
+        if (track.muted) {
+            return 'muted';
+        }
+        // iOS の Safari は、割り込み（電話・Siri など）の間 'interrupted' になる
+        return this.context.state === 'running' ? 'ok' : 'suspended';
+    }
+
+    // トラックと音声の処理を見張る（#102）。実機でどのイベントが来るかを Web インスペクタで見られるよう、ログに出す（#447）
     private watch(onState: (state: MicState) => void) {
         const track = this.stream.getAudioTracks()[0];
-        const report = () => {
+        const report = (e?: Event) => {
             if (this.closed) {
                 return;
             }
-            if (!track || track.readyState === 'ended') {
-                onState('ended');
-            } else if (track.muted) {
-                onState('muted');
-            } else if (this.context.state !== 'running') {
-                onState('suspended');
-            } else {
-                onState('ok');
-            }
+            const state = this.state();
+            console.info(
+                `[Mic] ${e ? e.type : 'open'}: track=${track?.readyState ?? 'none'}${track?.muted ? '(muted)' : ''} context=${this.context.state} -> ${state}`,
+            );
+            onState(state);
         };
         track?.addEventListener('ended', report);
         track?.addEventListener('mute', report);
