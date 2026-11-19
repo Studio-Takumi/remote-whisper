@@ -7,6 +7,7 @@ import type { Microphone } from '@/features/recording/audio/microphone';
 import type { UnsentSession } from '@/features/recording/audio/unsentStore';
 import { ClosedRecordings } from '@/features/recording/closedRecordings';
 import { MetricsTracker } from '@/features/recording/metricsTracker';
+import type { MicRecovery } from '@/features/recording/micRecovery';
 
 export type StartedMessage = Extract<ServerMessage, { type: 'started' }>;
 export type ErrorMessage = Extract<ServerMessage, { type: 'error' }>;
@@ -39,6 +40,8 @@ export type Recorder = {
     recoveredBase: number | null;
     // 録音した（サーバーに送る）サンプルの数。経過時間はこれから出す（サーバーと同じ時計になる）
     recordedSamples: number;
+    // 割り込みのあと、自動で録音に戻す（#447）。最初にマイクを開いたときに作る
+    micRecovery: MicRecovery | null;
 };
 
 // 切れている間に録音を終えて、まだ stop を送っていないセッション（ストアの外から見るとき）
@@ -63,5 +66,6 @@ export function createRecorder(store: AppStore): Recorder {
         unsentEntry: null,
         recoveredBase: null,
         recordedSamples: 0,
+        micRecovery: null,
     };
 }
