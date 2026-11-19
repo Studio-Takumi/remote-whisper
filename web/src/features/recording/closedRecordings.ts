@@ -154,8 +154,11 @@ export class ClosedRecordings {
         try {
             connection.send({ type: 'interrupt', session });
             reply = await connection.waitFor(
+                // 古いサーバーは interrupt を知らず bad_message を返す。ほかのエラー（同時に走る resume の
+                // session_not_found など）は、この返事ではないので拾わない
                 (m): m is InterruptReply =>
-                    (m.type === 'interrupted' && m.session === session) || (m.type === 'error' && !m.session),
+                    (m.type === 'interrupted' && m.session === session) ||
+                    (m.type === 'error' && !m.session && m.code === 'bad_message'),
             );
         } catch {
             // 応答がない。次につながったときに、もう一度確かめる

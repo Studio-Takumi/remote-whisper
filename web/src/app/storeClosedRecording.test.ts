@@ -220,6 +220,19 @@ describe('録音していたページが閉じられたセッション', () => {
         expect(toasts.error).not.toHaveBeenCalled();
     });
 
+    it('返事を待っている間のほかのエラーは返事とみなさず、トーストも出す', async () => {
+        fakeLocks();
+        remember();
+        await setup();
+        await vi.waitFor(() => expect(ws.log()).toContain('interrupt'));
+        receive({ type: 'error', code: 'session_not_found', message: '再開できるセッションがありません' });
+        expect(toasts.error).toHaveBeenCalledWith('再開できるセッションがありません');
+        await new Promise((r) => setTimeout(r, 20));
+        expect(marks()).toHaveLength(1);
+        receive({ type: 'interrupted', session: SESSION, result: 'interrupted' });
+        await vi.waitFor(() => expect(marks()).toEqual([]));
+    });
+
     it('電波が切れただけなら、今まで通り resume で続け、interrupt は送らない', async () => {
         fakeLocks();
         await setup();
