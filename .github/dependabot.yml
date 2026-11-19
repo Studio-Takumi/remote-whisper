@@ -16,6 +16,10 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 3
+    # CI も実行環境も Node 24 なので、型も 24 系にそろえる。Node を上げるときに手で一緒に上げる（#428）
+    ignore:
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
     groups:
       web-minor-and-patch:
         update-types: [minor, patch]
