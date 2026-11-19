@@ -59,6 +59,7 @@ remote-whisper は、手元の端末に GPU がなくても、別のマシンの
 | `server/` | GPU マシンで動く文字起こしサーバー（Python / faster-whisper） |
 | `web/` | ブラウザ側のフロントエンド（Vite + React + TypeScript / Tailwind CSS / shadcn/ui） |
 | `relay/` | クラウド版の中間サーバー（Cloudflare Workers / D1。作っている途中。[relay/README.md](relay/README.md)） |
+| `mobile/` | iOS アプリ（Capacitor。画面ロック中も録音できるかを確かめる検証用。[mobile/README.md](mobile/README.md)） |
 
 ## サーバーのセットアップ
 
