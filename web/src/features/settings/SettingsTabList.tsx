@@ -5,14 +5,17 @@ import {
     HardDriveIcon,
     MicIcon,
     MonitorIcon,
+    SmartphoneIcon,
     SparklesIcon,
     WrenchIcon,
 } from 'lucide-react';
 
 import { TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { NATIVE_SETTINGS_PAGE } from '@/features/native/nativePlatform';
 
-// 設定のカテゴリ。スマホの幅では上に横並び、それ以外は左に縦並び
-export function SettingsTabList({ isMobile }: { isMobile: boolean }) {
+// 設定のカテゴリ。スマホの幅では上に横並び、それ以外は左に縦並び。
+// native は iOS アプリの中で開いているとき（#438）。そのときだけ最後に「iOS アプリ」を足す
+export function SettingsTabList({ isMobile, native }: { isMobile: boolean; native: boolean }) {
     return (
         <TabsList
             variant='line'
@@ -57,6 +60,12 @@ export function SettingsTabList({ isMobile }: { isMobile: boolean }) {
                 <WrenchIcon />
                 セットアップ
             </TabsTrigger>
+            {native && (
+                <TabsTrigger value={NATIVE_SETTINGS_PAGE}>
+                    <SmartphoneIcon />
+                    iOS アプリ
+                </TabsTrigger>
+            )}
         </TabsList>
     );
 }
