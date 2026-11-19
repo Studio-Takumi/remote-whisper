@@ -4,11 +4,22 @@
 // ブラウザ版の最初に読むファイルが 1 つ増えるため）
 import { SystemBars, SystemBarsStyle, registerPlugin } from '@capacitor/core';
 
+import type { AppStore } from '@/app/appState';
+import { LiveActivitySync } from '@/features/native/liveActivitySync';
+import type { LiveActivityPlugin } from '@/features/native/liveActivityTypes';
 import type { RecorderPlugin } from '@/features/native/recorderTypes';
 
 // 録音のプラグイン（mobile/ios/App/App/Recorder/。MainViewController が登録する）。
 // Proxy なので、Promise の結果にそのまま渡さない（then を呼ばれてネイティブのメソッドとして扱われる）
 export const Recorder = registerPlugin<RecorderPlugin>('Recorder');
+
+// Live Activity のプラグイン（mobile/ios/App/App/LiveActivity/。#453）
+const LiveActivity = registerPlugin<LiveActivityPlugin>('LiveActivity');
+
+// 録音の状態を Live Activity に出し、そのボタンの操作を受け取り始める（spec/mobile.md 11.5）
+export function startLiveActivity(store: AppStore) {
+    new LiveActivitySync(store, LiveActivity).start();
+}
 
 // env(safe-area-inset-*) は viewport-fit=cover のときだけ値が入る。index.html の meta に付いているが、
 // 付いていなければ足す（ブラウザ版の meta は変えない）
