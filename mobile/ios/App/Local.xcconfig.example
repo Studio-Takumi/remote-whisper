@@ -3,5 +3,6 @@
 
 DEVELOPMENT_TEAM = XXXXXXXXXX
 
-// 無料の Apple ID で dev.studiotakumi.remotewhisper が使えないとき（ほかの人が先に使っている等）は、自分用に変える
-// PRODUCT_BUNDLE_IDENTIFIER = com.example.remotewhisper
+// 無料の Apple ID で dev.studiotakumi.remotewhisper が使えないとき（ほかの人が先に使っている等）は、自分用に変える。
+// Widget Extension の Bundle ID（後ろに .widgets）もこれから作るので、PRODUCT_BUNDLE_IDENTIFIER ではなくこちらを書く
+// RW_APP_BUNDLE_IDENTIFIER = com.example.remotewhisper

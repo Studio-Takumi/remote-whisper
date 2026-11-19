@@ -2,7 +2,10 @@
 // 個人の値（Team ID・自分用の Bundle ID）は、Git に入れない Local.xcconfig に書く（Local.xcconfig.example を写す）。
 // Xcode の「Signing & Capabilities」で Team を選ぶと project.pbxproj に Team ID が入るので、そこでは選ばない（mobile/README.md）
 
-PRODUCT_BUNDLE_IDENTIFIER = dev.studiotakumi.remotewhisper
+// アプリの Bundle ID。Widget Extension（Widgets.xcconfig）はこの後ろに .widgets を付ける（#453）。
+// 自分用に変えるときは、Local.xcconfig で PRODUCT_BUNDLE_IDENTIFIER ではなくこちらを書き換える
+RW_APP_BUNDLE_IDENTIFIER = dev.studiotakumi.remotewhisper
+PRODUCT_BUNDLE_IDENTIFIER = $(RW_APP_BUNDLE_IDENTIFIER)
 
 // Debug のビルドだけ http を開けるようにするスクリプト（Build Phases の「Allow http in Debug」）が、
 // できあがった Info.plist を書き換えるため、スクリプトのサンドボックスを切る
