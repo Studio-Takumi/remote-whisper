@@ -185,6 +185,16 @@ class RecordingSession:
 
     async def _expire_later(self) -> None:
         await asyncio.sleep(self.manager.resume_timeout_sec())
+        self._expire = None
+        await self.interrupt()
+
+    async def interrupt(self) -> None:
+        """つなぎ直すのを待たずに interrupted にする（録音していたページが閉じられた。#448）"""
+        if self._expire is not None:
+            self._expire.cancel()
+            self._expire = None
+        if self.ended:
+            return
         log.info("session %s interrupted", self.id)
         await self._end("interrupted")
 

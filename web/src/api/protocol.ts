@@ -11,6 +11,8 @@ export type ClientMessage =
     | { type: 'resume'; session: string; nextSeq: number }
     // 途中で終わった（interrupted）セッションの続きを、同じセッションのまま録音する（#101）
     | { type: 'continue'; project: string; session: string }
+    // 録音していたページが閉じられたセッションを、つなぎ直すのを待たずに途中で終わったことにする（#448）
+    | { type: 'interrupt'; session: string }
     // ほかのクライアントで録音中のセッションを見る・見るのをやめる（#238）。見るのは 1 つだけ
     | { type: 'watch'; session: string }
     | { type: 'unwatch' }
@@ -136,6 +138,9 @@ export type ServerMessage =
       }
     // 見ているセッションの録音の状態が変わった（#238）
     | { type: 'recordingState'; session: string; state: WatchedState }
+    // interrupt の返事（#448）。interrupted は終わりにした、connected はほかの接続が録音している、
+    // notRecording は録音中でない（もう終わっていた）
+    | { type: 'interrupted'; session: string; result: 'interrupted' | 'connected' | 'notRecording' }
     | {
           type: 'status';
           whisper: WhisperState;

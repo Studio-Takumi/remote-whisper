@@ -219,6 +219,8 @@ async def _control(ctx: AppContext, ws: WebSocket, session: Any, text: str, peer
         # 終えたときの stopped は、最後の区間を送り終えてからセッションが送る（Hub.end_watch）
         if kind != "stop":
             await ctx.hub.send_watchers(before.id, _state_message(before))
+    elif kind == "interrupt":
+        log.info("recording interrupt from %s: %s", peer, json.loads(text).get("session"))
     return result
 
 
@@ -293,6 +295,25 @@ async def _watch(ctx: AppContext, ws: WebSocket, key: Any) -> None:
     await send(ws, snapshot)
 
 
+async def _interrupt(ctx: AppContext, ws: WebSocket, session: Any, key: Any) -> Any:
+    """録音していたページが閉じられたセッションを、つなぎ直すのを待たずに interrupted にする（#448。
+    spec/flows.md 6.7）。ほかの接続が録音しているセッションは終わらせない（電波が切れただけのときは
+    今までどおり待つ。#101）"""
+    if not isinstance(key, str) or not key:
+        raise RecordingError("bad_message", "session を指定してください")
+    sid = _session_id(ctx, key)
+    target = next((s for s in ctx.recorder.active() if s.id == sid), None)
+    if target is None:
+        result = "notRecording"
+    elif target.ws is not None and target.ws is not ws:
+        result = "connected"
+    else:
+        await target.interrupt()
+        result = "interrupted"
+    await send(ws, {"type": "interrupted", "session": sid, "result": result})
+    return None if target is session and result == "interrupted" else session
+
+
 async def _handle_control(ctx: AppContext, ws: WebSocket, session: Any, text: str) -> Any:
     try:
         message = json.loads(text)
@@ -338,6 +359,8 @@ async def _handle_control(ctx: AppContext, ws: WebSocket, session: Any, text: st
         if active:
             raise RecordingError("already_recording", "すでに録音しています")
         return await recorder.resume(ws, _session_id(ctx, sid))
+    if kind == "interrupt":
+        return await _interrupt(ctx, ws, session, message.get("session"))
     if kind in ("stop", "pause", "unpause"):
         if not active:
             raise RecordingError("not_recording", "録音していません")

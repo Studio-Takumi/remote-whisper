@@ -136,8 +136,10 @@ export function receiveServerMessage(ctx: MessageContext, m: ServerMessage) {
     receiveSessionChange(ctx, m);
     if (m.type === 'error') {
         receiveSessionError(ctx, m);
-        // 録音を始める・続けるときのエラーは、それぞれの処理でまとめて出す
-        if (!ctx.recorder.starting && !ctx.recorder.resuming) {
+        // 録音を始める・続けるときのエラーは、それぞれの処理でまとめて出す。
+        // 閉じられた録音を終わらせるとき（#448）の古いサーバーの bad_message は出さない
+        const oldServer = ctx.recorder.closed.waiting && m.code === 'bad_message';
+        if (!ctx.recorder.starting && !ctx.recorder.resuming && !oldServer) {
             toast.error(m.message);
         }
     }

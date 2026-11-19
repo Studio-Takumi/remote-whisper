@@ -75,7 +75,7 @@
 
 | 種類 | 中身 |
 |---|---|
-| 制御 | `{"type":"start","project":"<pid>"}` / `{"type":"stop"}` / `{"type":"pause"}` / `{"type":"unpause"}` / `{"type":"resume","session":"<sid>","nextSeq":n}`（`resume` は再接続のためのもので、一時停止からの再開は `unpause`） / `{"type":"continue","project":"<pid>","session":"<sid>"}`（途中で終わったセッションと、普通に終えてから `recording.continueWindowMin` 分以内のセッションの続きを録音する。6.7 節） |
+| 制御 | `{"type":"start","project":"<pid>"}` / `{"type":"stop"}` / `{"type":"pause"}` / `{"type":"unpause"}` / `{"type":"resume","session":"<sid>","nextSeq":n}`（`resume` は再接続のためのもので、一時停止からの再開は `unpause`） / `{"type":"continue","project":"<pid>","session":"<sid>"}`（途中で終わったセッションと、普通に終えてから `recording.continueWindowMin` 分以内のセッションの続きを録音する。6.7 節） / `{"type":"interrupt","session":"<sid か UUID>"}`（録音していたページが閉じられたセッションを、つなぎ直すのを待たずに `interrupted` にする。#448・6.7 節） |
 | 音声 | バイナリ。先頭4バイトが連番（uint32、リトルエンディアン）、続きが 16kHz・モノラル・Int16 の PCM |
 | 見る（#238） | `{"type":"watch","session":"<sid か UUID>"}` / `{"type":"unwatch"}`。ほかのクライアントで録音中のセッションを見る・見るのをやめる（下の「録音中のセッションを見る」） |
 | 参加（#241） | `{"type":"join","session":"<sid か UUID>","name":"<端末の名前>"}` / `{"type":"join","session":"…","source":n,"nextSeq":n,"lost":true?}`（切れたあとのつなぎ直し。`lost` は読み込み直して手元の音をなくしたとき） / `{"type":"leave"}`。録音中のセッションに音源として参加する・抜ける（下の「録音中の参加」、6.16 節）。参加している間の音声のバイナリは、その音源の音声として受け取る |
@@ -99,6 +99,7 @@
 | `contextSet` | `project`（プロジェクト ID）、`id`、`status`（`generating` / `ready` / `failed`） |
 | `watching` | `watch` の返事（#238）。`state`（`recording` / `paused` / `disconnected` / `idle`）。`idle` は録音中ではない（自分で録音しているセッションも `idle`）ので見ない。そうでなければ、そこまでの `transcript`（`[{time, text}]`）・`liveSummary`・`title` が付く。参加に対応したサーバー（#241）は `join`（`{available, reason}`。`reason` は参加できないときだけ `limit`（つながっている音源が `recording.maxSources` に達した・音源 ID が 16 個に達した）/ `disabled`（`recording.maxSources` が 1））も付ける |
 | `recordingState` | 見ているセッションの録音の状態が変わった（#238）。`state`（`recording` / `paused` / `disconnected` / `stopped`）。見ているクライアントにだけ送る |
+| `interrupted` | `interrupt` の返事（#448）。`session`・`result`（`interrupted`（終わりにした）/ `connected`（ほかの接続が録音している。終わらせない）/ `notRecording`（録音中でない・もう終わっていた））。送った接続にだけ返す |
 | `joined` | `join` の返事（#241）。`session`・`source`（音源 ID）・`offsetSec`（主の音源の時刻での、参加した時刻）。つなぎ直しのときは `rejoined: true` と、受け取り済みの最後の連番の `ack` も送る |
 | `sources` | セッションの音源の一覧が変わった（#241）。`session`・`sources`（`[{id, name, kind, state}]`。`state` は `active` / `disconnected` / `left`）と `join`（`watching` と同じ。上限に達した・空いたときに変わる）。録音しているクライアント・見ているクライアント・参加しているクライアントに送る |
 | `finalTranscript` | `generationId`。浄書済み文字起こしができた（6.9 節）。全員に送る |
@@ -107,6 +108,7 @@
 
 - `start`・`continue` の `project` と、`continue`・`resume` の `session` には、ID の代わりに UUID（5.2 節）も使える（#177）。
 - `resume` を受け付けたら、`started`（`resumed: true`、`offsetSec` は受け取り済みの録音の長さ）と、受け取り済みの最後の連番の `ack` を返す。クライアントはその次から送り直す。再開できるセッションがなければ `error`（`session_not_found`）。
+- `interrupt` は、つなぎ直すのを待っている（録音しているクライアントとの接続が切れた）セッションと、送った接続自身が録音しているセッション（ページを閉じるときの合図）だけを終わらせる。ほかの接続が録音しているセッションは `connected` を返して何もしない（電波が切れたあとにつなぎ直した録音を止めないため。#101）。終わらせたら、時間を過ぎたときと同じく `interrupted` にし、見ているクライアントには `recordingState` の `stopped` が届く。見つからない UUID を指定したときは、`resume`・`continue` と同じく `error`（`session_not_found`）を返す（ID なら `notRecording`。クライアントは ID で送る）。古いサーバーは `bad_message` を返すので、クライアントはエラーを出さずに覚えるのをやめる（返事を待つ間に届いたほかのエラーは返事とみなさず、ふだんどおりトーストに出す）。
 - 音声の連番は 0 から始める。抜けがあったチャンクは受け取らず、受け取り済みの最後の連番の `ack` を返す。受け取り済みの連番がもう一度届いたら、捨てて `ack` だけ返す。
 - `error` の `code`: `bad_message`（読めないメッセージ）、`not_recording`、`already_recording`（1つの接続で録音できるのは1つだけ）、`too_many_recordings`（`recording.maxConcurrent` を超えた）、`session_not_found`、`cannot_continue`（`continue` で、続けられるセッションではない（録音中・普通に終えてから `recording.continueWindowMin` 分を過ぎた・音声ファイルから作った）・録音ファイルが残っていない・前の録音を読み込めない）、`project_not_found`（`start` のプロジェクトが登録されていない）、`write_failed`（ディスクが一杯などで音声を保存できない。そのチャンクは受け取らずに、受け取り済みの最後の連番の `ack` を返す。最終要約を保存できなかったときにも使う）、`ollama_unavailable`、`summary_skipped`（文字起こしが空か読み込めないので、最終要約を作らなかった）、`summary_failed`（最終要約を作る途中で思わぬエラーになった。失敗として記録する）、`final_transcript_failed`（頼まれた浄書済み文字起こしの再生成ができなかった。#124）、`not_available`（録音を受け付けられないサーバー）。
 - **録音中のセッションを見る（#238）**: 録音しているクライアントでなくても、同じホストにつないでいるクライアント（クラウド版では同じアカウントのクライアント。10 章）は、録音中のセッションのリアルタイム文字起こし・リアルタイム要約を見られる。

@@ -109,6 +109,11 @@ export async function discardUnsent(r: Recorder) {
     r.store.setState({ unsent: null });
     if (entry) {
         await clearSession(entry.session);
+        // 続きを送らないので、サーバーが待っていれば待たずに終わりにする（#448）
+        // （切れていれば、つながったときに確かめる）
+        if (connection.isOpen) {
+            void r.closed.interruptClosed();
+        }
     }
 }
 

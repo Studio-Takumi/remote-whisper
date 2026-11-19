@@ -314,6 +314,16 @@ class MockSession:
 
     async def _expire_later(self) -> None:
         await asyncio.sleep(self.timing.resume_timeout)
+        self._expire = None
+        await self.interrupt()
+
+    async def interrupt(self) -> None:
+        """つなぎ直すのを待たずに interrupted にする（録音していたページが閉じられた。#448）"""
+        if self._expire is not None:
+            self._expire.cancel()
+            self._expire = None
+        if self.ended:
+            return
         log.info("session %s interrupted", self.id)
         await self._end()
         await self.recorder.hub.end_watch(self.id)

@@ -5,6 +5,7 @@ import type { ServerMessage } from '@/api/protocol';
 import type { AppStore } from '@/app/appState';
 import type { Microphone } from '@/features/recording/audio/microphone';
 import type { UnsentSession } from '@/features/recording/audio/unsentStore';
+import { ClosedRecordings } from '@/features/recording/closedRecordings';
 import { MetricsTracker } from '@/features/recording/metricsTracker';
 import type { MicRecovery } from '@/features/recording/micRecovery';
 
@@ -15,6 +16,8 @@ export type Recorder = {
     store: AppStore;
     // 録音ごとの数字（#206）
     metrics: MetricsTracker;
+    // 録音していたページが閉じられたセッションを終わらせる（#448）
+    closed: ClosedRecordings;
     mic: Microphone | null;
     sender: AudioSender | null;
     // 録音のためのメッセージの購読をやめる
@@ -50,6 +53,7 @@ export function createRecorder(store: AppStore): Recorder {
     return {
         store,
         metrics: new MetricsTracker(),
+        closed: new ClosedRecordings(store),
         mic: null,
         sender: null,
         unsubscribe: null,
