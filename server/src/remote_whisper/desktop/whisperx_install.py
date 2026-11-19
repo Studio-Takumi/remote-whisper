@@ -27,7 +27,8 @@ log = logging.getLogger(__name__)
 class TorchFlavor:
     """WhisperX と一緒に入れる torch の取り先と、大きさ・時間の目安"""
 
-    index: str
+    # pip の --extra-index-url。None は PyPI だけ
+    index: str | None
     download_gb: float
     disk_gb: float
     minutes: tuple[int, int]
@@ -39,11 +40,19 @@ TORCH_CUDA = TorchFlavor("https://download.pytorch.org/whl/cu128", 3.6, 8.0, (5,
 # CPU 版（pytorch-cpu。Windows（OpenVINO）版。#408）。目安は uv.lock の wheel の大きさからの見積もり
 # （torch の CPU 版が 0.62GB）
 TORCH_CPU = TorchFlavor("https://download.pytorch.org/whl/cpu", 0.7, 2.5, (2, 15))
+# Mac 版（mlx。#410）。Mac の torch は PyPI のもので、同梱済みなので取り直さない。
+# 目安は 2026-11 に Mac の配布版（v1.0.0-rc1）で測った値
+# （0.14GB のダウンロード、ディスク +0.74GB、光回線で約 30 秒）
+TORCH_MAC = TorchFlavor(None, 0.2, 1.0, (1, 10))
 
 
 def torch_flavor(edition: str | None) -> TorchFlavor:
-    """配布物の種類（bundle.edition）に合う torch。OpenVINO 版だけ CPU 版"""
-    return TORCH_CPU if edition == "openvino" else TORCH_CUDA
+    """配布物の種類（bundle.edition）に合う torch。OpenVINO 版は CPU 版、Mac 版は PyPI のもの"""
+    if edition == "openvino":
+        return TORCH_CPU
+    if edition == "mlx":
+        return TORCH_MAC
+    return TORCH_CUDA
 
 
 # 開発の環境（uv）で入れるときのコマンド（案内だけ）
@@ -277,6 +286,9 @@ class WhisperXInstaller:
             job.phase = "installing"
             job.package = None
 
+    def _index_args(self) -> list[str]:
+        return ["--extra-index-url", self.torch.index] if self.torch.index else []
+
     def _install_args(self) -> list[str]:
         args = [
             "-m",
@@ -287,8 +299,7 @@ class WhisperXInstaller:
             "--no-cache-dir",
             "--progress-bar",
             "off",
-            "--extra-index-url",
-            self.torch.index,
+            *self._index_args(),
         ]
         # 版とハッシュを固定した一覧（uv.lock と同じ版）。入っているものは、同じ版なのでそのまま
         assert self.requirements is not None
@@ -393,7 +404,7 @@ class WhisperXInstaller:
         """版が変わった・消えたパッケージを、
         入れる前の版で入れ直す（固定した一覧に行があればハッシュ付きで）"""
         args = ["-m", "pip", "install", "--no-input", "--no-deps", "--no-cache-dir"]
-        args += ["--extra-index-url", self.torch.index]
+        args += self._index_args()
         entries: dict[tuple[str, str], list[str]] = {}
         if self.requirements is not None and self.requirements.is_file():
             entries = locked_entries(self.requirements.read_text(encoding="utf-8"))

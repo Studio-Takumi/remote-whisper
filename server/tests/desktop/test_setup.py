@@ -768,6 +768,29 @@ def test_openvino_edition_installs_the_cpu_torch(home, tmp_path, monkeypatch):
     assert args[args.index("--extra-index-url") + 1] == "https://download.pytorch.org/whl/cu128"
 
 
+def test_mac_edition_installs_from_pypi_only(home, tmp_path, monkeypatch):
+    # Mac 版は PyPI だけから取り（--extra-index-url を付けない）、目安も Mac のもの（#410）
+    from remote_whisper.desktop.whisperx_install import TORCH_MAC
+    from remote_whisper.settings import SettingsStore
+
+    req = tmp_path / "whisperx-requirements.txt"
+    req.write_text(LOCKED, encoding="utf-8")
+    monkeypatch.setattr(bundle, "bundled_python", lambda: Path(sys.executable))
+    monkeypatch.setattr(bundle, "bundled_whisperx_requirements", lambda: req)
+    service = SetupService(
+        home,
+        SettingsStore(home),
+        gpu=lambda: "mac",
+        runtime=lambda: "mac-bundle",
+        edition=lambda: "mlx",
+    )
+    data = asyncio.run(service.status(remote=False))
+    assert data["edition"] == "mlx"
+    assert data["whisperx"]["downloadGb"] == TORCH_MAC.download_gb
+    assert data["whisperx"]["diskGb"] == TORCH_MAC.disk_gb
+    assert "--extra-index-url" not in service.installer._install_args()
+
+
 def test_install_is_refused_while_recording(home, tmp_path, monkeypatch):
     from remote_whisper.settings import SettingsStore
 
