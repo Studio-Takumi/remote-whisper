@@ -32,6 +32,7 @@
     ```
 
     - `DEVELOPMENT_TEAM` に Team ID（Xcode の Settings → Accounts でチームを選ぶと出る 10 文字）を書く
+    - 無料の Apple ID（Personal Team）は、Accounts に Team ID が出ないことがある。そのときは「キーチェーンアクセス」で「Apple Development: …」の証明書を開き、「組織単位」の 10 文字を使う（証明書が無ければ、先に Accounts の「Manage Certificates…」で ＋ → Apple Development を作る）
     - 無料の Apple ID で `dev.studiotakumi.remotewhisper` が使えないときは、`PRODUCT_BUNDLE_IDENTIFIER` を自分用に変える
     - Xcode の「Signing & Capabilities」で Team を選ばない。`project.pbxproj` に Team ID が入り、コミットに紛れ込むため
 
@@ -66,10 +67,11 @@ xcrun simctl launch booted dev.studiotakumi.remotewhisper
 
 ### 実機に入れる
 
-1. 上の「設定」の 1・2 をする（URL は iPhone から届く https のもの）
-2. `npx cap open ios`（Xcode が開く）
-3. iPhone をつなぎ、上の実行先に選んで ▶（Run）
-4. 初回は iPhone の「設定 → 一般 → VPN とデバイス管理」で、自分の Apple ID の開発元を信頼する
+1. 上の「設定」の 1・2 をし、「ビルド」の `npm ci`・web の build・`npx cap sync ios` もする（URL は iPhone から届く https のもの）
+2. iPhone のデベロッパモードをオンにする：「設定 → プライバシーとセキュリティ → デベロッパモード」をオンにして再起動（iOS 16 から。初めて Mac につないだときにだけ要る）
+3. `npx cap open ios`（Xcode が開く）
+4. iPhone をつなぎ、上の実行先に選んで ▶（Run）
+5. 初回は iPhone の「設定 → 一般 → VPN とデバイス管理」で、自分の Apple ID の開発元を信頼する
 
 無料の Apple ID で入れたアプリは、7 日間で起動できなくなる。そのときは同じ手順で入れ直す。
 
@@ -77,7 +79,7 @@ xcrun simctl launch booted dev.studiotakumi.remotewhisper
 
 | パス | 中身 |
 |---|---|
-| `capacitor.config.ts` | アプリ ID・名前・`webDir`・`server.url`（`.env.local` か環境変数から） |
+| `capacitor.config.ts` | アプリ ID（`appId`。iOS の Bundle ID の初期値）・名前・`webDir`・`server.url`（`.env.local` か環境変数から） |
 | `ios/App/App.xcodeproj` | Xcode のプロジェクト（`npx cap add ios` で作ったもの） |
 | `ios/App/App.xcconfig` | Bundle ID など。`Local.xcconfig` があれば読む |
 | `ios/App/CapApp-SPM/Package.swift` | Capacitor が管理する Swift Package（`cap sync` が書き直すので手で変えない） |
