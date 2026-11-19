@@ -147,4 +147,27 @@ describe('録音に使うマイク', () => {
         await store.getState().switchMicrophone();
         expect(mic.deviceIds).toEqual([undefined]);
     });
+
+    it('自動で開き直している途中に選び直すと、終わるのを待ってから選んだマイクで開き直す', async () => {
+        await startRecording();
+        let release = () => {};
+        mic.gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        mic.setState('muted');
+        // 自動の開き直しが、選び直す前の選択（OS に任せる）で開いている途中
+        await vi.advanceTimersByTimeAsync(RETRY_DELAYS[0]);
+        expect(mic.deviceIds).toEqual([undefined, undefined]);
+        saveChosenMic(USB);
+        const switching = store.getState().switchMicrophone();
+        mic.gate = null;
+        release();
+        await switching;
+        expect(mic.deviceIds).toEqual([undefined, undefined, 'usb']);
+        expect(mic.opened - mic.closed).toBe(1);
+        expect(toast.success).toHaveBeenCalledWith('マイクを切り替えました。録音を続けています（USB マイク）');
+        expect(toast.success).not.toHaveBeenCalledWith('マイクを切り替えました。録音を続けています（内蔵マイク）');
+        mic.speak(8000);
+        expect(ws.log()).toEqual(['start', 'audio:0']);
+    });
 });

@@ -349,6 +349,8 @@ export async function reopenMicrophone(r: Recorder) {
 
 // 設定で録音に使うマイクを選び直したとき（#449）。録音中なら、録音を続けたまま選んだマイクで開き直す
 export async function switchMicrophone(r: Recorder) {
+    // 開き直している途中（#447 の自動など）は、選び直す前の選択で開いているので、終わるのを待ってから開き直す
+    await swapping.get(r)?.catch(() => {});
     if (r.store.getState().recordingState === 'idle' || !r.mic) {
         return;
     }
