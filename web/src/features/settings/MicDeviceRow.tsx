@@ -104,14 +104,17 @@ export function MicDeviceRow() {
             </span>
         );
     } else if (found === null) {
-        description = 'つながっていないため、OS の既定のマイクで録音します';
+        description = 'つながるまで OS の既定のマイクで録音します';
     }
 
     return (
         <Row id='mic-device' label='録音に使うマイク' description={description}>
             <Select value={value} onValueChange={change} disabled={inputs === null}>
-                <SelectTrigger id='mic-device' className='w-56' title={label(value)}>
-                    <SelectValue>{label(value)}</SelectValue>
+                {/* マイクの名前は長いことがあるので、収まらない分は「…」にし、全体を title で見られるように */}
+                <SelectTrigger id='mic-device' className='w-64' title={label(value)}>
+                    <SelectValue>
+                        <span className='min-w-0 truncate'>{label(value)}</span>
+                    </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                     <SelectGroup>

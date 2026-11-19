@@ -51,7 +51,7 @@ describe('録音に使うマイク', () => {
         saveChosenMic(USB);
         devices = [BUILTIN];
         render(<MicDeviceRow />);
-        await screen.findByText('つながっていないため、OS の既定のマイクで録音します');
+        await screen.findByText('つながるまで OS の既定のマイクで録音します');
         expect(screen.getByRole('combobox').textContent).toBe('USB マイク（見つかりません）');
     });
 
