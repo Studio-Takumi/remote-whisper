@@ -256,6 +256,7 @@ iOS の PWA は、画面ロック中やバックグラウンドで録音を続�
 | ショートカット・Siri・コントロール | `StartRecordingIntent`（`openAppWhenRun`） | `record` |
 
 - URL のスキームはアプリの `Info.plist` の `CFBundleURLTypes` で `remotewhisper`
+- **外から開かれても確かめない。** ほかのアプリや Safari のページが `remotewhisper://record` を開いても（Safari では「開きますか」の確認のあと）、アプリは確かめずに最後に開いていたプロジェクトで録音を始める。検証用でストアに出さないので、今はこのままにする
 - アプリを開いた直後は画面とプラグインがまだないので、`AppEntryInbox` が最後の 1 つを取っておき、プラグインが読み込まれたら渡す。プラグインは `retainUntilConsumed` で送り、web/ が聞き始めたときに届く
 
 JS 向けの API（`AppEntry`。型は `web/src/features/native/appEntryTypes.ts`）はイベントだけ。
@@ -270,8 +271,9 @@ JS 向けの API（`AppEntry`。型は `web/src/features/native/appEntryTypes.ts
 - **最後に開いていたプロジェクト**：開いているプロジェクト（`selection.projectId`）が変わるたびに `localStorage` の `rw.ios.lastProject` に書く（アプリの中だけ）
 - `entry` が届いたら、プロジェクトの一覧と設定を読み込むまで待ってから（`projectsLoaded`・`settingsLoaded`）処理する。待っている間に届いたものは後のものだけ残し、30 秒たっても読み込めなければ捨てる（つながってから急に録音が始まらないように）
 - `record`
-  - 設定モーダルを開いていたら閉じる
+  - 設定モーダルを開いていたら閉じる（シミュレーターで、設定モーダルを開いたままウィジェットを押しても、閉じたあとの履歴の戻り（`popstate`）とぶつからずに 1 回だけ録音が始まることを確かめた）
   - 録音中なら、新しく始めずに録音中のセッションを開く（`showRecordingSession`）
+  - 参加中（#241・#357。`joined` がある）なら、新しく始めずに参加中のセッションを開く（`selectSession`）。参加中は `recordingState` が `idle` のままなので、確かめないと、もう一つマイクを開いて録音を始めてしまう（iOS では後から開いたマイクが参加している音源を止めることもある）
   - 録音するプロジェクトは、開いているもの → 最後に開いていたもの（今もあれば）。そのプロジェクトの新規セッション画面にしてから、いつもの `startRecording` を呼ぶ（セッションを開いたままだと、新規セッション画面に切り替えるだけになるため）
   - プロジェクトがない（1 つもない・覚えていたものが消えた）ときは選ばずに `startRecording` を呼び、いつもの「録音するプロジェクトをメニューから選んでください」を出す
 - `session`：録音中のセッションなら `showRecordingSession`、ほかはそのセッションを開く（`selectSession`）。見つからなければ何もしない
@@ -279,13 +281,18 @@ JS 向けの API（`AppEntry`。型は `web/src/features/native/appEntryTypes.ts
 ### ウィジェットへの状態の渡し方（App Group）
 
 - アプリが App Group の共有の置き場（`UserDefaults(suiteName:)`）に `HomeWidgetState` を JSON で書き、`WidgetCenter.reloadTimelines(ofKind:)` で知らせる。ウィジェットはそれを読む
-  - `recording`：セッションの ID・`phase`（`recording`・`paused`）・`startedAt`（経過時間が 0 だった時刻）・`elapsed`・セッション名・直近の文字起こしの 1 行・最後に書いた時刻（`updatedAt`）
+  - `recording`：セッションの ID・`phase`（`recording`・`paused`）・`startedAt`（経過時間が 0 だった時刻）・`elapsed`・セッション名・直近の文字起こしの 1 行・最後に書いた時刻（`updatedAt`）・録音を始めた・一時停止・再開した時刻（`changedAt`）
   - `last`（前回の録音）：セッション名・長さ・終えた時刻
 - 書くのは `LiveActivityPlugin` に届く web/ の呼び出しのとき（Live Activity を出せたかどうかによらない）
-  - `start`・`update`：`recording` を書く。経過時間は端末が数える（`Text(timerInterval:pauseTime:)`）ので、経過時間だけの変化では作り直さない（作り直せる回数に限りがあるため）。一時停止・再開・行・セッション名が変わったら作り直す。`update` の頻度は 11.5 節のとおり（行は 5 秒に 1 回まで）
-  - `end`：`recording` を `last` に移す（長さは、録音中なら終えた時刻 − `startedAt`、一時停止中なら `elapsed`）。録音していないとき（読み込み直したときの片付け）は何もしない
-  - アプリを開いたとき（プラグインの `load()`）：前にアプリが落とされて残った `recording` を、最後に書いた時刻で終えたことにして `last` に移す
-- タイムラインは 1 つ（録音中も経過時間は端末が数える）。録音中は、最後に書いてから 8 時間たった時刻に待機中に切り替える（アプリが落とされて書かれなくなったもの。Live Activity が出続ける長さと同じ）
+  - `start`・`update`：`recording` を書く（置き場にはいつも書く）。作り直す（`reloadTimelines`）のは次のとき。作り直せる回数には限りがあり、裏で使い切ると録音を終えたときの作り直しも落ちて、録音中の見た目が残るため
+    - すぐ：録音を始めた・別のセッションに替わった・一時停止・再開・セッション名が変わった・経過時間の合わせ直し（マイクが止まった・戻った。#447）
+    - 行だけの変化：前に作り直してから 30 秒より後のときだけ。それより前は待たせておき、30 秒を過ぎてから届いた次の `update`（経過時間だけのものでも）で作り直す
+    - 経過時間だけの変化（端末が数えている）：作り直さない
+  - 前と違うセッションの `start` が来たら、前のものは `last` に移さずに上書きする（前のものは、終えたときの `end` で `last` になっている）
+  - `end`：`recording` を `last` に移し、すぐ作り直す（長さは、録音中なら終えた時刻 − `startedAt`、一時停止中なら `elapsed`）。録音していないとき（読み込み直したときの片付け）は何もしない
+  - アプリを開いたとき（プラグインの `load()`）：前にアプリが落とされて残った `recording` を、最後に書いた時刻で終えたことにして `last` に移す。Debug の見本（`-RWWidgetPreview`）はこのあとに書く
+  - アプリが前面に戻ったとき（`UIApplication.didBecomeActiveNotification`）：一度作り直す。前面での作り直しは回数に数えられないので、裏で間引いた・落ちた作り直しをここで取り戻す
+- タイムラインは 1 つ（録音中も経過時間は端末が数える）。録音中は、録音を始めた・最後に一時停止・再開した時刻（`changedAt`）から 8 時間たった時刻に待機中に切り替える（アプリが落とされて書かれなくなったもの。Live Activity が出続ける長さと同じ）。行の変化を起点にしないので、無音が続いて行が変わらないだけでは待機中にならない。一時停止・再開をせずに 8 時間を超えて録り続けると、録音中でも待機中の見た目になる
 - **App Group は `Local.xcconfig` に ID を書いたときだけ使う。** 無料の Apple ID（Personal Team）では使えないことがあるため。`RW_APP_GROUP`（ID）と `RW_APP_GROUP_ENTITLEMENTS = AppGroup.entitlements` の 2 行を書くと、App と Extension にエンタイトルメント（`com.apple.security.application-groups`）が付き、ID が両方の `Info.plist` の `RWAppGroup` に入る。書かなければエンタイトルメントは付かず、今までの署名のまま入れられる
 - App Group を使っていない（ID がない・置き場が開けない）ときは、ウィジェットはいつも待機中の見た目で、前回の録音の行を出さない。押せば録音を始める（録音中なら、録音中のセッションが開く）
 
@@ -300,7 +307,7 @@ JS 向けの API（`AppEntry`。型は `web/src/features/native/appEntryTypes.ts
 
 ### 確かめ方
 
-- Swift のテスト（XCTest。`AppTests/HomeWidgetTests.swift`・`AppTests/AppEntryTests.swift`）：置き場の読み書き、`HomeWidgetWriter`（始める・行の更新・経過時間だけでは作り直さない・一時停止・終える・読み込み直しの片付けで前回の録音を消さない・アプリを開いたときの片付け・置き場がないとき）、タイムライン（置き場がない・待機中・録音中と 8 時間後の切り替え）、文言、ディープリンクの読み書き、`AppEntryInbox` の取っておきと受け渡し
-- web のテスト（vitest。`appEntry.test.ts`）：ブラウザでは `nativeBridge`・`@capacitor/core` を読み込まないこと。偽物のプラグインで、最後に開いていたプロジェクトを覚えること、`record` でそのプロジェクトの新規セッション画面にしていつもの録音を始めること、プロジェクトがないとき、録音中のとき、設定モーダルを開いていたとき、読み込みを待つこと・時間切れ、`session` でセッションを開くこと
+- Swift のテスト（XCTest。`AppTests/HomeWidgetTests.swift`・`AppTests/AppEntryTests.swift`）：置き場の読み書き、`HomeWidgetWriter`（始める・行の更新・行だけの変化の間引き・経過時間だけでは作り直さない・一時停止とセッション名と終えたときはすぐ作り直す・前面に戻ったときの作り直し・8 時間の起点（`changedAt`）・別のセッションの start で上書き・終える・読み込み直しの片付けで前回の録音を消さない・アプリを開いたときの片付けと見本の順・置き場がないとき）、タイムライン（置き場がない・待機中・録音中と 8 時間後の切り替え・行が最近でも起点から 8 時間で切り替え・無音が続いても切り替えない）、文言、ディープリンクの読み書き、`AppEntryInbox` の取っておきと受け渡し
+- web のテスト（vitest。`appEntry.test.ts`）：ブラウザでは `nativeBridge`・`@capacitor/core` を読み込まないこと。偽物のプラグインで、最後に開いていたプロジェクトを覚えること、`record` でそのプロジェクトの新規セッション画面にしていつもの録音を始めること、プロジェクトがないとき、録音中のとき、参加中のとき、設定モーダルを開いていたとき、読み込みを待つこと・時間切れ、`session` でセッションを開くこと
 - 見た目：シミュレーターでウィジェットを置いて撮る。録音中の見た目は、Debug のビルドの起動の引数 `-RWWidgetPreview recording`（`paused`・`idle`・`clear` も）で見本を置き場に書く（`HomeWidgetPreview`。App Group を使っているときだけ。Release には入らない）。シミュレーターで App Group を使うには、`RW_APP_GROUP`・`RW_APP_GROUP_ENTITLEMENTS` に加えて `CODE_SIGN_IDENTITY=-`（その場の署名）でビルドする（`CODE_SIGNING_ALLOWED=NO` ではエンタイトルメントが付かない）
 - 実機：App Group あり・なしの両方で、ウィジェットを押してアプリが開き録音が始まること、録音中・前回の録音の表示、ショートカット・Siri・コントロールセンターからの「録音を始める」
