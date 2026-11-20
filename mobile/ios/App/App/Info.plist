@@ -10,6 +10,19 @@
         <string>Remote Whisper</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
+	<key>RWAppGroup</key>
+	<string>$(RW_APP_GROUP)</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>remotewhisper</string>
+			</array>
+		</dict>
+	</array>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>講義や会議を録音するのに使います</string>
 	<key>UIBackgroundModes</key>

@@ -41,6 +41,23 @@
 		A4530003000000000000000A /* RemoteWhisperWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A45300010000000000000008 /* RemoteWhisperWidgets.swift */; };
 		A4530003000000000000000C /* LiveActivityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4530001000000000000000C /* LiveActivityTests.swift */; };
 		A4530003000000000000000B /* Widgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A4530001000000000000000B /* Widgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		A45400030000000000000001 /* AppEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A45400010000000000000001 /* AppEntry.swift */; };
+		A45400030000000000000002 /* HomeWidgetState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A45400010000000000000002 /* HomeWidgetState.swift */; };
+		A45400030000000000000003 /* StartRecordingIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = A45400010000000000000003 /* StartRecordingIntent.swift */; };
+		A45400030000000000000004 /* AppEntryPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A45400010000000000000004 /* AppEntryPlugin.swift */; };
+		A45400030000000000000005 /* RecordingShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = A45400010000000000000005 /* RecordingShortcuts.swift */; };
+		A45400030000000000000006 /* HomeWidgetWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A45400010000000000000006 /* HomeWidgetWriter.swift */; };
+		A45400030000000000000007 /* HomeWidgetPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = A45400010000000000000007 /* HomeWidgetPreview.swift */; };
+		A45400030000000000000011 /* AppEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A45400010000000000000001 /* AppEntry.swift */; };
+		A45400030000000000000012 /* HomeWidgetState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A45400010000000000000002 /* HomeWidgetState.swift */; };
+		A45400030000000000000013 /* StartRecordingIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = A45400010000000000000003 /* StartRecordingIntent.swift */; };
+		A45400030000000000000018 /* Palette.swift in Sources */ = {isa = PBXBuildFile; fileRef = A45400010000000000000008 /* Palette.swift */; };
+		A45400030000000000000019 /* AppMark.swift in Sources */ = {isa = PBXBuildFile; fileRef = A45400010000000000000009 /* AppMark.swift */; };
+		A4540003000000000000001A /* HomeWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4540001000000000000000A /* HomeWidget.swift */; };
+		A4540003000000000000001B /* LockScreenWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4540001000000000000000B /* LockScreenWidget.swift */; };
+		A4540003000000000000001C /* StartRecordingControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4540001000000000000000C /* StartRecordingControl.swift */; };
+		A4540003000000000000002D /* HomeWidgetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4540001000000000000000D /* HomeWidgetTests.swift */; };
+		A4540003000000000000002E /* AppEntryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4540001000000000000000E /* AppEntryTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -113,6 +130,21 @@
 		A4530001000000000000000A /* Widgets.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Widgets.xcconfig; sourceTree = SOURCE_ROOT; };
 		A4530001000000000000000C /* LiveActivityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityTests.swift; sourceTree = "<group>"; };
 		A4530001000000000000000B /* Widgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = Widgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		A45400010000000000000001 /* AppEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEntry.swift; sourceTree = "<group>"; };
+		A45400010000000000000002 /* HomeWidgetState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeWidgetState.swift; sourceTree = "<group>"; };
+		A45400010000000000000003 /* StartRecordingIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StartRecordingIntent.swift; sourceTree = "<group>"; };
+		A45400010000000000000004 /* AppEntryPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEntryPlugin.swift; sourceTree = "<group>"; };
+		A45400010000000000000005 /* RecordingShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingShortcuts.swift; sourceTree = "<group>"; };
+		A45400010000000000000006 /* HomeWidgetWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeWidgetWriter.swift; sourceTree = "<group>"; };
+		A45400010000000000000007 /* HomeWidgetPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeWidgetPreview.swift; sourceTree = "<group>"; };
+		A45400010000000000000008 /* Palette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Palette.swift; sourceTree = "<group>"; };
+		A45400010000000000000009 /* AppMark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppMark.swift; sourceTree = "<group>"; };
+		A4540001000000000000000A /* HomeWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeWidget.swift; sourceTree = "<group>"; };
+		A4540001000000000000000B /* LockScreenWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LockScreenWidget.swift; sourceTree = "<group>"; };
+		A4540001000000000000000C /* StartRecordingControl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StartRecordingControl.swift; sourceTree = "<group>"; };
+		A4540001000000000000000D /* HomeWidgetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeWidgetTests.swift; sourceTree = "<group>"; };
+		A4540001000000000000000E /* AppEntryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEntryTests.swift; sourceTree = "<group>"; };
+		A4540001000000000000000F /* AppGroup.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AppGroup.entitlements; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -147,6 +179,7 @@
 				958DCC722DB07C7200EA8C5F /* debug.xcconfig */,
 				A4380001000000000000A001 /* App.xcconfig */,
 				A4530001000000000000000A /* Widgets.xcconfig */,
+				A4540001000000000000000F /* AppGroup.entitlements */,
 				504EC3061FED79650016851F /* App */,
 				A45300020000000000000001 /* Shared */,
 				A45300020000000000000003 /* Widgets */,
@@ -172,6 +205,8 @@
 				A4380002000000000000B001 /* MainViewController.swift */,
 				A4380002000000000000B010 /* Recorder */,
 				A45300020000000000000002 /* LiveActivity */,
+				A45400020000000000000001 /* AppEntry */,
+				A45400020000000000000002 /* HomeWidget */,
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
@@ -202,8 +237,29 @@
 			children = (
 				A45300010000000000000001 /* RecordingActivity.swift */,
 				A45300010000000000000002 /* RecordingActivityIntents.swift */,
+				A45400010000000000000001 /* AppEntry.swift */,
+				A45400010000000000000002 /* HomeWidgetState.swift */,
+				A45400010000000000000003 /* StartRecordingIntent.swift */,
 			);
 			path = Shared;
+			sourceTree = "<group>";
+		};
+		A45400020000000000000001 /* AppEntry */ = {
+			isa = PBXGroup;
+			children = (
+				A45400010000000000000004 /* AppEntryPlugin.swift */,
+				A45400010000000000000005 /* RecordingShortcuts.swift */,
+			);
+			path = AppEntry;
+			sourceTree = "<group>";
+		};
+		A45400020000000000000002 /* HomeWidget */ = {
+			isa = PBXGroup;
+			children = (
+				A45400010000000000000006 /* HomeWidgetWriter.swift */,
+				A45400010000000000000007 /* HomeWidgetPreview.swift */,
+			);
+			path = HomeWidget;
 			sourceTree = "<group>";
 		};
 		A45300020000000000000002 /* LiveActivity */ = {
@@ -222,6 +278,11 @@
 			children = (
 				A45300010000000000000008 /* RemoteWhisperWidgets.swift */,
 				A45300010000000000000007 /* RecordingLiveActivity.swift */,
+				A4540001000000000000000A /* HomeWidget.swift */,
+				A4540001000000000000000B /* LockScreenWidget.swift */,
+				A4540001000000000000000C /* StartRecordingControl.swift */,
+				A45400010000000000000009 /* AppMark.swift */,
+				A45400010000000000000008 /* Palette.swift */,
 				A45300010000000000000009 /* Info.plist */,
 			);
 			path = Widgets;
@@ -237,6 +298,8 @@
 				A4380003000000000000D006 /* RecorderMicTests.swift */,
 				A4380003000000000000D007 /* RecorderConvertTests.swift */,
 				A4530001000000000000000C /* LiveActivityTests.swift */,
+				A4540001000000000000000D /* HomeWidgetTests.swift */,
+				A4540001000000000000000E /* AppEntryTests.swift */,
 			);
 			path = AppTests;
 			sourceTree = "<group>";
@@ -413,6 +476,13 @@
 				A45300030000000000000004 /* ActivityKitClient.swift in Sources */,
 				A45300030000000000000005 /* LiveActivityPlugin.swift in Sources */,
 				A45300030000000000000006 /* LiveActivityPreview.swift in Sources */,
+				A45400030000000000000001 /* AppEntry.swift in Sources */,
+				A45400030000000000000002 /* HomeWidgetState.swift in Sources */,
+				A45400030000000000000003 /* StartRecordingIntent.swift in Sources */,
+				A45400030000000000000004 /* AppEntryPlugin.swift in Sources */,
+				A45400030000000000000005 /* RecordingShortcuts.swift in Sources */,
+				A45400030000000000000006 /* HomeWidgetWriter.swift in Sources */,
+				A45400030000000000000007 /* HomeWidgetPreview.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -427,6 +497,8 @@
 				A4380003000000000000E006 /* RecorderMicTests.swift in Sources */,
 				A4380003000000000000E007 /* RecorderConvertTests.swift in Sources */,
 				A4530003000000000000000C /* LiveActivityTests.swift in Sources */,
+				A4540003000000000000002D /* HomeWidgetTests.swift in Sources */,
+				A4540003000000000000002E /* AppEntryTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -438,6 +510,14 @@
 				A45300030000000000000008 /* RecordingActivityIntents.swift in Sources */,
 				A45300030000000000000009 /* RecordingLiveActivity.swift in Sources */,
 				A4530003000000000000000A /* RemoteWhisperWidgets.swift in Sources */,
+				A45400030000000000000011 /* AppEntry.swift in Sources */,
+				A45400030000000000000012 /* HomeWidgetState.swift in Sources */,
+				A45400030000000000000013 /* StartRecordingIntent.swift in Sources */,
+				A45400030000000000000018 /* Palette.swift in Sources */,
+				A45400030000000000000019 /* AppMark.swift in Sources */,
+				A4540003000000000000001A /* HomeWidget.swift in Sources */,
+				A4540003000000000000001B /* LockScreenWidget.swift in Sources */,
+				A4540003000000000000001C /* StartRecordingControl.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

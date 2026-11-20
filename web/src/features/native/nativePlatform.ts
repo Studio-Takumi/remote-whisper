@@ -35,6 +35,14 @@ export function startLiveActivity(store: AppStore) {
     void loadBridge().then((m) => m.startLiveActivity(store));
 }
 
+// ウィジェット・App Intents から開いたときに、録音を始める・セッションを開く（#454）。ブラウザ版では何もしない
+export function startAppEntry(store: AppStore) {
+    if (!isNativeApp()) {
+        return;
+    }
+    void loadBridge().then((m) => m.startAppEntry(store));
+}
+
 // 録音のプラグイン。プラグインは Proxy で、Promise の結果にそのまま渡せないので、包んで返す
 export async function loadRecorder(): Promise<{ plugin: RecorderPlugin }> {
     const { Recorder } = await loadBridge();

@@ -17,7 +17,7 @@
 | 8 | [ui.md](ui.md) | 画面のイメージ |
 | 9 | [notes.md](notes.md) | 実装メモ |
 | 10 | [cloud.md](cloud.md) | クラウド版（中間サーバーを通して使う形。構成・ログイン・ホストの登録・中継と署名・DB・計測・まだ決めていないこと） |
-| 11 | [mobile.md](mobile.md) | iOS アプリ（検証用。位置づけ・`server.url` の方式・録音のプラグイン・Live Activity） |
+| 11 | [mobile.md](mobile.md) | iOS アプリ（検証用。位置づけ・`server.url` の方式・録音のプラグイン・Live Activity・ウィジェットと App Intents） |
 
 - 仕様書の中では、節を「6.9 節」「8 章」のように番号で指す。番号から上の表でファイルを引く。
 - コードのコメント・テスト・README・PR などから指すときは、ファイル名を付けて「spec/flows.md 6.9」の形で書く（`docs/` は省く）。複数あるときは「spec/flows.md 6.3・spec/api.md 7.2」のように、番号ごとにファイル名を付ける（同じファイルの番号が続くときは「spec/files.md 5.4・5.5」のように、ファイル名を 1 回にまとめてよい）。

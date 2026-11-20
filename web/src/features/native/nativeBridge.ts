@@ -5,6 +5,8 @@
 import { SystemBars, SystemBarsStyle, registerPlugin } from '@capacitor/core';
 
 import type { AppStore } from '@/app/appState';
+import { AppEntrySync } from '@/features/native/appEntrySync';
+import type { AppEntryPlugin } from '@/features/native/appEntryTypes';
 import { LiveActivitySync } from '@/features/native/liveActivitySync';
 import type { LiveActivityPlugin } from '@/features/native/liveActivityTypes';
 import type { RecorderPlugin } from '@/features/native/recorderTypes';
@@ -19,6 +21,14 @@ const LiveActivity = registerPlugin<LiveActivityPlugin>('LiveActivity');
 // 録音の状態を Live Activity に出し、そのボタンの操作を受け取り始める（spec/mobile.md 11.5）
 export function startLiveActivity(store: AppStore) {
     new LiveActivitySync(store, LiveActivity).start();
+}
+
+// ウィジェット・App Intents から開いたときの頼みごとのプラグイン（mobile/ios/App/App/AppEntry/。#454）
+const AppEntry = registerPlugin<AppEntryPlugin>('AppEntry');
+
+// ウィジェット・App Intents からの録音の開始・セッションを開くを受け取り始める（spec/mobile.md 11.6）
+export function startAppEntry(store: AppStore) {
+    new AppEntrySync(store, AppEntry).start();
 }
 
 // env(safe-area-inset-*) は viewport-fit=cover のときだけ値が入る。index.html の meta に付いているが、

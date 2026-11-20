@@ -1,6 +1,7 @@
-// Widget Extension のターゲットの設定（Live Activity。#453）
+// Widget Extension のターゲットの設定（Live Activity。#453。ホーム画面・ロック画面のウィジェット。#454）
 // Bundle ID はアプリのもの（RW_APP_BUNDLE_IDENTIFIER）の後ろに .widgets を付ける。
-// Team ID・自分用の Bundle ID は App.xcconfig から読む Local.xcconfig に書く（Git に入れない）。
+// Team ID・自分用の Bundle ID・App Group は App.xcconfig から読む Local.xcconfig に書く（Git に入れない）。
+// App Group のエンタイトルメント（CODE_SIGN_ENTITLEMENTS）も App と同じものを使う
 // 古い Local.xcconfig で PRODUCT_BUNDLE_IDENTIFIER を書いていると、App だけが変わって Extension の埋め込みの検証で
 // 失敗する。そのときは RW_APP_BUNDLE_IDENTIFIER に書き換える
 
