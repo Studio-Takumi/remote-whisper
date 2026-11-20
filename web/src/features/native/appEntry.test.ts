@@ -75,6 +75,7 @@ function makeStore(state: Partial<AppState> = {}) {
     const store = createStore<Partial<AppState>>()((set) => ({
         recordingState: 'idle',
         recordingSessionId: null,
+        joined: null,
         selection: { projectId: null, sessionId: null },
         projectsLoaded: true,
         settingsLoaded: true,
@@ -172,6 +173,17 @@ describe('AppEntrySync', () => {
         send({ kind: 'record' });
         expect(get().showRecordingSession).toHaveBeenCalledTimes(1);
         expect(get().startRecording).not.toHaveBeenCalled();
+    });
+
+    it('参加中（#241）なら新しく始めず、参加中のセッションを開く', () => {
+        localStorage.setItem(LAST_PROJECT_KEY, 'p1');
+        const { store, get } = makeStore({ joined: { sessionId: 's2', source: 2, state: 'joined' } });
+        const { plugin, send } = makePlugin();
+        new AppEntrySync(store, plugin).start();
+        send({ kind: 'record' });
+        expect(get().startRecording).not.toHaveBeenCalled();
+        expect(get().newSession).not.toHaveBeenCalled();
+        expect(get().selectSession).toHaveBeenCalledWith('p2', 's2');
     });
 
     it('設定モーダルを開いていたら閉じてから始める', () => {

@@ -122,6 +122,11 @@ export class AppEntrySync {
             s.showRecordingSession();
             return;
         }
+        // 参加中（#241）も、もう一つマイクを開いて録音を始めないよう、参加中のセッションを開くだけにする
+        if (s.joined) {
+            this.openSession(s.joined.sessionId);
+            return;
+        }
         const projectId = recordingProjectId(s);
         if (projectId) {
             // 新規セッション画面にしてから始める（セッションを開いたままだと、新規セッション画面に切り替えるだけになる）
