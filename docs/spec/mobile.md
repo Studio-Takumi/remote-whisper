@@ -158,7 +158,7 @@ iOS の PWA は、画面ロック中やバックグラウンドで録音を続�
 |---|---|
 | `mobile/ios/App/Shared/` | App と Widget Extension の両方に入れるもの。`RecordingActivityAttributes`・`RecordingActivityState`（ContentState）・ボタンの操作（`RecordingActivityAction`）・`LiveActivityIntent` の 3 つ |
 | `mobile/ios/App/App/LiveActivity/` | JS 向けのプラグイン `LiveActivityPlugin`（受け渡しだけ）、出す・変える・終えるを持つ `LiveActivityController`、ActivityKit を呼ぶ `ActivityKitClient`、見た目を確かめる `LiveActivityPreview`（Debug だけ） |
-| `mobile/ios/App/Widgets/` | Widget Extension（ターゲット `Widgets`）。Live Activity とダイナミックアイランドの見た目。ホーム画面のウィジェット（#454）もここに足す |
+| `mobile/ios/App/Widgets/` | Widget Extension（ターゲット `Widgets`）。Live Activity とダイナミックアイランドの見た目。ホーム画面・ロック画面のウィジェットとコントロール（#454）も同じ Extension に入れる（11.6 節） |
 | `web/src/features/native/liveActivitySync.ts` | ストアを見てプラグインを呼び、ボタンの操作をストアのアクションに渡す |
 
 - プラグインは `MainViewController` の `capacitorDidLoad()` で `RecorderPlugin` と並べて登録する。クラスは継承で重ねず、`LiveActivityPlugin` が `LiveActivityController` を持ち、`LiveActivityController` が `LiveActivityClient`（本物は `ActivityKitClient`、テストでは偽物）を持つ
@@ -220,3 +220,87 @@ iOS の PWA は、画面ロック中やバックグラウンドで録音を続�
 - web のテスト（vitest。`liveActivity.test.ts`）：ブラウザでは `nativeBridge`・`@capacitor/core` を読み込まないこと。偽物のプラグインで、start・update・end の順と中身、録音中のセッションが変わったときの start、マイクの状態の変化での update、出せなかった・失敗したときの start のし直し、行の間引き、止めたら待っていた更新を捨てること、ボタンのイベントでいつもの一時停止・再開・終了が呼ばれること
 - 見た目：シミュレーターはマイクの入力がなく録音を始められないので、Debug のビルドの起動の引数 `-RWLiveActivityPreview recording`（または `paused`）で見本を出す（`LiveActivityPreview`。Release には入らない）。ロック画面とダイナミックアイランドのライト・ダークを撮って比べる
 - 実機：Web の録音で、ロック画面とダイナミックアイランドに出ること・ボタンで一時停止・再開・終了できること・録音を終えたら消えること・アプリを落としてから開き直したら残っていないこと
+
+## 11.6 ウィジェットと App Intents
+
+ホーム画面のウィジェット（小）・ロック画面のウィジェット（円）・「録音を始める」の App Intents（ショートカット・Siri・コントロールセンター）を足す（#454）。11.5 節と同じ方針で、**録音は Web のまま、ネイティブは表示と入り口だけ**。
+
+### 方針
+
+- iOS はアプリが前面にないとマイクを開けないので、ウィジェット・App Intents から録音を始めるときは必ずアプリを開き、web/ に頼んで、マイクボタンと同じいつもの録音の開始（ストアの `startRecording`）を通す。11.3 節の録音のプラグイン（「iOS アプリ」タブの録音）には関わらない
+- 版：アプリは iOS 15 から、Extension は 16.1 から（変えない）。App Intents（ショートカット・Siri）は iOS 16 から、コントロールセンターのコントロールは iOS 18 から（`@available` で分ける）
+- ブラウザ版（Safari・PWA を含む）は変えない。web/ の呼び出しは `isNativeApp()` のときだけ動き、`nativeBridge-*.js` のチャンクにだけ入る（11.4 節の決まりのまま）
+
+### 置き場所
+
+| パス | 中身 |
+|---|---|
+| `mobile/ios/App/Shared/AppEntry.swift` | アプリを開いたときの頼みごと `AppEntryRequest`（録音を始める・セッションを開く・開くだけ）とディープリンクの読み書き、届いたものをプラグインに渡す `AppEntryInbox` |
+| `mobile/ios/App/Shared/HomeWidgetState.swift` | ウィジェットに出す状態 `HomeWidgetState`、App Group の置き場 `HomeWidgetStore`、タイムラインの作り方 `HomeWidgetTimeline`、文言 `HomeWidgetText` |
+| `mobile/ios/App/Shared/StartRecordingIntent.swift` | 「録音を始める」の `AppIntent` |
+| `mobile/ios/App/App/AppEntry/` | JS 向けのプラグイン `AppEntryPlugin`（受け渡しだけ）、ショートカット・Siri に出す `RecordingShortcuts` |
+| `mobile/ios/App/App/HomeWidget/` | 置き場に書いてウィジェットに知らせる `HomeWidgetWriter`、見た目を確かめる `HomeWidgetPreview`（Debug だけ） |
+| `mobile/ios/App/Widgets/` | `HomeWidget`（小）・`LockScreenWidget`（円）・`StartRecordingControl`（コントロール）・アプリのアイコンの印 `AppMark`・色 `Palette` |
+| `web/src/features/native/appEntrySync.ts` | プラグインのイベントを受けて、いつもの録音の開始・セッションを開く処理を呼ぶ。最後に開いていたプロジェクトを覚える |
+
+- `AppEntryPlugin` は `MainViewController` で `RecorderPlugin`・`LiveActivityPlugin` と並べて登録する。ウィジェットへの状態の書き込みは、`LiveActivityPlugin` が持つ `HomeWidgetWriter` がする（web/ からの start・update・end をそのまま使い、web/ から送るものは増やさない）
+- `SceneDelegate` が、開いた URL（`remotewhisper://`）を `AppEntryInbox` に渡す
+
+### アプリを開く入り口（ディープリンク・App Intents）
+
+| 入り口 | 開き方 | web/ に伝えること |
+|---|---|---|
+| ホーム画面のウィジェット・待機中 | `remotewhisper://record` | `record` |
+| ホーム画面のウィジェット・録音中 | `remotewhisper://session/<セッションの ID>` | `session` |
+| ロック画面のウィジェット（円） | `remotewhisper://open` | なし（開くだけ） |
+| ショートカット・Siri・コントロール | `StartRecordingIntent`（`openAppWhenRun`） | `record` |
+
+- URL のスキームはアプリの `Info.plist` の `CFBundleURLTypes` で `remotewhisper`
+- アプリを開いた直後は画面とプラグインがまだないので、`AppEntryInbox` が最後の 1 つを取っておき、プラグインが読み込まれたら渡す。プラグインは `retainUntilConsumed` で送り、web/ が聞き始めたときに届く
+
+JS 向けの API（`AppEntry`。型は `web/src/features/native/appEntryTypes.ts`）はイベントだけ。
+
+| イベント | 中身 | いつ |
+|---|---|---|
+| `entry` | `{ kind: 'record' }` か `{ kind: 'session', sessionId }` | ウィジェット・App Intents からアプリを開いた |
+
+### web/ の動き
+
+- 起動したとき（`main.tsx` の `startAppEntry`）、アプリの中でだけ `nativeBridge` を読み込み、`AppEntrySync` で見始める
+- **最後に開いていたプロジェクト**：開いているプロジェクト（`selection.projectId`）が変わるたびに `localStorage` の `rw.ios.lastProject` に書く（アプリの中だけ）
+- `entry` が届いたら、プロジェクトの一覧と設定を読み込むまで待ってから（`projectsLoaded`・`settingsLoaded`）処理する。待っている間に届いたものは後のものだけ残し、30 秒たっても読み込めなければ捨てる（つながってから急に録音が始まらないように）
+- `record`
+  - 設定モーダルを開いていたら閉じる
+  - 録音中なら、新しく始めずに録音中のセッションを開く（`showRecordingSession`）
+  - 録音するプロジェクトは、開いているもの → 最後に開いていたもの（今もあれば）。そのプロジェクトの新規セッション画面にしてから、いつもの `startRecording` を呼ぶ（セッションを開いたままだと、新規セッション画面に切り替えるだけになるため）
+  - プロジェクトがない（1 つもない・覚えていたものが消えた）ときは選ばずに `startRecording` を呼び、いつもの「録音するプロジェクトをメニューから選んでください」を出す
+- `session`：録音中のセッションなら `showRecordingSession`、ほかはそのセッションを開く（`selectSession`）。見つからなければ何もしない
+
+### ウィジェットへの状態の渡し方（App Group）
+
+- アプリが App Group の共有の置き場（`UserDefaults(suiteName:)`）に `HomeWidgetState` を JSON で書き、`WidgetCenter.reloadTimelines(ofKind:)` で知らせる。ウィジェットはそれを読む
+  - `recording`：セッションの ID・`phase`（`recording`・`paused`）・`startedAt`（経過時間が 0 だった時刻）・`elapsed`・セッション名・直近の文字起こしの 1 行・最後に書いた時刻（`updatedAt`）
+  - `last`（前回の録音）：セッション名・長さ・終えた時刻
+- 書くのは `LiveActivityPlugin` に届く web/ の呼び出しのとき（Live Activity を出せたかどうかによらない）
+  - `start`・`update`：`recording` を書く。経過時間は端末が数える（`Text(timerInterval:pauseTime:)`）ので、経過時間だけの変化では作り直さない（作り直せる回数に限りがあるため）。一時停止・再開・行・セッション名が変わったら作り直す。`update` の頻度は 11.5 節のとおり（行は 5 秒に 1 回まで）
+  - `end`：`recording` を `last` に移す（長さは、録音中なら終えた時刻 − `startedAt`、一時停止中なら `elapsed`）。録音していないとき（読み込み直したときの片付け）は何もしない
+  - アプリを開いたとき（プラグインの `load()`）：前にアプリが落とされて残った `recording` を、最後に書いた時刻で終えたことにして `last` に移す
+- タイムラインは 1 つ（録音中も経過時間は端末が数える）。録音中は、最後に書いてから 8 時間たった時刻に待機中に切り替える（アプリが落とされて書かれなくなったもの。Live Activity が出続ける長さと同じ）
+- **App Group は `Local.xcconfig` に ID を書いたときだけ使う。** 無料の Apple ID（Personal Team）では使えないことがあるため。`RW_APP_GROUP`（ID）と `RW_APP_GROUP_ENTITLEMENTS = AppGroup.entitlements` の 2 行を書くと、App と Extension にエンタイトルメント（`com.apple.security.application-groups`）が付き、ID が両方の `Info.plist` の `RWAppGroup` に入る。書かなければエンタイトルメントは付かず、今までの署名のまま入れられる
+- App Group を使っていない（ID がない・置き場が開けない）ときは、ウィジェットはいつも待機中の見た目で、前回の録音の行を出さない。押せば録音を始める（録音中なら、録音中のセッションが開く）
+
+### 見た目
+
+匠が Pencil で作った採用案（ライトとダーク）。色は 11.5 節と同じ（録音開始＝青 `#3B82F6`）。
+
+- ホーム画面・待機中（案A）：左上に「Remote Whisper」、右上にクラウドの印。真ん中に青い丸のマイクのボタン、下に「録音する」と前回の録音（「前回 11/19 3限 · 1:28:40」。セッション名が長いときは名前だけ省略して長さは残す。セッション名がなければ日付）
+- ホーム画面・録音中（案B）：左上に赤い点と経過時間（等幅）、真ん中に直近の文字起こし（「」付きで 2 行まで。長いときは後ろを残して頭を「…」にする）、下に文書の印とセッション名。一時停止中は印を琥珀の一時停止の印にし、経過時間も琥珀、行を薄くする
+- ロック画面（円）：アプリのアイコンの印（「>」と波形とカーソル）。色はロック画面に合わせて iOS が付ける
+- コントロール：マイクの印と「録音する」
+
+### 確かめ方
+
+- Swift のテスト（XCTest。`AppTests/HomeWidgetTests.swift`・`AppTests/AppEntryTests.swift`）：置き場の読み書き、`HomeWidgetWriter`（始める・行の更新・経過時間だけでは作り直さない・一時停止・終える・読み込み直しの片付けで前回の録音を消さない・アプリを開いたときの片付け・置き場がないとき）、タイムライン（置き場がない・待機中・録音中と 8 時間後の切り替え）、文言、ディープリンクの読み書き、`AppEntryInbox` の取っておきと受け渡し
+- web のテスト（vitest。`appEntry.test.ts`）：ブラウザでは `nativeBridge`・`@capacitor/core` を読み込まないこと。偽物のプラグインで、最後に開いていたプロジェクトを覚えること、`record` でそのプロジェクトの新規セッション画面にしていつもの録音を始めること、プロジェクトがないとき、録音中のとき、設定モーダルを開いていたとき、読み込みを待つこと・時間切れ、`session` でセッションを開くこと
+- 見た目：シミュレーターでウィジェットを置いて撮る。録音中の見た目は、Debug のビルドの起動の引数 `-RWWidgetPreview recording`（`paused`・`idle`・`clear` も）で見本を置き場に書く（`HomeWidgetPreview`。App Group を使っているときだけ。Release には入らない）。シミュレーターで App Group を使うには、`RW_APP_GROUP`・`RW_APP_GROUP_ENTITLEMENTS` に加えて `CODE_SIGN_IDENTITY=-`（その場の署名）でビルドする（`CODE_SIGNING_ALLOWED=NO` ではエンタイトルメントが付かない）
+- 実機：App Group あり・なしの両方で、ウィジェットを押してアプリが開き録音が始まること、録音中・前回の録音の表示、ショートカット・Siri・コントロールセンターからの「録音を始める」

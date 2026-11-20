@@ -6,6 +6,7 @@
 - 録音だけを Swift のプラグイン（`ios/App/App/Recorder/`）でやる。16kHz・モノラルの WAV を、ファイルアプリから見える `recordings` フォルダに書く
 - 録音の操作は、アプリの中で開いたときだけ設定モーダルの最後のタブ「iOS アプリ」に出る（録音開始・録音停止・状態・録音ファイルの一覧。ファイルごとの「セッションを作る」で、今開いているプロジェクトに「音声ファイルから作る」と同じようにセッションを作る。spec/mobile.md 11.4）
 - いつもの Web の録音の状態を、ロック画面の Live Activity とダイナミックアイランドに出し、そこから一時停止・再開・終了できる（#453。iOS 16.1 から、ボタンは iOS 17 から。録音は Web のまま。spec/mobile.md 11.5）
+- ホーム画面のウィジェット（小）・ロック画面のウィジェット（円）・「録音を始める」（ショートカット・Siri、iOS 18 からはコントロールセンターも）から、アプリを開いていつもの Web の録音を始められる（#454。録音するのは最後に開いていたプロジェクト。spec/mobile.md 11.6）。ホーム画面のウィジェットに録音中・前回の録音を出すには App Group が要る（下の「設定」の 2）
 - 検証用。ストアには出さない。クラウド版・Android は対象外
 
 ## 必要なもの
@@ -37,6 +38,7 @@
     - 無料の Apple ID（Personal Team）は、Accounts に Team ID が出ないことがある。そのときは「キーチェーンアクセス」で「Apple Development: …」の証明書を開き、「組織単位」の 10 文字を使う（証明書が無ければ、先に Accounts の「Manage Certificates…」で ＋ → Apple Development を作る）
     - 無料の Apple ID で `dev.studiotakumi.remotewhisper` が使えないときは、`RW_APP_BUNDLE_IDENTIFIER` を自分用に変える（Widget Extension の Bundle ID は、この後ろに `.widgets` を付けたものになる。前に `PRODUCT_BUNDLE_IDENTIFIER` を書いていたら `RW_APP_BUNDLE_IDENTIFIER` に書き換える）
     - Xcode の「Signing & Capabilities」で Team を選ばない。`project.pbxproj` に Team ID が入り、コミットに紛れ込むため
+    - ホーム画面のウィジェットに録音中・前回の録音を出すときだけ、`RW_APP_GROUP`（`group.` で始まる ID）と `RW_APP_GROUP_ENTITLEMENTS = AppGroup.entitlements` の 2 行を書く。App と Widget Extension に App Group のエンタイトルメントが付く。無料の Apple ID（Personal Team）では App Group を使えないことがあり、そのときは署名で失敗するので、2 行を消せば今までどおり入れられる（ウィジェットはいつも待機中の見た目になり、前回の録音は出ない）。App Group の ID も個人の識別子なのでコミットしない
 
 ### http を開けるのは Debug のビルドだけ
 
@@ -69,6 +71,14 @@ xcrun simctl launch booted dev.studiotakumi.remotewhisper
 
 ```sh
 xcrun simctl launch booted dev.studiotakumi.remotewhisper -RWLiveActivityPreview recording
+```
+
+ホーム画面のウィジェットの録音中の見た目も、同じように見本を出す（`paused`・`idle`（前回の録音あり）・`clear` も）。ウィジェットに録音中を渡すには App Group が要るので、シミュレーターでもその場の署名で App Group を付けてビルドする（`CODE_SIGNING_ALLOWED=NO` ではエンタイトルメントが付かない。ID は何でもよい）。ウィジェットはホーム画面を長押し →「編集」→「ウィジェットを追加」で置く
+
+```sh
+xcodebuild ... -derivedDataPath build CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= \
+  RW_APP_GROUP=group.com.example.remotewhisper RW_APP_GROUP_ENTITLEMENTS=AppGroup.entitlements build
+xcrun simctl launch booted dev.studiotakumi.remotewhisper -RWWidgetPreview recording
 ```
 
 シミュレーターの名前は `xcrun simctl list devices` で選ぶ。開発用のサーバーと Vite を開くなら、`RW_SERVER_URL=http://localhost:5190`（シミュレーターの localhost は Mac）にして、サーバーを `--port 8010 --mock`、Vite を `REMOTE_WHISPER_SERVER=http://localhost:8010 npx vite --port 5190` で起動しておく。
@@ -113,14 +123,17 @@ TEST_RUNNER_RW_MIC_TEST=1 xcodebuild test ...（上と同じ）
 |---|---|
 | `capacitor.config.ts` | アプリ ID（`appId`。iOS の Bundle ID の初期値）・名前・`webDir`・`server.url`（`.env.local` か環境変数から） |
 | `ios/App/App.xcodeproj` | Xcode のプロジェクト（`npx cap add ios` で作ったもの） |
-| `ios/App/App.xcconfig` | Bundle ID など。`Local.xcconfig` があれば読む |
+| `ios/App/App.xcconfig` | Bundle ID・App Group など。`Local.xcconfig` があれば読む |
 | `ios/App/Widgets.xcconfig` | Widget Extension の Bundle ID（アプリのものの後ろに `.widgets`）。`App.xcconfig` を読む |
-| `ios/App/App/MainViewController.swift` | アプリの中だけのプラグイン（録音・Live Activity）を登録する画面 |
+| `ios/App/AppGroup.entitlements` | App Group のエンタイトルメント（`Local.xcconfig` に書いたときだけ付く） |
+| `ios/App/App/MainViewController.swift` | アプリの中だけのプラグイン（録音・Live Activity・ウィジェットからの頼みごと）を登録する画面 |
 | `ios/App/App/LiveActivity/` | Live Activity のプラグイン（JS 向けの API は spec/mobile.md 11.5） |
-| `ios/App/Shared/` | App と Widget Extension の両方に入れるもの（Live Activity の中身・ボタン） |
-| `ios/App/Widgets/` | Widget Extension（Live Activity とダイナミックアイランドの見た目） |
+| `ios/App/App/AppEntry/` | ウィジェット・App Intents から開いたときの頼みごとのプラグインと、ショートカット（spec/mobile.md 11.6） |
+| `ios/App/App/HomeWidget/` | ホーム画面のウィジェットに録音の状態を渡すところ |
+| `ios/App/Shared/` | App と Widget Extension の両方に入れるもの（Live Activity の中身・ボタン、ウィジェットの状態、ディープリンク、「録音を始める」） |
+| `ios/App/Widgets/` | Widget Extension（Live Activity・ダイナミックアイランド・ホーム画面とロック画面のウィジェット・コントロールの見た目） |
 | `ios/App/App/Recorder/` | 録音のプラグイン（JS 向けの API は spec/mobile.md 11.3） |
-| `ios/App/AppTests/` | 録音・Live Activity のプラグインのテスト（XCTest） |
+| `ios/App/AppTests/` | 録音・Live Activity・ウィジェットのテスト（XCTest） |
 | `ios/App/CapApp-SPM/Package.swift` | Capacitor が管理する Swift Package（`cap sync` が書き直すので手で変えない） |
 
 `ios/App/App/public`・`capacitor.config.json`・`config.xml` は `cap sync` が作るので Git に入れない（`ios/.gitignore`）。
