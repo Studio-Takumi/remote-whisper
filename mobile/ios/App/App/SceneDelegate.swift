@@ -13,10 +13,13 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         window?.makeKeyAndVisible()
 
         SceneDelegateProxy.shared.scene(scene, willConnectTo: session, options: connectionOptions)
+        // ウィジェットのリンク（remotewhisper://）で開いた（#454）
+        AppEntryInbox.shared.deliver(urls: connectionOptions.urlContexts.map(\.url))
     }
 
     func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
         SceneDelegateProxy.shared.scene(scene, openURLContexts: URLContexts)
+        AppEntryInbox.shared.deliver(urls: URLContexts.map(\.url))
     }
 
     func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {

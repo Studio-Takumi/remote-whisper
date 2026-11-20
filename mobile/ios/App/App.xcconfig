@@ -11,4 +11,12 @@ PRODUCT_BUNDLE_IDENTIFIER = $(RW_APP_BUNDLE_IDENTIFIER)
 // できあがった Info.plist を書き換えるため、スクリプトのサンドボックスを切る
 ENABLE_USER_SCRIPT_SANDBOXING = NO
 
+// ホーム画面のウィジェットに録音中・前回の録音を出すための App Group（#454。spec/mobile.md 11.6）。
+// 無料の Apple ID（Personal Team）では使えないことがあるので、既定では使わない（エンタイトルメントも付けない）。
+// 使うときは Local.xcconfig に RW_APP_GROUP と RW_APP_GROUP_ENTITLEMENTS を書く（Local.xcconfig.example）。
+// 使わないと、ウィジェットはいつも待機中の見た目で、前回の録音も出ない
+RW_APP_GROUP =
+RW_APP_GROUP_ENTITLEMENTS =
+CODE_SIGN_ENTITLEMENTS = $(RW_APP_GROUP_ENTITLEMENTS)
+
 #include? "Local.xcconfig"

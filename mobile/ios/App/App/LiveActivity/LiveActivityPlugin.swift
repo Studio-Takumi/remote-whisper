@@ -3,7 +3,8 @@ import Foundation
 
 /// JS から呼ぶ Live Activity のプラグイン（`Capacitor.Plugins.LiveActivity`。#453。API は spec/mobile.md 11.5）。
 /// 録音は web/ のまま。このプラグインは録音の状態を Live Activity に出し、ボタンの操作を web/ に伝えるだけ。
-/// Live Activity を出す・変える・終えるのは `LiveActivityController` が持つ
+/// Live Activity を出す・変える・終えるのは `LiveActivityController` が持つ。
+/// 同じ状態をホーム画面のウィジェット（#454。spec/mobile.md 11.6）にも渡す（`HomeWidgetWriter`）
 @objc(LiveActivityPlugin)
 public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "LiveActivityPlugin"
@@ -17,8 +18,21 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
     /// iOS 16.1 より前は nil（何もしない）
     private var controller: LiveActivityController?
     private var observer: NSObjectProtocol?
+    private let widget = HomeWidgetWriter.live()
+    #if DEBUG
+    /// ウィジェットの見本を出している間は、web/ の end（読み込んだときの片付け）で消さない
+    private var showsWidgetPreview = false
+    #endif
 
     override public func load() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            // 前にアプリが落とされたときの録音中のものを、ウィジェットに残さない
+            widget.launched()
+            #if DEBUG
+            showsWidgetPreview = HomeWidgetPreview.writeIfRequested(widget)
+            #endif
+        }
         if #available(iOS 16.1, *) {
             let controller = LiveActivityController(client: ActivityKitClient())
             // 前にアプリが落とされたときの Live Activity を残さない（録音は web/ と一緒に終わっている）
@@ -55,7 +69,12 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func end(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
-            _ = self?.controller?.end()
+            guard let self else { return call.resolve() }
+            _ = controller?.end()
+            #if DEBUG
+            if showsWidgetPreview { return call.resolve() }
+            #endif
+            widget.ended()
             call.resolve()
         }
     }
@@ -72,6 +91,8 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
             return call.reject("引数が正しくありません", "invalid-argument", error)
         }
         DispatchQueue.main.async { [weak self] in
+            // ウィジェットには、Live Activity を出せたかどうかによらず書く
+            self?.widget.recording(sessionId: request.sessionId, state: request.state)
             guard let controller = self?.controller else { return call.resolve(["shown": false]) }
             do {
                 let outcome = try body(controller, request)

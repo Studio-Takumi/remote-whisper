@@ -6,3 +6,9 @@ DEVELOPMENT_TEAM = XXXXXXXXXX
 // 無料の Apple ID で dev.studiotakumi.remotewhisper が使えないとき（ほかの人が先に使っている等）は、自分用に変える。
 // Widget Extension の Bundle ID（後ろに .widgets）もこれから作るので、PRODUCT_BUNDLE_IDENTIFIER ではなくこちらを書く
 // RW_APP_BUNDLE_IDENTIFIER = com.example.remotewhisper
+
+// ホーム画面のウィジェットに録音中・前回の録音を出すときは、App Group を使う（有料の Apple Developer Program が要ることがある）。
+// ID は group. で始める（例は group. ＋ アプリの Bundle ID）。2 行とも書くと、App と Widget Extension にエンタイトルメントが付く。
+// 書かなければ、ウィジェットはいつも待機中の見た目（押すと録音を始める）で、前回の録音は出ない
+// RW_APP_GROUP = group.com.example.remotewhisper
+// RW_APP_GROUP_ENTITLEMENTS = AppGroup.entitlements
