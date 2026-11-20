@@ -18,8 +18,11 @@ struct HomeWidgetState: Codable, Equatable {
         var title: String
         /// 直近の文字起こしの 1 行
         var line: String
-        /// 最後に書いた時刻。アプリが落とされて書かれなくなったものを見分ける
+        /// 最後に書いた時刻。アプリが落とされたときに、録音を終えた時刻と見なす
         var updatedAt: Date
+        /// 録音を始めた・一時停止・再開した時刻（行・経過時間だけの変化では変わらない）。
+        /// ここから 8 時間たったら、アプリが落とされたものと見なして待機中にする
+        var changedAt: Date
 
         var pausedAt: Date? {
             phase == .paused ? startedAt.addingTimeInterval(elapsed) : nil
@@ -47,15 +50,19 @@ enum HomeWidgetContent: Equatable {
 
 /// 置き場の中身から、ウィジェットのタイムラインを作る
 enum HomeWidgetTimeline {
-    /// これより長く書かれていない録音は、アプリが落とされたものと見なして待機中にする（Live Activity が出続ける長さと同じ）
+    /// 録音を始めた・一時停止・再開してからこれだけたった録音中のものは、アプリが落とされたものと見なして待機中にする
+    /// （Live Activity が出続ける長さと同じ）。行が変わらない（無音が続く）だけでは切り替わらないよう、行の変化を起点にしない
     static let staleAfter: TimeInterval = 8 * 60 * 60
+
+    static func staleAt(_ recording: HomeWidgetState.Recording) -> Date {
+        recording.changedAt.addingTimeInterval(staleAfter)
+    }
 
     /// いま出すもの
     static func content(of state: HomeWidgetState?, now: Date) -> HomeWidgetContent {
         guard let state else { return .idle(last: nil) }
         if let recording = state.recording {
-            let staleAt = recording.updatedAt.addingTimeInterval(staleAfter)
-            if now < staleAt {
+            if now < staleAt(recording) {
                 return .recording(recording)
             }
             return .idle(last: recording.finished(at: recording.updatedAt))
@@ -68,8 +75,8 @@ enum HomeWidgetTimeline {
     static func entries(of state: HomeWidgetState?, now: Date) -> [(date: Date, content: HomeWidgetContent)] {
         let current = content(of: state, now: now)
         guard case let .recording(recording) = current else { return [(now, current)] }
-        let staleAt = recording.updatedAt.addingTimeInterval(staleAfter)
-        return [(now, current), (staleAt, content(of: state, now: staleAt))]
+        let stale = staleAt(recording)
+        return [(now, current), (stale, content(of: state, now: stale))]
     }
 }
 

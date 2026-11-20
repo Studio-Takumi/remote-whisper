@@ -1,5 +1,6 @@
 import Capacitor
 import Foundation
+import UIKit
 
 /// JS から呼ぶ Live Activity のプラグイン（`Capacitor.Plugins.LiveActivity`。#453。API は spec/mobile.md 11.5）。
 /// 録音は web/ のまま。このプラグインは録音の状態を Live Activity に出し、ボタンの操作を web/ に伝えるだけ。
@@ -18,6 +19,7 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
     /// iOS 16.1 より前は nil（何もしない）
     private var controller: LiveActivityController?
     private var observer: NSObjectProtocol?
+    private var activeObserver: NSObjectProtocol?
     private let widget = HomeWidgetWriter.live()
     #if DEBUG
     /// ウィジェットの見本を出している間は、web/ の end（読み込んだときの片付け）で消さない
@@ -48,10 +50,17 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
             guard let action = note.userInfo?[RecordingActivityAction.userInfoKey] as? String else { return }
             self?.notifyListeners("action", data: ["action": action])
         }
+        // 前面に戻ったら、裏で間引いた・落ちたかもしれないウィジェットの作り直しを取り戻す
+        activeObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.widget.refresh()
+        }
     }
 
     deinit {
         if let observer { NotificationCenter.default.removeObserver(observer) }
+        if let activeObserver { NotificationCenter.default.removeObserver(activeObserver) }
     }
 
     /// 出せたら `{ shown: true }`。iOS 16.1 より前・設定で許可されていないときは `{ shown: false }`

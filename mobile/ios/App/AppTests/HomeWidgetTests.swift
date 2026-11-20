@@ -21,7 +21,8 @@ final class HomeWidgetStoreTests: XCTestCase {
         let state = HomeWidgetState(
             recording: .init(
                 sessionId: "s1", phase: .paused, startedAt: Date(timeIntervalSince1970: 100), elapsed: 754,
-                title: "情報理論 第8回", line: "ここ", updatedAt: Date(timeIntervalSince1970: 900)
+                title: "情報理論 第8回", line: "ここ", updatedAt: Date(timeIntervalSince1970: 900),
+                changedAt: Date(timeIntervalSince1970: 800)
             ),
             last: .init(title: "11/19 3限", duration: 5320, endedAt: Date(timeIntervalSince1970: 50))
         )
@@ -85,8 +86,98 @@ final class HomeWidgetWriterTests: XCTestCase {
         w.recording(sessionId: nil, state: state(lines: ["c"]), now: now)
         XCTAssertEqual(store.read()?.recording?.sessionId, "s1")
         XCTAssertEqual(store.read()?.recording?.line, "c")
+    }
+
+    func testLineOnlyChangesAreThrottled() {
+        let w = writer()
+        w.recording(sessionId: "s1", state: state(), now: now)
+        XCTAssertEqual(reloads, 1)
+        // 30 秒より前の行の変化は、置き場にだけ書いて作り直さない
+        let t10 = now.addingTimeInterval(10)
+        w.recording(sessionId: nil, state: state(elapsed: 70, lines: ["c"], at: t10), now: t10)
+        XCTAssertEqual(reloads, 1)
+        XCTAssertEqual(store.read()?.recording?.line, "c")
+        // 30 秒たてば、経過時間だけの update でも、待たせていた行を出す
+        let t31 = now.addingTimeInterval(31)
+        w.recording(sessionId: nil, state: state(elapsed: 91, lines: ["c"], at: t31), now: t31)
+        XCTAssertEqual(reloads, 2)
+        // 待たせているものがなければ、経過時間だけでは作り直さない
+        let t70 = now.addingTimeInterval(70)
+        w.recording(sessionId: nil, state: state(elapsed: 130, lines: ["c"], at: t70), now: t70)
+        XCTAssertEqual(reloads, 2)
+        // 30 秒たってからの行の変化はすぐ
+        w.recording(sessionId: nil, state: state(elapsed: 130, lines: ["d"], at: t70), now: t70)
+        XCTAssertEqual(reloads, 3)
+    }
+
+    func testStateChangesAndEndReloadRightAway() {
+        let w = writer()
+        w.recording(sessionId: "s1", state: state(), now: now)
+        let t1 = now.addingTimeInterval(1)
+        w.recording(sessionId: nil, state: state(lines: ["c"], at: t1), now: t1)
+        XCTAssertEqual(reloads, 1)
+        // 一時停止は、行を間引いている間でもすぐ
+        w.recording(sessionId: nil, state: state(.paused, lines: ["c"], at: t1), now: t1)
+        XCTAssertEqual(reloads, 2)
+        // セッション名の変化もすぐ
+        var renamed = state(.paused, lines: ["c"], at: t1)
+        renamed.title = "新しい名前"
+        w.recording(sessionId: nil, state: renamed, now: t1)
+        XCTAssertEqual(reloads, 3)
+        // 終えたら必ずすぐ
+        w.ended(now: t1)
+        XCTAssertEqual(reloads, 4)
+    }
+
+    func testRefreshReloadsWhenStoreExists() {
+        let w = writer()
+        w.refresh(now: now)
+        XCTAssertEqual(reloads, 1)
+        let noStore = HomeWidgetWriter(store: nil) { [unowned self] in reloads += 1 }
+        noStore.refresh(now: now)
+        XCTAssertEqual(reloads, 1)
+    }
+
+    func testChangedAtMovesOnlyOnStateChanges() {
+        let w = writer()
+        w.recording(sessionId: "s1", state: state(), now: now)
+        let t60 = now.addingTimeInterval(60)
+        w.recording(sessionId: nil, state: state(elapsed: 120, lines: ["c"], at: t60), now: t60)
+        // 行・経過時間だけの変化では、8 時間の起点を動かさない
+        XCTAssertEqual(store.read()?.recording?.changedAt, now)
+        XCTAssertEqual(store.read()?.recording?.updatedAt, t60)
+        w.recording(sessionId: nil, state: state(.paused, elapsed: 120, lines: ["c"], at: t60), now: t60)
+        XCTAssertEqual(store.read()?.recording?.changedAt, t60)
+    }
+
+    func testStartOfAnotherSessionOverwritesWithoutMovingToLast() {
+        let w = writer()
+        w.recording(sessionId: "s1", state: state(), now: now)
+        let t5 = now.addingTimeInterval(5)
+        w.recording(sessionId: "s2", state: state(elapsed: 0, lines: [], at: t5), now: t5)
+        let saved = store.read()
+        XCTAssertEqual(saved?.recording?.sessionId, "s2")
+        XCTAssertEqual(saved?.recording?.changedAt, t5)
+        // 前のものは前回の録音にしない（終えたときの end で前回の録音になる）
+        XCTAssertNil(saved?.last)
         XCTAssertEqual(reloads, 2)
     }
+
+    #if DEBUG
+    func testPreviewIsWrittenAfterLaunchCleanup() {
+        // アプリが落とされて残った録音中のもの
+        writer().recording(sessionId: "s1", state: state(), now: now)
+        // プラグインの load() と同じ順：先に片付けて、そのあと見本を書く（見本が片付けで消えない）
+        let w = writer()
+        w.launched()
+        XCTAssertTrue(HomeWidgetPreview.writeIfRequested(w, arguments: ["App", HomeWidgetPreview.argument, "recording"]))
+        let saved = store.read()
+        XCTAssertEqual(saved?.recording?.sessionId, "preview")
+        XCTAssertEqual(saved?.recording?.title, "情報理論 第8回")
+        XCTAssertEqual(saved?.last?.endedAt, now)
+        XCTAssertFalse(HomeWidgetPreview.writeIfRequested(w, arguments: ["App"]))
+    }
+    #endif
 
     func testUpdateWithoutStartDoesNothing() {
         writer().recording(sessionId: nil, state: state(), now: now)
@@ -164,10 +255,10 @@ final class HomeWidgetTimelineTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 1_000_000)
     private let last = HomeWidgetState.LastRecording(title: "11/19 3限", duration: 5320, endedAt: Date(timeIntervalSince1970: 0))
 
-    private func recording(updatedAt: Date) -> HomeWidgetState.Recording {
+    private func recording(updatedAt: Date, changedAt: Date? = nil) -> HomeWidgetState.Recording {
         .init(
             sessionId: "s1", phase: .recording, startedAt: updatedAt.addingTimeInterval(-60), elapsed: 60,
-            title: "情報理論", line: "a", updatedAt: updatedAt
+            title: "情報理論", line: "a", updatedAt: updatedAt, changedAt: changedAt ?? updatedAt
         )
     }
 
@@ -183,14 +274,14 @@ final class HomeWidgetTimelineTests: XCTestCase {
     }
 
     func testRecordingIsOneEntryThenIdleWhenStale() {
-        let rec = recording(updatedAt: now.addingTimeInterval(-60))
+        let rec = recording(updatedAt: now.addingTimeInterval(-60), changedAt: now.addingTimeInterval(-600))
         let state = HomeWidgetState(recording: rec, last: last)
         let entries = HomeWidgetTimeline.entries(of: state, now: now)
         XCTAssertEqual(entries.count, 2)
         XCTAssertEqual(entries[0].date, now)
         XCTAssertEqual(entries[0].content, .recording(rec))
-        // 書かれなくなって 8 時間たったら、アプリが落とされたものと見なして待機中にする
-        let staleAt = rec.updatedAt.addingTimeInterval(HomeWidgetTimeline.staleAfter)
+        // 始めた・一時停止・再開してから 8 時間たったら、アプリが落とされたものと見なして待機中にする
+        let staleAt = rec.changedAt.addingTimeInterval(HomeWidgetTimeline.staleAfter)
         XCTAssertEqual(entries[1].date, staleAt)
         XCTAssertEqual(entries[1].content, .idle(last: rec.finished(at: rec.updatedAt)))
     }
@@ -199,6 +290,17 @@ final class HomeWidgetTimelineTests: XCTestCase {
         let rec = recording(updatedAt: now.addingTimeInterval(-HomeWidgetTimeline.staleAfter - 1))
         let content = HomeWidgetTimeline.content(of: HomeWidgetState(recording: rec, last: last), now: now)
         XCTAssertEqual(content, .idle(last: .init(title: "情報理論", duration: 60, endedAt: rec.updatedAt)))
+    }
+
+    func testRecentLineDoesNotKeepOldStateAlive() {
+        // 行は最近も書いているが、始めてから 8 時間を過ぎた
+        let rec = recording(updatedAt: now.addingTimeInterval(-10), changedAt: now.addingTimeInterval(-HomeWidgetTimeline.staleAfter - 1))
+        guard case .idle = HomeWidgetTimeline.content(of: HomeWidgetState(recording: rec, last: nil), now: now) else {
+            return XCTFail("8 時間を過ぎたら待機中")
+        }
+        // 行が変わらなくても（無音が続く）、始めてから 8 時間より前なら録音中のまま
+        let quiet = recording(updatedAt: now.addingTimeInterval(-3 * 60 * 60), changedAt: now.addingTimeInterval(-3 * 60 * 60))
+        XCTAssertEqual(HomeWidgetTimeline.content(of: HomeWidgetState(recording: quiet, last: nil), now: now), .recording(quiet))
     }
 }
 
