@@ -411,6 +411,25 @@ def test_app_origin_preflight(app):
         assert "access-control-allow-credentials" not in res.headers
 
 
+@pytest.mark.parametrize("host", ["evil.example", "rebind.attacker.example:8000"])
+def test_app_origin_does_not_skip_host_check(app, host):
+    """アプリのオリジンで省くのは Origin の確認だけ。許していない Host（DNS rebinding）は断る"""
+    with TestClient(app, base_url="http://127.0.0.1:8000") as client:
+        headers = {"host": host, "origin": APP_ORIGIN}
+        res = client.get("/api/settings", headers=headers)
+        assert res.status_code == 403
+        assert "access-control-allow-origin" not in res.headers
+        preflight = client.options(
+            "/api/settings", headers={**headers, "access-control-request-method": "PATCH"}
+        )
+        assert preflight.status_code == 403
+        with (
+            pytest.raises(WebSocketDisconnect),
+            client.websocket_connect("/ws", headers=headers),
+        ):
+            pass
+
+
 @pytest.mark.parametrize(
     "origin", ["https://evil.example", "capacitor://evil.example", "ionic://localhost"]
 )
