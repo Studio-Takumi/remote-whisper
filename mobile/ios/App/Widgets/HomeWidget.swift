@@ -131,7 +131,7 @@ private struct RecordingView: View {
             TranscriptText(
                 lines: recording.lines,
                 lineLimit: 3,
-                perLine: 7.5,
+                perLine: 7,
                 size: 14,
                 weight: .semibold,
                 newest: paused ? Palette.faint1 : Palette.text,

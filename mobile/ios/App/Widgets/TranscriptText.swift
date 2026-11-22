@@ -19,13 +19,16 @@ struct TranscriptText: View {
         text
             .font(.system(size: size, weight: weight))
             .lineSpacing(lineSpacing)
+            // 見積もりが外れても、いちばん新しい末尾が省略されないよう、少し縮めて収める。文字サイズの設定で大きくなりすぎないよう、上限も決める
+            .minimumScaleFactor(0.8)
+            .dynamicTypeSize(...DynamicTypeSize.xLarge)
             .lineLimit(lineLimit)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var text: Text {
         var result = Text("")
-        let fitted = TranscriptJoin.fit(lines, budget: Double(lineLimit) * perLine - 1.5)
+        let fitted = TranscriptJoin.fit(lines, budget: TranscriptJoin.budget(lines: lineLimit, perLine: perLine))
         for (index, piece) in fitted.enumerated() {
             result = result + Text(piece).foregroundColor(index == fitted.count - 1 ? newest : older)
         }

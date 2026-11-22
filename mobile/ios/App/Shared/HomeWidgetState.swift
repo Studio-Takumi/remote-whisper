@@ -148,3 +148,29 @@ final class HomeWidgetStore {
         defaults.set(data, forKey: Self.stateKey)
     }
 }
+
+extension HomeWidgetState.Recording {
+    /// 古い形（`lines` の前は、直近の 1 行だけの `line`）の置き場も読めるようにする。
+    /// 読めないと置き場の中身が全部（前回の録音も）捨てられるため
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        sessionId = try c.decode(String.self, forKey: .sessionId)
+        phase = try c.decode(RecordingPhase.self, forKey: .phase)
+        startedAt = try c.decode(Date.self, forKey: .startedAt)
+        elapsed = try c.decode(TimeInterval.self, forKey: .elapsed)
+        title = try c.decode(String.self, forKey: .title)
+        if let lines = try c.decodeIfPresent([String].self, forKey: .lines) {
+            self.lines = lines
+        } else {
+            let old = try decoder.container(keyedBy: LegacyKeys.self)
+            let line = try old.decodeIfPresent(String.self, forKey: .line) ?? ""
+            lines = line.isEmpty ? [] : [line]
+        }
+        updatedAt = try c.decode(Date.self, forKey: .updatedAt)
+        changedAt = try c.decode(Date.self, forKey: .changedAt)
+    }
+
+    private enum LegacyKeys: String, CodingKey {
+        case line
+    }
+}

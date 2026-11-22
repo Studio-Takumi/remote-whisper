@@ -143,7 +143,7 @@ private struct TranscriptLines: View {
         TranscriptText(
             lines: lines,
             lineLimit: paused ? 1 : lineLimit,
-            perLine: 19,
+            perLine: 18,
             size: 16,
             weight: .semibold,
             newest: newest,

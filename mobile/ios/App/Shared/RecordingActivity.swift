@@ -80,7 +80,7 @@ enum TranscriptJoin {
     /// 区切りごとの色分けに境目が要るので、つなげずに区切りの配列で返す（先頭以外は、前との間の空白を頭に付ける）。
     /// あふれるときは、全体の頭に「…」を付ける。
     /// SwiftUI の `truncationMode(.head)` は複数行だと最後の行の頭だけを省略してしまう（途中から読めなくなる）ので、
-    /// 見る側の幅から決めた幅の予算（全角 1 文字 = 1。半角は 0.55）で、こちらで切る
+    /// 見る側の幅から決めた幅の予算（全角 1 文字 = 1）で、こちらで切る
     static func fit(_ lines: [String], budget: Double) -> [String] {
         var taken: [String] = []
         var used = 0.0
@@ -102,6 +102,8 @@ enum TranscriptJoin {
                 tail.insert(c, at: tail.startIndex)
                 tailWidth += w
             }
+            // 「…」の直後が句読点だと読みにくいので、1 文字削る
+            while let head = tail.first, "、。，．,.".contains(head), tail.count > 1 { tail.removeFirst() }
             if tail.isEmpty, let first = taken.popLast() {
                 // 1 文字も入らないときは、前に入れた区切りの頭に付ける（その区切りの前の空白は要らない）
                 taken.append("…" + first.drop(while: { $0 == " " }))
@@ -113,13 +115,27 @@ enum TranscriptJoin {
         return Array(taken.reversed())
     }
 
-    /// 幅の見積もり（全角 1・半角 0.55）
+    /// 幅の見積もり（全角 1）。外れても最後が切れないよう、広いほうに寄せる。
+    /// 半角は、小文字 0.55・大文字と数字 0.7・空白 0.3・そのほかの記号 0.6
     static func width(_ text: String) -> Double {
         text.reduce(0) { $0 + width($1) }
     }
 
     private static func width(_ c: Character) -> Double {
-        c.isASCII ? 0.55 : 1
+        guard c.isASCII else { return 1 }
+        if c.isWhitespace { return 0.3 }
+        if c.isUppercase || c.isNumber { return 0.7 }
+        if c.isLowercase { return 0.55 }
+        return 0.6
+    }
+
+    /// 折り返しで 1 行ごとに失う幅の見積もり（禁則で行頭に来ない文字が 1 つ前の行に残る・英単語が行末で折り返される）。
+    /// 行数が 2 以上のとき、折り返す回数（行数 - 1）ぶん見込む
+    static let wrapSlack = 2.0
+
+    /// 行数と 1 行の幅（全角の文字数）から、`fit` に渡す予算を決める
+    static func budget(lines: Int, perLine: Double) -> Double {
+        max(1, Double(lines) * perLine - 1.0 - wrapSlack * Double(max(0, lines - 1)))
     }
 
     private static func isWord(_ c: Character) -> Bool {

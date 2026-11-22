@@ -4,7 +4,7 @@ import Foundation
 /// 見た目を確かめるための Live Activity（Debug のビルドだけ。#453）。
 /// シミュレーターはマイクの入力がなく録音を始められないので、起動の引数で見本を出す。
 ///   xcrun simctl launch booted <Bundle ID> -RWLiveActivityPreview recording   （または paused）
-/// 続けて long（長い区切りが続く）・short（短い区切りが続く）を書くと、文字起こしの見本を替える（#460）
+/// 続けて long（長い区切りが続く）・short（短い区切りが続く）・english（英数字が多い）を書くと、文字起こしの見本を替える（#460）
 @available(iOS 16.1, *)
 enum LiveActivityPreview {
     static let argument = "-RWLiveActivityPreview"
@@ -37,6 +37,13 @@ enum PreviewTranscript {
         case "short":
             // 1 つの区切りが短い
             return ["はい。", "では次。", "ここ大事です。", "覚えてください。", "期末に出します。", "いいですか。", "では続けます。"]
+        case "english":
+            // 英語・数字・大文字が多い（折り返しが英単語の途中を避ける）
+            return [
+                "OK so on slide 12 we compare the CPU and GPU versions of the algorithm,",
+                "and the throughput goes from 3.2 GB/s up to 18.4 GB/s on the A100",
+                "which is a 5.7x speedup over the baseline running on 64 cores.",
+            ]
         default:
             return [
                 "じゃあスライドの 12 枚目に戻って、",

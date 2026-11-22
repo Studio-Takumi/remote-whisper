@@ -101,6 +101,44 @@ final class RecordingActivityStateTests: XCTestCase {
         XCTAssertEqual(TranscriptJoin.fit(["Hello", "world."], budget: 4).joined(), "…world.")
     }
 
+    func testFitDropsLeadingPunctuationAfterTheEllipsis() {
+        // 「…」の直後が読点・句点にならないように 1 文字削る
+        XCTAssertEqual(TranscriptJoin.fit(["あいう、えお"], budget: 4), ["…えお"])
+        XCTAssertEqual(TranscriptJoin.fit(["あいう。。えお"], budget: 5).joined(), "…えお")
+    }
+
+    func testFitWithOnlyAsciiLetters() {
+        let long = String(repeating: "abcdefghij", count: 10)
+        let fitted = TranscriptJoin.fit([long], budget: 10)
+        XCTAssertEqual(fitted.count, 1)
+        XCTAssertTrue(fitted[0].hasPrefix("…"))
+        XCTAssertTrue(long.hasSuffix(String(fitted[0].dropFirst())))
+        XCTAssertLessThanOrEqual(TranscriptJoin.width(fitted[0]), 10)
+    }
+
+    func testFitWhenNothingFitsPutsTheEllipsisOnTheLastLine() {
+        // 予算が小さすぎて 1 文字も入らないときは、入った区切りの頭に付ける。空にはしない
+        XCTAssertEqual(TranscriptJoin.fit(["あいうえお", "か"], budget: 1.5), ["…か"])
+        XCTAssertEqual(TranscriptJoin.fit(["あいうえお"], budget: 0.5), [])
+    }
+
+    func testFitHandlesEmptyInput() {
+        XCTAssertEqual(TranscriptJoin.fit([], budget: 10), [])
+        XCTAssertEqual(TranscriptJoin.fit(["", ""], budget: 10).joined(), "")
+    }
+
+    func testFitEstimatesCapitalsAndDigitsWiderThanLowercase() {
+        XCTAssertGreaterThan(TranscriptJoin.width("CPU12"), TranscriptJoin.width("cpuab"))
+        XCTAssertEqual(TranscriptJoin.width("あい"), 2)
+    }
+
+    func testBudgetLeavesRoomForWrapping() {
+        // 行数が増えるほど、折り返しのぶんを多めに引く
+        XCTAssertEqual(TranscriptJoin.budget(lines: 1, perLine: 18), 17)
+        XCTAssertEqual(TranscriptJoin.budget(lines: 3, perLine: 18), 49)
+        XCTAssertLessThan(TranscriptJoin.budget(lines: 3, perLine: 18), 3 * 18 - 1)
+    }
+
     func testFitsActivityKitPayloadLimit() throws {
         // ActivityKit の中身は 4KB まで
         // 長い区切りを 10 個、短い区切りを 40 個（持つのは最大 12 区切り・約 120 文字）

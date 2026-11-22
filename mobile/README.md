@@ -71,7 +71,7 @@ xcrun simctl launch booted dev.studiotakumi.remotewhisper
 
 ```sh
 xcrun simctl launch booted dev.studiotakumi.remotewhisper -RWLiveActivityPreview recording
-# 文字起こしの見本を替える: 続けて long（長い区切りが続く）か short（短い区切りが続く）
+# 文字起こしの見本を替える: 続けて long（長い区切りが続く）・short（短い区切りが続く）・english（英数字が多い）
 xcrun simctl launch booted dev.studiotakumi.remotewhisper -RWLiveActivityPreview recording long
 ```
 

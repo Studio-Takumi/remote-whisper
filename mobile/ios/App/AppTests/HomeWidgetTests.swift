@@ -15,6 +15,29 @@ final class HomeWidgetStoreTests: XCTestCase {
         defaults.removePersistentDomain(forName: suiteName)
     }
 
+    func testReadsTheOldFormatWithASingleLine() throws {
+        // 前の版は直近の 1 行だけの `line` を書いていた。読めないと前回の録音（last）も消えるので、line を lines にして読む
+        let json = """
+        {"recording":{"sessionId":"s1","phase":"recording","startedAt":100,"elapsed":60,"title":"情報理論",\
+        "line":"ここ","updatedAt":900,"changedAt":800},\
+        "last":{"title":"11/19 3限","duration":5320,"endedAt":50}}
+        """
+        defaults.set(Data(json.utf8), forKey: HomeWidgetStore.stateKey)
+        let state = try XCTUnwrap(HomeWidgetStore(defaults: defaults).read())
+        XCTAssertEqual(state.recording?.lines, ["ここ"])
+        XCTAssertEqual(state.recording?.title, "情報理論")
+        XCTAssertEqual(state.last?.title, "11/19 3限")
+    }
+
+    func testReadsTheOldFormatWithAnEmptyLine() throws {
+        let json = """
+        {"recording":{"sessionId":"s1","phase":"paused","startedAt":100,"elapsed":60,"title":"t",\
+        "line":"","updatedAt":900,"changedAt":800}}
+        """
+        defaults.set(Data(json.utf8), forKey: HomeWidgetStore.stateKey)
+        XCTAssertEqual(HomeWidgetStore(defaults: defaults).read()?.recording?.lines, [])
+    }
+
     func testReadsWhatWasWritten() {
         let store = HomeWidgetStore(defaults: defaults)
         XCTAssertNil(store.read())
