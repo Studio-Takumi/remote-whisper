@@ -107,6 +107,7 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
             do {
                 call.resolve(LiveActivityReply(outcome: try body(controller, request)).payload)
             } catch {
+                // 今 throw するのは start の Activity.request だけ。update などが throw するようになったら、この理由と文言を分ける
                 // Activity.request の失敗は reject にせず、理由つきで返す（web/ がコンソールに出す）
                 os_log("Activity.request failed: %{public}@", log: .default, type: .error, error.localizedDescription)
                 call.resolve(LiveActivityReply(failure: error).payload)

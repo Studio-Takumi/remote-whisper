@@ -77,7 +77,7 @@ xcrun simctl launch booted dev.studiotakumi.remotewhisper -RWLiveActivityPreview
 
 ### 実機で Live Activity が出ないとき
 
-Safari の Web インスペクタ（Mac の Safari →「開発」→ 端末名 → アプリの画面）でコンソールを開き、`[LiveActivity]` で絞る。録音を始めたときの start の結果だけが出る（毎回の update では出ない）。
+Safari の Web インスペクタ（Mac の Safari →「開発」→ 端末名 → アプリの画面）でコンソールを開き、`[LiveActivity]` で絞る。録音を始めたときの start の結果だけが出る（毎回の update では出ない）。出せないまま録音を続けても、同じ理由は 1 つのセッションにつき 1 回だけ（出し直しは、状態が変わったときと、行が変わって 60 秒以上たったときだけ）。
 
 | 出力 | 原因 |
 |---|---|
