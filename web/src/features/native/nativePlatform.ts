@@ -43,6 +43,17 @@ export function startAppEntry(store: AppStore) {
     void loadBridge().then((m) => m.startAppEntry(store));
 }
 
+// マイクを開いたときに、開いたマイク（label。null は OS に任せる）を iOS に伝え、入力をそのマイクに固定してもらう（#458）。
+// ブラウザ版では何もしない（録音の途中でイヤホンをつなぐと、ブラウザが入力を切り替えることがある）
+export function setNativeMicInput(label: string | null) {
+    if (!isNativeApp()) {
+        return;
+    }
+    void loadBridge()
+        .then((m) => m.setPreferredMicInput(label))
+        .catch((e: unknown) => console.warn('[Mic] could not pin the iOS input', e));
+}
+
 // 録音のプラグイン。プラグインは Proxy で、Promise の結果にそのまま渡せないので、包んで返す
 export async function loadRecorder(): Promise<{ plugin: RecorderPlugin }> {
     const { Recorder } = await loadBridge();

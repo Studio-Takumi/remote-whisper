@@ -9,6 +9,17 @@ import {
 } from '@/features/recording/audio/micDevice';
 import { Microphone, MicrophoneError } from '@/features/recording/audio/microphone';
 
+// iOS アプリの中で、開いたマイクを iOS に伝えるところ（#458）。ネイティブを呼ぶコードは偽物にする
+const nativeBridge = vi.hoisted(() => ({
+    loaded: 0,
+    setPreferredMicInput: vi.fn(async (_label: string | null) => {}),
+}));
+
+vi.mock('@/features/native/nativeBridge', () => {
+    nativeBridge.loaded++;
+    return { setPreferredMicInput: nativeBridge.setPreferredMicInput };
+});
+
 // 録音に使うマイクの選択（#449）
 const PROCESSING = { noiseSuppression: true, autoGainControl: true, echoCancellation: true };
 const USB = { deviceId: 'usb', label: 'USB マイク' };
@@ -188,5 +199,58 @@ describe('選んだマイクで開く', () => {
         await open();
         expect(opened).toEqual([undefined]);
         expect(onFallback).not.toHaveBeenCalled();
+    });
+
+    describe('iOS アプリの中では、開いたマイクを iOS に伝える（#458）', () => {
+        const setCapacitor = (native: boolean) => {
+            (window as { Capacitor?: unknown }).Capacitor = { isNativePlatform: () => native };
+        };
+
+        beforeEach(() => {
+            nativeBridge.setPreferredMicInput.mockClear();
+            nativeBridge.setPreferredMicInput.mockResolvedValue(undefined);
+        });
+
+        afterEach(() => {
+            Reflect.deleteProperty(window, 'Capacitor');
+        });
+
+        it('ブラウザでは伝えず、ネイティブを呼ぶコードも読み込まない', async () => {
+            saveChosenMic(BUILTIN);
+            stubDevices([BUILTIN, USB]);
+            await open();
+            await new Promise((r) => setTimeout(r, 0));
+            expect(nativeBridge.loaded).toBe(0);
+            expect(nativeBridge.setPreferredMicInput).not.toHaveBeenCalled();
+        });
+
+        it('選んだマイクで開けたら、その名前を伝える', async () => {
+            setCapacitor(true);
+            saveChosenMic(BUILTIN);
+            stubDevices([BUILTIN, USB]);
+            await open();
+            await vi.waitFor(() => expect(nativeBridge.setPreferredMicInput).toHaveBeenCalledWith('内蔵マイク'));
+        });
+
+        it('OS に任せるとき・選んだマイクがなかったときは null（固定を外す）', async () => {
+            setCapacitor(true);
+            await open();
+            await vi.waitFor(() => expect(nativeBridge.setPreferredMicInput).toHaveBeenLastCalledWith(null));
+            nativeBridge.setPreferredMicInput.mockClear();
+            saveChosenMic(USB);
+            stubDevices([BUILTIN]);
+            await open();
+            await vi.waitFor(() => expect(nativeBridge.setPreferredMicInput).toHaveBeenLastCalledWith(null));
+        });
+
+        it('伝えられなくても、マイクは開ける', async () => {
+            setCapacitor(true);
+            vi.spyOn(console, 'warn').mockImplementation(() => {});
+            nativeBridge.setPreferredMicInput.mockRejectedValue(new Error('not registered'));
+            saveChosenMic(BUILTIN);
+            stubDevices([BUILTIN]);
+            await expect(open()).resolves.toBeDefined();
+            await vi.waitFor(() => expect(console.warn).toHaveBeenCalled());
+        });
     });
 });
