@@ -66,7 +66,7 @@ private struct LockScreenView: View {
                     .foregroundColor(Palette.sub)
                     .lineLimit(1)
             }
-            TranscriptLines(lines: state.visibleLines, paused: state.phase == .paused, island: false)
+            TranscriptLines(lines: state.lines, paused: state.phase == .paused, island: false, lineLimit: 3)
             ActionButtons(phase: state.phase, island: false)
         }
         .padding(16)
@@ -81,8 +81,8 @@ private struct IslandExpandedView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // 録音中は 2 行（ロック画面より狭い）、一時停止中は最後の 1 行
-            TranscriptLines(lines: Array(state.visibleLines.suffix(2)), paused: state.phase == .paused, island: true)
+            // 録音中は 2 行（ロック画面より狭い）、一時停止中は 1 行
+            TranscriptLines(lines: state.lines, paused: state.phase == .paused, island: true, lineLimit: 2)
             ActionButtons(phase: state.phase, island: true)
         }
         .padding(.horizontal, 6)
@@ -130,43 +130,37 @@ private struct ElapsedText: View {
     }
 }
 
-/// 直近の文字起こし。古い行ほど薄く小さく、最後の行は太字。一時停止中は最後の行も薄くする
+/// 直近の文字起こし。区切りをつなげて折り返し、あふれたぶんは頭を「…」にする。
+/// いちばん新しい区切りだけ濃く（白）、それより前は灰色。一時停止中は 1 行で、全体を薄くする
 private struct TranscriptLines: View {
     let lines: [String]
     let paused: Bool
     let island: Bool
+    /// ロック画面は 3 行、ダイナミックアイランド（expanded）は 2 行、一時停止中は 1 行
+    let lineLimit: Int
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
-                let age = lines.count - 1 - index
-                Text(line)
-                    .font(.system(size: Self.size(age), weight: age == 0 ? .bold : .medium))
-                    .foregroundColor(color(age))
-                    .lineLimit(age == 0 ? 2 : 1)
-                    .truncationMode(.head)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
+        TranscriptText(
+            lines: lines,
+            lineLimit: paused ? 1 : lineLimit,
+            perLine: 19,
+            size: 16,
+            weight: .semibold,
+            newest: newest,
+            older: older,
+            lineSpacing: 2
+        )
     }
 
-    private static func size(_ age: Int) -> CGFloat {
-        switch age {
-        case 0: 16
-        case 1: 14
-        default: 13
-        }
-    }
-
-    private func color(_ age: Int) -> Color {
+    private var newest: Color {
         if island {
-            return age == 0 && !paused ? .white : .white.opacity(0.45)
+            return paused ? .white.opacity(0.45) : .white
         }
-        switch age {
-        case 0: return paused ? Palette.faint1 : Palette.text
-        case 1: return Palette.faint1
-        default: return Palette.faint2
-        }
+        return paused ? Palette.faint1 : Palette.text
+    }
+
+    private var older: Color {
+        island ? .white.opacity(0.45) : Palette.faint1
     }
 }
 

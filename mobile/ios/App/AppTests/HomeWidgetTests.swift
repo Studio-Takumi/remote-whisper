@@ -21,7 +21,7 @@ final class HomeWidgetStoreTests: XCTestCase {
         let state = HomeWidgetState(
             recording: .init(
                 sessionId: "s1", phase: .paused, startedAt: Date(timeIntervalSince1970: 100), elapsed: 754,
-                title: "情報理論 第8回", line: "ここ", updatedAt: Date(timeIntervalSince1970: 900),
+                title: "情報理論 第8回", lines: ["ここ"], updatedAt: Date(timeIntervalSince1970: 900),
                 changedAt: Date(timeIntervalSince1970: 800)
             ),
             last: .init(title: "11/19 3限", duration: 5320, endedAt: Date(timeIntervalSince1970: 50))
@@ -70,11 +70,11 @@ final class HomeWidgetWriterTests: XCTestCase {
         .make(phase: phase, elapsed: elapsed, title: "情報理論", lines: lines, now: time ?? now)
     }
 
-    func testStartWritesRecordingWithLastLine() {
+    func testStartWritesRecordingWithRecentLines() {
         writer().recording(sessionId: "s1", state: state(), now: now)
         let recording = store.read()?.recording
         XCTAssertEqual(recording?.sessionId, "s1")
-        XCTAssertEqual(recording?.line, "b")
+        XCTAssertEqual(recording?.lines, ["a", "b"])
         XCTAssertEqual(recording?.startedAt, now.addingTimeInterval(-60))
         XCTAssertEqual(recording?.updatedAt, now)
         XCTAssertEqual(reloads, 1)
@@ -85,7 +85,7 @@ final class HomeWidgetWriterTests: XCTestCase {
         w.recording(sessionId: "s1", state: state(), now: now)
         w.recording(sessionId: nil, state: state(lines: ["c"]), now: now)
         XCTAssertEqual(store.read()?.recording?.sessionId, "s1")
-        XCTAssertEqual(store.read()?.recording?.line, "c")
+        XCTAssertEqual(store.read()?.recording?.lines, ["c"])
     }
 
     func testLineOnlyChangesAreThrottled() {
@@ -96,7 +96,7 @@ final class HomeWidgetWriterTests: XCTestCase {
         let t10 = now.addingTimeInterval(10)
         w.recording(sessionId: nil, state: state(elapsed: 70, lines: ["c"], at: t10), now: t10)
         XCTAssertEqual(reloads, 1)
-        XCTAssertEqual(store.read()?.recording?.line, "c")
+        XCTAssertEqual(store.read()?.recording?.lines, ["c"])
         // 30 秒たてば、経過時間だけの update でも、待たせていた行を出す
         let t31 = now.addingTimeInterval(31)
         w.recording(sessionId: nil, state: state(elapsed: 91, lines: ["c"], at: t31), now: t31)
@@ -258,7 +258,7 @@ final class HomeWidgetTimelineTests: XCTestCase {
     private func recording(updatedAt: Date, changedAt: Date? = nil) -> HomeWidgetState.Recording {
         .init(
             sessionId: "s1", phase: .recording, startedAt: updatedAt.addingTimeInterval(-60), elapsed: 60,
-            title: "情報理論", line: "a", updatedAt: updatedAt, changedAt: changedAt ?? updatedAt
+            title: "情報理論", lines: ["a"], updatedAt: updatedAt, changedAt: changedAt ?? updatedAt
         )
     }
 
@@ -335,13 +335,5 @@ final class HomeWidgetTextTests: XCTestCase {
         XCTAssertEqual(HomeWidgetText.duration(754.9), "12:34")
         XCTAssertEqual(HomeWidgetText.duration(3600), "1:00:00")
         XCTAssertEqual(HomeWidgetText.duration(-5), "0:00")
-    }
-
-    func testQuoted() {
-        XCTAssertEqual(HomeWidgetText.quoted("ここ、期末に出しますからね"), "「ここ、期末に出しますからね」")
-        XCTAssertNil(HomeWidgetText.quoted("  "))
-        // 長いときは後ろ（新しく話したところ）を残す
-        let long = String(repeating: "あ", count: 30) + "おわり"
-        XCTAssertEqual(HomeWidgetText.quoted(long, maxLength: 6), "「…ああおわり」")
     }
 }

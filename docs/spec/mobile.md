@@ -168,10 +168,11 @@ iOS の PWA は、画面ロック中やバックグラウンドで録音を続�
 ### 中身（ActivityKit）
 
 - `RecordingActivityAttributes`（変わらないもの）：`sessionId` だけ
-- `RecordingActivityState`（ContentState）：`phase`（`recording`・`paused`）・`startedAt`（経過時間が 0 だった時刻）・`elapsed`（秒）・`title`（セッション名）・`lines`（直近のリアルタイム文字起こし、古い順）
+- `RecordingActivityState`（ContentState）：`phase`（`recording`・`paused`）・`startedAt`（経過時間が 0 だった時刻）・`elapsed`（秒）・`title`（セッション名）・`lines`（直近のリアルタイム文字起こしの区切り、古い順）
   - セッション名は録音中に仮のタイトル（途中の要約から作るもの）に変わるので、Attributes ではなく ContentState に持つ
   - 経過時間は毎秒 update しない。`startedAt = 今 − elapsed` にして、`Text(timerInterval:)` で端末に数えさせる。一時停止中は `pauseTime`（`startedAt + elapsed`）で止めて出す。表示は端末の形（1 時間までは `12:34`、超えたら `1:12:34`）
-  - 行は空のものを除いて最後の 3 行。1 行は 120 文字まで（長いときは後ろ、新しく話したところを残す）。ActivityKit の中身の上限（4KB）に収めるため
+  - 区切り（`lines`）は、空のものを除き、新しいほうから合わせて 120 文字に届くまでだけ持つ（最大 12 区切り。1 区切りは 120 文字まで、長いときは後ろ、新しく話したところを残す）。ロック画面の 3 行は 60 文字ほどなので、短い区切りが続くときも埋まる。ActivityKit の中身の上限（4KB）には、最大でも 1.5KB ほどで収まる
+  - **つなげて折り返すのは Swift（見る側）。** web/ は区切りを配列のまま、新しいほうから最大 12 個送る（`liveActivitySync.ts` の `LINES`）。区切りごとの色分け（新しい区切りだけ白）に境目が要るので、web/ でも Swift の中身（ContentState）でもつなげない。どこまで入るかは幅で決まり、web/ は幅を知らないので、切るのも Swift（`TranscriptJoin.fit`）。ホーム画面のウィジェットも、同じ `lines` を同じ `TranscriptText` で出す
 
 ### JS 向けの API（`LiveActivity`）
 
@@ -208,17 +209,23 @@ iOS の PWA は、画面ロック中やバックグラウンドで録音を続�
 
 匠が Pencil で作った採用案（ライトとダーク）。ボタンの色は本体のマイクボタンと同じ（一時停止＝赤 `#EF4444`、再開＝琥珀 `#F59E0B`、終了＝灰色）。
 
-- ロック画面・録音中：左上に赤い点と経過時間（等幅）、右上にセッション名。直近の文字起こし 3 行（古い行ほど薄く小さく、最後の行は太字）。下に「一時停止」と「終了」
-- ロック画面・一時停止中：琥珀の一時停止の印と経過時間（琥珀）、セッション名、最後の 1 行（薄く）。「再開」と「終了」
-- ダイナミックアイランド（テーマによらず黒）：compact は左に赤い波形の印・右に経過時間、minimal は波形の印だけ。expanded はロック画面の録音中と同じ中身で、行は 2 行。一時停止中は印を琥珀の一時停止の印にする
+- ロック画面・録音中：左上に赤い点と経過時間（等幅）、右上にセッション名。直近の文字起こしを、区切りをつなげた 1 つの文章として 3 行に折り返す（下の「文字起こしの折り返し」）。下に「一時停止」と「終了」
+- ロック画面・一時停止中：琥珀の一時停止の印と経過時間（琥珀）、セッション名、文字起こしの終わりの 1 行ぶん（薄く）。「再開」と「終了」
+- ダイナミックアイランド（テーマによらず黒）：compact は左に赤い波形の印・右に経過時間、minimal は波形の印だけ。expanded はロック画面の録音中と同じ中身で、文字起こしは 2 行。一時停止中は印を琥珀の一時停止の印にする
 - iOS 16.1〜16.x はボタンを出さない
+
+#### 文字起こしの折り返し（#460）
+
+- 区切りをつなげて 1 つの文章にする（日本語はそのまま、直前が英数字・記号で次が英数字のときだけ空白を入れる）。入りきらないぶんは、**全体の頭だけを「…」にして**、最後の 3 行ぶん（ダイナミックアイランドは 2 行、一時停止中は 1 行）が続けて読めるようにする。区切りごとに頭を「…」にしない
+- 色は、いちばん新しい区切りだけ濃く（ロック画面のライトは黒・ダークは白、ダイナミックアイランドは白）、それより前は灰色。一時停止中は全体を灰色にする
+- 切るのは `TranscriptJoin.fit`。SwiftUI の `truncationMode(.head)` は複数行だと最後の行の頭だけを省略して途中から読めなくなるので使わない。幅の見積もり（全角 1・半角 0.55）で、新しいほうから入れていき、入りきらない区切りは後ろから入るぶんだけ残す。1 行に入る幅は端末で違うので、狭いほうに寄せて少なめに入れる（ロック画面・ダイナミックアイランドは 1 行 19 文字、ホーム画面の小は 7.5 文字）。禁則や英単語の折り返しで見積もりより行が増えたときは、最後の行の末尾が省略される
 - ロック画面の色（ライト・ダーク）は iOS が決める外観に従う（端末の設定ではなく、ロック画面の壁紙などで暗い外観になることがある）
 
 ### 確かめ方
 
-- Swift のテスト（XCTest。`AppTests/LiveActivityTests.swift`）：ContentState の作り方（経過時間の起点・一時停止の時刻・行の間引き・長い行・4KB に収まること）、JS の引数の読み方、`LiveActivityController` の状態の移り変わり（偽物の `LiveActivityClient` で、出す・変える・終える・別のセッション・許可されていない）
+- Swift のテスト（XCTest。`AppTests/LiveActivityTests.swift`）：ContentState の作り方（経過時間の起点・一時停止の時刻・区切りの持ち方・長い区切り・4KB に収まること）、区切りのつなぎ方と折り返し（`TranscriptJoin`）、JS の引数の読み方、`LiveActivityController` の状態の移り変わり（偽物の `LiveActivityClient` で、出す・変える・終える・別のセッション・許可されていない）
 - web のテスト（vitest。`liveActivity.test.ts`）：ブラウザでは `nativeBridge`・`@capacitor/core` を読み込まないこと。偽物のプラグインで、start・update・end の順と中身、録音中のセッションが変わったときの start、マイクの状態の変化での update、出せなかった・失敗したときの start のし直し、行の間引き、止めたら待っていた更新を捨てること、ボタンのイベントでいつもの一時停止・再開・終了が呼ばれること
-- 見た目：シミュレーターはマイクの入力がなく録音を始められないので、Debug のビルドの起動の引数 `-RWLiveActivityPreview recording`（または `paused`）で見本を出す（`LiveActivityPreview`。Release には入らない）。ロック画面とダイナミックアイランドのライト・ダークを撮って比べる
+- 見た目：シミュレーターはマイクの入力がなく録音を始められないので、Debug のビルドの起動の引数 `-RWLiveActivityPreview recording`（または `paused`）で見本を出す（`LiveActivityPreview`。Release には入らない）。続けて `long`（長い区切りが続く）・`short`（短い区切りが続く）を書くと文字起こしの見本を替える（#460）。ロック画面とダイナミックアイランドのライト・ダークを撮って比べる
 - 実機：Web の録音で、ロック画面とダイナミックアイランドに出ること・ボタンで一時停止・再開・終了できること・録音を終えたら消えること・アプリを落としてから開き直したら残っていないこと
 
 ## 11.6 ウィジェットと App Intents
@@ -281,7 +288,7 @@ JS 向けの API（`AppEntry`。型は `web/src/features/native/appEntryTypes.ts
 ### ウィジェットへの状態の渡し方（App Group）
 
 - アプリが App Group の共有の置き場（`UserDefaults(suiteName:)`）に `HomeWidgetState` を JSON で書き、`WidgetCenter.reloadTimelines(ofKind:)` で知らせる。ウィジェットはそれを読む
-  - `recording`：セッションの ID・`phase`（`recording`・`paused`）・`startedAt`（経過時間が 0 だった時刻）・`elapsed`・セッション名・直近の文字起こしの 1 行・最後に書いた時刻（`updatedAt`）・録音を始めた・一時停止・再開した時刻（`changedAt`）
+  - `recording`：セッションの ID・`phase`（`recording`・`paused`）・`startedAt`（経過時間が 0 だった時刻）・`elapsed`・セッション名・直近の文字起こしの区切り（`lines`。Live Activity と同じもの）・最後に書いた時刻（`updatedAt`）・録音を始めた・一時停止・再開した時刻（`changedAt`）
   - `last`（前回の録音）：セッション名・長さ・終えた時刻
 - 書くのは `LiveActivityPlugin` に届く web/ の呼び出しのとき（Live Activity を出せたかどうかによらない）
   - `start`・`update`：`recording` を書く（置き場にはいつも書く）。作り直す（`reloadTimelines`）のは次のとき。作り直せる回数には限りがあり、裏で使い切ると録音を終えたときの作り直しも落ちて、録音中の見た目が残るため
@@ -301,7 +308,7 @@ JS 向けの API（`AppEntry`。型は `web/src/features/native/appEntryTypes.ts
 匠が Pencil で作った採用案（ライトとダーク）。色は 11.5 節と同じ（録音開始＝青 `#3B82F6`）。
 
 - ホーム画面・待機中（案A）：左上に「Remote Whisper」、右上にクラウドの印。真ん中に青い丸のマイクのボタン、下に「録音する」と前回の録音（「前回 11/19 3限 · 1:28:40」。セッション名が長いときは名前だけ省略して長さは残す。セッション名がなければ日付）
-- ホーム画面・録音中（案B）：左上に赤い点と経過時間（等幅）、真ん中に直近の文字起こし（「」付きで 2 行まで。長いときは後ろを残して頭を「…」にする）、下に文書の印とセッション名。一時停止中は印を琥珀の一時停止の印にし、経過時間も琥珀、行を薄くする
+- ホーム画面・録音中（案B）：左上に赤い点と経過時間（等幅）、真ん中に直近の文字起こし（Live Activity と同じ出し方で 3 行まで。「」は付けない。いちばん新しい区切りだけ濃く、前は灰色。長いときは全体の頭を「…」にする）、下に文書の印とセッション名。一時停止中は印を琥珀の一時停止の印にし、経過時間も琥珀、行を薄くする
 - ロック画面（円）：アプリのアイコンの印（「>」と波形とカーソル）。色はロック画面に合わせて iOS が付ける
 - コントロール：マイクの印と「録音する」
 
@@ -309,5 +316,5 @@ JS 向けの API（`AppEntry`。型は `web/src/features/native/appEntryTypes.ts
 
 - Swift のテスト（XCTest。`AppTests/HomeWidgetTests.swift`・`AppTests/AppEntryTests.swift`）：置き場の読み書き、`HomeWidgetWriter`（始める・行の更新・行だけの変化の間引き・経過時間だけでは作り直さない・一時停止とセッション名と終えたときはすぐ作り直す・前面に戻ったときの作り直し・8 時間の起点（`changedAt`）・別のセッションの start で上書き・終える・読み込み直しの片付けで前回の録音を消さない・アプリを開いたときの片付けと見本の順・置き場がないとき）、タイムライン（置き場がない・待機中・録音中と 8 時間後の切り替え・行が最近でも起点から 8 時間で切り替え・無音が続いても切り替えない）、文言、ディープリンクの読み書き、`AppEntryInbox` の取っておきと受け渡し
 - web のテスト（vitest。`appEntry.test.ts`）：ブラウザでは `nativeBridge`・`@capacitor/core` を読み込まないこと。偽物のプラグインで、最後に開いていたプロジェクトを覚えること、`record` でそのプロジェクトの新規セッション画面にしていつもの録音を始めること、プロジェクトがないとき、録音中のとき、参加中のとき、設定モーダルを開いていたとき、読み込みを待つこと・時間切れ、`session` でセッションを開くこと
-- 見た目：シミュレーターでウィジェットを置いて撮る。録音中の見た目は、Debug のビルドの起動の引数 `-RWWidgetPreview recording`（`paused`・`idle`・`clear` も）で見本を置き場に書く（`HomeWidgetPreview`。App Group を使っているときだけ。Release には入らない）。シミュレーターで App Group を使うには、`RW_APP_GROUP`・`RW_APP_GROUP_ENTITLEMENTS` に加えて `CODE_SIGN_IDENTITY=-`（その場の署名）でビルドする（`CODE_SIGNING_ALLOWED=NO` ではエンタイトルメントが付かない）
+- 見た目：シミュレーターでウィジェットを置いて撮る。録音中の見た目は、Debug のビルドの起動の引数 `-RWWidgetPreview recording`（`paused`・`idle`・`clear` も。recording・paused には続けて `long`・`short` も書ける）で見本を置き場に書く（`HomeWidgetPreview`。App Group を使っているときだけ。Release には入らない）。シミュレーターで App Group を使うには、`RW_APP_GROUP`・`RW_APP_GROUP_ENTITLEMENTS` に加えて `CODE_SIGN_IDENTITY=-`（その場の署名）でビルドする（`CODE_SIGNING_ALLOWED=NO` ではエンタイトルメントが付かない）
 - 実機：App Group あり・なしの両方で、ウィジェットを押してアプリが開き録音が始まること、録音中・前回の録音の表示、ショートカット・Siri・コントロールセンターからの「録音を始める」

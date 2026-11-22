@@ -23,12 +23,29 @@ final class RecordingActivityStateTests: XCTestCase {
         XCTAssertEqual(state.startedAt, now)
     }
 
-    func testKeepsLastThreeNonEmptyLines() {
+    func testDropsEmptyLinesAndKeepsOrder() {
         let state = RecordingActivityState.make(
             phase: .recording, elapsed: 0, title: "t", lines: ["1", "2", "  ", "3", "\n4 "], now: now
         )
-        XCTAssertEqual(state.lines, ["2", "3", "4"])
-        XCTAssertEqual(state.visibleLines, ["2", "3", "4"])
+        XCTAssertEqual(state.lines, ["1", "2", "3", "4"])
+    }
+
+    func testShortLinesAreKeptUpToMaxLines() {
+        // 短い区切りが続くときは、3 行ぶん（約 60 文字）が埋まるように多めに持つ
+        let lines = (1...30).map { "区切り\($0)。" }
+        let state = RecordingActivityState.make(phase: .recording, elapsed: 0, title: "t", lines: lines, now: now)
+        XCTAssertEqual(state.lines.count, RecordingActivityState.maxLines)
+        XCTAssertEqual(state.lines.last, "区切り30。")
+        XCTAssertGreaterThanOrEqual(state.lines.joined().count, 60)
+    }
+
+    func testStopsKeepingOlderLinesOnceEnoughCharacters() {
+        // 新しいほうから 120 文字に届いたら、それより前は持たない（届いた区切りは全部入れる）
+        let a = String(repeating: "あ", count: 70)
+        let b = String(repeating: "い", count: 70)
+        let c = String(repeating: "う", count: 70)
+        let state = RecordingActivityState.make(phase: .recording, elapsed: 0, title: "t", lines: [a, b, c], now: now)
+        XCTAssertEqual(state.lines, [b, c])
     }
 
     func testLongLineKeepsTheEnd() {
@@ -40,19 +57,59 @@ final class RecordingActivityStateTests: XCTestCase {
         XCTAssertTrue(line.hasSuffix("おわり"))
     }
 
-    func testPausedShowsOnlyLastLine() {
+    func testPausedKeepsTheSameLines() {
         let state = RecordingActivityState.make(phase: .paused, elapsed: 0, title: "t", lines: ["1", "2", "3"], now: now)
         XCTAssertEqual(state.lines, ["1", "2", "3"])
-        XCTAssertEqual(state.visibleLines, ["3"])
+    }
+
+    func testJoinsJapaneseWithoutSpaceAndEnglishWithSpace() {
+        XCTAssertEqual(TranscriptJoin.joined(["今日は", "晴れです。"]), "今日は晴れです。")
+        XCTAssertEqual(TranscriptJoin.joined(["Hello world.", "Next one"]), "Hello world. Next one")
+        XCTAssertEqual(TranscriptJoin.joined(["ok", "next"]), "ok next")
+        XCTAssertEqual(TranscriptJoin.joined(["バージョン", "2 です"]), "バージョン2 です")
+        XCTAssertEqual(TranscriptJoin.joined([]), "")
+    }
+
+    func testFitKeepsEverythingThatFits() {
+        XCTAssertEqual(TranscriptJoin.fit(["今日は", "晴れです。"], budget: 20), ["今日は", "晴れです。"])
+        XCTAssertEqual(TranscriptJoin.fit([], budget: 20), [])
+    }
+
+    func testFitCutsOnlyTheHeadWithAnEllipsis() {
+        // 新しいほうから入れ、入りきらない区切りは後ろだけ残して頭を「…」にする。新しい区切りは切らない
+        let fitted = TranscriptJoin.fit(["あいうえお", "かきくけこ", "さしすせそ"], budget: 9)
+        XCTAssertEqual(fitted, ["…くけこ", "さしすせそ"])
+        XCTAssertLessThanOrEqual(TranscriptJoin.width(fitted.joined()), 9)
+    }
+
+    func testFitCutsInsideASingleLongLine() {
+        let fitted = TranscriptJoin.fit([String(repeating: "あ", count: 50) + "おわり"], budget: 10)
+        XCTAssertEqual(fitted.count, 1)
+        XCTAssertTrue(fitted[0].hasPrefix("…"))
+        XCTAssertTrue(fitted[0].hasSuffix("おわり"))
+        XCTAssertLessThanOrEqual(TranscriptJoin.width(fitted[0]), 10)
+    }
+
+    func testFitCountsAsciiAsNarrow() {
+        XCTAssertEqual(TranscriptJoin.fit(["Hello world."], budget: 7), ["Hello world."])
+        XCTAssertEqual(TranscriptJoin.fit(["Hello", "world."], budget: 7), ["Hello", " world."])
+    }
+
+    func testFitDropsTheSpaceBeforeAnEllipsis() {
+        // 切った区切りの頭の空白は要らない。入りきらない区切りが 1 文字も入らなければ、前の区切りの頭に付ける
+        XCTAssertEqual(TranscriptJoin.fit(["Hello", "world."], budget: 3).joined(), "…ld.")
+        XCTAssertEqual(TranscriptJoin.fit(["Hello", "world."], budget: 4).joined(), "…world.")
     }
 
     func testFitsActivityKitPayloadLimit() throws {
         // ActivityKit の中身は 4KB まで
-        let lines = Array(repeating: String(repeating: "漢", count: 500), count: 10)
-        let state = RecordingActivityState.make(
-            phase: .recording, elapsed: 3600, title: String(repeating: "題", count: 40), lines: lines, now: now
-        )
-        XCTAssertLessThan(try JSONEncoder().encode(state).count, 4096)
+        // 長い区切りを 10 個、短い区切りを 40 個（持つのは最大 12 区切り・約 120 文字）
+        for lines in [Array(repeating: String(repeating: "漢", count: 500), count: 10), Array(repeating: "あ", count: 40)] {
+            let state = RecordingActivityState.make(
+                phase: .recording, elapsed: 3600, title: String(repeating: "題", count: 40), lines: lines, now: now
+            )
+            XCTAssertLessThan(try JSONEncoder().encode(state).count, 4096)
+        }
     }
 }
 

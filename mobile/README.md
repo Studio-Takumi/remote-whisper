@@ -71,6 +71,8 @@ xcrun simctl launch booted dev.studiotakumi.remotewhisper
 
 ```sh
 xcrun simctl launch booted dev.studiotakumi.remotewhisper -RWLiveActivityPreview recording
+# 文字起こしの見本を替える: 続けて long（長い区切りが続く）か short（短い区切りが続く）
+xcrun simctl launch booted dev.studiotakumi.remotewhisper -RWLiveActivityPreview recording long
 ```
 
 ホーム画面のウィジェットの録音中の見た目も、同じように見本を出す（`paused`・`idle`（前回の録音あり）・`clear` も）。ウィジェットに録音中を渡すには App Group が要るので、シミュレーターでもその場の署名で App Group を付けてビルドする（`CODE_SIGNING_ALLOWED=NO` ではエンタイトルメントが付かない。ID は何でもよい）。ウィジェットはホーム画面を長押し →「編集」→「ウィジェットを追加」で置く
