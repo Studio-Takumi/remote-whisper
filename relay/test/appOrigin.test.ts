@@ -112,3 +112,46 @@ describe('CORS', () => {
         expect(other.headers.get('Vary') ?? '').not.toContain('Origin');
     });
 });
+
+describe('アプリのオリジンでは Cookie を読まない（どの経路でも）', () => {
+    it('ホストへの WebSocket は 101 にならず 401', async () => {
+        const cookie = await newCookie();
+        const { user_id: userId } = (await env.DB.prepare('SELECT user_id FROM web_sessions WHERE token_hash = ?')
+            .bind(await sha256(cookie.split('=')[1]))
+            .first<{ user_id: string }>())!;
+        // トンネルのないホスト。自分のオリジンなら、認可を通ってトンネルがないこと（503）まで進む
+        const hostId = crypto.randomUUID();
+        await env.DB.prepare(
+            'INSERT INTO hosts (id, user_id, name, public_key, relay_key, tunnel_hostname, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        )
+            .bind(hostId, userId, 'TEST-PC', 'pk', null, null, Date.now())
+            .run();
+        const ws = (origin: string) =>
+            SELF.fetch(`${ORIGIN}/h/${hostId}/ws`, {
+                headers: { Origin: origin, Cookie: cookie, Upgrade: 'websocket' },
+            });
+        expect((await ws(ORIGIN)).status).toBe(503);
+        const app = await ws(APP);
+        expect(app.status).toBe(401);
+        expect(app.webSocket).toBeNull();
+    });
+
+    it('ホストの登録（/pair）の確認・承認も 401', async () => {
+        const cookie = await newCookie();
+        const request = await SELF.fetch(`${ORIGIN}/pair/request?code=ABCD-EFGH`, {
+            headers: { Origin: APP, Cookie: cookie },
+        });
+        expect(request.status).toBe(401);
+        const approve = await SELF.fetch(`${ORIGIN}/pair/approve`, {
+            method: 'POST',
+            headers: { Origin: APP, Cookie: cookie, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code: 'ABCD-EFGH' }),
+        });
+        expect(approve.status).toBe(401);
+        // 自分のオリジンからは認可を通る（申請がないので 404）
+        const mine = await SELF.fetch(`${ORIGIN}/pair/request?code=ABCD-EFGH`, {
+            headers: { Origin: ORIGIN, Cookie: cookie },
+        });
+        expect(mine.status).toBe(404);
+    });
+});
