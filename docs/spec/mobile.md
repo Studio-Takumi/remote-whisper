@@ -308,8 +308,8 @@ JS 向けの API（`AppEntry`。型は `web/src/features/native/appEntryTypes.ts
 ### 見分け方と接続先
 
 - **同梱しているのは、アプリの中（`isNativeApp()`）で、画面が http(s) で開かれていないとき**（`web/src/api/endpoint.ts` の `isBundled`）。`server.url` で開いたときは http(s) なので、ブラウザ版と同じに扱う
-- 接続先（ホストかクラウド版の URL。パスのないオリジン）とモード（`direct`・`cloud`）は、同梱しているときだけ `localStorage` の `remote-whisper.appEndpoint` から読む（`web/src/features/native/appEndpoint.ts`）。起動の最初に同期で決める必要があるので、`nativeBridge` の dynamic import ではなく、`isNativeApp()` で分けた同期の読み出しにしている
-- **モードは、同梱しているときはホスト名ではなく保存した値で決める**（`resolveEndpoint`）。保存するときは、入力した URL のホスト名がクラウド用のドメイン（`VITE_CLOUD_HOSTS`）ならクラウド版にする。同梱していなければ、今まで通り画面のホスト名で決める
+- 接続先（ホストかクラウド版の URL。パスのないオリジン）は、同梱しているときだけ `localStorage` の `remote-whisper.appEndpoint`（`{ url }`）から読む（`web/src/features/native/appEndpoint.ts`）。起動の最初に同期で決める必要があるので、`nativeBridge` の dynamic import ではなく、`isNativeApp()` で分けた同期の読み出しにしている
+- **モード（`direct`・`cloud`）は、同梱しているときは画面のホスト名ではなく、接続先の URL のホスト名で決める**（`resolveEndpoint`。クラウド用のドメイン `VITE_CLOUD_HOSTS` ならクラウド版）。モードは保存せず、読むたびに URL から決め直す（保存された値は信じない。書き換えられた値や、クラウド用のドメインの設定を変えたときに食い違わないように）。同梱していなければ、今まで通り画面のホスト名で決める
 - URL は `endpoint.ts` の `apiUrl`・`wsUrl`・`workerUrl`（と、それを使う `meUrl` など）で組み立てる。接続先がないとき（ブラウザ版・`server.url`）は、前と同じ相対 URL（WebSocket は画面の `location` から）。接続先があれば、その前に付けた絶対 URL（`https:` なら `wss:`）
   - 通しているもの：REST API（`api.ts`）・WebSocket（`connection.ts`）・アップロード（`upload.ts`）・セッションの音声（`SessionView`）・設定の選択肢（`options.ts`）・開発用のパネル・クラウド版のアカウント（`/me`・`/auth`）・登録（`/pair`）・録音の計測（`sendBeacon`）・お知らせ（`announcements.json`）
 
@@ -333,7 +333,7 @@ JS 向けの API（`AppEntry`。型は `web/src/features/native/appEntryTypes.ts
 
 ### 確かめ方
 
-- web のテスト（vitest）：`endpoint.test.ts`（同梱の見分け方・モードを保存した値で決める・絶対 URL の組み立て・ブラウザ版は相対 URL のまま）、`appEndpoint.test.ts`（URL のそろえ方・保存と読み出し・壊れた値）、`AppEndpointSetup.test.tsx`（接続先の画面・設定の接続先がブラウザ版では出ないこと）
+- web のテスト（vitest）：`endpoint.test.ts`（同梱の見分け方・モードを接続先の URL で決める・絶対 URL の組み立て・ブラウザ版は相対 URL のまま）、`appEndpoint.test.ts`（URL のそろえ方・保存と読み出し・保存されたモードを読まない・壊れた値）、`AppEndpointSetup.test.tsx`（接続先の画面・設定の接続先がブラウザ版では出ないこと）
 - server のテスト（`test_host_check.py`）：`capacitor://localhost` からの API・WebSocket・preflight が通り、CORS に資格情報が付かないこと。ほかのオリジン（`capacitor://evil.example`・`ionic://localhost` を含む）は前と同じく 403 で、CORS も付かないこと
 - relay のテスト（`appOrigin.test.ts`）：preflight と返事の CORS、Cookie があってもログインしていない扱いになること、ほかのオリジン・ほかのパスには付かないこと
 - ブラウザ版が変わっていないこと：`npm run build` の前後で最初に読むファイル（`index.html` が読む JS・CSS）とチャンクの並びが同じこと。Playwright で PC・スマホの幅、ライト・ダークの最初の画面・サイドバー・設定モーダルを撮り、ピクセルで比べる

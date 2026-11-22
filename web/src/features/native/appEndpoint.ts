@@ -1,9 +1,9 @@
 // 画面を iOS アプリに同梱したとき（#440。spec/mobile.md 11.9）の接続先（ホストかクラウド版の URL）。
 // 同梱した画面のオリジン（capacitor://localhost）はホストと違うので、API・WebSocket はここに保存した URL へ送る。
-// ブラウザ版とアプリの server.url では使わない（endpoint.ts が、同梱したときだけ読む）
-import type { Mode } from '@/api/endpoint';
-
-export type AppEndpoint = { url: string; mode: Mode };
+// ブラウザ版とアプリの server.url では使わない（endpoint.ts が、同梱したときだけ読む）。
+// 保存するのは URL だけ。モードは読むたびに URL から決める（endpoint.ts。書き換えられた値や、
+// クラウド用のドメインの設定を変えたときに食い違わないように）
+export type AppEndpoint = { url: string };
 
 const KEY = 'remote-whisper.appEndpoint';
 
@@ -48,10 +48,7 @@ export function loadAppEndpoint(storage: Read | null = safeStorage()): AppEndpoi
         }
         const value = JSON.parse(raw) as Partial<AppEndpoint> | null;
         const url = typeof value?.url === 'string' ? normalizeEndpointUrl(value.url) : null;
-        if (!url || (value?.mode !== 'cloud' && value?.mode !== 'direct')) {
-            return null;
-        }
-        return { url, mode: value.mode };
+        return url ? { url } : null;
     } catch {
         return null;
     }
@@ -60,7 +57,7 @@ export function loadAppEndpoint(storage: Read | null = safeStorage()): AppEndpoi
 export function saveAppEndpoint(endpoint: AppEndpoint | null, storage: Write | null = safeStorage()): boolean {
     try {
         if (endpoint) {
-            storage?.setItem(KEY, JSON.stringify(endpoint));
+            storage?.setItem(KEY, JSON.stringify({ url: endpoint.url }));
         } else {
             storage?.removeItem(KEY);
         }

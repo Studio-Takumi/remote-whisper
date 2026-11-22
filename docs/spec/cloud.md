@@ -26,7 +26,7 @@ Tailscale・uv・Ollama などを自分で入れられる人だけでなく、�
 | 広告 | 出さない | 後で出す（10.13 節） |
 - 画面は `location.hostname` がクラウド用のドメイン（ビルド時の設定で渡す）ならクラウド版として動く。コードと設定の値は `cloud`・`direct`
   - ビルド時の設定は環境変数 `VITE_CLOUD_HOSTS`（カンマ区切り）。渡さなければ staging の `rw-dev.studio-takumi.dev` と本番の `rw.studio-takumi.dev`
-  - 画面を iOS アプリに同梱したとき（#440。mobile.md 11.9 節）は、ホスト名ではなく、アプリに保存した接続先の URL とモードを使う。ブラウザ版は今まで通り
+  - 画面を iOS アプリに同梱したとき（#440。mobile.md 11.9 節）は、画面のホスト名ではなく、アプリに保存した接続先の URL のホスト名でモードを決める（モードは保存しない）。ブラウザ版は今まで通り
   - 画面の URL の組み立ては `web/src/api/endpoint.ts` の 1 か所に集め（同梱したときだけ、接続先の絶対 URL にする）、入口の状態（`login`・`consent`・`hosts`・`ready`）は `web/src/features/cloud/cloud.ts` に持つ。`ready` でホストが決まるまで、今の画面は出さない
   - PWA は API・WebSocket をキャッシュせず、`/h/`・`/auth/`・`/me/`・`/pair`・`/healthz` は画面の読み込み直しの代わり（navigateFallback）にしない
 - セルフホスト版の挙動は変えない。クラウド版のために足す画面（ログイン・同意・ホストの選択・広告・お知らせ）は、セルフホスト版では出さず、そのためのスクリプトも読まない

@@ -42,20 +42,27 @@ describe('保存と読み出し', () => {
     it('保存したものを読み出せる。消せる', () => {
         const storage = memoryStorage();
         expect(loadAppEndpoint(storage)).toBeNull();
-        expect(saveAppEndpoint({ url: 'https://pc.example', mode: 'direct' }, storage)).toBe(true);
-        expect(loadAppEndpoint(storage)).toEqual({ url: 'https://pc.example', mode: 'direct' });
+        expect(saveAppEndpoint({ url: 'https://pc.example' }, storage)).toBe(true);
+        expect(loadAppEndpoint(storage)).toEqual({ url: 'https://pc.example' });
         saveAppEndpoint(null, storage);
         expect(loadAppEndpoint(storage)).toBeNull();
+    });
+    it('保存されたモードは読まない（モードは URL から決める）', () => {
+        const key = 'remote-whisper.appEndpoint';
+        // 前の形（mode つき）や書き換えられた値でも、URL だけを返す
+        for (const raw of ['{"url":"https://pc.example","mode":"cloud"}', '{"url":"https://pc.example","mode":"x"}']) {
+            expect(loadAppEndpoint(memoryStorage({ [key]: raw })), raw).toEqual({ url: 'https://pc.example' });
+        }
     });
     it('壊れた値・形の違う値は読まない', () => {
         const key = 'remote-whisper.appEndpoint';
         for (const raw of [
             '{',
             'null',
-            '{"url":"https://pc.example"}',
-            '{"url":"https://pc.example","mode":"other"}',
-            '{"url":"javascript:alert(1)","mode":"direct"}',
-            '{"url":"https://pc.example/path","mode":"direct"}',
+            '{}',
+            '{"url":1}',
+            '{"url":"javascript:alert(1)"}',
+            '{"url":"https://pc.example/path"}',
         ]) {
             expect(loadAppEndpoint(memoryStorage({ [key]: raw })), raw).toBeNull();
         }
@@ -73,7 +80,7 @@ describe('保存と読み出し', () => {
             },
         };
         expect(loadAppEndpoint(broken)).toBeNull();
-        expect(saveAppEndpoint({ url: 'https://pc.example', mode: 'direct' }, broken)).toBe(false);
+        expect(saveAppEndpoint({ url: 'https://pc.example' }, broken)).toBe(false);
         expect(saveAppEndpoint(null, null)).toBe(false);
     });
 });

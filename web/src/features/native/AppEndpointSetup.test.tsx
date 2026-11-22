@@ -25,20 +25,17 @@ describe('接続先の画面', () => {
         expect(loadAppEndpoint()).toBeNull();
     });
 
-    it('保存して読み込み直す。モードは URL のホスト名から決める', async () => {
+    it('そろえた URL だけを保存して読み込み直す（モードは保存しない）', async () => {
         const { AppEndpointSetup } = await import('@/features/native/AppEndpointSetup');
         const onSaved = vi.fn();
         render(<AppEndpointSetup onSaved={onSaved} />);
         fireEvent.change(screen.getByLabelText('ホストの URL'), { target: { value: 'pc.example.ts.net' } });
         fireEvent.click(screen.getByRole('button', { name: 'つなぐ' }));
         expect(onSaved).toHaveBeenCalledOnce();
-        expect(loadAppEndpoint()).toEqual({ url: 'https://pc.example.ts.net', mode: 'direct' });
-
-        cleanup();
-        render(<AppEndpointSetup onSaved={onSaved} />);
-        fireEvent.change(screen.getByLabelText('ホストの URL'), { target: { value: 'https://rw.studio-takumi.dev' } });
-        fireEvent.click(screen.getByRole('button', { name: 'つなぐ' }));
-        expect(loadAppEndpoint()).toEqual({ url: 'https://rw.studio-takumi.dev', mode: 'cloud' });
+        expect(loadAppEndpoint()).toEqual({ url: 'https://pc.example.ts.net' });
+        expect(JSON.parse(localStorage.getItem('remote-whisper.appEndpoint')!)).toEqual({
+            url: 'https://pc.example.ts.net',
+        });
     });
 });
 
@@ -55,10 +52,7 @@ describe('設定の接続先', () => {
             bundled: true,
             endpoint: { base: 'https://pc.example.ts.net', mode: 'direct', unset: false },
         }));
-        localStorage.setItem(
-            'remote-whisper.appEndpoint',
-            JSON.stringify({ url: 'https://pc.example.ts.net', mode: 'direct' }),
-        );
+        localStorage.setItem('remote-whisper.appEndpoint', JSON.stringify({ url: 'https://pc.example.ts.net' }));
         const { AppEndpointInfo } = await import('@/features/native/AppEndpointSetup');
         const onCleared = vi.fn();
         render(<AppEndpointInfo onCleared={onCleared} />);

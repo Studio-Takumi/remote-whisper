@@ -29,15 +29,21 @@ describe('画面をアプリに同梱したとき（#440）', () => {
         expect(endpoint).toEqual({ base: '', mode: 'direct', unset: false });
         expect(resolveEndpoint('rw.studio-takumi.dev', hosts, null)).toEqual({ base: '', mode: 'cloud', unset: false });
     });
-    it('同梱していれば、保存した接続先の URL とモードを使う。なければ unset', () => {
+    it('同梱していれば、保存した接続先の URL を使い、モードはその URL のホスト名で決める。なければ unset', () => {
         expect(resolveEndpoint('localhost', hosts, { saved: null })).toEqual({ base: '', mode: 'direct', unset: true });
+        expect(resolveEndpoint('localhost', hosts, { saved: { url: 'https://pc.example:8443' } })).toEqual({
+            base: 'https://pc.example:8443',
+            mode: 'direct',
+            unset: false,
+        });
+        // 画面のホスト名（localhost）ではなく、接続先の URL のホスト名で決まる
+        expect(resolveEndpoint('localhost', hosts, { saved: { url: 'https://rw.studio-takumi.dev' } }).mode).toBe(
+            'cloud',
+        );
+        // クラウド用のドメインの設定を変えれば、読み直したときに変わる
         expect(
-            resolveEndpoint('localhost', hosts, { saved: { url: 'https://pc.example:8443', mode: 'direct' } }),
-        ).toEqual({ base: 'https://pc.example:8443', mode: 'direct', unset: false });
-        // モードはホスト名（localhost）ではなく、保存した値で決まる
-        expect(
-            resolveEndpoint('localhost', hosts, { saved: { url: 'https://rw.studio-takumi.dev', mode: 'cloud' } }).mode,
-        ).toBe('cloud');
+            resolveEndpoint('localhost', ['rw.example'], { saved: { url: 'https://rw.studio-takumi.dev' } }).mode,
+        ).toBe('direct');
     });
     it('接続先があれば絶対 URL を組み立てる', () => {
         expect(apiUrl('/api/projects', 'direct', null, 'http://192.168.0.5:8000')).toBe(

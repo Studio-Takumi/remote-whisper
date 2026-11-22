@@ -32,7 +32,7 @@ export function isBundled(where: { protocol: string }, native: boolean): boolean
 }
 
 // 同梱していなければ、画面のホスト名でモードを決める（今まで通り）。同梱していれば、保存した接続先の
-// URL とモードを使う（モードはホスト名からでなく、保存した値で渡す）
+// URL を使い、モードは画面のホスト名ではなく、その URL のホスト名から決める（保存した値は信じない）
 export function resolveEndpoint(
     hostname: string,
     cloudHosts: string[],
@@ -44,7 +44,8 @@ export function resolveEndpoint(
     if (!bundled.saved) {
         return { base: '', mode: 'direct', unset: true };
     }
-    return { base: bundled.saved.url, mode: bundled.saved.mode, unset: false };
+    const url = bundled.saved.url;
+    return { base: url, mode: detectMode(new URL(url).hostname, cloudHosts), unset: false };
 }
 
 const cloudHosts = parseCloudHosts(import.meta.env.VITE_CLOUD_HOSTS);
@@ -53,9 +54,6 @@ export const bundled = isBundled(location, isNativeApp());
 export const endpoint = resolveEndpoint(location.hostname, cloudHosts, bundled ? { saved: loadAppEndpoint() } : null);
 export const mode: Mode = endpoint.mode;
 export const isCloud = mode === 'cloud';
-
-// 接続先の画面で、入力した URL（normalizeEndpointUrl をとおしたもの）からモードを決める
-export const modeOfUrl = (url: string): Mode => detectMode(new URL(url).hostname, cloudHosts);
 
 // 今つないでいるホスト（クラウド版のみ）。setHostId は cloud.ts の dispatch からだけ呼ぶ（ほかから直接呼ばない）
 let currentHostId: string | null = null;

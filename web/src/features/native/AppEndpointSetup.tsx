@@ -3,7 +3,7 @@
 // 部品は最初のチャンクに入れる（lazy にすると、ブラウザ版の最初に読むファイルが増えるため。11.4 節）
 import { type FormEvent, useState } from 'react';
 
-import { bundled, endpoint, modeOfUrl } from '@/api/endpoint';
+import { bundled, endpoint } from '@/api/endpoint';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -22,7 +22,7 @@ export function AppEndpointSetup({ onSaved = reload }: { onSaved?: () => void })
             setError('ホストの URL（例: https://pc.example.ts.net）を入れてください。パスは付けません');
             return;
         }
-        if (!saveAppEndpoint({ url, mode: modeOfUrl(url) })) {
+        if (!saveAppEndpoint({ url })) {
             setError('保存できませんでした');
             return;
         }
