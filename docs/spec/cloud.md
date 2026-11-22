@@ -71,8 +71,9 @@ flowchart LR
 | `/h/<hostId>/api/...` | ホストの `/api/...` へ中継 |
 | `/h/<hostId>/ws` | ホストの `/ws` へ中継 |
 | `/auth/login/<provider>`・`/auth/callback/<provider>`・`/auth/logout` | ログイン（10.7 節）。provider は `google`・`discord`・`github` |
+| `/auth/app/login/<provider>`・`/auth/app/token`・`/auth/app/logout` | iOS アプリのログイン（#441。10.7 節の「アプリのログイン」） |
 | `/pair?code=...`・`/pair/start`・`/pair/poll` | ホストの登録（10.6 節） |
-| `/me/...` | 自分のアカウント・ホスト一覧・同意・すべての端末からログアウト（`DELETE /me/sessions`）など、Worker が答える API |
+| `/me/...` | 自分のアカウント・ホスト一覧・同意・すべての端末からログアウト（`DELETE /me/sessions`）・アプリの端末（`/me/devices`）・チケット（`POST /me/tickets`）など、Worker が答える API |
 | `/healthz` | Worker の死活 |
 
 - 画面の URL（`/s/<UUID>` など、#177）にはホストを入れない。どのホストを開いているかは画面の状態（とホストが 1 台ならそれ）で決める。ホストを切り替えるとセッションの一覧が替わる
@@ -245,7 +246,7 @@ sequenceDiagram
 - 1 人が複数の手段でログインしても、1 人のユーザーにまとめる。同じプロバイダの同じ ID なら同じユーザー。**メールアドレスで自動に紐付けはしない**（別の手段を足すのは、ログインしている状態で設定から）
 - ログインセッション（`web_sessions`）は Cookie（`__Host-` 接頭辞・HttpOnly・Secure・SameSite=Lax）。DB にはトークンのハッシュだけを置き、期限を設ける。ログアウトで失効させる
 - 状態を変える API は、Cookie に加えて Origin を確かめる（CSRF の対策。#166）。**`/h/<hostId>/ws` の WebSocket と、`/h/` 以下の GET 以外のリクエストも、Origin が自分のオリジンでなければ断る**。staging・本番は `studio-takumi.dev` のサブドメインで、兄弟のサブドメイン（ポートフォリオなど）は same-site なので、SameSite=Lax の Cookie が WebSocket にも付いてしまうため
-- **iOS アプリに同梱した画面のオリジン（#440。mobile.md 11.9 節）**: vars の `APP_ORIGINS`（カンマ区切り。今は `capacitor://localhost`。空にすれば止まる）にあるオリジンにだけ、`/h/` と `/me` で CORS を返す（preflight に 204。**資格情報なし**で、`Access-Control-Allow-Credentials` は付けない）。このオリジンからのリクエストでは**ログインセッションの Cookie を読まない**（ログインしていない扱い。`relay/src/appOrigin.ts`・`auth.ts` の `currentUser`）。上の Origin の確認は変えていない。アプリからのログイン（トークン）は #441 で足す
+- **iOS アプリに同梱した画面のオリジン（#440。mobile.md 11.9 節）**: vars の `APP_ORIGINS`（カンマ区切り。今は `capacitor://localhost`。空にすれば止まる）にあるオリジンにだけ、`/h/` と `/me` で CORS を返す（preflight に 204。**資格情報なし**で、`Access-Control-Allow-Credentials` は付けない）。このオリジンからのリクエストでは**ログインセッションの Cookie を読まない**（ログインしていない扱い。`relay/src/appOrigin.ts`・`auth.ts` の `cookieUser`）。このオリジンで通るのは、下のアプリのトークンかチケットがあるときだけ。Cookie の経路の Origin の確認は変えていない
 - ログインを始めるとき、state を D1（ハッシュだけ）と、このブラウザの短命の Cookie（`__Host-rw_oauth_state`、10 分）の両方に置く。コールバックでは両方が合うときだけ進める（ほかの人が始めたログインの続きの URL を踏ませて、その人のアカウントにログインさせる・手段を足させる、ログイン CSRF の対策）。手段を足す（`?link=1`）ときは、さらにコールバックの時点でも始めたユーザーでログインしていることを確かめる
 - ログインのあとに戻るパス（`?return=`）は、同じオリジンのパスだけ。`//`・`\`・制御文字（ブラウザが読み飛ばすタブ・改行）を含むものは `/` にする
 - **セキュリティのヘッダー（#166）**:
@@ -273,9 +274,37 @@ sequenceDiagram
 - 退会: ユーザー・ログイン手段・ログインセッション・ホスト（とトンネル）・同意の履歴（consents）を消す。**同意の履歴も当面は消す**（持つデータを減らす。法令上残す必要があるとわかったら、ユーザーと切り離して残す形に変える。10.16 節）
 - OAuth のコールバックは `/auth/callback/google`・`/auth/callback/discord`・`/auth/callback/github`。クライアント ID とシークレットは secret（10.15 節）
 
+### アプリのログイン（#441）
+
+iOS アプリの WebView（WKWebView）の中では Google の OAuth が通らず（埋め込みの WebView でのログインを Google が断る）、画面を同梱すると Cookie（`SameSite=Lax`・自分のオリジン）も使えない。そこでアプリは、システムのログイン画面（`ASWebAuthenticationSession`）でログインし、Cookie の代わりにトークンを使う（`relay/src/appAuth.ts`。アプリ側は mobile.md 11.10 節）。**トークンの認可は Worker の中で終わらせ、ホストには今まで通り署名（`X-RW-Relay`）だけを渡す**（`Authorization` は中継で落とす。10.5 節）。
+
+- **流れ**
+  1. アプリが PKCE の `verifier`（乱数）と `state` を作り、システムのログイン画面で `GET /auth/app/login/<provider>?challenge=<SHA-256 の base64url>&challenge_method=S256&state=<state>` を開く。そのあとの OAuth はブラウザのログインと同じ（state の D1 と Cookie の両方の確認も同じ。システムのログイン画面は Safari と同じブラウザなので Cookie が使える）。`challenge`・`state` は `oauth_states` の `app_challenge`・`app_state` に置く。手段を足す（`?link=1`）のは Cookie のログインセッションが要るので、アプリのログインでは受けない（`400`）
+  2. コールバックで、Cookie のログインセッションの代わりに**一度だけ使える 2 分のコード**（`app_auth_codes`。ハッシュと `challenge` だけ置く）を作り、`remotewhisper://auth/callback?code=<コード>&state=<state>` へ `302` で戻す（戻る先は固定。Universal Links は有料の Apple Developer Program が要るので使わない）。プロバイダの画面で断ったら `?error=access_denied&state=<state>`
+  3. アプリのネイティブのコードが `POST /auth/app/token`（`{"grantType": "authorization_code", "code", "codeVerifier", "deviceName"}`）で替える。`SHA-256(codeVerifier)` が `challenge` と合うときだけトークンを返す。コードは合っても合わなくても、読んだら消す。カスタムスキームはほかのアプリも名乗れるが、`ASWebAuthenticationSession` は始めたアプリにだけ戻し、コードを横取りされても `verifier` がなければ替えられない
+- **トークン**（`app_sessions`。端末ごとに 1 行。値はハッシュだけ置く）: 返事は `{accessToken, accessExpiresAt, refreshToken, refreshExpiresAt}`
+  - アクセストークンは 1 時間。`Authorization: Bearer <アクセストークン>` で `/h/`・`/me`・`/pair` の確認と承認に使う。毎回 D1 を引くので、行を消せばすぐ使えなくなる
+  - 更新トークンは 60 日（更新するたびに延びる）。`POST /auth/app/token`（`{"grantType": "refresh_token", "refreshToken"}`）で、アクセストークンと更新トークンの**両方を替える**（前のものはどちらも使えなくなる。同じ更新トークンで 2 回は替えられない）。前の更新トークンをもう一度使われたときに全部を止める（再利用の検知）はしていない（電波が切れて返事を受け取れなかっただけで、ログアウトさせてしまうため）
+  - 1 人 20 台まで。超えたら、いちばん長く使っていない端末から消す
+  - **取り消し**: `POST /auth/app/logout`（`{"refreshToken"}`。その端末だけ）・`DELETE /me/devices/<id>`（端末の一覧から。Cookie のログインからも消せる）・`DELETE /me/sessions`（すべての端末からログアウト。アプリの端末も消す）・ログイン手段を外したとき（今の端末以外。アプリの端末から外したときは、その端末を残す）・退会（CASCADE）
+  - `GET /me/devices`: `{devices: [{id, name, createdAt, lastSeenAt, current}]}`（`current` はアプリのトークンで呼んだときの自分の端末）。名前はアプリが送る（制御文字を除いて 1〜64 文字。なければ「iOS アプリ」）
+  - `/auth/app/token`・`/auth/app/logout` は Cookie を読まないので CSRF にはならないが、`Origin` があるときは自分のオリジンかアプリの画面のオリジンだけ受ける（ネイティブは `Origin` を付けない）。`/auth/` なので CORS は付けない
+- **Cookie の経路とは混ぜない**
+  - `Authorization: Bearer` があれば、トークンだけで決める。トークンが違えば、Cookie があってもログインしていない扱い（Cookie に戻らない）。`Bearer` 以外の `Authorization` は今まで通り見ない
+  - トークンを使えるのは、`Origin` がない（ネイティブ）・自分のオリジン（`server.url` で開いたアプリ）・`APP_ORIGINS` のとき。ほかのサイトの画面からは、トークンがあってもログインしていない扱い
+  - 状態を変えるリクエストと `/h/` の WebSocket の Origin の確認（上）は、**Cookie でログインしているときだけ**掛ける（`http.ts` の `writeAllowed`）。トークンとチケットはブラウザが勝手に付けないので CSRF にならない。アプリの画面のオリジンから Cookie だけで来たものは、今まで通りログインしていない扱い
+  - 手段を足す（`/auth/login/<provider>?link=1` とそのコールバック）は Cookie のログインセッションだけで確かめる（`cookieUser`）
+- **チケット（ヘッダーを付けられないもの）**: ブラウザの WebSocket と `<audio>` は `Authorization` を付けられない。長い期限のトークンは URL に載せず、`POST /me/tickets`（`{"hostId", "kind", "path"}`。**アプリのトークンでだけ**。Cookie なら `403`）で作った短い期限のチケット（`app_tickets`。ハッシュだけ置く）を `?rw_ticket=` に付ける
+  - `kind: "ws"`: `path` は `/ws` だけ。60 秒・**一度だけ**（使ったら消す）。`Origin` が自分のオリジンかアプリの画面のオリジンのときだけ通す
+  - `kind: "media"`: `path` はセッションの録音ファイル（`/api/projects/<pid>/sessions/<sid>/recording`）だけ。1 時間・期限まで何度でも（`<audio>` が Range で読み直すため）。GET・HEAD だけ
+  - 作ったホスト・パス（クエリを除く）でだけ使える。端末を消すとチケットも消える（CASCADE）。チケットがあるときはチケットだけで決める（違えば Cookie・`Authorization` に戻らない）
+  - `rw_ticket` はホストに渡さず、署名にも入れない（ほかのクエリは書き方を変えずに渡す）
+- **`server.url` で開いているアプリ**（今の運用。mobile.md 11.2 節）: 画面のオリジンは中間サーバーそのもの。`ASWebAuthenticationSession` の Cookie は WKWebView と共有されないので、ログインしても WebView に Cookie は付かない。そこで同梱したときと同じく、アプリの中のクラウド版の画面はトークンとチケットを使う（自分のオリジンからのトークンは通す）。WebView に Cookie を移す（トークンを Cookie に替える）方法は、Cookie の経路にアプリのログインを混ぜることになるので採らない
+- secret は増やしていない（トークン・コード・チケットは乱数で、D1 にハッシュだけを置く）
+
 ## 10.8 データベース（D1）
 
-最低限の 7 つだけ（6 つと、ログインの途中の状態の `oauth_states`）。音声・文字起こし・要約・プロジェクト名は置かない。
+最低限のものだけ（6 つと、ログインの途中の状態の `oauth_states`・Worker の鍵の `relay_keys`、iOS アプリのログインの `app_sessions`・`app_auth_codes`・`app_tickets`（#441））。音声・文字起こし・要約・プロジェクト名は置かない。
 
 ```mermaid
 erDiagram
@@ -285,6 +314,10 @@ erDiagram
     users ||--o{ consents : "同意の履歴"
     users |o--o{ pairing_requests : "承認する"
     users |o--o{ oauth_states : "手段を足す途中"
+    users ||--o{ app_sessions : "アプリの端末"
+    users ||--o{ app_auth_codes : "アプリのログインの途中"
+    app_sessions ||--o{ app_tickets : "チケット"
+    hosts ||--o{ app_tickets : "つなぐ先"
 
     users {
         text id PK "UUID"
@@ -348,8 +381,38 @@ erDiagram
         text code_verifier "PKCE"
         text return_to "ログインのあとに戻るパス"
         text link_user_id FK "手段を足すときの今のユーザー"
+        text app_challenge "アプリのログインの PKCE（#441）"
+        text app_state "アプリへ戻すときの state（#441）"
         int created_at
         int expires_at "10 分。1 回使ったら消す"
+    }
+    app_sessions {
+        text id PK
+        text user_id FK
+        text name "端末の名前"
+        text access_hash "一意"
+        int access_expires_at "1 時間"
+        text refresh_hash "一意。更新のたびに替える"
+        int expires_at "更新トークンの期限（60 日。延びる）"
+        int created_at
+        int last_seen_at
+    }
+    app_auth_codes {
+        text code_hash PK
+        text user_id FK
+        text code_challenge "PKCE（S256）"
+        int created_at
+        int expires_at "2 分。1 回使ったら消す"
+    }
+    app_tickets {
+        text ticket_hash PK
+        text app_session_id FK
+        text user_id FK
+        text host_id FK
+        text kind "ws・media"
+        text path "使えるパス"
+        int created_at
+        int expires_at "ws は 60 秒（1 回）、media は 1 時間"
     }
     relay_keys {
         text name PK "client_hash（接続元のハッシュの鍵）"
