@@ -23,6 +23,11 @@ _LOG_KEYS_MAX = 256
 # ログに書く Host・Origin の長さの上限
 _LOG_VALUE_MAX = 200
 _DEFAULT_PORTS = {"http": 80, "https": 443}
+# 画面を iOS アプリに同梱したとき（#440。spec/mobile.md 11.8）のページのオリジン。Capacitor の
+# iOS の既定の scheme（capacitor.config.ts で iosScheme を変えていないので ionic:// は来ない）。
+# ブラウザの画面はこのオリジンにならないので、ほかのサイトからの CSWSH・rebinding には使えない。
+# CORS もこれだけに許す（8000 番は Cookie を使わないので、資格情報つきの CORS は許さない）
+APP_ORIGINS = ("capacitor://localhost",)
 
 
 def normalize_name(name: str) -> str:
@@ -134,6 +139,8 @@ class HostPolicy:
         return name in self.names or _matches(name, self.extra())
 
     def origin_allowed(self, origin: str, host: tuple[str, int | None] | None) -> bool:
+        if origin in APP_ORIGINS:
+            return True
         try:
             parts = urlsplit(origin)
             scheme = parts.scheme.lower()

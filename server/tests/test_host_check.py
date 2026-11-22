@@ -377,9 +377,70 @@ def test_split_host(value, expected):
     assert split_host(value) == expected
 
 
+APP_ORIGIN = "capacitor://localhost"
+
+
+@pytest.mark.parametrize("host", ["192.168.1.23:8000", "gpu-box.example-tailnet.ts.net"])
+def test_app_origin_api_and_websocket(app, host):
+    """iOS アプリに同梱した画面（#440）は、ホストの名前と違うオリジンでもつなげる"""
+    with client_for(app, host) as client:
+        res = client.patch(
+            "/api/settings", json={"display": {"sessionMeta": True}}, headers={"origin": APP_ORIGIN}
+        )
+        assert res.status_code == 200
+        # 資格情報は許さない（8000 番は Cookie を使わない）
+        assert res.headers["access-control-allow-origin"] == APP_ORIGIN
+        assert "access-control-allow-credentials" not in res.headers
+        with ws_connect(client, host, APP_ORIGIN) as ws:
+            assert ws.receive_json()["type"] == "status"
+
+
+def test_app_origin_preflight(app):
+    with client_for(app, "192.168.1.23:8000") as client:
+        res = client.options(
+            "/api/settings",
+            headers={
+                "origin": APP_ORIGIN,
+                "access-control-request-method": "PATCH",
+                "access-control-request-headers": "content-type",
+            },
+        )
+        assert res.status_code == 200
+        assert res.headers["access-control-allow-origin"] == APP_ORIGIN
+        assert "PATCH" in res.headers["access-control-allow-methods"]
+        assert "access-control-allow-credentials" not in res.headers
+
+
+@pytest.mark.parametrize(
+    "origin", ["https://evil.example", "capacitor://evil.example", "ionic://localhost"]
+)
+def test_other_origins_get_no_cors(app, origin):
+    """ほかのオリジンには CORS を付けず、前と同じく 403 で断る（preflight も）"""
+    with client_for(app, "192.168.1.23:8000") as client:
+        res = client.options(
+            "/api/settings",
+            headers={"origin": origin, "access-control-request-method": "PATCH"},
+        )
+        assert res.status_code == 403
+        assert "access-control-allow-origin" not in res.headers
+        res = client.get("/api/health", headers={"origin": origin})
+        assert res.status_code == 403
+
+
+def test_same_origin_gets_no_cors(app):
+    """ブラウザ版（同じオリジン）の返事は前と変わらない"""
+    with client_for(app, "127.0.0.1:8000") as client:
+        res = client.get("/api/health", headers={"origin": "http://127.0.0.1:8000"})
+        assert res.status_code == 200
+        assert "access-control-allow-origin" not in res.headers
+
+
 @pytest.mark.parametrize(
     ("origin", "host", "ok"),
     [
+        (APP_ORIGIN, "192.168.1.23:8000", True),
+        (APP_ORIGIN, None, True),
+        ("capacitor://localhost:8000", "localhost:8000", False),
         ("http://localhost:8000", "localhost:8000", True),
         ("http://LOCALHOST:8000", "localhost:8000", True),
         ("https://pc.ts.net", "pc.ts.net", True),
