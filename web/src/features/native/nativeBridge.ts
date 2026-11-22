@@ -4,6 +4,7 @@
 // ブラウザ版の最初に読むファイルが 1 つ増えるため）
 import { SystemBars, SystemBarsStyle, registerPlugin } from '@capacitor/core';
 
+import { isCloud } from '@/api/endpoint';
 import type { AppStore } from '@/app/appState';
 import { loadServerVersion } from '@/app/serverConnection';
 import { webVersion } from '@/app/version';
@@ -11,12 +12,8 @@ import { AppEntrySync } from '@/features/native/appEntrySync';
 import type { AppEntryPlugin } from '@/features/native/appEntryTypes';
 import { LiveActivitySync } from '@/features/native/liveActivitySync';
 import type { LiveActivityPlugin } from '@/features/native/liveActivityTypes';
-import type { RecorderPlugin } from '@/features/native/recorderTypes';
+import type { MicInputPlugin } from '@/features/native/micInputTypes';
 import { StaleScreenReloader } from '@/features/native/staleScreenReload';
-
-// 録音のプラグイン（mobile/ios/App/App/Recorder/。MainViewController が登録する）。
-// Proxy なので、Promise の結果にそのまま渡さない（then を呼ばれてネイティブのメソッドとして扱われる）
-export const Recorder = registerPlugin<RecorderPlugin>('Recorder');
 
 // Live Activity のプラグイン（mobile/ios/App/App/LiveActivity/。#453）
 const LiveActivity = registerPlugin<LiveActivityPlugin>('LiveActivity');
@@ -34,10 +31,19 @@ export function startAppEntry(store: AppStore) {
     new AppEntrySync(store, AppEntry).start();
 }
 
-// サーバーが新しい版になっていたら、前面に戻ったとき・接続したときに画面を読み込み直す（spec/mobile.md 11.7）
+// 録音に使うマイクのプラグイン（mobile/ios/App/App/MicInput/。#458）
+const MicInput = registerPlugin<MicInputPlugin>('MicInput');
+
+// 選んだマイクに iOS の入力を固定する（録音中にイヤホンをつないでも切り替わらないように。spec/mobile.md 11.7）。null は OS に任せる
+export async function setPreferredMicInput(label: string | null) {
+    await MicInput.setPreferredInput({ label });
+}
+
+// サーバーが新しい版になっていたら、前面に戻ったとき・接続したときに画面を読み込み直す（spec/mobile.md 11.8）
 export function startStaleScreenReload(store: AppStore) {
     new StaleScreenReloader(store, {
         webVersion,
+        cloud: isCloud,
         refreshServerVersion: () => loadServerVersion(store),
         reload: () => location.reload(),
     }).start();

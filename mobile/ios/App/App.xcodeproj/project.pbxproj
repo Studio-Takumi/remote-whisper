@@ -17,18 +17,6 @@
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
 		9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9582B6822FE993A50072D4E8 /* SceneDelegate.swift */; };
 		A4380002000000000000C001 /* MainViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4380002000000000000B001 /* MainViewController.swift */; };
-		A4380002000000000000C002 /* RecordingName.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4380002000000000000B002 /* RecordingName.swift */; };
-		A4380002000000000000C003 /* WavFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4380002000000000000B003 /* WavFile.swift */; };
-		A4380002000000000000C004 /* RecordingStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4380002000000000000B004 /* RecordingStore.swift */; };
-		A4380002000000000000C005 /* RecorderStateMachine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4380002000000000000B005 /* RecorderStateMachine.swift */; };
-		A4380002000000000000C006 /* Recorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4380002000000000000B006 /* Recorder.swift */; };
-		A4380002000000000000C007 /* RecorderPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4380002000000000000B007 /* RecorderPlugin.swift */; };
-		A4380003000000000000E002 /* RecordingNameTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4380003000000000000D002 /* RecordingNameTests.swift */; };
-		A4380003000000000000E003 /* WavFileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4380003000000000000D003 /* WavFileTests.swift */; };
-		A4380003000000000000E004 /* RecordingStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4380003000000000000D004 /* RecordingStoreTests.swift */; };
-		A4380003000000000000E005 /* RecorderStateMachineTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4380003000000000000D005 /* RecorderStateMachineTests.swift */; };
-		A4380003000000000000E006 /* RecorderMicTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4380003000000000000D006 /* RecorderMicTests.swift */; };
-		A4380003000000000000E007 /* RecorderConvertTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4380003000000000000D007 /* RecorderConvertTests.swift */; };
 		A45300030000000000000001 /* RecordingActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = A45300010000000000000001 /* RecordingActivity.swift */; };
 		A45300030000000000000002 /* RecordingActivityIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = A45300010000000000000002 /* RecordingActivityIntents.swift */; };
 		A45300030000000000000003 /* LiveActivityController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A45300010000000000000003 /* LiveActivityController.swift */; };
@@ -59,6 +47,10 @@
 		A4540003000000000000001C /* StartRecordingControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4540001000000000000000C /* StartRecordingControl.swift */; };
 		A4540003000000000000002D /* HomeWidgetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4540001000000000000000D /* HomeWidgetTests.swift */; };
 		A4540003000000000000002E /* AppEntryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4540001000000000000000E /* AppEntryTests.swift */; };
+		A45800030000000000000001 /* PreferredInputChoice.swift in Sources */ = {isa = PBXBuildFile; fileRef = A45800010000000000000001 /* PreferredInputChoice.swift */; };
+		A45800030000000000000002 /* PreferredInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = A45800010000000000000002 /* PreferredInput.swift */; };
+		A45800030000000000000003 /* MicInputPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A45800010000000000000003 /* MicInputPlugin.swift */; };
+		A45800030000000000000004 /* PreferredInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A45800010000000000000004 /* PreferredInputTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -106,19 +98,7 @@
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
 		A4380001000000000000A001 /* App.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = App.xcconfig; sourceTree = SOURCE_ROOT; };
 		A4380002000000000000B001 /* MainViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainViewController.swift; sourceTree = "<group>"; };
-		A4380002000000000000B002 /* RecordingName.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingName.swift; sourceTree = "<group>"; };
-		A4380002000000000000B003 /* WavFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WavFile.swift; sourceTree = "<group>"; };
-		A4380002000000000000B004 /* RecordingStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingStore.swift; sourceTree = "<group>"; };
-		A4380002000000000000B005 /* RecorderStateMachine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecorderStateMachine.swift; sourceTree = "<group>"; };
-		A4380002000000000000B006 /* Recorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Recorder.swift; sourceTree = "<group>"; };
-		A4380002000000000000B007 /* RecorderPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecorderPlugin.swift; sourceTree = "<group>"; };
 		A4380003000000000000D001 /* AppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		A4380003000000000000D002 /* RecordingNameTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingNameTests.swift; sourceTree = "<group>"; };
-		A4380003000000000000D003 /* WavFileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WavFileTests.swift; sourceTree = "<group>"; };
-		A4380003000000000000D004 /* RecordingStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingStoreTests.swift; sourceTree = "<group>"; };
-		A4380003000000000000D005 /* RecorderStateMachineTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecorderStateMachineTests.swift; sourceTree = "<group>"; };
-		A4380003000000000000D006 /* RecorderMicTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecorderMicTests.swift; sourceTree = "<group>"; };
-		A4380003000000000000D007 /* RecorderConvertTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecorderConvertTests.swift; sourceTree = "<group>"; };
 		A45300010000000000000001 /* RecordingActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingActivity.swift; sourceTree = "<group>"; };
 		A45300010000000000000002 /* RecordingActivityIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingActivityIntents.swift; sourceTree = "<group>"; };
 		A45300010000000000000003 /* LiveActivityController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityController.swift; sourceTree = "<group>"; };
@@ -147,6 +127,10 @@
 		A4540001000000000000000D /* HomeWidgetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeWidgetTests.swift; sourceTree = "<group>"; };
 		A4540001000000000000000E /* AppEntryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEntryTests.swift; sourceTree = "<group>"; };
 		A4540001000000000000000F /* AppGroup.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AppGroup.entitlements; sourceTree = SOURCE_ROOT; };
+		A45800010000000000000001 /* PreferredInputChoice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferredInputChoice.swift; sourceTree = "<group>"; };
+		A45800010000000000000002 /* PreferredInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferredInput.swift; sourceTree = "<group>"; };
+		A45800010000000000000003 /* MicInputPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MicInputPlugin.swift; sourceTree = "<group>"; };
+		A45800010000000000000004 /* PreferredInputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferredInputTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -205,10 +189,10 @@
 			children = (
 				9582B6822FE993A50072D4E8 /* SceneDelegate.swift */,
 				A4380002000000000000B001 /* MainViewController.swift */,
-				A4380002000000000000B010 /* Recorder */,
 				A45300020000000000000002 /* LiveActivity */,
 				A45400020000000000000001 /* AppEntry */,
 				A45400020000000000000002 /* HomeWidget */,
+				A45800020000000000000001 /* MicInput */,
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
@@ -219,19 +203,6 @@
 				50B271D01FEDC1A000F3C39B /* public */,
 			);
 			path = App;
-			sourceTree = "<group>";
-		};
-		A4380002000000000000B010 /* Recorder */ = {
-			isa = PBXGroup;
-			children = (
-				A4380002000000000000B007 /* RecorderPlugin.swift */,
-				A4380002000000000000B006 /* Recorder.swift */,
-				A4380002000000000000B005 /* RecorderStateMachine.swift */,
-				A4380002000000000000B004 /* RecordingStore.swift */,
-				A4380002000000000000B003 /* WavFile.swift */,
-				A4380002000000000000B002 /* RecordingName.swift */,
-			);
-			path = Recorder;
 			sourceTree = "<group>";
 		};
 		A45300020000000000000001 /* Shared */ = {
@@ -264,6 +235,16 @@
 			path = HomeWidget;
 			sourceTree = "<group>";
 		};
+		A45800020000000000000001 /* MicInput */ = {
+			isa = PBXGroup;
+			children = (
+				A45800010000000000000003 /* MicInputPlugin.swift */,
+				A45800010000000000000002 /* PreferredInput.swift */,
+				A45800010000000000000001 /* PreferredInputChoice.swift */,
+			);
+			path = MicInput;
+			sourceTree = "<group>";
+		};
 		A45300020000000000000002 /* LiveActivity */ = {
 			isa = PBXGroup;
 			children = (
@@ -294,15 +275,10 @@
 		A4380003000000000000D010 /* AppTests */ = {
 			isa = PBXGroup;
 			children = (
-				A4380003000000000000D002 /* RecordingNameTests.swift */,
-				A4380003000000000000D003 /* WavFileTests.swift */,
-				A4380003000000000000D004 /* RecordingStoreTests.swift */,
-				A4380003000000000000D005 /* RecorderStateMachineTests.swift */,
-				A4380003000000000000D006 /* RecorderMicTests.swift */,
-				A4380003000000000000D007 /* RecorderConvertTests.swift */,
 				A4530001000000000000000C /* LiveActivityTests.swift */,
 				A4540001000000000000000D /* HomeWidgetTests.swift */,
 				A4540001000000000000000E /* AppEntryTests.swift */,
+				A45800010000000000000004 /* PreferredInputTests.swift */,
 			);
 			path = AppTests;
 			sourceTree = "<group>";
@@ -467,12 +443,6 @@
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */,
 				A4380002000000000000C001 /* MainViewController.swift in Sources */,
-				A4380002000000000000C002 /* RecordingName.swift in Sources */,
-				A4380002000000000000C003 /* WavFile.swift in Sources */,
-				A4380002000000000000C004 /* RecordingStore.swift in Sources */,
-				A4380002000000000000C005 /* RecorderStateMachine.swift in Sources */,
-				A4380002000000000000C006 /* Recorder.swift in Sources */,
-				A4380002000000000000C007 /* RecorderPlugin.swift in Sources */,
 				A45300030000000000000001 /* RecordingActivity.swift in Sources */,
 				A45300030000000000000002 /* RecordingActivityIntents.swift in Sources */,
 				A45300030000000000000003 /* LiveActivityController.swift in Sources */,
@@ -486,6 +456,9 @@
 				A45400030000000000000005 /* RecordingShortcuts.swift in Sources */,
 				A45400030000000000000006 /* HomeWidgetWriter.swift in Sources */,
 				A45400030000000000000007 /* HomeWidgetPreview.swift in Sources */,
+				A45800030000000000000001 /* PreferredInputChoice.swift in Sources */,
+				A45800030000000000000002 /* PreferredInput.swift in Sources */,
+				A45800030000000000000003 /* MicInputPlugin.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -493,15 +466,10 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A4380003000000000000E002 /* RecordingNameTests.swift in Sources */,
-				A4380003000000000000E003 /* WavFileTests.swift in Sources */,
-				A4380003000000000000E004 /* RecordingStoreTests.swift in Sources */,
-				A4380003000000000000E005 /* RecorderStateMachineTests.swift in Sources */,
-				A4380003000000000000E006 /* RecorderMicTests.swift in Sources */,
-				A4380003000000000000E007 /* RecorderConvertTests.swift in Sources */,
 				A4530003000000000000000C /* LiveActivityTests.swift in Sources */,
 				A4540003000000000000002D /* HomeWidgetTests.swift in Sources */,
 				A4540003000000000000002E /* AppEntryTests.swift in Sources */,
+				A45800030000000000000004 /* PreferredInputTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

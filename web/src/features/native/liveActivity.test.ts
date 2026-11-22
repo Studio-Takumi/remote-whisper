@@ -13,7 +13,7 @@ const startBridge = vi.hoisted(() => vi.fn());
 
 vi.mock('@/features/native/nativeBridge', () => {
     loaded.bridge++;
-    return { startLiveActivity: startBridge, startNativeShell: vi.fn(), Recorder: {} };
+    return { startLiveActivity: startBridge, startNativeShell: vi.fn() };
 });
 
 vi.mock('@capacitor/core', () => {

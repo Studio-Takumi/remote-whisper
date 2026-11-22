@@ -2,7 +2,6 @@
 // ブラウザ版の最初のチャンクに @capacitor/core を入れないため、ここでは読み込まない。
 // アプリの中では、Capacitor が画面の読み込み前に window.Capacitor を差し込むので、それだけを見る
 import type { AppStore } from '@/app/appState';
-import type { RecorderPlugin } from '@/features/native/recorderTypes';
 
 type CapacitorGlobal = { isNativePlatform?: () => boolean };
 
@@ -10,9 +9,6 @@ export function isNativeApp(): boolean {
     const capacitor = (window as { Capacitor?: CapacitorGlobal }).Capacitor;
     return capacitor?.isNativePlatform?.() === true;
 }
-
-// 設定モーダルの、アプリの中でだけ出すページ（URL は /settings/ios）。ブラウザ版のページの並びは変えず、最後に足す
-export const NATIVE_SETTINGS_PAGE = 'ios';
 
 // ネイティブを呼ぶコード（別のチャンク）。アプリの中でだけ読み込む
 const loadBridge = () => import('@/features/native/nativeBridge');
@@ -52,8 +48,13 @@ export function startStaleScreenReload(store: AppStore) {
     void loadBridge().then((m) => m.startStaleScreenReload(store));
 }
 
-// 録音のプラグイン。プラグインは Proxy で、Promise の結果にそのまま渡せないので、包んで返す
-export async function loadRecorder(): Promise<{ plugin: RecorderPlugin }> {
-    const { Recorder } = await loadBridge();
-    return { plugin: Recorder };
+// マイクを開いたときに、開いたマイク（label。null は OS に任せる）を iOS に伝え、入力をそのマイクに固定してもらう（#458）。
+// ブラウザ版では何もしない（録音の途中でイヤホンをつなぐと、ブラウザが入力を切り替えることがある）
+export function setNativeMicInput(label: string | null) {
+    if (!isNativeApp()) {
+        return;
+    }
+    void loadBridge()
+        .then((m) => m.setPreferredMicInput(label))
+        .catch((e: unknown) => console.warn('[Mic] could not pin the iOS input', e));
 }

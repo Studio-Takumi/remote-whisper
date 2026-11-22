@@ -213,3 +213,7 @@ def test_index_html_must_be_revalidated(web_client, path):
 
 def test_hashed_assets_are_not_no_cache(web_client):
     assert "no-cache" not in web_client.get("/assets/index-abc.js").headers.get("cache-control", "")
+
+
+def test_api_responses_do_not_get_the_index_html_cache_control(web_client):
+    assert web_client.get("/api/health").headers.get("cache-control") != "no-cache"

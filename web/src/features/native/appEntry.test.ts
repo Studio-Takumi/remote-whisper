@@ -14,7 +14,7 @@ const projects = vi.hoisted(() => ({ ids: [] as string[], sessions: {} as Record
 
 vi.mock('@/features/native/nativeBridge', () => {
     loaded.bridge++;
-    return { startAppEntry: startBridge, startLiveActivity: vi.fn(), startNativeShell: vi.fn(), Recorder: {} };
+    return { startAppEntry: startBridge, startLiveActivity: vi.fn(), startNativeShell: vi.fn() };
 });
 
 vi.mock('@capacitor/core', () => {

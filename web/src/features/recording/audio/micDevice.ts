@@ -1,5 +1,6 @@
 // 録音に使うマイクの選択（#449。spec/ui.md 8 章「録音に使うマイク」）。端末ごとにマイクが違うので、setting.json ではなくブラウザ（localStorage）に覚える。
 // 選んでいなければ、今までどおり OS に任せる（getUserMedia に deviceId を渡さない）
+import { setNativeMicInput } from '@/features/native/nativePlatform';
 import {
     type MicState,
     Microphone,
@@ -82,16 +83,29 @@ export function findChosen(chosen: ChosenMic, inputs: MicInput[]): MicInput | nu
 }
 
 // 選んだマイクで開く。選んだマイクがないときは、OS に任せて開き、onFallback で知らせる。
-// 選んだものは覚えたままにする（挿し直せば、次に開くときからそのマイクを使う）
+// 選んだものは覚えたままにする（挿し直せば、次に開くときからそのマイクを使う）。
+// iOS アプリの中では、開いたマイクを iOS に伝え、録音の途中でイヤホンをつないでも入力が切り替わらないようにする（#458）
 export async function openChosenMicrophone(
     onPcm: PcmHandler,
     processing: Processing,
     onState: (state: MicState) => void,
     onFallback: (chosen: ChosenMic) => void,
 ): Promise<Microphone> {
+    const { mic, label } = await openMicrophone(onPcm, processing, onState, onFallback);
+    setNativeMicInput(label);
+    return mic;
+}
+
+// label は開いたマイクの名前。OS に任せたときは null
+async function openMicrophone(
+    onPcm: PcmHandler,
+    processing: Processing,
+    onState: (state: MicState) => void,
+    onFallback: (chosen: ChosenMic) => void,
+): Promise<{ mic: Microphone; label: string | null }> {
     const chosen = loadChosenMic();
     if (!chosen) {
-        return Microphone.open(onPcm, processing, onState);
+        return { mic: await Microphone.open(onPcm, processing, onState), label: null };
     }
     const found = findChosen(chosen, (await listMicInputs()) ?? []);
     if (found && found.deviceId !== chosen.deviceId) {
@@ -102,7 +116,10 @@ export async function openChosenMicrophone(
     const deviceId = found === undefined ? chosen.deviceId : found?.deviceId;
     if (deviceId) {
         try {
-            return await Microphone.open(onPcm, processing, onState, deviceId);
+            const mic = await Microphone.open(onPcm, processing, onState, deviceId);
+            // 覚えている名前は古いことがある（ID が同じまま、iOS の言語や AirPods の名前を変えたなど）ので、開いたマイクの今の名前を使う。
+            // 空のときに '' を渡すと iOS では「OS に任せる」になるので、覚えている名前に戻す
+            return { mic, label: mic.label() || chosen.label };
         } catch (e) {
             if (!(e instanceof MicrophoneError && e.reason === 'missing')) {
                 throw e;
@@ -111,7 +128,7 @@ export async function openChosenMicrophone(
     }
     console.info(`[Mic] chosen microphone not found: ${chosen.label}`);
     onFallback(chosen);
-    return Microphone.open(onPcm, processing, onState);
+    return { mic: await Microphone.open(onPcm, processing, onState), label: null };
 }
 
 function safeStorage(): Storage | null {

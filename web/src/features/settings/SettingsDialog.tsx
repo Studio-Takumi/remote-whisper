@@ -1,14 +1,8 @@
 import type { SettingsOptions } from '@/api/protocol';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { NATIVE_SETTINGS_PAGE, isNativeApp } from '@/features/native/nativePlatform';
 import { SettingsForm } from '@/features/settings/SettingsForm';
 import { SETTINGS_PAGES, type Settings } from '@/features/settings/settings';
-
-// 開けるページ。iOS アプリの中では「iOS アプリ」（#438）も開ける
-function knownPage(page: string) {
-    return SETTINGS_PAGES.includes(page) || (page === NATIVE_SETTINGS_PAGE && isNativeApp());
-}
 
 // 全体設定のモーダル。左にカテゴリ、右に項目を並べる
 export function SettingsDialog({
@@ -59,7 +53,7 @@ export function SettingsDialog({
                 {/* DialogContent は閉じると消えるので、開くたびに今の設定から下書きを作り直せる */}
                 {loaded ? (
                     <SettingsForm
-                        page={knownPage(page) ? page : SETTINGS_PAGES[0]}
+                        page={SETTINGS_PAGES.includes(page) ? page : SETTINGS_PAGES[0]}
                         onPageChange={onPageChange}
                         settings={settings}
                         options={options}
