@@ -11,6 +11,8 @@ import type { MicState } from '@/features/recording/audio/microphone';
 const LINES = 12;
 // 文字起こしの行の更新は、これより短い間隔では送らない（ActivityKit の更新の頻度の制限）
 export const LINE_UPDATE_INTERVAL_MS = 5000;
+// 出せなかった（shown: false）あと、行が変わっただけで出し直すのはこれより間を空ける（#462。ネイティブの失敗が続いても呼び続けない）
+export const RETRY_INTERVAL_MS = 60_000;
 
 // mic はプラグインには送らない。マイクが止まった・戻ったときに経過時間を合わせ直すために見る（#447）
 export type LiveActivitySnapshot = LiveActivityContent & { sessionId: string; mic: MicState };
@@ -38,7 +40,8 @@ function content(s: LiveActivitySnapshot): LiveActivityContent {
 }
 
 // 最後に送ったもの。shown は出せたか（null は start の返事待ち。false は許可されていない・出せなかった）
-type Sent = { snapshot: LiveActivitySnapshot; shown: boolean | null };
+// startedAt は start を呼んだ時刻、logged は shown: false の理由をこのセッションで出したか（同じ理由は 1 回だけ出す）
+type Sent = { snapshot: LiveActivitySnapshot; shown: boolean | null; startedAt: number; logged: string | null };
 
 export class LiveActivitySync {
     // 録音していなければ null
@@ -86,8 +89,10 @@ export class LiveActivitySync {
         const prev = sent.snapshot;
         const linesChanged = !sameLines(prev.lines, next.lines) || prev.title !== next.title;
         if (sent.shown === false) {
-            // 出せなかった（設定で許可されていないなど）。録音中に許可されたときのため、経過時間のほかが変わったら出し直す
-            if (prev.state !== next.state || prev.mic !== next.mic || linesChanged) {
+            // 出せなかった（設定で許可されていないなど）。録音中に許可されたときのため、状態が変わったとき、
+            // または行が変わって前回の start から RETRY_INTERVAL_MS たったときに出し直す
+            const stale = Date.now() - sent.startedAt >= RETRY_INTERVAL_MS;
+            if (prev.state !== next.state || prev.mic !== next.mic || (linesChanged && stale)) {
                 this.startActivity(next);
             }
             return;
@@ -110,7 +115,8 @@ export class LiveActivitySync {
     }
 
     private startActivity(next: LiveActivitySnapshot) {
-        const sent: Sent = { snapshot: next, shown: null };
+        const previous = this.sent?.snapshot.sessionId === next.sessionId ? this.sent : null;
+        const sent: Sent = { snapshot: next, shown: null, startedAt: Date.now(), logged: previous?.logged ?? null };
         this.sent = sent;
         this.clearTimer();
         // 返事が来るまでの間の変化は update で送る（出せていなければネイティブ側が何もしない）
@@ -124,9 +130,13 @@ export class LiveActivitySync {
                 (r) => {
                     done(r.shown);
                     if (!r.shown) {
-                        // 出せなかった理由。start の結果だけ出す（毎回の update では出さない）
+                        // 出せなかった理由。start の結果だけ、同じ理由は 1 セッションに 1 回だけ出す（出し直しや update では出さない）
                         const detail = r.message ? ` (${r.message})` : '';
-                        console.info(`[LiveActivity] not shown: ${r.reason ?? 'unknown'}${detail}`);
+                        const text = `[LiveActivity] not shown: ${r.reason ?? 'unknown'}${detail}`;
+                        if (sent.logged !== text) {
+                            sent.logged = text;
+                            console.info(text);
+                        }
                     }
                 },
                 (e: unknown) => {
