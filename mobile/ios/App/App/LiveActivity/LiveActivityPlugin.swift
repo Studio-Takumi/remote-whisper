@@ -1,5 +1,6 @@
 import Capacitor
 import Foundation
+import os.log
 import UIKit
 
 /// JS から呼ぶ Live Activity のプラグイン（`Capacitor.Plugins.LiveActivity`。#453。API は spec/mobile.md 11.5）。
@@ -63,7 +64,7 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         if let activeObserver { NotificationCenter.default.removeObserver(activeObserver) }
     }
 
-    /// 出せたら `{ shown: true }`。iOS 16.1 より前・設定で許可されていないときは `{ shown: false }`
+    /// 出せたら `{ shown: true }`。出せなかったときは `{ shown: false, reason }`（iOS 16.1 より前・設定で許可されていない・ActivityKit が断った。#462）
     @objc func start(_ call: CAPPluginCall) {
         run(call, requireSession: true) { controller, request in
             try controller.start(sessionId: request.sessionId ?? "", state: request.state)
@@ -102,12 +103,14 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         DispatchQueue.main.async { [weak self] in
             // ウィジェットには、Live Activity を出せたかどうかによらず書く
             self?.widget.recording(sessionId: request.sessionId, state: request.state)
-            guard let controller = self?.controller else { return call.resolve(["shown": false]) }
+            guard let controller = self?.controller else { return call.resolve(LiveActivityReply.iosTooOld.payload) }
             do {
-                let outcome = try body(controller, request)
-                call.resolve(["shown": outcome == .started || outcome == .updated])
+                call.resolve(LiveActivityReply(outcome: try body(controller, request)).payload)
             } catch {
-                call.reject(error.localizedDescription, "unavailable", error)
+                // 今 throw するのは start の Activity.request だけ。update などが throw するようになったら、この理由と文言を分ける
+                // Activity.request の失敗は reject にせず、理由つきで返す（web/ がコンソールに出す）
+                os_log("Activity.request failed: %{public}@", log: .default, type: .error, error.localizedDescription)
+                call.resolve(LiveActivityReply(failure: error).payload)
             }
         }
     }

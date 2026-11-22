@@ -61,6 +61,53 @@ final class LiveActivityController {
     }
 }
 
+/// start の返事（`{ shown, reason?, message? }`。#462）。出せなかったときは理由を付け、web/ が `[LiveActivity]` でコンソールに出す
+struct LiveActivityReply: Equatable {
+    enum Reason: String {
+        /// 設定で Live Activity が許可されていない
+        case notAllowed = "not-allowed"
+        /// iOS 16.1 より前
+        case iosTooOld = "ios-too-old"
+        /// ActivityKit が断った（`message` に詳細）
+        case requestFailed = "request-failed"
+    }
+
+    var shown: Bool
+    var reason: Reason?
+    var message: String?
+
+    static let iosTooOld = Self(shown: false, reason: .iosTooOld, message: nil)
+
+    init(shown: Bool, reason: Reason? = nil, message: String? = nil) {
+        self.shown = shown
+        self.reason = reason
+        self.message = message
+    }
+
+    init(outcome: LiveActivityController.Outcome) {
+        switch outcome {
+        case .started, .updated:
+            self.init(shown: true)
+        case .disabled:
+            self.init(shown: false, reason: .notAllowed)
+        case .ended, .ignored:
+            self.init(shown: false)
+        }
+    }
+
+    init(failure error: Error) {
+        self.init(shown: false, reason: .requestFailed, message: error.localizedDescription)
+    }
+
+    /// プラグインの返事にする辞書
+    var payload: [String: Any] {
+        var result: [String: Any] = ["shown": shown]
+        if let reason { result["reason"] = reason.rawValue }
+        if let message { result["message"] = message }
+        return result
+    }
+}
+
 /// web/ から届く start・update の引数（spec/mobile.md 11.5）
 struct LiveActivityRequest: Equatable {
     var sessionId: String?

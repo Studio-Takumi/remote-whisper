@@ -5,7 +5,7 @@ import { createStore } from 'zustand/vanilla';
 
 import type { Session } from '@/api/types';
 import type { AppState, AppStore } from '@/app/appState';
-import { LINE_UPDATE_INTERVAL_MS, LiveActivitySync } from '@/features/native/liveActivitySync';
+import { LINE_UPDATE_INTERVAL_MS, LiveActivitySync, RETRY_INTERVAL_MS } from '@/features/native/liveActivitySync';
 import type { LiveActivityAction, LiveActivityPlugin } from '@/features/native/liveActivityTypes';
 
 const loaded = vi.hoisted(() => ({ bridge: 0, core: 0 }));
@@ -118,7 +118,10 @@ const flush = () => vi.advanceTimersByTimeAsync(0);
 
 describe('LiveActivitySync', () => {
     beforeEach(() => vi.useFakeTimers());
-    afterEach(() => vi.useRealTimers());
+    afterEach(() => {
+        vi.useRealTimers();
+        vi.restoreAllMocks();
+    });
 
     it('始めたときに、前に出したものを片付ける', async () => {
         const { store } = makeStore();
@@ -183,6 +186,7 @@ describe('LiveActivitySync', () => {
         const { store, set } = makeStore();
         const { plugin, calls } = makePlugin();
         let shown = false;
+        vi.spyOn(console, 'info').mockImplementation(() => {});
         plugin.start = async (o) => {
             calls.push(['start', o]);
             return { shown };
@@ -201,6 +205,7 @@ describe('LiveActivitySync', () => {
         expect(calls.map((c) => c[0])).toEqual(['end', 'start']);
         // 録音中に設定で許可された。次に行が変わったときに出る
         shown = true;
+        await vi.advanceTimersByTimeAsync(RETRY_INTERVAL_MS);
         set({ localSessions: [{ projectId: 'p', session: session(['a', 'b']) }] });
         await flush();
         expect(calls.map((c) => c[0])).toEqual(['end', 'start', 'start']);
@@ -209,6 +214,32 @@ describe('LiveActivitySync', () => {
         set({ recordingState: 'paused' });
         await flush();
         expect(calls.map((c) => c[0])).toEqual(['end', 'start', 'start', 'update']);
+    });
+
+    it('出せないまま行だけ変わるときは、前回の start から 60 秒たつまで出し直さない', async () => {
+        const { store, set } = makeStore();
+        const { plugin, calls } = makePlugin();
+        plugin.start = async (o) => {
+            calls.push(['start', o]);
+            return { shown: false, reason: 'not-allowed' };
+        };
+        vi.spyOn(console, 'info').mockImplementation(() => {});
+        new LiveActivitySync(store, plugin).start();
+        set({
+            recordingState: 'recording',
+            recordingSessionId: 's1',
+            localSessions: [{ projectId: 'p', session: session(['a']) }],
+        });
+        await flush();
+        set({ localSessions: [{ projectId: 'p', session: session(['a', 'b']) }] });
+        await vi.advanceTimersByTimeAsync(RETRY_INTERVAL_MS - 1000);
+        set({ localSessions: [{ projectId: 'p', session: session(['a', 'b', 'c']) }] });
+        await flush();
+        expect(calls.map((c) => c[0])).toEqual(['end', 'start']);
+        await vi.advanceTimersByTimeAsync(1000);
+        set({ localSessions: [{ projectId: 'p', session: session(['a', 'b', 'c', 'd']) }] });
+        await flush();
+        expect(calls.map((c) => c[0])).toEqual(['end', 'start', 'start']);
     });
 
     it('start が失敗したら、次の状態の変化で start し直す', async () => {
@@ -231,6 +262,100 @@ describe('LiveActivitySync', () => {
         await flush();
         expect(calls.map((c) => c[0])).toEqual(['end', 'start-failed', 'start']);
         expect(calls[2][1]).toMatchObject({ state: 'paused' });
+    });
+
+    describe('出せなかった理由のログ（#462）', () => {
+        let info: ReturnType<typeof vi.spyOn>;
+        let warn: ReturnType<typeof vi.spyOn>;
+        beforeEach(() => {
+            info = vi.spyOn(console, 'info').mockImplementation(() => {});
+            warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        });
+        afterEach(() => {
+            info.mockRestore();
+            warn.mockRestore();
+        });
+
+        it('start が shown: false のとき、理由を [LiveActivity] で出す', async () => {
+            const { store, set } = makeStore();
+            const { plugin } = makePlugin();
+            plugin.start = async () => ({ shown: false, reason: 'request-failed', message: 'too many activities' });
+            new LiveActivitySync(store, plugin).start();
+            set({ recordingState: 'recording', recordingSessionId: 's1' });
+            await flush();
+            expect(info).toHaveBeenCalledWith('[LiveActivity] not shown: request-failed (too many activities)');
+        });
+
+        it('出せないまま行が変わっても、同じ理由は 1 セッションに 1 回だけ出す', async () => {
+            const { store, set } = makeStore();
+            const { plugin, calls } = makePlugin();
+            plugin.start = async (o) => {
+                calls.push(['start', o]);
+                return { shown: false, reason: 'not-allowed' };
+            };
+            new LiveActivitySync(store, plugin).start();
+            set({ recordingState: 'recording', recordingSessionId: 's1' });
+            await flush();
+            // 状態が変わるたびに start し直すが、ログは増えない
+            set({ recordingState: 'paused' });
+            await flush();
+            set({ recordingState: 'recording' });
+            await flush();
+            expect(calls.filter((c) => c[0] === 'start')).toHaveLength(3);
+            expect(info).toHaveBeenCalledTimes(1);
+            // 別のセッションでは、もう一度出す
+            set({ recordingSessionId: 's2' });
+            await flush();
+            expect(info).toHaveBeenCalledTimes(2);
+        });
+
+        it('理由が変わったときは出す', async () => {
+            const { store, set } = makeStore();
+            const { plugin } = makePlugin();
+            let reason: 'not-allowed' | 'request-failed' = 'not-allowed';
+            plugin.start = async () => ({ shown: false, reason });
+            new LiveActivitySync(store, plugin).start();
+            set({ recordingState: 'recording', recordingSessionId: 's1' });
+            await flush();
+            reason = 'request-failed';
+            set({ recordingState: 'paused' });
+            await flush();
+            expect(info).toHaveBeenCalledTimes(2);
+        });
+
+        it('理由が付いていなくても（古いネイティブ）出す', async () => {
+            const { store, set } = makeStore();
+            const { plugin } = makePlugin();
+            plugin.start = async () => ({ shown: false });
+            new LiveActivitySync(store, plugin).start();
+            set({ recordingState: 'recording', recordingSessionId: 's1' });
+            await flush();
+            expect(info).toHaveBeenCalledWith('[LiveActivity] not shown: unknown');
+        });
+
+        it('プラグインが reject したとき、呼び出しの名前と理由を出す', async () => {
+            const { store, set } = makeStore();
+            const { plugin } = makePlugin();
+            plugin.start = async () => {
+                throw new Error('unavailable');
+            };
+            new LiveActivitySync(store, plugin).start();
+            set({ recordingState: 'recording', recordingSessionId: 's1' });
+            await flush();
+            expect(warn).toHaveBeenCalledWith('[LiveActivity] start failed: unavailable');
+        });
+
+        it('出せたときと毎回の update では何も出さない', async () => {
+            const { store, set } = makeStore();
+            const { plugin } = makePlugin();
+            new LiveActivitySync(store, plugin).start();
+            set({ recordingState: 'recording', recordingSessionId: 's1' });
+            set({ recordingState: 'paused' });
+            set({ recordingState: 'recording' });
+            await flush();
+            expect(info).not.toHaveBeenCalled();
+            expect(warn).not.toHaveBeenCalled();
+        });
     });
 
     it('一時停止・再開はすぐ update し、経過時間だけの変化では送らない', async () => {
