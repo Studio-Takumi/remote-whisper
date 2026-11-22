@@ -312,6 +312,7 @@ JS 向けの API（`AppEntry`。型は `web/src/features/native/appEntryTypes.ts
 - **モード（`direct`・`cloud`）は、同梱しているときは画面のホスト名ではなく、接続先の URL のホスト名で決める**（`resolveEndpoint`。クラウド用のドメイン `VITE_CLOUD_HOSTS` ならクラウド版）。モードは保存せず、読むたびに URL から決め直す（保存された値は信じない。書き換えられた値や、クラウド用のドメインの設定を変えたときに食い違わないように）。同梱していなければ、今まで通り画面のホスト名で決める
 - URL は `endpoint.ts` の `apiUrl`・`wsUrl`・`workerUrl`（と、それを使う `meUrl` など）で組み立てる。接続先がないとき（ブラウザ版・`server.url`）は、前と同じ相対 URL（WebSocket は画面の `location` から）。接続先があれば、その前に付けた絶対 URL（`https:` なら `wss:`）
   - 通しているもの：REST API（`api.ts`）・WebSocket（`connection.ts`）・アップロード（`upload.ts`）・セッションの音声（`SessionView`）・設定の選択肢（`options.ts`）・開発用のパネル・クラウド版のアカウント（`/me`・`/auth`）・登録（`/pair`）・録音の計測（`sendBeacon`）・お知らせ（`announcements.json`）
+  - **お知らせ（`announcements.json`）と `/healthz` は、URL は組み立てるが、同梱した画面からはまだ読めない**。中間サーバーが CORS を付けるのは `/h/` と `/me` だけで、`announcements.json` は Workers の静的アセット（`web/public/_headers`）、`/healthz` は画面から使っていないため。お知らせは取れなければ出さない（今までの失敗したときと同じ）ので、画面は壊れない。同梱に切り替えるとき（#441 のあと）に、要るものだけ CORS を足す
 
 ### 接続先の画面
 
@@ -322,12 +323,13 @@ JS 向けの API（`AppEntry`。型は `web/src/features/native/appEntryTypes.ts
 ### ホストと中間サーバー
 
 - **ホスト（8000 番）**：Origin の確認（api.md 7.5 節）で `capacitor://localhost` を許し、このオリジンにだけ CORS を返す（`APP_ORIGINS`。資格情報なし・preflight あり）。ブラウザの画面はこのオリジンにならないので、ほかのサイトからの CSWSH・DNS rebinding には使えない。8000 番は Cookie を使わないので、設定で止める項目は作っていない
-- **中間サーバー**：`APP_ORIGINS`（wrangler の vars。カンマ区切り）にあるオリジンにだけ、`/h/` と `/me` で CORS を返す（資格情報なし。`Access-Control-Allow-Credentials` を付けない）。空にすれば止まる。**このオリジンからのリクエストでは、ログインセッションの Cookie を読まない**（ログインしていない扱い）。状態を変えるリクエストと WebSocket の Origin の確認（cloud.md 10.7 節）は変えていないので、Cookie で認める経路は前と同じく自分のオリジンの画面だけ
+- **中間サーバー**：`APP_ORIGINS`（wrangler の vars。カンマ区切り）にあるオリジンにだけ、`/h/` と `/me` で CORS を返す（資格情報なし。`Access-Control-Allow-Credentials` を付けない）。`/h/` と `/me` の返事には、オリジンに関係なく `Vary: Origin` を付ける（キャッシュを分けるため）。空にすれば止まる。**このオリジンからのリクエストでは、ログインセッションの Cookie を読まない**（ログインしていない扱い）。状態を変えるリクエストと WebSocket の Origin の確認（cloud.md 10.7 節）は変えていないので、Cookie で認める経路は前と同じく自分のオリジンの画面だけ
 - `ionic://localhost` は許していない（Capacitor の iOS の既定は `capacitor://`。`iosScheme` を変えていない）
 
 ### 残っていること
 
 - 同梱したときのクラウド版のログイン（システムのログイン画面とトークン）は #441。それまでは、同梱した画面からクラウド版にはログインできない
+  - #441 への申し送り：トークンの認可は relay の中で終わらせる（`authorization` はホストに渡さず落とす今の動きのまま。ホストに渡すのは署名だけ）。`/h/` の WebSocket と GET 以外に掛けている `sameOrigin` の確認は、アプリのオリジンを「トークンがあるときだけ」通すように分け、Cookie の経路には混ぜない（preflight の `Access-Control-Allow-Headers` にはもう `Authorization` がある）
 - 実機の WKWebView で、`capacitor://localhost` から http（Tailscale でない LAN）のホストにつなげるか（ATS・混在コンテンツ）は、同梱に切り替えるときに確かめる
 - 同梱した画面の service worker（PWA の更新）・通知・画面の URL（`/s/<UUID>` など）の扱いは、同梱に切り替えるときに決める。11.8 節の読み込み直しは、同梱した画面ではアプリを更新しない限り版がそろわない（同じ版で繰り返さないので読み込み直しは続かない）ので、同梱に切り替えるときに見直す
 
@@ -335,5 +337,6 @@ JS 向けの API（`AppEntry`。型は `web/src/features/native/appEntryTypes.ts
 
 - web のテスト（vitest）：`endpoint.test.ts`（同梱の見分け方・モードを接続先の URL で決める・絶対 URL の組み立て・ブラウザ版は相対 URL のまま）、`appEndpoint.test.ts`（URL のそろえ方・保存と読み出し・保存されたモードを読まない・壊れた値）、`AppEndpointSetup.test.tsx`（接続先の画面・設定の接続先がブラウザ版では出ないこと）
 - server のテスト（`test_host_check.py`）：`capacitor://localhost` からの API・WebSocket・preflight が通り、CORS に資格情報が付かないこと。ほかのオリジン（`capacitor://evil.example`・`ionic://localhost` を含む）は前と同じく 403 で、CORS も付かないこと
-- relay のテスト（`appOrigin.test.ts`）：preflight と返事の CORS、Cookie があってもログインしていない扱いになること、ほかのオリジン・ほかのパスには付かないこと
+- relay のテスト（`appOrigin.test.ts`）：preflight と返事の CORS、`/h/`・`/me` の `Vary: Origin`、Cookie があってもログインしていない扱いになること（`/me`・`/h/` の API と WebSocket・`/pair` の確認と承認）、ほかのオリジン・ほかのパスには付かないこと
+- server のテスト：許していない `Host` に `Origin: capacitor://localhost` を付けても 403（Host の確認は省かない）
 - ブラウザ版が変わっていないこと：`npm run build` の前後で最初に読むファイル（`index.html` が読む JS・CSS）とチャンクの並びが同じこと。Playwright で PC・スマホの幅、ライト・ダークの最初の画面・サイドバー・設定モーダルを撮り、ピクセルで比べる
