@@ -46,11 +46,18 @@ export function appPreflight(request: Request, env: Env, path: string): Response
     });
 }
 
-// 返事に CORS のヘッダーを付ける（headers は書き換えてよいもの）。アプリのオリジンでなければ何もしない
+// 返事に CORS のヘッダーを付ける（headers は書き換えてよいもの）。CORS を付けうるパスでは、Origin によって
+// 返事が変わるので、どのオリジンからでも Vary: Origin を付ける（キャッシュを分けるため）。
+// Access-Control-Allow-Origin はアプリのオリジンのときだけ
 export function setAppCors(headers: Headers, request: Request, env: Env, path: string) {
-    if (!corsPath(path) || !isAppOrigin(request, env)) {
+    if (!corsPath(path)) {
         return;
     }
-    headers.set('Access-Control-Allow-Origin', request.headers.get('Origin')!);
-    headers.append('Vary', 'Origin');
+    const vary = (headers.get('Vary') ?? '').split(',').map((v) => v.trim().toLowerCase());
+    if (!vary.includes('origin') && !vary.includes('*')) {
+        headers.append('Vary', 'Origin');
+    }
+    if (isAppOrigin(request, env)) {
+        headers.set('Access-Control-Allow-Origin', request.headers.get('Origin')!);
+    }
 }

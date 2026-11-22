@@ -96,4 +96,19 @@ describe('CORS', () => {
         expect(me.status).toBe(200);
         expect(me.headers.get('Access-Control-Allow-Origin')).toBeNull();
     });
+
+    it('/h/ と /me には、どのオリジンでも Vary: Origin を付ける（重ねない）。ほかのパスには付けない', async () => {
+        for (const origin of [APP, ORIGIN, null]) {
+            for (const path of ['/me', `/h/${HOST_ID}/api/projects`]) {
+                const res = await SELF.fetch(`${ORIGIN}${path}`, { headers: origin ? { Origin: origin } : {} });
+                const vary = (res.headers.get('Vary') ?? '').split(',').map((v) => v.trim());
+                expect(
+                    vary.filter((v) => v.toLowerCase() === 'origin'),
+                    `${origin} ${path}`,
+                ).toEqual(['Origin']);
+            }
+        }
+        const other = await SELF.fetch(`${ORIGIN}/pair/request?code=ABCD-EFGH`, { headers: { Origin: APP } });
+        expect(other.headers.get('Vary') ?? '').not.toContain('Origin');
+    });
 });
