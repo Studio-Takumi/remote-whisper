@@ -116,7 +116,10 @@ async function openMicrophone(
     const deviceId = found === undefined ? chosen.deviceId : found?.deviceId;
     if (deviceId) {
         try {
-            return { mic: await Microphone.open(onPcm, processing, onState, deviceId), label: chosen.label };
+            const mic = await Microphone.open(onPcm, processing, onState, deviceId);
+            // 覚えている名前は古いことがある（ID が同じまま、iOS の言語や AirPods の名前を変えたなど）ので、開いたマイクの今の名前を使う。
+            // 空のときに '' を渡すと iOS では「OS に任せる」になるので、覚えている名前に戻す
+            return { mic, label: mic.label() || chosen.label };
         } catch (e) {
             if (!(e instanceof MicrophoneError && e.reason === 'missing')) {
                 throw e;

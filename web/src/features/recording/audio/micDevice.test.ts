@@ -123,18 +123,21 @@ describe('選んだマイクを探す', () => {
 describe('選んだマイクで開く', () => {
     let opened: (string | undefined)[];
     let missing: Set<string>;
+    let trackLabels: Map<string, string>;
     const onFallback = vi.fn();
 
     beforeEach(() => {
         opened = [];
         missing = new Set();
         onFallback.mockReset();
+        trackLabels = new Map();
         vi.spyOn(Microphone, 'open').mockImplementation(async (_onPcm, _processing, _onState, deviceId) => {
             if (deviceId && missing.has(deviceId)) {
                 throw new MicrophoneError('missing', '選んだマイクが見つかりません');
             }
             opened.push(deviceId);
-            return {} as Microphone;
+            // 開いたマイクのトラックの名前（track.label）。決めていなければ空
+            return { label: () => trackLabels.get(deviceId ?? '') ?? '' } as Microphone;
         });
     });
 
@@ -230,6 +233,26 @@ describe('選んだマイクで開く', () => {
             stubDevices([BUILTIN, USB]);
             await open();
             await vi.waitFor(() => expect(nativeBridge.setPreferredMicInput).toHaveBeenCalledWith('内蔵マイク'));
+        });
+
+        it('覚えている名前が古くても、開いたマイクの今の名前を伝える（ID が同じで名前だけ変わったとき）', async () => {
+            setCapacitor(true);
+            saveChosenMic({ deviceId: 'builtin', label: '古い名前' });
+            stubDevices([{ deviceId: 'builtin', label: '新しい名前' }]);
+            trackLabels.set('builtin', '新しい名前');
+            await open();
+            expect(opened).toEqual(['builtin']);
+            await vi.waitFor(() => expect(nativeBridge.setPreferredMicInput).toHaveBeenCalledWith('新しい名前'));
+        });
+
+        it('許可の前に覚えている ID で開けたときも、開いたマイクの名前を伝える', async () => {
+            setCapacitor(true);
+            saveChosenMic(BUILTIN);
+            stubDevices([{ deviceId: '', label: '' }]);
+            trackLabels.set('builtin', 'iPhone のマイク');
+            await open();
+            expect(opened).toEqual(['builtin']);
+            await vi.waitFor(() => expect(nativeBridge.setPreferredMicInput).toHaveBeenCalledWith('iPhone のマイク'));
         });
 
         it('OS に任せるとき・選んだマイクがなかったときは null（固定を外す）', async () => {
