@@ -7,7 +7,12 @@ import { ThemeProvider } from 'next-themes';
 import { queryClient } from '@/app/query';
 import { useAppStore } from '@/app/store';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { startAppEntry, startLiveActivity, startNativeShell, startStaleScreenReload } from '@/features/native/nativePlatform';
+import {
+    startAppEntry,
+    startLiveActivity,
+    startNativeShell,
+    startStaleScreenReload,
+} from '@/features/native/nativePlatform';
 import { answerViewQueries, resyncPush } from '@/features/settings/push';
 
 import App from './app/App.tsx';

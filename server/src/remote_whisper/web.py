@@ -21,8 +21,9 @@ class SpaStaticFiles(StaticFiles):
     """画面の配信。画面の URL（/s/<UUID> など。#177）には index.html を返す。
     /api・/ws と拡張子のあるものは 404 のまま。
 
-    index.html（fallback も同じファイル）には Cache-Control: no-cache を付ける（#461）。ETag で毎回確かめさせ、
-    更新したあとに古い画面が出続けないようにする（Service Worker のない iOS アプリの WKWebView など）。
+    index.html（fallback も同じファイル）には Cache-Control: no-cache を付ける（#461）。
+    ETag で毎回確かめさせ、更新したあとに古い画面が出続けないようにする
+    （Service Worker のない iOS アプリの WKWebView など）。
     ハッシュ付きの /assets/* には付けない（中身が変わらないのでキャッシュさせてよい）"""
 
     def file_response(self, full_path, stat_result, scope, status_code=200) -> Response:

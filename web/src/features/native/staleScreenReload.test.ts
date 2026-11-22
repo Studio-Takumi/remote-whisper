@@ -1,6 +1,6 @@
 // iOS アプリで、サーバーが新しい版になったときの画面の読み込み直し（#461。spec/mobile.md 11.7）。
 // ブラウザでは何もせず、ネイティブを呼ぶコードも読み込まない
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { type Mock, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createStore } from 'zustand/vanilla';
 
 import type { AppState, AppStore } from '@/app/appState';
@@ -54,14 +54,14 @@ describe('startStaleScreenReload', () => {
 
 describe('StaleScreenReloader', () => {
     let store: AppStore;
-    let reload: ReturnType<typeof vi.fn>;
-    let refresh: ReturnType<typeof vi.fn>;
+    let reload: Mock<() => void>;
+    let refresh: Mock<() => Promise<void>>;
     let stop: () => void;
 
     const make = (state: Partial<AppState>) => {
         store = createStore<AppState>(() => ({ serverVersion: null, recordingState: 'idle', ...state }) as AppState);
-        reload = vi.fn();
-        refresh = vi.fn(() => Promise.resolve());
+        reload = vi.fn<() => void>();
+        refresh = vi.fn<() => Promise<void>>(() => Promise.resolve());
         stop = new StaleScreenReloader(store, { webVersion: 'v1', refreshServerVersion: refresh, reload }).start();
     };
     const set = (state: Partial<AppState>) => store.setState(state);
