@@ -180,7 +180,7 @@ iOS の PWA は、画面ロック中やバックグラウンドで録音を続�
 
 | メソッド | 引数 | 返り値 | |
 |---|---|---|---|
-| `start(o)` | `{ sessionId, state, elapsed, title, lines }` | `{ shown: boolean }` | 同じセッションのものを出していれば中身を変えるだけ。別のセッションのものは終えてから出す。設定で許可されていなければ `shown: false` |
+| `start(o)` | `{ sessionId, state, elapsed, title, lines }` | `{ shown: boolean, reason?, message? }` | 同じセッションのものを出していれば中身を変えるだけ。別のセッションのものは終えてから出す。出せなかったら `shown: false` と理由 `reason`（`not-allowed`＝設定で許可されていない、`ios-too-old`＝iOS 16.1 より前、`request-failed`＝ActivityKit が断った。このとき `message` に詳細）。web/ は start の結果が `shown: false` のとき・プラグインが失敗したときに `[LiveActivity]` でコンソールに出す（毎回の update では出さない。#462） |
 | `update(o)` | `{ state, elapsed, title, lines }` | `{ shown: boolean }` | 出していなければ何もしない |
 | `end()` | なし | なし | このアプリの Live Activity を全部終える（ロック画面にも残さない） |
 
