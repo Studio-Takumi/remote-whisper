@@ -4,6 +4,7 @@ import Foundation
 /// 見た目を確かめるためのホーム画面のウィジェット（Debug のビルドだけ。#454）。
 /// シミュレーターはマイクの入力がなく録音を始められないので、起動の引数で見本を置き場に書く（App Group を使っているときだけ）。
 ///   xcrun simctl launch booted <Bundle ID> -RWWidgetPreview recording   （paused・idle・clear も）
+/// recording・paused には続けて long・short を書ける（文字起こしの見本。#460。LiveActivityPreview と同じ）
 enum HomeWidgetPreview {
     static let argument = "-RWWidgetPreview"
 
@@ -16,7 +17,7 @@ enum HomeWidgetPreview {
                 phase: phase,
                 elapsed: 12 * 60 + 34,
                 title: "情報理論 第8回",
-                lines: ["単位がビットになるのがわかりますね。", "ここ、期末に出しますからね"],
+                lines: PreviewTranscript.lines(named: index + 2 < arguments.count ? arguments[index + 2] : nil),
                 now: now
             )
         }

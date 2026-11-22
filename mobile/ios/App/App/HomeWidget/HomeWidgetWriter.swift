@@ -45,7 +45,7 @@ final class HomeWidgetWriter {
             startedAt: state.startedAt,
             elapsed: state.elapsed,
             title: state.title,
-            line: state.lines.last ?? "",
+            lines: state.lines,
             updatedAt: now,
             changedAt: sameState ? previous?.changedAt ?? now : now
         )
@@ -117,6 +117,6 @@ final class HomeWidgetWriter {
         if !sameTime {
             return .state
         }
-        return a.line == b.line ? .none : .line
+        return a.lines == b.lines ? .none : .line
     }
 }
