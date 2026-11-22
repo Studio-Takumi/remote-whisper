@@ -311,3 +311,37 @@ JS 向けの API（`AppEntry`。型は `web/src/features/native/appEntryTypes.ts
 - web のテスト（vitest。`appEntry.test.ts`）：ブラウザでは `nativeBridge`・`@capacitor/core` を読み込まないこと。偽物のプラグインで、最後に開いていたプロジェクトを覚えること、`record` でそのプロジェクトの新規セッション画面にしていつもの録音を始めること、プロジェクトがないとき、録音中のとき、参加中のとき、設定モーダルを開いていたとき、読み込みを待つこと・時間切れ、`session` でセッションを開くこと
 - 見た目：シミュレーターでウィジェットを置いて撮る。録音中の見た目は、Debug のビルドの起動の引数 `-RWWidgetPreview recording`（`paused`・`idle`・`clear` も）で見本を置き場に書く（`HomeWidgetPreview`。App Group を使っているときだけ。Release には入らない）。シミュレーターで App Group を使うには、`RW_APP_GROUP`・`RW_APP_GROUP_ENTITLEMENTS` に加えて `CODE_SIGN_IDENTITY=-`（その場の署名）でビルドする（`CODE_SIGNING_ALLOWED=NO` ではエンタイトルメントが付かない）
 - 実機：App Group あり・なしの両方で、ウィジェットを押してアプリが開き録音が始まること、録音中・前回の録音の表示、ショートカット・Siri・コントロールセンターからの「録音を始める」
+
+## 11.7 録音に使うマイクの固定
+
+設定で選んだマイク（spec/ui.md 8 章「録音に使うマイク」。#449）で録っている途中にイヤホンをつなぐと、iOS が入力をイヤホンのマイクに切り替える（画面の表示は選んだマイクのまま。#458）。web（`getUserMedia`）からは止められないので、アプリの中でだけ、iOS の入力を選んだマイクに固定する。録音は今までどおり web/ の `getUserMedia`。
+
+### 方針
+
+- **WebKit の動き**（WebKit のソースで確かめた）：`enumerateDevices` の `label` は `AVAudioSessionPortDescription.portName`、`deviceId` の元は `uid`。`getUserMedia` で選んだ入力は WebKit が `[AVAudioSession sharedInstance] setPreferredInput:` するが、選び直すのはカテゴリを設定するときだけで、経路が変わったとき（`routeChangeNotification`）には選び直さない。そのため録音の途中でつないだイヤホンに切り替わる
+- **アプリは `routeChangeNotification` を見て、選んだ入力に `setPreferredInput` し直す。** カテゴリ・モードは変えない（WebKit が録音のときに `PlayAndRecord`・`Default` にする。アプリが変えると WebKit の録音とぶつかる）
+- **選んだマイクは名前（`label`）で伝え、iOS の入力の `portName` が同じものに固定する。** 内蔵マイク（`builtInMic`）に限らない（`label` が `portName` そのものなので、USB・有線のマイクも同じ方法で固定できる）。「OS に任せる」・選んだマイクが見つからず OS に任せて開いたときは `null` を伝え、固定を外す（今までどおり iOS が選ぶ）
+- 選んだマイクがつながっていないときは何もしない（iOS が選んだ入力で録る）。つながって経路が変わったら固定する
+- 固定し直しても iOS が受け付けず経路の変化が続くときのため、続けて固定し直すのは 3 回まで（装置がつながった・外れたとき、web から伝え直したときに数え直す）
+- ブラウザ版（Safari・PWA）は変えない。録音の途中でイヤホンをつなぐと、ブラウザが入力をイヤホンのマイクに切り替えることがある
+
+### 置き場所
+
+- `mobile/ios/App/App/MicInput/`：`MicInputPlugin`（JS との受け渡しだけ）が `PreferredInput`（`AVAudioSession` の経路を見て固定する）を持つ。どの入力に固定するかは `PreferredInputChoice`（テストできるよう、`AVAudioSession` に触らない）。`MainViewController` で登録する
+- web/：`micDevice.ts` の `openChosenMicrophone` が、マイクを開けたあとに `nativePlatform.ts` の `setNativeMicInput` を呼ぶ。アプリの中でだけ `nativeBridge.ts` を dynamic import してプラグインを呼ぶ（ブラウザ版では何もせず、`nativeBridge` も読み込まない）。伝えられなくても録音は続ける
+
+### JS 向けの API（`MicInput`）
+
+型定義は `web/src/features/native/micInputTypes.ts`。
+
+| メソッド | 引数 | 返り値 | |
+|---|---|---|---|
+| `setPreferredInput({ label })` | `label: string \| null`（開いたマイクの名前。`null` は OS に任せる） | なし | マイクを開くたび（録音を始める・参加する・開き直す・選び直す）に呼ぶ。固定はアプリの中で覚え、次に呼ばれるまで続ける |
+
+何をしたか（固定した・外した・見つからない・やめた）は `[MicInput]` を付けて NSLog に出す（mobile/README.md）。
+
+### 確かめ方
+
+- Swift のテスト（XCTest。`AppTests/PreferredInputTests.swift`）：OS に任せる（`null`・空）、イヤホンに切り替わったときに選んだ入力に固定する、選んだ入力で録れていても固定していなければ固定する、固定してあって録れていれば何もしない、内蔵以外の入力、選んだ入力がつながっていないとき
+- web のテスト（vitest。`micDevice.test.ts`）：ブラウザでは伝えず `nativeBridge` も読み込まないこと。アプリの中では、選んだマイクで開けたらその名前、OS に任せたとき・見つからなかったときは `null` を伝えること。伝えられなくてもマイクは開けること
+- 実機：内蔵マイクを選ぶ → イヤホンなしで録音を始める → 録音中にイヤホンをつなぐ → 内蔵のまま録れて精度が落ちないこと（`[MicInput]` のログで固定し直したことと今の入力を見る）。「OS に任せる」では今までどおりイヤホンに切り替わること

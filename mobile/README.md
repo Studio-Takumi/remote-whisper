@@ -117,6 +117,8 @@ TEST_RUNNER_RW_MIC_TEST=1 xcodebuild test ...（上と同じ）
 - Xcode から Run しているとき：下のコンソールの検索欄（Filter）に `[Recorder]` と入れる
 - つないでいないときに試したあと：iPhone を Mac につなぎ、Console.app の左で iPhone を選び、「ストリーミングを開始」してから検索欄に `[Recorder]` と入れる（ストリーミング中に起きたことだけ出るので、試す前に始めておく）
 
+録音に使うマイクの固定（docs/spec/mobile.md 11.7）は、固定した・外した・選んだマイクが見つからないことを、今の入力と一緒に `[MicInput]` を付けて出す。上と同じ方法で `[MicInput]` と入れて見る。
+
 ## 中身
 
 | パス | 中身 |
