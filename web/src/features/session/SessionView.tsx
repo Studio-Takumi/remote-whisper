@@ -29,6 +29,7 @@ import { sourceNames } from '@/features/session/sources';
 import { type PickedSummary, shownSummary } from '@/features/session/summaryPick';
 import { usePlaybackSource } from '@/features/session/usePlaybackSource';
 import { useSessionSources } from '@/features/session/useSessionSources';
+import { useShortScreen } from '@/features/session/useShortScreen';
 import { useTabScroll } from '@/features/session/useTabScroll';
 import { llmBackend, llmModels } from '@/features/settings/settings';
 import { clockToSeconds } from '@/lib/time';
@@ -59,6 +60,8 @@ export function SessionView({ stickySlot }: { stickySlot?: HTMLElement | null })
     const sources = useSessionSources(session);
     const names = useMemo(() => sourceNames(sources), [sources]);
     const { tab, changeTab, followTranscript } = useTabScroll(session?.id);
+    // 高さの足りない画面（横持ちなど）では、再生バーなどを上のバーに入れない
+    const shortScreen = useShortScreen();
     const audio = useRef<HTMLAudioElement>(null);
     // 再生する音源（#371。音源が 1 つのセッションは主の音源だけ）
     const playSource = usePlaybackSource(session, audio);
@@ -114,14 +117,9 @@ export function SessionView({ stickySlot }: { stickySlot?: HTMLElement | null })
         setPlayback((p) => nextPlayback(p, session.id, index, playing, seeked));
     };
 
-    // タブ・警告・再生バー。上のバーの中に出して、一緒に上に貼り付ける（#78・#463）。
-    // 再生バーも一緒なのは、文字起こしの下の方で時刻を押しても止められるように
-    const stickyContent: ReactNode = (
+    // マイクの警告・再生バー・お知らせ。ふつうは上のバーの中、高さの足りない画面では本文の頭
+    const extras: ReactNode = (
         <>
-            <TabsList>
-                <TabsTrigger value='transcript'>文字起こし</TabsTrigger>
-                <TabsTrigger value='summary'>要約</TabsTrigger>
-            </TabsList>
             <MicAlert />
             {recordingUrl && (
                 <RecordingPlayer
@@ -153,12 +151,27 @@ export function SessionView({ stickySlot }: { stickySlot?: HTMLElement | null })
             )}
         </>
     );
+    // タブ・警告・再生バー。上のバーの中に出して、一緒に上に貼り付ける（#78・#463）。
+    // 再生バーも一緒なのは、文字起こしの下の方で時刻を押しても止められるように
+    const stickyContent: ReactNode = (
+        <>
+            {/* TabsList の見た目（group-data-horizontal/tabs:*）は Tabs の中にあることが前提。ポータルで外に出るので、同じ属性を持つ箱で包む */}
+            <div data-horizontal className='group/tabs'>
+                <TabsList>
+                    <TabsTrigger value='transcript'>文字起こし</TabsTrigger>
+                    <TabsTrigger value='summary'>要約</TabsTrigger>
+                </TabsList>
+            </div>
+            {!shortScreen && extras}
+        </>
+    );
     const stickyBox =
         stickySlot === undefined ? stickyContent : stickySlot === null ? null : createPortal(stickyContent, stickySlot);
 
     return (
         <Tabs value={tab} onValueChange={changeTab}>
             {stickyBox}
+            {shortScreen && <div className='flex flex-col items-center gap-2'>{extras}</div>}
             {/* 下の pb は、マイクのボタンの上に出す経過時間（絶対配置）が本文に重ならないようにするため */}
             <div className='mx-auto flex w-full max-w-3xl flex-col gap-4 pt-2 pb-16'>
                 {session ? <SessionHeader session={session} /> : <NewSessionHeader project={project} />}

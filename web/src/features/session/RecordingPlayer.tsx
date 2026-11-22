@@ -58,7 +58,7 @@ export function RecordingPlayer({
                 controls
                 preload='metadata'
                 // ダークテーマでは、ブラウザが描く再生バーも暗い色にする
-                className={`h-9 flex-1 dark:scheme-dark ${children ? 'min-w-64' : 'min-w-0'}`}
+                className={`h-9 flex-1 dark:scheme-dark ${children ? 'min-w-44 sm:min-w-64' : 'min-w-0'}`}
                 aria-label='録音を再生'
                 onError={onError}
                 onLoadedMetadata={(e) => {

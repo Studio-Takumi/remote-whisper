@@ -120,6 +120,24 @@ describe('SessionView のタブの置き場（#463）', () => {
         slot.remove();
     });
 
+    it('高さの足りない画面では、再生バーなどを置き場に入れず本文の頭に出す', () => {
+        window.matchMedia = ((query: string) => ({
+            matches: true,
+            media: query,
+            addEventListener() {},
+            removeEventListener() {},
+        })) as unknown as typeof window.matchMedia;
+        const slot = document.createElement('div');
+        document.body.append(slot);
+        draw({ current: session({ files: { recording: true } as Session['files'] }), stickySlot: slot });
+        const player = screen.getByLabelText('録音を再生');
+        expect(slot.contains(player)).toBe(false);
+        expect(slot.contains(screen.getByRole('tab', { name: '要約' }))).toBe(true);
+        slot.remove();
+        // @ts-expect-error jsdom には元からない
+        delete window.matchMedia;
+    });
+
     it('置き場がまだなければ、タブは出さない', () => {
         draw({ current: session(), stickySlot: null });
         expect(screen.queryByRole('tab', { name: '要約' })).toBeNull();
