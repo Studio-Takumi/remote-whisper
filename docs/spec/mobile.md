@@ -319,3 +319,20 @@ JS 向けの API（`AppEntry`。型は `web/src/features/native/appEntryTypes.ts
 - web のテスト（vitest。`appEntry.test.ts`）：ブラウザでは `nativeBridge`・`@capacitor/core` を読み込まないこと。偽物のプラグインで、最後に開いていたプロジェクトを覚えること、`record` でそのプロジェクトの新規セッション画面にしていつもの録音を始めること、プロジェクトがないとき、録音中のとき、参加中のとき、設定モーダルを開いていたとき、読み込みを待つこと・時間切れ、`session` でセッションを開くこと
 - 見た目：シミュレーターでウィジェットを置いて撮る。録音中の見た目は、Debug のビルドの起動の引数 `-RWWidgetPreview recording`（`paused`・`idle`・`clear` も。recording・paused には続けて `long`・`short`・`english` も書ける）で見本を置き場に書く（`HomeWidgetPreview`。App Group を使っているときだけ。Release には入らない）。シミュレーターで App Group を使うには、`RW_APP_GROUP`・`RW_APP_GROUP_ENTITLEMENTS` に加えて `CODE_SIGN_IDENTITY=-`（その場の署名）でビルドする（`CODE_SIGNING_ALLOWED=NO` ではエンタイトルメントが付かない）
 - 実機：App Group あり・なしの両方で、ウィジェットを押してアプリが開き録音が始まること、録音中・前回の録音の表示、ショートカット・Siri・コントロールセンターからの「録音を始める」
+
+## 11.7 本番を更新したあとの読み込み直し（#461）
+
+アプリは `server.url` で本番の画面を開く。WKWebView には Service Worker がないので、ブラウザ版の「新しいバージョンの画面があります」（`PwaUpdater`）は出ず、アプリは裏に回っても WebView が生き続けるので、本番を更新したあとも古い画面が出続けることがあった。
+
+- **server**：`index.html`（SPA の fallback を含む。`SpaStaticFiles`）に `Cache-Control: no-cache` を付ける（ETag で毎回確かめる。変わっていなければ 304）。ハッシュ付きの `/assets/*` は今まで通り。クラウド版（relay）は Workers の静的アセットが配り、HTML には既定で `max-age=0, must-revalidate` が付くので、同じ動き（変更なし）
+- **web**（`staleScreenReload.ts`。`startStaleScreenReload` がアプリの中でだけ `nativeBridge` を読み込んで始める。ブラウザ版の動き・最初に読むファイルは変えない）
+  - 前面に戻ったとき（`visibilitychange`）は、サーバーの版（`serverVersion`）を取り直してから、接続したとき（`serverVersion` が入る）は、そのまま、画面の版（`webVersion`）と比べる
+  - 違っていて、録音中（`recordingState` が `idle` 以外）でなければ `location.reload()`。録音中なら、終わってから
+  - 読み込み直した版を `sessionStorage`（`rw.native.reloadedFor`）に覚え、読み込み直しても版が違うままのとき、同じ版のために繰り返し読み込み直さない（次の版が出れば読み込み直す）
+  - `@capacitor/app` の `appStateChange` は使わない（ネイティブの依存を足さずに、WKWebView が前面に戻ったときの `visibilitychange` で足りるため）
+
+### 確かめ方
+
+- server のテスト（`test_uuids.py`）：`/`・`/index.html`・SPA の fallback に `no-cache`、304 にも付くこと、`/assets/*` には付かないこと
+- web のテスト（`staleScreenReload.test.ts`）：ブラウザでは何も読み込まないこと、版が違う・同じ・録音中・録音を終えたあと・前面に戻ったとき・同じ版で繰り返さないこと
+- 実機：アプリを開いたまま本番を更新 → 裏に回して戻す → 新しい画面になること

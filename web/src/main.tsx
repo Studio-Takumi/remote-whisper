@@ -7,7 +7,7 @@ import { ThemeProvider } from 'next-themes';
 import { queryClient } from '@/app/query';
 import { useAppStore } from '@/app/store';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { startAppEntry, startLiveActivity, startNativeShell } from '@/features/native/nativePlatform';
+import { startAppEntry, startLiveActivity, startNativeShell, startStaleScreenReload } from '@/features/native/nativePlatform';
 import { answerViewQueries, resyncPush } from '@/features/settings/push';
 
 import App from './app/App.tsx';
@@ -19,6 +19,8 @@ startNativeShell();
 startLiveActivity(useAppStore);
 // ウィジェット・ショートカットから開いたときに、録音を始める・セッションを開く（#454）。これもアプリの中だけ
 startAppEntry(useAppStore);
+// サーバーが新しい版になっていたら、前面に戻ったとき・接続したときに読み込み直す（#461）。これもアプリの中だけ
+startStaleScreenReload(useAppStore);
 
 // 最終要約の通知（#245）。service worker に開いている画面を答え（そのセッションを開いていれば出さない）、
 // 通知をオンにしている端末では購読をホストに送り直す（クラウド版でホストが決まるのを少し待つ）

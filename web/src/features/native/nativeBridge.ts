@@ -5,11 +5,14 @@
 import { SystemBars, SystemBarsStyle, registerPlugin } from '@capacitor/core';
 
 import type { AppStore } from '@/app/appState';
+import { loadServerVersion } from '@/app/serverConnection';
+import { webVersion } from '@/app/version';
 import { AppEntrySync } from '@/features/native/appEntrySync';
 import type { AppEntryPlugin } from '@/features/native/appEntryTypes';
 import { LiveActivitySync } from '@/features/native/liveActivitySync';
 import type { LiveActivityPlugin } from '@/features/native/liveActivityTypes';
 import type { RecorderPlugin } from '@/features/native/recorderTypes';
+import { StaleScreenReloader } from '@/features/native/staleScreenReload';
 
 // 録音のプラグイン（mobile/ios/App/App/Recorder/。MainViewController が登録する）。
 // Proxy なので、Promise の結果にそのまま渡さない（then を呼ばれてネイティブのメソッドとして扱われる）
@@ -29,6 +32,15 @@ const AppEntry = registerPlugin<AppEntryPlugin>('AppEntry');
 // ウィジェット・App Intents からの録音の開始・セッションを開くを受け取り始める（spec/mobile.md 11.6）
 export function startAppEntry(store: AppStore) {
     new AppEntrySync(store, AppEntry).start();
+}
+
+// サーバーが新しい版になっていたら、前面に戻ったとき・接続したときに画面を読み込み直す（spec/mobile.md 11.7）
+export function startStaleScreenReload(store: AppStore) {
+    new StaleScreenReloader(store, {
+        webVersion,
+        refreshServerVersion: () => loadServerVersion(store),
+        reload: () => location.reload(),
+    }).start();
 }
 
 // env(safe-area-inset-*) は viewport-fit=cover のときだけ値が入る。index.html の meta に付いているが、

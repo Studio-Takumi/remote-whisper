@@ -43,6 +43,15 @@ export function startAppEntry(store: AppStore) {
     void loadBridge().then((m) => m.startAppEntry(store));
 }
 
+// サーバーが新しい版になっていたら、前面に戻ったとき・接続したときに画面を読み込み直す（#461）。ブラウザ版では何もしない
+// （ブラウザ版は Service Worker と PwaUpdater の知らせで更新する）
+export function startStaleScreenReload(store: AppStore) {
+    if (!isNativeApp()) {
+        return;
+    }
+    void loadBridge().then((m) => m.startStaleScreenReload(store));
+}
+
 // 録音のプラグイン。プラグインは Proxy で、Promise の結果にそのまま渡せないので、包んで返す
 export async function loadRecorder(): Promise<{ plugin: RecorderPlugin }> {
     const { Recorder } = await loadBridge();
