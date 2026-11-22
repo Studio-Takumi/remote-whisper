@@ -1,7 +1,7 @@
 // API・WebSocket の URL を組み立てる唯一の場所（#156。spec/cloud.md 10.2・10.4）。
 // ほかの場所では /api や /ws を自分で組み立てず、ここを通す。
 // ブラウザ版（iOS アプリの server.url も）は、画面と同じオリジンの相対 URL。画面をアプリに同梱したとき
-// （#440。spec/mobile.md 11.8）だけ、保存した接続先（appEndpoint.ts）の絶対 URL にする
+// （#440。spec/mobile.md 11.9）だけ、保存した接続先（appEndpoint.ts）の絶対 URL にする
 import { type AppEndpoint, loadAppEndpoint } from '@/features/native/appEndpoint';
 import { isNativeApp } from '@/features/native/nativePlatform';
 

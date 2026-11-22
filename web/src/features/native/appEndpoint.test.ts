@@ -1,4 +1,4 @@
-// 画面をアプリに同梱したときの接続先（#440。spec/mobile.md 11.8）
+// 画面をアプリに同梱したときの接続先（#440。spec/mobile.md 11.9）
 import { describe, expect, it } from 'vitest';
 
 import { loadAppEndpoint, normalizeEndpointUrl, saveAppEndpoint } from '@/features/native/appEndpoint';

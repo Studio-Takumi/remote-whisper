@@ -1,4 +1,4 @@
-// 画面を iOS アプリに同梱したとき（#440。spec/mobile.md 11.8）の接続先（ホストかクラウド版の URL）。
+// 画面を iOS アプリに同梱したとき（#440。spec/mobile.md 11.9）の接続先（ホストかクラウド版の URL）。
 // 同梱した画面のオリジン（capacitor://localhost）はホストと違うので、API・WebSocket はここに保存した URL へ送る。
 // ブラウザ版とアプリの server.url では使わない（endpoint.ts が、同梱したときだけ読む）
 import type { Mode } from '@/api/endpoint';

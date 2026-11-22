@@ -1,4 +1,4 @@
-// 画面をアプリに同梱したときの接続先の画面（#440。spec/mobile.md 11.8）
+// 画面をアプリに同梱したときの接続先の画面（#440。spec/mobile.md 11.9）
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 

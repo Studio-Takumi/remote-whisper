@@ -18,7 +18,7 @@ iOS の PWA は、画面ロック中やバックグラウンドで録音を続�
 - アプリは画面を持たず、セルフホスト版の画面（ホストの FastAPI が配信する `web/dist`）を Capacitor の `server.url` でそのまま開く。web/ のコピーは作らない
   - `webDir` は `../web/dist` を指す。表示には使わないが `cap sync` が要る
   - 開いた画面は普通のブラウザと同じく `/api/...`・`/ws` を同じオリジンで使う。iOS アプリのための API は足さない
-- URL はリポジトリに入れない（公開しているため）。環境変数 `RW_SERVER_URL` か、Git に入れない `mobile/.env.local` から `capacitor.config.ts` が読み、`cap sync` のときにアプリの中の設定に書く。ないときは同梱の `web/dist` を開く（警告を出す）。そのときは画面のオリジンが `capacitor://localhost` になり、接続先の画面が出る（11.8 節）
+- URL はリポジトリに入れない（公開しているため）。環境変数 `RW_SERVER_URL` か、Git に入れない `mobile/.env.local` から `capacitor.config.ts` が読み、`cap sync` のときにアプリの中の設定に書く。ないときは同梱の `web/dist` を開く（警告を出す）。そのときは画面のオリジンが `capacitor://localhost` になり、接続先の画面が出る（11.9 節）
 - 本番の URL は Tailscale の https の前提。http を開ける ATS の例外は **Debug のビルドだけ** に足す（ビルドの途中で、できあがった Info.plist に `NSAllowsLocalNetworking` を足す。開けるのはローカルの宛先だけ）。開発用の Vite（`http://localhost:5190`）をシミュレーターで開くのに使う
 - 署名の個人の値（Team ID・自分用の Bundle ID）は、Git に入れない `ios/App/Local.xcconfig` に書く。`project.pbxproj` には入れない
 - safe area（ノッチ・ステータスバーの領域）：アプリの中で開くと上のバーがステータスバーに重なっていた（PR1。WebView の `contentInset` では fixed の要素は動かないので直らない）。web/ 側で、アプリの中でだけ `env(safe-area-inset-*)` の余白を当てて直した（11.4 節）

@@ -1,4 +1,4 @@
-// 画面を iOS アプリに同梱したとき（#440。spec/cloud.md 10.7・spec/mobile.md 11.8）のページのオリジン（capacitor://localhost）。
+// 画面を iOS アプリに同梱したとき（#440。spec/cloud.md 10.7・spec/mobile.md 11.9）のページのオリジン（capacitor://localhost）。
 //
 // - 許すオリジンは vars の APP_ORIGINS（カンマ区切り・完全一致）。空か、書いていなければ許さない（設定で止められる）
 // - CORS は資格情報なし（Access-Control-Allow-Credentials を付けない）。付けるのはホストへの中継（/h/）と /me だけ
