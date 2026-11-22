@@ -14,9 +14,14 @@ export type LiveActivityContent = {
 // ボタン（一時停止・再開・終了）が押された
 export type LiveActivityAction = 'pause' | 'resume' | 'stop';
 
+// 出せなかった理由（#462）。not-allowed は設定で許可されていない、ios-too-old は iOS 16.1 より前、request-failed は ActivityKit が断った（message に詳細）
+export type LiveActivityNotShownReason = 'not-allowed' | 'ios-too-old' | 'request-failed';
+
+export type LiveActivityResult = { shown: boolean; reason?: LiveActivityNotShownReason; message?: string };
+
 export type LiveActivityPlugin = {
-    // shown は出せたか（iOS 16.1 より前・設定で許可されていないときは false）
-    start(options: LiveActivityContent & { sessionId: string }): Promise<{ shown: boolean }>;
+    // shown は出せたか。出せなかったときは reason で理由を返す
+    start(options: LiveActivityContent & { sessionId: string }): Promise<LiveActivityResult>;
     update(options: LiveActivityContent): Promise<{ shown: boolean }>;
     end(): Promise<void>;
     addListener(

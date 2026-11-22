@@ -75,6 +75,18 @@ xcrun simctl launch booted dev.studiotakumi.remotewhisper -RWLiveActivityPreview
 xcrun simctl launch booted dev.studiotakumi.remotewhisper -RWLiveActivityPreview recording long
 ```
 
+### 実機で Live Activity が出ないとき
+
+Safari の Web インスペクタ（Mac の Safari →「開発」→ 端末名 → アプリの画面）でコンソールを開き、`[LiveActivity]` で絞る。録音を始めたときの start の結果だけが出る（毎回の update では出ない）。出せないまま録音を続けても、同じ理由は 1 つのセッションにつき 1 回だけ（出し直しは、状態が変わったときと、行が変わって 60 秒以上たったときだけ）。
+
+| 出力 | 原因 |
+|---|---|
+| `[LiveActivity] not shown: not-allowed` | 設定 → アプリ →「Live Activity」が許可されていない |
+| `[LiveActivity] not shown: ios-too-old` | iOS が 16.1 より前 |
+| `[LiveActivity] not shown: request-failed (…)` | ActivityKit が断った（同時に出せる数の上限など。`…` が詳細。Xcode のコンソールにも `Activity.request failed` が出る） |
+| `[LiveActivity] start failed: …` | プラグインの呼び出しが失敗した |
+| 何も出ない | 出せている。または画面が古く、アプリの中の判定（`isNativeApp()`）に入っていない |
+
 ホーム画面のウィジェットの録音中の見た目も、同じように見本を出す（`paused`・`idle`（前回の録音あり）・`clear` も）。ウィジェットに録音中を渡すには App Group が要るので、シミュレーターでもその場の署名で App Group を付けてビルドする（`CODE_SIGNING_ALLOWED=NO` ではエンタイトルメントが付かない。ID は何でもよい）。ウィジェットはホーム画面を長押し →「編集」→「ウィジェットを追加」で置く
 
 ```sh

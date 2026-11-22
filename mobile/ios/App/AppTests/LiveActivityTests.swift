@@ -268,3 +268,53 @@ final class LiveActivityControllerTests: XCTestCase {
         XCTAssertEqual(client.calls, [])
     }
 }
+
+final class LiveActivityReplyTests: XCTestCase {
+    private struct RequestError: LocalizedError {
+        var errorDescription: String? { "too many activities" }
+    }
+
+    func testShownHasNoReason() {
+        XCTAssertEqual(LiveActivityReply(outcome: .started).payload as NSDictionary, ["shown": true])
+        XCTAssertEqual(LiveActivityReply(outcome: .updated).payload as NSDictionary, ["shown": true])
+    }
+
+    func testNotAllowedInSettings() {
+        XCTAssertEqual(
+            LiveActivityReply(outcome: .disabled).payload as NSDictionary,
+            ["shown": false, "reason": "not-allowed"])
+    }
+
+    func testIosTooOld() {
+        XCTAssertEqual(
+            LiveActivityReply.iosTooOld.payload as NSDictionary,
+            ["shown": false, "reason": "ios-too-old"])
+    }
+
+    func testRequestFailureCarriesMessage() {
+        XCTAssertEqual(
+            LiveActivityReply(failure: RequestError()).payload as NSDictionary,
+            ["shown": false, "reason": "request-failed", "message": "too many activities"])
+    }
+
+    func testIgnoredHasNoReason() {
+        XCTAssertEqual(LiveActivityReply(outcome: .ignored).payload as NSDictionary, ["shown": false])
+    }
+
+    func testControllerThrowsWhenRequestFails() {
+        final class Failing: LiveActivityClient {
+            var enabled = true
+            func request(sessionId: String, state: RecordingActivityState) throws -> String { throw RequestError() }
+            func update(id: String, state: RecordingActivityState) {}
+            func end(id: String) {}
+            func endAll() {}
+        }
+        let controller = LiveActivityController(client: Failing())
+        XCTAssertThrowsError(
+            try controller.start(sessionId: "s1", state: .make(phase: .recording, elapsed: 1, title: "t", lines: []))
+        ) {
+            XCTAssertEqual(LiveActivityReply(failure: $0).reason, .requestFailed)
+        }
+        XCTAssertNil(controller.current)
+    }
+}
