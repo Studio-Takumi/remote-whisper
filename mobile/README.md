@@ -1,10 +1,9 @@
 # mobile（iOS アプリ・検証用）
 
-画面ロック中やバックグラウンドでも録音できるかを確かめるための、iOS アプリの土台（#438。仕様は [spec/mobile.md](../docs/spec/mobile.md)）。
+iOS アプリの土台（#438。画面ロック中やバックグラウンドでも録音できるかの検証から始まった。仕様は [spec/mobile.md](../docs/spec/mobile.md)）。
 
 - セルフホスト版の画面を、アプリの中でそのまま開く（Capacitor の `server.url`）。web/ のコピーは持たない
-- 録音だけを Swift のプラグイン（`ios/App/App/Recorder/`）でやる。16kHz・モノラルの WAV を、ファイルアプリから見える `recordings` フォルダに書く
-- 録音の操作は、アプリの中で開いたときだけ設定モーダルの最後のタブ「iOS アプリ」に出る（録音開始・録音停止・状態・録音ファイルの一覧。ファイルごとの「セッションを作る」で、今開いているプロジェクトに「音声ファイルから作る」と同じようにセッションを作る。spec/mobile.md 11.4）
+- 録音はアプリの中でもいつもの Web の録音のまま。M20・M21 の実機の確認で、画面ロック中もほかのアプリを使っている間も送り続けられると分かったので、検証用に作った Swift の録音（「iOS アプリ」タブ）は #459 で消した（spec/mobile.md 11.3）
 - いつもの Web の録音の状態を、ロック画面の Live Activity とダイナミックアイランドに出し、そこから一時停止・再開・終了できる（#453。iOS 16.1 から、ボタンは iOS 17 から。録音は Web のまま。spec/mobile.md 11.5）
 - ホーム画面のウィジェット（小）・ロック画面のウィジェット（円）・「録音を始める」（ショートカット・Siri、iOS 18 からはコントロールセンターも）から、アプリを開いていつもの Web の録音を始められる（#454。録音するのは最後に開いていたプロジェクト。spec/mobile.md 11.6）。ホーム画面のウィジェットに録音中・前回の録音を出すには App Group が要る（下の「設定」の 2）
 - 検証用。ストアには出さない。クラウド版・Android は対象外
@@ -106,14 +105,6 @@ xcodebuild test -project App.xcodeproj -scheme App -sdk iphonesimulator \
   -derivedDataPath build CODE_SIGNING_ALLOWED=NO
 ```
 
-本物のマイクで数秒録るテストは普段は飛ばす。回すときは、シミュレーターを起動してマイクを許可してから、`TEST_RUNNER_RW_MIC_TEST=1` を付けて上を実行する（Mac にマイクなどの入力の装置が要る。無いと `no-input` で失敗する）。
-
-```sh
-xcrun simctl boot "iPhone 17"
-xcrun simctl privacy "iPhone 17" grant microphone dev.studiotakumi.remotewhisper
-TEST_RUNNER_RW_MIC_TEST=1 xcodebuild test ...（上と同じ）
-```
-
 ### 実機に入れる
 
 1. 上の「設定」の 1・2 をし、「ビルド」の `npm ci`・web の build・`npx cap sync ios` もする（URL は iPhone から届く https のもの）
@@ -124,14 +115,12 @@ TEST_RUNNER_RW_MIC_TEST=1 xcodebuild test ...（上と同じ）
 
 無料の Apple ID で入れたアプリは、7 日間で起動できなくなる。そのときは同じ手順で入れ直す。
 
-### 録音のログを見る
+### ログを見る
 
-録音のプラグインは、割り込みの始まりと終わり（理由・`shouldResume`）・入力の形式の変化・音声のセッションを有効にできなかったことなどを、`[Recorder]` を付けてログに出す。
+録音に使うマイクの固定（docs/spec/mobile.md 11.7）は、固定した・外した・選んだマイクが見つからないことを、今の入力と一緒に `[MicInput]` を付けて出す。次のどちらかで `[MicInput]` と入れて見る。
 
-- Xcode から Run しているとき：下のコンソールの検索欄（Filter）に `[Recorder]` と入れる
-- つないでいないときに試したあと：iPhone を Mac につなぎ、Console.app の左で iPhone を選び、「ストリーミングを開始」してから検索欄に `[Recorder]` と入れる（ストリーミング中に起きたことだけ出るので、試す前に始めておく）
-
-録音に使うマイクの固定（docs/spec/mobile.md 11.7）は、固定した・外した・選んだマイクが見つからないことを、今の入力と一緒に `[MicInput]` を付けて出す。上と同じ方法で `[MicInput]` と入れて見る。
+- Xcode から Run しているとき：下のコンソールの検索欄（Filter）に入れる
+- つないでいないときに試したあと：iPhone を Mac につなぎ、Console.app の左で iPhone を選び、「ストリーミングを開始」してから検索欄に入れる（ストリーミング中に起きたことだけ出るので、試す前に始めておく）
 
 ## 中身
 
@@ -142,14 +131,13 @@ TEST_RUNNER_RW_MIC_TEST=1 xcodebuild test ...（上と同じ）
 | `ios/App/App.xcconfig` | Bundle ID・App Group など。`Local.xcconfig` があれば読む |
 | `ios/App/Widgets.xcconfig` | Widget Extension の Bundle ID（アプリのものの後ろに `.widgets`）。`App.xcconfig` を読む |
 | `ios/App/AppGroup.entitlements` | App Group のエンタイトルメント（`Local.xcconfig` に書いたときだけ付く） |
-| `ios/App/App/MainViewController.swift` | アプリの中だけのプラグイン（録音・Live Activity・ウィジェットからの頼みごと）を登録する画面 |
+| `ios/App/App/MainViewController.swift` | アプリの中だけのプラグイン（Live Activity・ウィジェットからの頼みごと・マイクの固定）を登録する画面 |
 | `ios/App/App/LiveActivity/` | Live Activity のプラグイン（JS 向けの API は spec/mobile.md 11.5） |
 | `ios/App/App/AppEntry/` | ウィジェット・App Intents から開いたときの頼みごとのプラグインと、ショートカット（spec/mobile.md 11.6） |
 | `ios/App/App/HomeWidget/` | ホーム画面のウィジェットに録音の状態を渡すところ |
 | `ios/App/Shared/` | App と Widget Extension の両方に入れるもの（Live Activity の中身・ボタン、ウィジェットの状態、ディープリンク、「録音を始める」） |
 | `ios/App/Widgets/` | Widget Extension（Live Activity・ダイナミックアイランド・ホーム画面とロック画面のウィジェット・コントロールの見た目） |
-| `ios/App/App/Recorder/` | 録音のプラグイン（JS 向けの API は spec/mobile.md 11.3） |
-| `ios/App/AppTests/` | 録音・Live Activity・ウィジェットのテスト（XCTest） |
+| `ios/App/AppTests/` | Live Activity・ウィジェット・マイクの固定のテスト（XCTest） |
 | `ios/App/CapApp-SPM/Package.swift` | Capacitor が管理する Swift Package（`cap sync` が書き直すので手で変えない） |
 
 `ios/App/App/public`・`capacitor.config.json`・`config.xml` は `cap sync` が作るので Git に入れない（`ios/.gitignore`）。
