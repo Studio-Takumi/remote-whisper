@@ -6,8 +6,9 @@ import type { LiveActivityAction, LiveActivityContent, LiveActivityPlugin } from
 import { findLocal } from '@/features/projects/localSessions';
 import type { MicState } from '@/features/recording/audio/microphone';
 
-// 出す行の数（Live Activity の 3 行）
-const LINES = 3;
+// 送る文字起こしの区切りの数。つなげて 3 行に折り返すのは Swift（iOS アプリ）がする。
+// 区切りが短いときも 3 行が埋まるよう、多めに送る（Swift が、新しいほうから約 120 文字ぶんだけ持つ）
+const LINES = 12;
 // 文字起こしの行の更新は、これより短い間隔では送らない（ActivityKit の更新の頻度の制限）
 export const LINE_UPDATE_INTERVAL_MS = 5000;
 

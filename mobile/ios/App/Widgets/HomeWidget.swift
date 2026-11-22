@@ -128,14 +128,16 @@ private struct RecordingView: View {
                 .multilineTextAlignment(.leading)
             }
             Spacer(minLength: 6)
-            if let line = HomeWidgetText.quoted(recording.line) {
-                Text(line)
-                    .font(.system(size: 14, weight: .semibold))
-                    .lineSpacing(4)
-                    .foregroundColor(paused ? Palette.faint1 : Palette.text)
-                    .lineLimit(2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
+            TranscriptText(
+                lines: recording.lines,
+                lineLimit: 3,
+                perLine: 7,
+                size: 14,
+                weight: .semibold,
+                newest: paused ? Palette.faint1 : Palette.text,
+                older: Palette.faint1,
+                lineSpacing: 2
+            )
             Spacer(minLength: 6)
             HStack(spacing: 5) {
                 Image(systemName: "doc.text")

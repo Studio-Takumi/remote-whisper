@@ -16,8 +16,8 @@ struct HomeWidgetState: Codable, Equatable {
         /// 経過時間（秒。一時停止中に止めて出す長さ）
         var elapsed: TimeInterval
         var title: String
-        /// 直近の文字起こしの 1 行
-        var line: String
+        /// 直近の文字起こしの区切り（古い順。Live Activity と同じもの。つなげて折り返すのは見る側）
+        var lines: [String]
         /// 最後に書いた時刻。アプリが落とされたときに、録音を終えた時刻と見なす
         var updatedAt: Date
         /// 録音を始めた・一時停止・再開した時刻（行・経過時間だけの変化では変わらない）。
@@ -112,15 +112,6 @@ enum HomeWidgetText {
         }
         return String(format: "%d:%02d", m, s)
     }
-
-    /// 直近の文字起こしを「」で囲む。長いときは後ろ（新しく話したところ）を残す。空なら nil。
-    /// 小のウィジェットの 2 行（1 行は全角 9 文字ほど）に、閉じかっこまで収まる長さにする
-    static func quoted(_ line: String, maxLength: Int = 16) -> String? {
-        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        let body = trimmed.count > maxLength ? "…" + trimmed.suffix(maxLength - 1) : trimmed
-        return "「\(body)」"
-    }
 }
 
 /// App Group の共有の置き場（UserDefaults）。App Group の ID を Local.xcconfig に書いたときだけ使える。
@@ -155,5 +146,31 @@ final class HomeWidgetStore {
     func write(_ state: HomeWidgetState) {
         guard let data = try? JSONEncoder().encode(state) else { return }
         defaults.set(data, forKey: Self.stateKey)
+    }
+}
+
+extension HomeWidgetState.Recording {
+    /// 古い形（`lines` の前は、直近の 1 行だけの `line`）の置き場も読めるようにする。
+    /// 読めないと置き場の中身が全部（前回の録音も）捨てられるため
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        sessionId = try c.decode(String.self, forKey: .sessionId)
+        phase = try c.decode(RecordingPhase.self, forKey: .phase)
+        startedAt = try c.decode(Date.self, forKey: .startedAt)
+        elapsed = try c.decode(TimeInterval.self, forKey: .elapsed)
+        title = try c.decode(String.self, forKey: .title)
+        if let lines = try c.decodeIfPresent([String].self, forKey: .lines) {
+            self.lines = lines
+        } else {
+            let old = try decoder.container(keyedBy: LegacyKeys.self)
+            let line = try old.decodeIfPresent(String.self, forKey: .line) ?? ""
+            lines = line.isEmpty ? [] : [line]
+        }
+        updatedAt = try c.decode(Date.self, forKey: .updatedAt)
+        changedAt = try c.decode(Date.self, forKey: .changedAt)
+    }
+
+    private enum LegacyKeys: String, CodingKey {
+        case line
     }
 }

@@ -12,8 +12,12 @@ enum RecordingPhase: String, Codable, Hashable {
 /// Live Activity の中身（ActivityKit の ContentState）。web/ の録音の状態から作る。
 /// セッション名は録音中に仮のタイトルに変わるので、変わらないもの（Attributes）ではなくこちらに持つ
 struct RecordingActivityState: Codable, Hashable {
-    static let maxLines = 3
+    /// 文字起こしの区切りを何個まで持つか
+    static let maxLines = 12
+    /// 区切り 1 つの長さの上限（文字）。長いときは後ろ（新しく話したところ）を残す
     static let maxLineLength = 120
+    /// 区切りを新しいほうからためて、合わせてこの文字数に届いたら、それより前は持たない（ロック画面の 3 行は 60 文字ほど）
+    static let maxTotalLength = 120
 
     var phase: RecordingPhase
     /// 経過時間が 0 だった時刻。録音中は、端末がここから数える（毎秒 update しない）
@@ -21,24 +25,31 @@ struct RecordingActivityState: Codable, Hashable {
     /// 経過時間（秒。一時停止中に止めて出す長さ）
     var elapsed: TimeInterval
     var title: String
-    /// 直近の文字起こし（古い順。最大 3 行）
+    /// 直近の文字起こしの区切り（古い順）。つなげて折り返すのは見る側（TranscriptText）。
+    /// 区切りごとの色分け（新しい区切りだけ白）に区切りの境目が要るので、つなげずに持つ
     var lines: [String]
 
-    /// 空の行を除き、最後の 3 行だけにする。長い行は後ろ（新しく話したところ）を残す。
-    /// ActivityKit の中身は 4KB までなので、ここで抑える
+    /// 空の区切りを除き、新しいほうから合わせて 120 文字に届くまでだけ持つ（届いた区切りは全部入れる）。
+    /// ActivityKit の中身は 4KB までなので、ここで抑える（最大でも 12 区切り・約 1.5KB）
     static func make(phase: RecordingPhase, elapsed: TimeInterval, title: String, lines: [String], now: Date = Date()) -> Self {
         let elapsed = max(0, elapsed)
-        let kept = lines
+        let cleaned = lines
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
-            .suffix(maxLines)
             .map { $0.count > maxLineLength ? "…" + $0.suffix(maxLineLength - 1) : $0 }
+        var kept: [String] = []
+        var total = 0
+        for line in cleaned.reversed() {
+            if total >= maxTotalLength || kept.count >= maxLines { break }
+            kept.append(line)
+            total += line.count
+        }
         return Self(
             phase: phase,
             startedAt: now.addingTimeInterval(-elapsed),
             elapsed: elapsed,
             title: title,
-            lines: Array(kept)
+            lines: kept.reversed()
         )
     }
 
@@ -46,10 +57,89 @@ struct RecordingActivityState: Codable, Hashable {
     var pausedAt: Date? {
         phase == .paused ? startedAt.addingTimeInterval(elapsed) : nil
     }
+}
 
-    /// 一時停止中は最後の 1 行だけ出す
-    var visibleLines: [String] {
-        phase == .paused ? Array(lines.suffix(1)) : lines
+/// 文字起こしの区切りのつなぎ方
+enum TranscriptJoin {
+    /// 区切りの間に入れるもの。前が英数字・記号（ASCII）で次が英数字で始まるときだけ空白（日本語は入れない）
+    static func separator(between previous: String, and next: String) -> String {
+        guard let a = previous.last, let b = next.first, a.isASCII, !a.isWhitespace, isWord(b) else { return "" }
+        return " "
+    }
+
+    /// 区切りをつなげた 1 つの文章
+    static func joined(_ lines: [String]) -> String {
+        var text = ""
+        for line in lines {
+            text += separator(between: text, and: line) + line
+        }
+        return text
+    }
+
+    /// 区切りをつなげた文章の、あふれないぶんだけ（新しいほう）を返す。
+    /// 区切りごとの色分けに境目が要るので、つなげずに区切りの配列で返す（先頭以外は、前との間の空白を頭に付ける）。
+    /// あふれるときは、全体の頭に「…」を付ける。
+    /// SwiftUI の `truncationMode(.head)` は複数行だと最後の行の頭だけを省略してしまう（途中から読めなくなる）ので、
+    /// 見る側の幅から決めた幅の予算（全角 1 文字 = 1）で、こちらで切る
+    static func fit(_ lines: [String], budget: Double) -> [String] {
+        var taken: [String] = []
+        var used = 0.0
+        for index in stride(from: lines.count - 1, through: 0, by: -1) {
+            let separator = index > 0 ? separator(between: lines[index - 1], and: lines[index]) : ""
+            let piece = separator + lines[index]
+            let cost = width(piece)
+            if used + cost <= budget {
+                taken.append(piece)
+                used += cost
+                continue
+            }
+            // 入りきらない区切りは、後ろから入るぶんだけ（「…」の 1 つぶんを残す）
+            var tail = ""
+            var tailWidth = 1.0
+            for c in lines[index].reversed() {
+                let w = width(c)
+                if used + tailWidth + w > budget { break }
+                tail.insert(c, at: tail.startIndex)
+                tailWidth += w
+            }
+            // 「…」の直後が句読点だと読みにくいので、1 文字削る
+            while let head = tail.first, "、。，．,.".contains(head), tail.count > 1 { tail.removeFirst() }
+            if tail.isEmpty, let first = taken.popLast() {
+                // 1 文字も入らないときは、前に入れた区切りの頭に付ける（その区切りの前の空白は要らない）
+                taken.append("…" + first.drop(while: { $0 == " " }))
+            } else if !tail.isEmpty {
+                taken.append("…" + tail)
+            }
+            break
+        }
+        return Array(taken.reversed())
+    }
+
+    /// 幅の見積もり（全角 1）。外れても最後が切れないよう、広いほうに寄せる。
+    /// 半角は、小文字 0.55・大文字と数字 0.7・空白 0.3・そのほかの記号 0.6
+    static func width(_ text: String) -> Double {
+        text.reduce(0) { $0 + width($1) }
+    }
+
+    private static func width(_ c: Character) -> Double {
+        guard c.isASCII else { return 1 }
+        if c.isWhitespace { return 0.3 }
+        if c.isUppercase || c.isNumber { return 0.7 }
+        if c.isLowercase { return 0.55 }
+        return 0.6
+    }
+
+    /// 折り返しで 1 行ごとに失う幅の見積もり（禁則で行頭に来ない文字が 1 つ前の行に残る・英単語が行末で折り返される）。
+    /// 行数が 2 以上のとき、折り返す回数（行数 - 1）ぶん見込む
+    static let wrapSlack = 2.0
+
+    /// 行数と 1 行の幅（全角の文字数）から、`fit` に渡す予算を決める
+    static func budget(lines: Int, perLine: Double) -> Double {
+        max(1, Double(lines) * perLine - 1.0 - wrapSlack * Double(max(0, lines - 1)))
+    }
+
+    private static func isWord(_ c: Character) -> Bool {
+        c.isASCII && (c.isLetter || c.isNumber)
     }
 }
 

@@ -51,6 +51,7 @@
 		A45400030000000000000011 /* AppEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A45400010000000000000001 /* AppEntry.swift */; };
 		A45400030000000000000012 /* HomeWidgetState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A45400010000000000000002 /* HomeWidgetState.swift */; };
 		A45400030000000000000013 /* StartRecordingIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = A45400010000000000000003 /* StartRecordingIntent.swift */; };
+		A46000030000000000000001 /* TranscriptText.swift in Sources */ = {isa = PBXBuildFile; fileRef = A46000010000000000000001 /* TranscriptText.swift */; };
 		A45400030000000000000018 /* Palette.swift in Sources */ = {isa = PBXBuildFile; fileRef = A45400010000000000000008 /* Palette.swift */; };
 		A45400030000000000000019 /* AppMark.swift in Sources */ = {isa = PBXBuildFile; fileRef = A45400010000000000000009 /* AppMark.swift */; };
 		A4540003000000000000001A /* HomeWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4540001000000000000000A /* HomeWidget.swift */; };
@@ -141,6 +142,7 @@
 		A45400010000000000000005 /* RecordingShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingShortcuts.swift; sourceTree = "<group>"; };
 		A45400010000000000000006 /* HomeWidgetWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeWidgetWriter.swift; sourceTree = "<group>"; };
 		A45400010000000000000007 /* HomeWidgetPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeWidgetPreview.swift; sourceTree = "<group>"; };
+		A46000010000000000000001 /* TranscriptText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptText.swift; sourceTree = "<group>"; };
 		A45400010000000000000008 /* Palette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Palette.swift; sourceTree = "<group>"; };
 		A45400010000000000000009 /* AppMark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppMark.swift; sourceTree = "<group>"; };
 		A4540001000000000000000A /* HomeWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeWidget.swift; sourceTree = "<group>"; };
@@ -302,6 +304,7 @@
 				A4540001000000000000000C /* StartRecordingControl.swift */,
 				A45400010000000000000009 /* AppMark.swift */,
 				A45400010000000000000008 /* Palette.swift */,
+				A46000010000000000000001 /* TranscriptText.swift */,
 				A45300010000000000000009 /* Info.plist */,
 			);
 			path = Widgets;
@@ -538,6 +541,7 @@
 				A45400030000000000000012 /* HomeWidgetState.swift in Sources */,
 				A45400030000000000000013 /* StartRecordingIntent.swift in Sources */,
 				A45400030000000000000018 /* Palette.swift in Sources */,
+				A46000030000000000000001 /* TranscriptText.swift in Sources */,
 				A45400030000000000000019 /* AppMark.swift in Sources */,
 				A4540003000000000000001A /* HomeWidget.swift in Sources */,
 				A4540003000000000000001B /* LockScreenWidget.swift in Sources */,
