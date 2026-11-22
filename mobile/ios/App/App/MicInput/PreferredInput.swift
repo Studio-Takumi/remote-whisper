@@ -12,9 +12,7 @@ final class PreferredInput {
     private let queue = DispatchQueue(label: "dev.studiotakumi.remotewhisper.micinput")
     /// 選んだマイクの名前。nil は OS に任せる
     private var label: String?
-    /// 続けて固定し直した回数。iOS が固定を受け付けず、経路の変化が続くときに止めるため
-    private var attempts = 0
-    private static let maxAttempts = 3
+    private var retry = PreferredInputRetry()
     private var observers: [NSObjectProtocol] = []
 
     init() {
@@ -27,7 +25,7 @@ final class PreferredInput {
             },
             center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: session, queue: nil) { [weak self] _ in
                 self?.queue.async {
-                    self?.attempts = 0
+                    self?.retry.reset()
                     self?.apply("メディアサービスのリセット")
                 }
             },
@@ -42,8 +40,8 @@ final class PreferredInput {
     func choose(_ label: String?) {
         queue.async {
             self.label = label?.isEmpty == false ? label : nil
-            self.attempts = 0
-            self.apply("選択")
+            self.retry.reset()
+            self.apply("選択", fromWeb: true)
         }
     }
 
@@ -51,13 +49,25 @@ final class PreferredInput {
         guard label != nil else { return }
         // 装置がつながった・外れたときは、新しい経路なので数え直す
         if reason == .newDeviceAvailable || reason == .oldDeviceUnavailable {
-            attempts = 0
+            retry.reset()
         }
         apply("経路の変化（\(reason.map { String($0.rawValue) } ?? "不明")）")
     }
 
-    private func apply(_ trigger: String) {
+    private func apply(_ trigger: String, fromWeb: Bool = false) {
+        // 録音していない（WebKit がカテゴリを録音用にしていない）ときは固定し直さない。
+        // 経路に入力がなく、固定しても効かないため。次に録音を始めたとき（カテゴリの変化・web からの選択）に固定する
+        if label != nil, session.category != .playAndRecord {
+            if fromWeb {
+                NSLog("[MicInput] 録音のカテゴリでないので、まだ固定しません（カテゴリ: \(session.category.rawValue)）")
+            }
+            return
+        }
         let available = session.availableInputs ?? []
+        let named = available.filter { $0.portName == label }
+        if named.count > 1 {
+            NSLog("[MicInput] 同じ名前の入力が \(named.count) つあります（\(label ?? "")。今録っているもの・今の固定を先に選びます）")
+        }
         let action = PreferredInputChoice.decide(
             label: label,
             available: available.map(AudioInput.init),
@@ -66,18 +76,17 @@ final class PreferredInput {
         )
         switch action {
         case .keep:
-            attempts = 0
+            retry.reset()
         case .missing:
             NSLog("[MicInput] 選んだマイクがつながっていません（\(trigger)。選んだもの: \(label ?? "")、つながっているもの: \(available.map(\.portName))）")
         case .clear:
             guard session.preferredInput != nil else { return }
             set(nil, trigger)
         case let .prefer(uid):
-            guard attempts < Self.maxAttempts else {
-                NSLog("[MicInput] 固定し直すのをやめました（\(trigger)。\(Self.maxAttempts) 回続けて切り替わったため）")
+            guard retry.allow() else {
+                NSLog("[MicInput] 固定し直すのをやめました（\(trigger)。\(PreferredInputRetry.limit) 回続けて切り替わったため）")
                 return
             }
-            attempts += 1
             set(available.first { $0.uid == uid }, trigger)
         }
     }

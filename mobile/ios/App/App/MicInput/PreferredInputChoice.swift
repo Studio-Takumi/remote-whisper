@@ -28,11 +28,35 @@ enum PreferredInputChoice {
     ///   - preferredUID: 今の固定（`preferredInput?.uid`）
     static func decide(label: String?, available: [AudioInput], current: [AudioInput], preferredUID: String?) -> PreferredInputAction {
         guard let label, !label.isEmpty else { return .clear }
-        guard let target = available.first(where: { $0.name == label }) else { return .missing }
+        let named = available.filter { $0.name == label }
+        // 同じ名前が複数あるときは、今録っているもの、なければ今の固定、なければ先に見つかったもの
+        // （web は deviceId で開いているので、録っているものが web で開いたものに近い）
+        guard let target = named.first(where: { input in current.contains { $0.uid == input.uid } })
+            ?? named.first(where: { $0.uid == preferredUID })
+            ?? named.first
+        else { return .missing }
         // 録っている入力が合っていても、固定していなければ固定する（このあとイヤホンをつないでも切り替わらないように）
         if preferredUID == target.uid, current.contains(where: { $0.uid == target.uid }) {
             return .keep
         }
         return .prefer(uid: target.uid)
+    }
+}
+
+/// 続けて固定し直した回数。iOS が固定を受け付けず、経路の変化が続くときに回り続けないよう、上限で止める
+struct PreferredInputRetry {
+    static let limit = 3
+    private(set) var attempts = 0
+
+    /// 固定し直してよいか。よければ 1 回数える
+    mutating func allow() -> Bool {
+        guard attempts < Self.limit else { return false }
+        attempts += 1
+        return true
+    }
+
+    /// web から伝え直した・装置がつながった／外れた・メディアサービスのリセット・選んだ入力で録れた（`.keep`）ときに数え直す
+    mutating func reset() {
+        attempts = 0
     }
 }

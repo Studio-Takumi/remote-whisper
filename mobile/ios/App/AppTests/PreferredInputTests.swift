@@ -51,6 +51,38 @@ final class PreferredInputTests: XCTestCase {
         )
     }
 
+    func testPrefersTheInputBeingRecordedWhenNamesAreShared() {
+        let first = AudioInput(uid: "USB-1", name: "USB マイク")
+        let second = AudioInput(uid: "USB-2", name: "USB マイク")
+        // web が deviceId で 2 つめを開き、今それで録っている
+        XCTAssertEqual(
+            PreferredInputChoice.decide(label: "USB マイク", available: [first, second], current: [second], preferredUID: nil),
+            .prefer(uid: second.uid)
+        )
+        // 録っているのがイヤホンに切り替わったあとは、今の固定のほう
+        XCTAssertEqual(
+            PreferredInputChoice.decide(label: "USB マイク", available: [first, second, headset], current: [headset], preferredUID: second.uid),
+            .prefer(uid: second.uid)
+        )
+        // どちらでもなければ、先に見つかったほう
+        XCTAssertEqual(
+            PreferredInputChoice.decide(label: "USB マイク", available: [first, second, headset], current: [headset], preferredUID: nil),
+            .prefer(uid: first.uid)
+        )
+    }
+
+    func testRetryStopsAfterTheLimitUntilReset() {
+        var retry = PreferredInputRetry()
+        for _ in 0 ..< PreferredInputRetry.limit {
+            XCTAssertTrue(retry.allow())
+        }
+        XCTAssertFalse(retry.allow())
+        XCTAssertEqual(retry.attempts, PreferredInputRetry.limit)
+        retry.reset()
+        XCTAssertTrue(retry.allow())
+        XCTAssertEqual(retry.attempts, 1)
+    }
+
     func testMissingWhenTheChosenInputIsNotConnected() {
         XCTAssertEqual(
             PreferredInputChoice.decide(label: headset.name, available: [builtIn], current: [builtIn], preferredUID: nil),
