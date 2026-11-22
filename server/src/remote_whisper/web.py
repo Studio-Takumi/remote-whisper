@@ -19,7 +19,18 @@ DEFAULT_WEB_DIST = Path(__file__).resolve().parents[3] / "web" / "dist"
 
 class SpaStaticFiles(StaticFiles):
     """画面の配信。画面の URL（/s/<UUID> など。#177）には index.html を返す。
-    /api・/ws と拡張子のあるものは 404 のまま"""
+    /api・/ws と拡張子のあるものは 404 のまま。
+
+    index.html（fallback も同じファイル）には Cache-Control: no-cache を付ける（#461）。
+    ETag で毎回確かめさせ、更新したあとに古い画面が出続けないようにする
+    （Service Worker のない iOS アプリの WKWebView など）。
+    ハッシュ付きの /assets/* には付けない（中身が変わらないのでキャッシュさせてよい）"""
+
+    def file_response(self, full_path, stat_result, scope, status_code=200) -> Response:
+        response = super().file_response(full_path, stat_result, scope, status_code)
+        if Path(full_path).name == "index.html":
+            response.headers["Cache-Control"] = "no-cache"
+        return response
 
     async def get_response(self, path: str, scope: Scope) -> Response:
         try:

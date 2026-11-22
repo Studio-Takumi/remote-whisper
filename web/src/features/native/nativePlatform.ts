@@ -39,6 +39,15 @@ export function startAppEntry(store: AppStore) {
     void loadBridge().then((m) => m.startAppEntry(store));
 }
 
+// サーバーが新しい版になっていたら、前面に戻ったとき・接続したときに画面を読み込み直す（#461）。ブラウザ版では何もしない
+// （ブラウザ版は Service Worker と PwaUpdater の知らせで更新する）
+export function startStaleScreenReload(store: AppStore) {
+    if (!isNativeApp()) {
+        return;
+    }
+    void loadBridge().then((m) => m.startStaleScreenReload(store));
+}
+
 // マイクを開いたときに、開いたマイク（label。null は OS に任せる）を iOS に伝え、入力をそのマイクに固定してもらう（#458）。
 // ブラウザ版では何もしない（録音の途中でイヤホンをつなぐと、ブラウザが入力を切り替えることがある）
 export function setNativeMicInput(label: string | null) {

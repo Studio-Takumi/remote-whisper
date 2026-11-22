@@ -275,7 +275,31 @@ JS 向けの API（`AppEntry`。型は `web/src/features/native/appEntryTypes.ts
 - web のテスト（vitest。`micDevice.test.ts`）：ブラウザでは伝えず `nativeBridge` も読み込まないこと。アプリの中では、選んだマイクで開けたら開いたマイクの今の名前（覚えている名前が古いとき・許可の前に覚えている ID で開けたときも）、OS に任せたとき・見つからなかったときは `null` を伝えること。伝えられなくてもマイクは開けること
 - 実機：内蔵マイクを選ぶ → イヤホンなしで録音を始める → 録音中にイヤホンをつなぐ → 内蔵のまま録れて精度が落ちないこと（`[MicInput]` のログで固定し直したことと今の入力を見る）。そのとき「マイクが止まりました」などの知らせが出ず、音が途切れないこと（固定し直すので経路が 2 回続けて変わる）。「OS に任せる」では今までどおりイヤホンに切り替わること。固定したまま録音を止めたあとも、アプリの中でセッションの音声をイヤホン・AirPods で聞けること
 
-## 11.8 画面の同梱（案B）への準備（#440）
+## 11.8 本番を更新したあとの読み込み直し（#461）
+
+アプリは `server.url` で本番の画面を開く。WKWebView には Service Worker がないので、ブラウザ版の「新しいバージョンの画面があります」（`PwaUpdater`）は出ず、アプリは裏に回っても WebView が生き続けるので、本番を更新したあとも古い画面が出続けることがあった。
+
+- **server**：`index.html`（SPA の fallback を含む。`SpaStaticFiles`）に `Cache-Control: no-cache` を付ける（ETag で毎回確かめる。変わっていなければ 304）。ハッシュ付きの `/assets/*` は今まで通り。クラウド版（relay）は Workers の静的アセットが配り、HTML には既定で `max-age=0, must-revalidate` が付くので、Cache-Control については同じ動き（変更なし）。版の比べ方は上のとおりクラウド版では行わない
+- **web**（`staleScreenReload.ts`。`startStaleScreenReload` がアプリの中でだけ `nativeBridge` を読み込んで始める。ブラウザ版の動き・最初に読むファイルは変えない）
+  - 前面に戻ったとき（`visibilitychange` で visible）は、サーバーの版（`serverVersion`）を取り直してから、接続したとき（`serverVersion` が入る・つながり直した）はそのまま、画面の版（`webVersion`）と比べる
+  - **クラウド版（`isCloud`）では比べない（読み込み直さない）。** クラウド版の `/api/version` はトンネルの先のホストの版で、画面は Workers が配って main から別に更新されるので、ふだんから違い、読み込み直しても揃わない
+  - 版が `unknown`・`+dirty` のときも比べない（常に違って読み込み直しが続くため）
+  - 違っていて、次のどれでもなければ `location.reload()`。どれかなら待ち、なくなったとき（または次に前面に戻ったとき・接続したとき）に確かめる
+    - 録音中（`recordingState` が `idle` 以外）、参加中（`joined`。マイクがほかの音源として録音している）
+    - ack 待ちの音声（`pendingAudio > 0`）、アップロード中（`uploading`）、選んだ音声の確認（`pickedAudio`）、未送信の音声の確認（`unsent`）
+    - 設定・新規プロジェクトのモーダルが開いている、入力欄（input・textarea・contenteditable）にフォーカスがある
+    - 切れている（`server.connection` が `connected` でない）
+    - **録音を終えてから 10 秒（`SETTLE_MS`）。** 最後の音声と `stop` が届く前にページを捨てないため。ストアからは、切れている間に止めて `stop` をまだ送っていないこと（`stoppedWhileOffline`）が見えないので、時間で待つ。切れている間に止めたときは、つながってから 10 秒待つ
+  - 読み込み直した版を `sessionStorage`（`rw.native.reloadedFor`）に覚え、読み込み直しても版が違うままのとき、同じ版のために繰り返し読み込み直さない（次の版が出れば読み込み直す）。書けないときは読み込み直さない
+  - `@capacitor/app` の `appStateChange` は使わない（ネイティブの依存を足さずに、WKWebView が前面に戻ったときの `visibilitychange` で足りるため）
+
+### 確かめ方
+
+- server のテスト（`test_uuids.py`）：`/`・`/index.html`・SPA の fallback に `no-cache`、304 にも付くこと、`/assets/*` には付かないこと
+- web のテスト（`staleScreenReload.test.ts`）：ブラウザでは何も読み込まないこと、版が違う・同じ・参加中・ack 待ち・アップロード中・確認待ち・モーダル・入力中・録音を終えた直後・切れている間に止めたとき・クラウド版・`unknown`/`+dirty`・hidden・sessionStorage が使えない・前面に戻ったとき・同じ版で繰り返さないこと
+- 実機：アプリを開いたまま本番を更新 → 裏に回して戻す → 新しい画面になること
+
+## 11.9 画面の同梱（案B）への準備（#440）
 
 今のアプリは、ホストの画面を `server.url` で開く（案A。11.2 節）。将来、画面（`web/dist`）をアプリに同梱して開く（案B）ための準備だけをした。**まだ同梱には切り替えていない**。`server.url` で開いている間は、何も変わらない。
 
@@ -305,7 +329,7 @@ JS 向けの API（`AppEntry`。型は `web/src/features/native/appEntryTypes.ts
 
 - 同梱したときのクラウド版のログイン（システムのログイン画面とトークン）は #441。それまでは、同梱した画面からクラウド版にはログインできない
 - 実機の WKWebView で、`capacitor://localhost` から http（Tailscale でない LAN）のホストにつなげるか（ATS・混在コンテンツ）は、同梱に切り替えるときに確かめる
-- 同梱した画面の service worker（PWA の更新）・通知・画面の URL（`/s/<UUID>` など）の扱いは、同梱に切り替えるときに決める
+- 同梱した画面の service worker（PWA の更新）・通知・画面の URL（`/s/<UUID>` など）の扱いは、同梱に切り替えるときに決める。11.8 節の読み込み直しは、同梱した画面ではアプリを更新しない限り版がそろわない（同じ版で繰り返さないので読み込み直しは続かない）ので、同梱に切り替えるときに見直す
 
 ### 確かめ方
 
