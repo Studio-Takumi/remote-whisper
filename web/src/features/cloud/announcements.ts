@@ -1,5 +1,6 @@
 // 運営からのお知らせ（#164。docs/spec/cloud.md 10.12 節）。クラウド版の画面だけが読む。
 // セルフホスト版は、announcements.json へのリクエストを出さない（外に何も送らない）
+import { workerUrl } from '@/api/endpoint';
 
 export type AnnouncementKind = 'tos' | 'release' | 'info';
 
@@ -20,7 +21,8 @@ const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 const DAY_MS = 24 * 60 * 60 * 1000;
 export const SEEN_KEY = 'remote-whisper.announcements.seen';
 
-export const announcementsUrl = () => '/announcements.json';
+// Worker が静的アセットとして配る（画面をアプリに同梱したときは、接続先の Worker から取る。#440）
+export const announcementsUrl = () => workerUrl('/announcements.json');
 
 // JSON から、形の合うお知らせだけを取り出す（壊れた項目は捨てる）
 export function parseAnnouncements(data: unknown): Announcement[] {

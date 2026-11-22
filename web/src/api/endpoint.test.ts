@@ -1,6 +1,63 @@
 import { describe, expect, it } from 'vitest';
 
-import { apiUrl, authLoginUrl, detectMode, healthzUrl, meUrl, parseCloudHosts, wsUrl } from '@/api/endpoint';
+import {
+    apiUrl,
+    authLoginUrl,
+    bundled,
+    detectMode,
+    endpoint,
+    healthzUrl,
+    isBundled,
+    meUrl,
+    parseCloudHosts,
+    resolveEndpoint,
+    workerUrl,
+    wsOrigin,
+    wsUrl,
+} from '@/api/endpoint';
+
+describe('画面をアプリに同梱したとき（#440）', () => {
+    const hosts = parseCloudHosts(undefined);
+    it('アプリの中で http(s) でないオリジンのときだけ同梱とみなす（server.url は今まで通り）', () => {
+        expect(isBundled({ protocol: 'capacitor:' }, true)).toBe(true);
+        expect(isBundled({ protocol: 'https:' }, true)).toBe(false);
+        expect(isBundled({ protocol: 'http:' }, true)).toBe(false);
+        expect(isBundled({ protocol: 'capacitor:' }, false)).toBe(false);
+    });
+    it('ブラウザ版は同じオリジンの相対 URL のまま', () => {
+        expect(bundled).toBe(false);
+        expect(endpoint).toEqual({ base: '', mode: 'direct', unset: false });
+        expect(resolveEndpoint('rw.studio-takumi.dev', hosts, null)).toEqual({ base: '', mode: 'cloud', unset: false });
+    });
+    it('同梱していれば、保存した接続先の URL とモードを使う。なければ unset', () => {
+        expect(resolveEndpoint('localhost', hosts, { saved: null })).toEqual({ base: '', mode: 'direct', unset: true });
+        expect(
+            resolveEndpoint('localhost', hosts, { saved: { url: 'https://pc.example:8443', mode: 'direct' } }),
+        ).toEqual({ base: 'https://pc.example:8443', mode: 'direct', unset: false });
+        // モードはホスト名（localhost）ではなく、保存した値で決まる
+        expect(
+            resolveEndpoint('localhost', hosts, { saved: { url: 'https://rw.studio-takumi.dev', mode: 'cloud' } }).mode,
+        ).toBe('cloud');
+    });
+    it('接続先があれば絶対 URL を組み立てる', () => {
+        expect(apiUrl('/api/projects', 'direct', null, 'http://192.168.0.5:8000')).toBe(
+            'http://192.168.0.5:8000/api/projects',
+        );
+        expect(apiUrl('/api/projects', 'cloud', 'h1', 'https://rw.studio-takumi.dev')).toBe(
+            'https://rw.studio-takumi.dev/h/h1/api/projects',
+        );
+        expect(wsUrl(wsOrigin('https://pc.example:8443'), 'direct', null)).toBe('wss://pc.example:8443/ws');
+        expect(wsUrl(wsOrigin('http://192.168.0.5:8000'), 'direct', null)).toBe('ws://192.168.0.5:8000/ws');
+        expect(wsUrl(wsOrigin('https://rw.studio-takumi.dev'), 'cloud', 'h1')).toBe(
+            'wss://rw.studio-takumi.dev/h/h1/ws',
+        );
+        expect(workerUrl('/me/hosts', 'https://rw.studio-takumi.dev')).toBe('https://rw.studio-takumi.dev/me/hosts');
+    });
+    it('接続先がなければ画面の location から（今まで通り）', () => {
+        expect(wsOrigin('')).toBe(location);
+        expect(apiUrl('/api/version', 'direct', null)).toBe('/api/version');
+    });
+});
 
 describe('モードの判定', () => {
     it('既定のクラウド用ドメインはクラウド版', () => {
