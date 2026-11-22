@@ -4,6 +4,7 @@ import type { SettingsOptions } from '@/api/protocol';
 import { Button } from '@/components/ui/button';
 import { DialogClose, DialogFooter } from '@/components/ui/dialog';
 import { Tabs, TabsContent } from '@/components/ui/tabs';
+import { AppEndpointInfo } from '@/features/native/AppEndpointSetup';
 import { recordingLocks } from '@/features/recording/recording';
 import { DisplayPage } from '@/features/settings/DisplayPage';
 import { MaterialsPage } from '@/features/settings/MaterialsPage';
@@ -118,6 +119,8 @@ export function SettingsForm({
                 {/* バージョンは左下に。スマホの幅（縦に逆順で並ぶ）ではボタンの下に回る */}
                 <div className='order-first sm:mr-auto'>
                     <VersionInfo />
+                    {/* 画面をアプリに同梱したときだけ、接続先を出す（#440）。ブラウザ版では何も出さない */}
+                    <AppEndpointInfo />
                 </div>
                 <DialogClose asChild>
                     <Button variant='outline'>キャンセル</Button>
