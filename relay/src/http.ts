@@ -39,6 +39,27 @@ export function sameOrigin(request: Request): boolean {
     return origin !== null && origin === new URL(request.url).origin;
 }
 
+// ログインしている人。web は Cookie のログインセッション（web_sessions）、app はアプリのトークン（app_sessions。#441）
+export type SessionUser = { userId: string; sessionId: string; kind: 'web' | 'app' };
+
+// 状態を変えるリクエストと WebSocket を通してよいか。Cookie はブラウザが勝手に付けるので、自分のオリジンの画面からだけ。
+// アプリのトークンはブラウザが勝手に付けないので CSRF にならない（Origin は appAuth.ts の bearerUser・ticketUser で確かめてある）
+export function writeAllowed(request: Request, user: SessionUser): boolean {
+    return user.kind === 'app' || sameOrigin(request);
+}
+
+// 長さを漏らさずに比べる
+export function sameString(a: string, b: string): boolean {
+    if (a.length !== b.length) {
+        return false;
+    }
+    let diff = 0;
+    for (let i = 0; i < a.length; i++) {
+        diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+    }
+    return diff === 0;
+}
+
 export function randomToken(bytes = 32): string {
     const buf = new Uint8Array(bytes);
     crypto.getRandomValues(buf);

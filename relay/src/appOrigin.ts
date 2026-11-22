@@ -2,8 +2,9 @@
 //
 // - 許すオリジンは vars の APP_ORIGINS（カンマ区切り・完全一致）。空か、書いていなければ許さない（設定で止められる）
 // - CORS は資格情報なし（Access-Control-Allow-Credentials を付けない）。付けるのはホストへの中継（/h/）と /me だけ
-// - このオリジンからのリクエストでは、ログインセッションの Cookie を読まない（auth.ts の currentUser）。
-//   Cookie で認める経路に、ほかのオリジンを混ぜないため。アプリのログイン（トークン）は #441 で足す
+// - このオリジンからのリクエストでは、ログインセッションの Cookie を読まない（auth.ts の cookieUser）。
+//   Cookie で認める経路に、ほかのオリジンを混ぜないため。このオリジンで通るのは、アプリのトークン（Authorization）と
+//   チケット（?rw_ticket=）があるときだけ（#441。appAuth.ts）
 import type { Env } from './index';
 
 const MAX_AGE_SEC = 600;

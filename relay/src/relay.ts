@@ -2,13 +2,15 @@
 //
 // /h/<hostId>/api/... と /h/<hostId>/ws を、そのホストのトンネル（hosts.tunnel_hostname）へ転送する。
 // - ログインしていて、そのホストの持ち主であることを確かめる（他人のホスト・解除したホストには届かない）
-// - 状態を変えるリクエストと WebSocket は、Origin が自分のオリジンのときだけ（兄弟のサブドメインの CSRF 対策）
+// - 状態を変えるリクエストと WebSocket は、Origin が自分のオリジンのときだけ（兄弟のサブドメインの CSRF 対策）。
+//   アプリのトークン（Authorization）・チケット（?rw_ticket=）は Cookie と違って勝手に付かないので、この確認は要らない（#441）
 // - ホストごとの中継の鍵で「ユーザー ID・ホスト ID・時刻・メソッド・パス」に HMAC-SHA256 の署名を付ける（X-RW-Relay）。
 //   ホストはトンネル専用の 8001 番でこれを確かめる
 // - WebSocket はメッセージを受けずに素通しにする（無料プランの CPU 時間に収めるため）。つなぐときだけ確かめて、
 //   fetch の応答（101）をそのまま返す
+import { takeTicket, ticketUser } from './appAuth';
 import { currentUser } from './auth';
-import { base64url, error, sameOrigin } from './http';
+import { base64url, error, writeAllowed } from './http';
 import type { Env } from './index';
 
 export const RELAY_HEADER = 'X-RW-Relay';
@@ -77,12 +79,18 @@ export async function handleHostRelay(request: Request, env: Env, path: string):
         return error(404, 'Not found');
     }
     const [, hostId, hostPath] = m;
-    const user = await currentUser(request, env);
+    const websocket = request.headers.get('Upgrade')?.toLowerCase() === 'websocket';
+    // アプリのチケット（#441。appAuth.ts）。ホストには渡さない（署名にも入れない）。
+    // チケットがあるときはチケットだけで決め、Cookie・Authorization は見ない（違っていても、ほかの方法に戻らない）
+    const { ticket, rest: search } = takeTicket(new URL(request.url).search);
+    const user =
+        ticket === null
+            ? await currentUser(request, env)
+            : await ticketUser(request, env, ticket, hostId, hostPath, websocket);
     if (!user) {
         return error(401, 'ログインしてください');
     }
-    const websocket = request.headers.get('Upgrade')?.toLowerCase() === 'websocket';
-    if ((websocket || !['GET', 'HEAD'].includes(request.method)) && !sameOrigin(request)) {
+    if ((websocket || !['GET', 'HEAD'].includes(request.method)) && !writeAllowed(request, user)) {
         return error(403, 'Forbidden');
     }
     const host = await env.DB.prepare('SELECT relay_key, tunnel_hostname FROM hosts WHERE id = ? AND user_id = ?')
@@ -95,7 +103,6 @@ export async function handleHostRelay(request: Request, env: Env, path: string):
     if (!host.relay_key || !host.tunnel_hostname || !TUNNEL_HOSTNAME.test(host.tunnel_hostname)) {
         return error(503, 'ホストのトンネルがまだできていません');
     }
-    const search = new URL(request.url).search;
     const target = `https://${host.tunnel_hostname}${hostPath}${search}`;
     const headers = new Headers();
     for (const [name, value] of request.headers) {
