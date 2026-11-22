@@ -199,3 +199,21 @@ def test_api_and_missing_files_are_not_index_html(web_client, path):
 
 def test_static_files_are_still_served(web_client):
     assert web_client.get("/assets/index-abc.js").text == "console.log(1)"
+
+
+@pytest.mark.parametrize("path", ["/", "/index.html", "/s/00000000-0000-4000-8000-000000000000"])
+def test_index_html_must_be_revalidated(web_client, path):
+    # index.html は毎回 ETag で確かめさせる（更新したあとに古い画面が出続けないように。#461）
+    res = web_client.get(path)
+    assert res.headers["cache-control"] == "no-cache"
+    again = web_client.get(path, headers={"If-None-Match": res.headers["etag"]})
+    assert again.status_code == 304
+    assert again.headers["cache-control"] == "no-cache"
+
+
+def test_hashed_assets_are_not_no_cache(web_client):
+    assert "no-cache" not in web_client.get("/assets/index-abc.js").headers.get("cache-control", "")
+
+
+def test_api_responses_do_not_get_the_index_html_cache_control(web_client):
+    assert web_client.get("/api/health").headers.get("cache-control") != "no-cache"
