@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 
 import { toast } from 'sonner';
 
@@ -55,6 +55,8 @@ function AppMain() {
     const loadSettings = useAppStore((s) => s.loadSettings);
     const settingsLoaded = useAppStore((s) => s.settingsLoaded);
     const loadProjects = useAppStore((s) => s.loadProjects);
+    // 上のバーの中の、セッションのタブと再生バーの置き場（SessionView が中に出す。#463）
+    const [stickySlot, setStickySlot] = useState<HTMLDivElement | null>(null);
     const createProject = useAppStore((s) => s.createProject);
 
     // 画面の URL（#177）。開いているセッションと設定モーダルを URL に出し、URL から開く
@@ -73,11 +75,11 @@ function AppMain() {
             <AppSidebar />
             <SidebarInset className='gap-4 p-4'>
                 <AnnouncementBanner />
-                <TopBar />
+                <TopBar stickySlot={setStickySlot} />
                 <UnsentAlert />
                 <UnsentElsewhereAlert />
                 <PwaUpdater />
-                <SessionView />
+                <SessionView stickySlot={stickySlot} />
                 <MicButton />
             </SidebarInset>
             <NewProjectDialog open={newProjectOpen} onOpenChange={setNewProjectOpen} onCreate={createProject} />

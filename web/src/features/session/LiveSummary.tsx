@@ -4,6 +4,7 @@ import { ChevronRightIcon } from 'lucide-react';
 
 import { Markdown } from '@/components/Markdown';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { findAnchor } from '@/features/session/liveAnchor';
 
 // 途中の要約の表示（spec/flows.md 6.4・spec/ui.md 8）。時刻の範囲を見出しにした区間ごとの要約を並べる（#93）。
 // 確定した区間は畳み、続いている区間は開く。見出しのない要約はそのまま出す（spec/flows.md 6.4）
@@ -126,30 +127,4 @@ function useAnchoredScroll(text: string) {
     }, [text]);
 
     return { container, reading };
-}
-
-// 上に貼り付けたバー（上のバー・タブ・再生バー。SessionView の sticky の箱）のおおよその高さ。
-// これより下が読める範囲。目印を選ぶ目安なので、多少ずれても困らない
-const STICKY_TOP = 120;
-
-// 目印にする区間。読める範囲の上から 1/3 のあたり（読んでいるところ）にかかっている区間。
-// その区間が同じ位置にあれば、上の概要が伸び縮みしても、読んでいる文が動かない
-function findAnchor(root: HTMLElement | null) {
-    if (!root) {
-        return null;
-    }
-    // 一番上にいるとき（概要を見ているとき）は、ずらさない
-    if (window.scrollY <= 0) {
-        return null;
-    }
-    const reading = STICKY_TOP + (window.innerHeight - STICKY_TOP) / 3;
-    let last: { key: string; top: number } | null = null;
-    for (const el of root.querySelectorAll<HTMLElement>('[data-live-section]')) {
-        const rect = el.getBoundingClientRect();
-        if (rect.top > reading) {
-            break;
-        }
-        last = { key: el.dataset.liveSection ?? '', top: rect.top };
-    }
-    return last;
 }

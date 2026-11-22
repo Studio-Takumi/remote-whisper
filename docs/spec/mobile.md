@@ -130,7 +130,7 @@ iOS の PWA は、画面ロック中やバックグラウンドで録音を続�
 ### safe area
 
 - アプリの中で開いたときだけ `<html>` に `rw-native` を付け、`index.css` の `.rw-native` の下だけで余白を当てる。ブラウザ版の CSS と `index.html` の meta は変えない（Safari・PWA の見た目が変わるため）
-  - 上のバー（`data-slot='top-bar'`）：上の余白に `env(safe-area-inset-top)` を足す。上に貼り付けて背景を塗っているので、ステータスバーの下まで塗れ、高さ（`--top-bar-height`）に入るので下に貼るタブもずれる
+  - 上のバー（`data-slot='top-bar'`）：上の余白に `env(safe-area-inset-top)` を足す。上に貼り付けて背景を塗っているので、ステータスバーの下まで塗れる。セッションのタブ・再生バーも上のバーの中にある（#463）ので、一緒に下がって隠れない。高さ（`--top-bar-height`）は余白だけが変わっても測り直す。余白は `--rw-safe-top`（`env(safe-area-inset-top)`）経由で当てる（Playwright で値を差し替えて確かめるため）
   - サイドバー（スマホの幅）と参考資料メニューなどのシート：上下に `env(safe-area-inset-top)`・`env(safe-area-inset-bottom)`。閉じるボタンも下げる
   - マイクボタンは前から `env(safe-area-inset-bottom)` を見ている
 - `env()` は `viewport-fit=cover` のときだけ値が入る。`index.html` の meta に前から付いているが、付いていなければアプリの中でだけ足す

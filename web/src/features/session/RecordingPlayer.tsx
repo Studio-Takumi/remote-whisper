@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ReactNode, RefObject, SyntheticEvent } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -25,6 +25,7 @@ export function RecordingPlayer({
     onError,
     onTime,
     onLoaded,
+    onUnmount,
     children,
 }: {
     src: string;
@@ -32,9 +33,16 @@ export function RecordingPlayer({
     onError: () => void;
     onTime?: (sec: number, playing: boolean, seeked: boolean) => void;
     onLoaded?: (el: HTMLAudioElement) => void;
+    // 再生バーが消えた（画面の回転で置き場が変わって作り直されたときなど）。audio は pause を報せずに消えるので、呼ぶ側が再生の状態を畳む
+    onUnmount?: () => void;
     children?: ReactNode;
 }) {
     const [rate, setRate] = useState(loadRate);
+    const unmount = useRef(onUnmount);
+    useEffect(() => {
+        unmount.current = onUnmount;
+    });
+    useEffect(() => () => unmount.current?.(), []);
     const applyRate = (el: HTMLAudioElement) => applyPlaybackRate(el, rate);
     // 速度を変えたとき・録音を開き直したとき（key={src} で audio が作り直される）
     useEffect(() => {
@@ -58,7 +66,7 @@ export function RecordingPlayer({
                 controls
                 preload='metadata'
                 // ダークテーマでは、ブラウザが描く再生バーも暗い色にする
-                className={`h-9 flex-1 dark:scheme-dark ${children ? 'min-w-64' : 'min-w-0'}`}
+                className={`h-9 flex-1 dark:scheme-dark ${children ? 'min-w-44 sm:min-w-64' : 'min-w-0'}`}
                 aria-label='録音を再生'
                 onError={onError}
                 onLoadedMetadata={(e) => {

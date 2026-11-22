@@ -135,10 +135,14 @@
 
 /* iOS アプリ（#438。spec/mobile.md 11.4）の中で開いたときだけ（<html> の rw-native は nativePlatform.ts が付ける）、
    ステータスバーとホームバーの領域（safe area）を空ける。ブラウザ版（Safari・PWA を含む）には当てない */
+.rw-native {
+  /* 上の safe area の高さ。Playwright では env() を模せないので、この変数を上書きして確かめる */
+  --rw-safe-top: env(safe-area-inset-top, 0px);
+}
 .rw-native [data-slot='top-bar'] {
   /* 上のバーは上に貼り付けて背景を塗っているので、余白を足せばステータスバーの下まで塗れる。
-     高さは --top-bar-height に出るので、下に貼るタブもずれる */
-  padding-top: calc(var(--spacing) * 4 + env(safe-area-inset-top));
+     セッションのタブ・再生バーも上のバーの中にあるので、一緒に下がる。高さは --top-bar-height に出る */
+  padding-top: calc(var(--spacing) * 4 + var(--rw-safe-top));
 }
 .rw-native [data-slot='sheet-content'],
 .rw-native [data-slot='sidebar'][data-mobile='true'] {

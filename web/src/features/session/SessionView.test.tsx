@@ -70,7 +70,8 @@ function draw({
     projects = [PROJECT],
     projectId = PROJECT.id as string | null,
     current,
-}: { projects?: ProjectInfo[]; projectId?: string | null; current?: Session } = {}) {
+    stickySlot,
+}: { projects?: ProjectInfo[]; projectId?: string | null; current?: Session; stickySlot?: HTMLElement | null } = {}) {
     const client = new QueryClient();
     client.setQueryData(['projects'], projects);
     useAppStore.setState({
@@ -80,7 +81,7 @@ function draw({
     render(
         <QueryClientProvider client={client}>
             <TooltipProvider>
-                <SessionView />
+                <SessionView stickySlot={stickySlot} />
             </TooltipProvider>
         </QueryClientProvider>,
     );
@@ -107,6 +108,56 @@ describe('SessionView の空の表示', () => {
         useAppStore.setState({ notFound: true });
         draw({ projectId: null });
         expect(screen.getByText('見つかりません')).toBeTruthy();
+    });
+});
+
+describe('SessionView のタブの置き場（#463）', () => {
+    it('置き場があれば、タブはそこ（上のバーの中）に出る', () => {
+        const slot = document.createElement('div');
+        document.body.append(slot);
+        draw({ current: session(), stickySlot: slot });
+        expect(slot.contains(screen.getByRole('tab', { name: '要約' }))).toBe(true);
+        slot.remove();
+    });
+
+    it('高さの足りない画面では、再生バーなどを置き場に入れず本文の頭に出す', () => {
+        window.matchMedia = ((query: string) => ({
+            matches: true,
+            media: query,
+            addEventListener() {},
+            removeEventListener() {},
+        })) as unknown as typeof window.matchMedia;
+        const slot = document.createElement('div');
+        document.body.append(slot);
+        draw({ current: session({ files: { recording: true } as Session['files'] }), stickySlot: slot });
+        const player = screen.getByLabelText('録音を再生');
+        expect(slot.contains(player)).toBe(false);
+        expect(slot.contains(screen.getByRole('tab', { name: '要約' }))).toBe(true);
+        slot.remove();
+        // @ts-expect-error jsdom には元からない
+        delete window.matchMedia;
+    });
+
+    it('高さの足りない画面でも、マイクの警告は上のバーに残す', () => {
+        window.matchMedia = ((query: string) => ({
+            matches: true,
+            media: query,
+            addEventListener() {},
+            removeEventListener() {},
+        })) as unknown as typeof window.matchMedia;
+        useAppStore.setState({ recordingState: 'recording', micState: 'ended' });
+        const slot = document.createElement('div');
+        document.body.append(slot);
+        draw({ current: session(), stickySlot: slot });
+        expect(slot.contains(screen.getByRole('alert'))).toBe(true);
+        slot.remove();
+        // @ts-expect-error jsdom には元からない
+        delete window.matchMedia;
+    });
+
+    it('置き場がまだなければ、タブは出さない', () => {
+        draw({ current: session(), stickySlot: null });
+        expect(screen.queryByRole('tab', { name: '要約' })).toBeNull();
     });
 });
 
