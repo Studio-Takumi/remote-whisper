@@ -26,7 +26,8 @@ Tailscale・uv・Ollama などを自分で入れられる人だけでなく、�
 | 広告 | 出さない | 後で出す（10.13 節） |
 - 画面は `location.hostname` がクラウド用のドメイン（ビルド時の設定で渡す）ならクラウド版として動く。コードと設定の値は `cloud`・`direct`
   - ビルド時の設定は環境変数 `VITE_CLOUD_HOSTS`（カンマ区切り）。渡さなければ staging の `rw-dev.studio-takumi.dev` と本番の `rw.studio-takumi.dev`
-  - 画面の URL の組み立ては `web/src/api/endpoint.ts` の 1 か所に集め、入口の状態（`login`・`consent`・`hosts`・`ready`）は `web/src/features/cloud/cloud.ts` に持つ。`ready` でホストが決まるまで、今の画面は出さない
+  - 画面を iOS アプリに同梱したとき（#440。mobile.md 11.8 節）は、ホスト名ではなく、アプリに保存した接続先の URL とモードを使う。ブラウザ版は今まで通り
+  - 画面の URL の組み立ては `web/src/api/endpoint.ts` の 1 か所に集め（同梱したときだけ、接続先の絶対 URL にする）、入口の状態（`login`・`consent`・`hosts`・`ready`）は `web/src/features/cloud/cloud.ts` に持つ。`ready` でホストが決まるまで、今の画面は出さない
   - PWA は API・WebSocket をキャッシュせず、`/h/`・`/auth/`・`/me/`・`/pair`・`/healthz` は画面の読み込み直しの代わり（navigateFallback）にしない
 - セルフホスト版の挙動は変えない。クラウド版のために足す画面（ログイン・同意・ホストの選択・広告・お知らせ）は、セルフホスト版では出さず、そのためのスクリプトも読まない
 
@@ -244,6 +245,7 @@ sequenceDiagram
 - 1 人が複数の手段でログインしても、1 人のユーザーにまとめる。同じプロバイダの同じ ID なら同じユーザー。**メールアドレスで自動に紐付けはしない**（別の手段を足すのは、ログインしている状態で設定から）
 - ログインセッション（`web_sessions`）は Cookie（`__Host-` 接頭辞・HttpOnly・Secure・SameSite=Lax）。DB にはトークンのハッシュだけを置き、期限を設ける。ログアウトで失効させる
 - 状態を変える API は、Cookie に加えて Origin を確かめる（CSRF の対策。#166）。**`/h/<hostId>/ws` の WebSocket と、`/h/` 以下の GET 以外のリクエストも、Origin が自分のオリジンでなければ断る**。staging・本番は `studio-takumi.dev` のサブドメインで、兄弟のサブドメイン（ポートフォリオなど）は same-site なので、SameSite=Lax の Cookie が WebSocket にも付いてしまうため
+- **iOS アプリに同梱した画面のオリジン（#440。mobile.md 11.8 節）**: vars の `APP_ORIGINS`（カンマ区切り。今は `capacitor://localhost`。空にすれば止まる）にあるオリジンにだけ、`/h/` と `/me` で CORS を返す（preflight に 204。**資格情報なし**で、`Access-Control-Allow-Credentials` は付けない）。このオリジンからのリクエストでは**ログインセッションの Cookie を読まない**（ログインしていない扱い。`relay/src/appOrigin.ts`・`auth.ts` の `currentUser`）。上の Origin の確認は変えていない。アプリからのログイン（トークン）は #441 で足す
 - ログインを始めるとき、state を D1（ハッシュだけ）と、このブラウザの短命の Cookie（`__Host-rw_oauth_state`、10 分）の両方に置く。コールバックでは両方が合うときだけ進める（ほかの人が始めたログインの続きの URL を踏ませて、その人のアカウントにログインさせる・手段を足させる、ログイン CSRF の対策）。手段を足す（`?link=1`）ときは、さらにコールバックの時点でも始めたユーザーでログインしていることを確かめる
 - ログインのあとに戻るパス（`?return=`）は、同じオリジンのパスだけ。`//`・`\`・制御文字（ブラウザが読み飛ばすタブ・改行）を含むものは `/` にする
 - **セキュリティのヘッダー（#166）**:

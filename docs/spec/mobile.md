@@ -18,7 +18,7 @@ iOS の PWA は、画面ロック中やバックグラウンドで録音を続�
 - アプリは画面を持たず、セルフホスト版の画面（ホストの FastAPI が配信する `web/dist`）を Capacitor の `server.url` でそのまま開く。web/ のコピーは作らない
   - `webDir` は `../web/dist` を指す。表示には使わないが `cap sync` が要る
   - 開いた画面は普通のブラウザと同じく `/api/...`・`/ws` を同じオリジンで使う。iOS アプリのための API は足さない
-- URL はリポジトリに入れない（公開しているため）。環境変数 `RW_SERVER_URL` か、Git に入れない `mobile/.env.local` から `capacitor.config.ts` が読み、`cap sync` のときにアプリの中の設定に書く。ないときは同梱の `web/dist` を開くだけになる（警告を出す）
+- URL はリポジトリに入れない（公開しているため）。環境変数 `RW_SERVER_URL` か、Git に入れない `mobile/.env.local` から `capacitor.config.ts` が読み、`cap sync` のときにアプリの中の設定に書く。ないときは同梱の `web/dist` を開く（警告を出す）。そのときは画面のオリジンが `capacitor://localhost` になり、接続先の画面が出る（11.8 節）
 - 本番の URL は Tailscale の https の前提。http を開ける ATS の例外は **Debug のビルドだけ** に足す（ビルドの途中で、できあがった Info.plist に `NSAllowsLocalNetworking` を足す。開けるのはローカルの宛先だけ）。開発用の Vite（`http://localhost:5190`）をシミュレーターで開くのに使う
 - 署名の個人の値（Team ID・自分用の Bundle ID）は、Git に入れない `ios/App/Local.xcconfig` に書く。`project.pbxproj` には入れない
 - safe area（ノッチ・ステータスバーの領域）：アプリの中で開くと上のバーがステータスバーに重なっていた（PR1。WebView の `contentInset` では fixed の要素は動かないので直らない）。web/ 側で、アプリの中でだけ `env(safe-area-inset-*)` の余白を当てて直した（11.4 節）
@@ -274,3 +274,42 @@ JS 向けの API（`AppEntry`。型は `web/src/features/native/appEntryTypes.ts
 - Swift のテスト（XCTest。`AppTests/PreferredInputTests.swift`）：OS に任せる（`null`・空）、イヤホンに切り替わったときに選んだ入力に固定する、選んだ入力で録れていても固定していなければ固定する、固定してあって録れていれば何もしない、内蔵以外の入力、同じ名前が複数あるとき、選んだ入力がつながっていないとき、固定し直す回数の上限と数え直し
 - web のテスト（vitest。`micDevice.test.ts`）：ブラウザでは伝えず `nativeBridge` も読み込まないこと。アプリの中では、選んだマイクで開けたら開いたマイクの今の名前（覚えている名前が古いとき・許可の前に覚えている ID で開けたときも）、OS に任せたとき・見つからなかったときは `null` を伝えること。伝えられなくてもマイクは開けること
 - 実機：内蔵マイクを選ぶ → イヤホンなしで録音を始める → 録音中にイヤホンをつなぐ → 内蔵のまま録れて精度が落ちないこと（`[MicInput]` のログで固定し直したことと今の入力を見る）。そのとき「マイクが止まりました」などの知らせが出ず、音が途切れないこと（固定し直すので経路が 2 回続けて変わる）。「OS に任せる」では今までどおりイヤホンに切り替わること。固定したまま録音を止めたあとも、アプリの中でセッションの音声をイヤホン・AirPods で聞けること
+
+## 11.8 画面の同梱（案B）への準備（#440）
+
+今のアプリは、ホストの画面を `server.url` で開く（案A。11.2 節）。将来、画面（`web/dist`）をアプリに同梱して開く（案B）ための準備だけをした。**まだ同梱には切り替えていない**。`server.url` で開いている間は、何も変わらない。
+
+同梱すると画面のオリジンが `capacitor://localhost` になり、ホストと別のオリジンになる。そのため、API・WebSocket の URL を絶対 URL で組み立て、ホストと中間サーバー（relay）がこのオリジンを受け付ける必要がある。
+
+### 見分け方と接続先
+
+- **同梱しているのは、アプリの中（`isNativeApp()`）で、画面が http(s) で開かれていないとき**（`web/src/api/endpoint.ts` の `isBundled`）。`server.url` で開いたときは http(s) なので、ブラウザ版と同じに扱う
+- 接続先（ホストかクラウド版の URL。パスのないオリジン）とモード（`direct`・`cloud`）は、同梱しているときだけ `localStorage` の `remote-whisper.appEndpoint` から読む（`web/src/features/native/appEndpoint.ts`）。起動の最初に同期で決める必要があるので、`nativeBridge` の dynamic import ではなく、`isNativeApp()` で分けた同期の読み出しにしている
+- **モードは、同梱しているときはホスト名ではなく保存した値で決める**（`resolveEndpoint`）。保存するときは、入力した URL のホスト名がクラウド用のドメイン（`VITE_CLOUD_HOSTS`）ならクラウド版にする。同梱していなければ、今まで通り画面のホスト名で決める
+- URL は `endpoint.ts` の `apiUrl`・`wsUrl`・`workerUrl`（と、それを使う `meUrl` など）で組み立てる。接続先がないとき（ブラウザ版・`server.url`）は、前と同じ相対 URL（WebSocket は画面の `location` から）。接続先があれば、その前に付けた絶対 URL（`https:` なら `wss:`）
+  - 通しているもの：REST API（`api.ts`）・WebSocket（`connection.ts`）・アップロード（`upload.ts`）・セッションの音声（`SessionView`）・設定の選択肢（`options.ts`）・開発用のパネル・クラウド版のアカウント（`/me`・`/auth`）・登録（`/pair`）・録音の計測（`sendBeacon`）・お知らせ（`announcements.json`）
+
+### 接続先の画面
+
+- 同梱していて接続先がまだないときだけ、App がアプリの画面の代わりに「接続先」の画面（`AppEndpointSetup.tsx`）を出す。URL を入れて「つなぐ」で保存し、読み込み直す。`https://` を省くと `https://` にする。http(s) 以外・ユーザー名やパスワード・パス・`?`・`#` の付いた URL は受け付けない
+- 設定のモーダルの左下（バージョンの下）に、今の接続先と「変える」を出す（同梱しているときだけ）。「変える」で保存を消して読み込み直し、接続先の画面に戻る
+- ブラウザ版と `server.url` では、どちらも出さない（部品は最初のチャンクに入るが、描画しない。`lazy` にしないのは 11.4 節と同じ理由）
+
+### ホストと中間サーバー
+
+- **ホスト（8000 番）**：Origin の確認（api.md 7.5 節）で `capacitor://localhost` を許し、このオリジンにだけ CORS を返す（`APP_ORIGINS`。資格情報なし・preflight あり）。ブラウザの画面はこのオリジンにならないので、ほかのサイトからの CSWSH・DNS rebinding には使えない。8000 番は Cookie を使わないので、設定で止める項目は作っていない
+- **中間サーバー**：`APP_ORIGINS`（wrangler の vars。カンマ区切り）にあるオリジンにだけ、`/h/` と `/me` で CORS を返す（資格情報なし。`Access-Control-Allow-Credentials` を付けない）。空にすれば止まる。**このオリジンからのリクエストでは、ログインセッションの Cookie を読まない**（ログインしていない扱い）。状態を変えるリクエストと WebSocket の Origin の確認（cloud.md 10.7 節）は変えていないので、Cookie で認める経路は前と同じく自分のオリジンの画面だけ
+- `ionic://localhost` は許していない（Capacitor の iOS の既定は `capacitor://`。`iosScheme` を変えていない）
+
+### 残っていること
+
+- 同梱したときのクラウド版のログイン（システムのログイン画面とトークン）は #441。それまでは、同梱した画面からクラウド版にはログインできない
+- 実機の WKWebView で、`capacitor://localhost` から http（Tailscale でない LAN）のホストにつなげるか（ATS・混在コンテンツ）は、同梱に切り替えるときに確かめる
+- 同梱した画面の service worker（PWA の更新）・通知・画面の URL（`/s/<UUID>` など）の扱いは、同梱に切り替えるときに決める
+
+### 確かめ方
+
+- web のテスト（vitest）：`endpoint.test.ts`（同梱の見分け方・モードを保存した値で決める・絶対 URL の組み立て・ブラウザ版は相対 URL のまま）、`appEndpoint.test.ts`（URL のそろえ方・保存と読み出し・壊れた値）、`AppEndpointSetup.test.tsx`（接続先の画面・設定の接続先がブラウザ版では出ないこと）
+- server のテスト（`test_host_check.py`）：`capacitor://localhost` からの API・WebSocket・preflight が通り、CORS に資格情報が付かないこと。ほかのオリジン（`capacitor://evil.example`・`ionic://localhost` を含む）は前と同じく 403 で、CORS も付かないこと
+- relay のテスト（`appOrigin.test.ts`）：preflight と返事の CORS、Cookie があってもログインしていない扱いになること、ほかのオリジン・ほかのパスには付かないこと
+- ブラウザ版が変わっていないこと：`npm run build` の前後で最初に読むファイル（`index.html` が読む JS・CSS）とチャンクの並びが同じこと。Playwright で PC・スマホの幅、ライト・ダークの最初の画面・サイドバー・設定モーダルを撮り、ピクセルで比べる
