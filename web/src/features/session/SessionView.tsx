@@ -1,4 +1,5 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 import { apiUrl } from '@/api/endpoint';
 import { makingFinalTranscript, summaryStatus, transcriptStatus } from '@/api/status';
@@ -35,7 +36,9 @@ import { clockToSeconds } from '@/lib/time';
 const NO_PARTIALS: LivePartial[] = [];
 
 // メイン画面の中身。何も選んでいない・新しいセッション・既存のセッションの3つを出し分ける
-export function SessionView() {
+// stickySlot は、上のバー（TopBar）の中の置き場。タブと再生バーをそこに出す（#463）。
+// null の間（まだ置き場ができていない）は出さず、undefined（置き場のない使い方）はその場に出す
+export function SessionView({ stickySlot }: { stickySlot?: HTMLElement | null }) {
     const hasProjects = useProjects().length > 0;
     const notFound = useAppStore((s) => s.notFound);
     const project = useCurrentProject();
@@ -111,45 +114,51 @@ export function SessionView() {
         setPlayback((p) => nextPlayback(p, session.id, index, playing, seeked));
     };
 
+    // タブ・警告・再生バー。上のバーの中に出して、一緒に上に貼り付ける（#78・#463）。
+    // 再生バーも一緒なのは、文字起こしの下の方で時刻を押しても止められるように
+    const stickyContent: ReactNode = (
+        <>
+            <TabsList>
+                <TabsTrigger value='transcript'>文字起こし</TabsTrigger>
+                <TabsTrigger value='summary'>要約</TabsTrigger>
+            </TabsList>
+            <MicAlert />
+            {recordingUrl && (
+                <RecordingPlayer
+                    src={recordingUrl}
+                    audio={audio}
+                    onError={() => {
+                        // ほかの音源が読み込めなければ主の音源に戻す。主の音源なら再生バーを消す
+                        if (!playSource.failed()) {
+                            setFailedRecording(recordingUrl);
+                        }
+                    }}
+                    onTime={onTime}
+                    onLoaded={playSource.onLoaded}
+                >
+                    {playSource.playable.length >= 2 && (
+                        <PlaybackSourceSelect
+                            sources={playSource.playable}
+                            value={playSource.selected}
+                            onChange={playSource.select}
+                            uploaded={session?.uploaded === true}
+                        />
+                    )}
+                </RecordingPlayer>
+            )}
+            {recordingUrl && playSource.notice && (
+                <p role='status' className='w-full max-w-3xl text-xs text-muted-foreground'>
+                    {playSource.notice}
+                </p>
+            )}
+        </>
+    );
+    const stickyBox =
+        stickySlot === undefined ? stickyContent : stickySlot === null ? null : createPortal(stickyContent, stickySlot);
+
     return (
         <Tabs value={tab} onValueChange={changeTab}>
-            {/* 上のバーのすぐ下に貼り付ける（#78）。左右の余白まで背景を塗って、本文が透けないようにする */}
-            {/* 再生バーも一緒に貼り付ける（文字起こしの下の方で時刻を押しても、止められるように） */}
-            <div className='sticky top-(--top-bar-height,0px) z-10 -mx-4 flex flex-col items-center gap-2 bg-background px-4 pb-2'>
-                <TabsList>
-                    <TabsTrigger value='transcript'>文字起こし</TabsTrigger>
-                    <TabsTrigger value='summary'>要約</TabsTrigger>
-                </TabsList>
-                <MicAlert />
-                {recordingUrl && (
-                    <RecordingPlayer
-                        src={recordingUrl}
-                        audio={audio}
-                        onError={() => {
-                            // ほかの音源が読み込めなければ主の音源に戻す。主の音源なら再生バーを消す
-                            if (!playSource.failed()) {
-                                setFailedRecording(recordingUrl);
-                            }
-                        }}
-                        onTime={onTime}
-                        onLoaded={playSource.onLoaded}
-                    >
-                        {playSource.playable.length >= 2 && (
-                            <PlaybackSourceSelect
-                                sources={playSource.playable}
-                                value={playSource.selected}
-                                onChange={playSource.select}
-                                uploaded={session?.uploaded === true}
-                            />
-                        )}
-                    </RecordingPlayer>
-                )}
-                {recordingUrl && playSource.notice && (
-                    <p role='status' className='w-full max-w-3xl text-xs text-muted-foreground'>
-                        {playSource.notice}
-                    </p>
-                )}
-            </div>
+            {stickyBox}
             {/* 下の pb は、マイクのボタンの上に出す経過時間（絶対配置）が本文に重ならないようにするため */}
             <div className='mx-auto flex w-full max-w-3xl flex-col gap-4 pt-2 pb-16'>
                 {session ? <SessionHeader session={session} /> : <NewSessionHeader project={project} />}

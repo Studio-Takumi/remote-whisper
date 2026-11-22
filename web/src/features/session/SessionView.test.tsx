@@ -70,7 +70,8 @@ function draw({
     projects = [PROJECT],
     projectId = PROJECT.id as string | null,
     current,
-}: { projects?: ProjectInfo[]; projectId?: string | null; current?: Session } = {}) {
+    stickySlot,
+}: { projects?: ProjectInfo[]; projectId?: string | null; current?: Session; stickySlot?: HTMLElement | null } = {}) {
     const client = new QueryClient();
     client.setQueryData(['projects'], projects);
     useAppStore.setState({
@@ -80,7 +81,7 @@ function draw({
     render(
         <QueryClientProvider client={client}>
             <TooltipProvider>
-                <SessionView />
+                <SessionView stickySlot={stickySlot} />
             </TooltipProvider>
         </QueryClientProvider>,
     );
@@ -107,6 +108,21 @@ describe('SessionView の空の表示', () => {
         useAppStore.setState({ notFound: true });
         draw({ projectId: null });
         expect(screen.getByText('見つかりません')).toBeTruthy();
+    });
+});
+
+describe('SessionView のタブの置き場（#463）', () => {
+    it('置き場があれば、タブはそこ（上のバーの中）に出る', () => {
+        const slot = document.createElement('div');
+        document.body.append(slot);
+        draw({ current: session(), stickySlot: slot });
+        expect(slot.contains(screen.getByRole('tab', { name: '要約' }))).toBe(true);
+        slot.remove();
+    });
+
+    it('置き場がまだなければ、タブは出さない', () => {
+        draw({ current: session(), stickySlot: null });
+        expect(screen.queryByRole('tab', { name: '要約' })).toBeNull();
     });
 });
 

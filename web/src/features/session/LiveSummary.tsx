@@ -128,9 +128,12 @@ function useAnchoredScroll(text: string) {
     return { container, reading };
 }
 
-// 上に貼り付けたバー（上のバー・タブ・再生バー。SessionView の sticky の箱）のおおよその高さ。
-// これより下が読める範囲。目印を選ぶ目安なので、多少ずれても困らない
-const STICKY_TOP = 120;
+// 上に貼り付けたバー（上のバー。タブ・再生バーも中にある。#463）の高さ。これより下が読める範囲。
+// TopBar が --top-bar-height に出している（アプリのセーフエリアの分も入る）。出ていないとき（テストなど）の目安は 120
+function stickyTop() {
+    const height = parseFloat(document.documentElement.style.getPropertyValue('--top-bar-height'));
+    return Number.isFinite(height) ? height : 120;
+}
 
 // 目印にする区間。読める範囲の上から 1/3 のあたり（読んでいるところ）にかかっている区間。
 // その区間が同じ位置にあれば、上の概要が伸び縮みしても、読んでいる文が動かない
@@ -142,7 +145,8 @@ function findAnchor(root: HTMLElement | null) {
     if (window.scrollY <= 0) {
         return null;
     }
-    const reading = STICKY_TOP + (window.innerHeight - STICKY_TOP) / 3;
+    const top = stickyTop();
+    const reading = top + (window.innerHeight - top) / 3;
     let last: { key: string; top: number } | null = null;
     for (const el of root.querySelectorAll<HTMLElement>('[data-live-section]')) {
         const rect = el.getBoundingClientRect();
