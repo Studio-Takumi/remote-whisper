@@ -58,7 +58,7 @@ export class LiveActivitySync {
     // 見始める。返り値で見るのをやめる
     start(): () => void {
         // 前に読み込んだ画面が出したもの（読み込み直す前の録音）を残さない
-        this.call(() => this.plugin.end());
+        this.call('end', () => this.plugin.end());
         const listening = this.plugin.addListener('action', ({ action }) => this.onAction(action));
         const unsubscribe = this.store.subscribe((s) => this.onChange(snapshotOf(s)));
         this.onChange(snapshotOf(this.store.getState()));
@@ -75,7 +75,7 @@ export class LiveActivitySync {
             if (sent) {
                 this.sent = null;
                 this.clearTimer();
-                this.call(() => this.plugin.end());
+                this.call('end', () => this.plugin.end());
             }
             return;
         }
@@ -119,9 +119,16 @@ export class LiveActivitySync {
                 sent.shown = shown;
             }
         };
-        this.call(() =>
+        this.call('start', () =>
             this.plugin.start({ sessionId: next.sessionId, ...content(next) }).then(
-                (r) => done(r.shown),
+                (r) => {
+                    done(r.shown);
+                    if (!r.shown) {
+                        // 出せなかった理由。start の結果だけ出す（毎回の update では出さない）
+                        const detail = r.message ? ` (${r.message})` : '';
+                        console.info(`[LiveActivity] not shown: ${r.reason ?? 'unknown'}${detail}`);
+                    }
+                },
                 (e: unknown) => {
                     done(false);
                     throw e;
@@ -135,12 +142,14 @@ export class LiveActivitySync {
             this.sent.snapshot = next;
         }
         this.clearTimer();
-        this.call(() => this.plugin.update(content(next)));
+        this.call('update', () => this.plugin.update(content(next)));
     }
 
-    // Live Activity が出せなくても録音には関わらないので、失敗は捨てる
-    private call(fn: () => Promise<unknown>) {
-        this.queue = this.queue.then(fn).catch(() => {});
+    // Live Activity が出せなくても録音には関わらないので、失敗は理由だけ出して続ける
+    private call(name: string, fn: () => Promise<unknown>) {
+        this.queue = this.queue.then(fn).catch((e: unknown) => {
+            console.warn(`[LiveActivity] ${name} failed: ${e instanceof Error ? e.message : String(e)}`);
+        });
     }
 
     private clearTimer() {

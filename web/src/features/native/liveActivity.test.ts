@@ -233,6 +233,63 @@ describe('LiveActivitySync', () => {
         expect(calls[2][1]).toMatchObject({ state: 'paused' });
     });
 
+    describe('出せなかった理由のログ（#462）', () => {
+        let info: ReturnType<typeof vi.spyOn>;
+        let warn: ReturnType<typeof vi.spyOn>;
+        beforeEach(() => {
+            info = vi.spyOn(console, 'info').mockImplementation(() => {});
+            warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        });
+        afterEach(() => {
+            info.mockRestore();
+            warn.mockRestore();
+        });
+
+        it('start が shown: false のとき、理由を [LiveActivity] で出す', async () => {
+            const { store, set } = makeStore();
+            const { plugin } = makePlugin();
+            plugin.start = async () => ({ shown: false, reason: 'request-failed', message: 'too many activities' });
+            new LiveActivitySync(store, plugin).start();
+            set({ recordingState: 'recording', recordingSessionId: 's1' });
+            await flush();
+            expect(info).toHaveBeenCalledWith('[LiveActivity] not shown: request-failed (too many activities)');
+        });
+
+        it('理由が付いていなくても（古いネイティブ）出す', async () => {
+            const { store, set } = makeStore();
+            const { plugin } = makePlugin();
+            plugin.start = async () => ({ shown: false });
+            new LiveActivitySync(store, plugin).start();
+            set({ recordingState: 'recording', recordingSessionId: 's1' });
+            await flush();
+            expect(info).toHaveBeenCalledWith('[LiveActivity] not shown: unknown');
+        });
+
+        it('プラグインが reject したとき、呼び出しの名前と理由を出す', async () => {
+            const { store, set } = makeStore();
+            const { plugin } = makePlugin();
+            plugin.start = async () => {
+                throw new Error('unavailable');
+            };
+            new LiveActivitySync(store, plugin).start();
+            set({ recordingState: 'recording', recordingSessionId: 's1' });
+            await flush();
+            expect(warn).toHaveBeenCalledWith('[LiveActivity] start failed: unavailable');
+        });
+
+        it('出せたときと毎回の update では何も出さない', async () => {
+            const { store, set } = makeStore();
+            const { plugin } = makePlugin();
+            new LiveActivitySync(store, plugin).start();
+            set({ recordingState: 'recording', recordingSessionId: 's1' });
+            set({ recordingState: 'paused' });
+            set({ recordingState: 'recording' });
+            await flush();
+            expect(info).not.toHaveBeenCalled();
+            expect(warn).not.toHaveBeenCalled();
+        });
+    });
+
     it('一時停止・再開はすぐ update し、経過時間だけの変化では送らない', async () => {
         const { store, set } = makeStore();
         const { plugin, calls } = makePlugin();
