@@ -10,11 +10,6 @@ import type { AppEntryPlugin } from '@/features/native/appEntryTypes';
 import { LiveActivitySync } from '@/features/native/liveActivitySync';
 import type { LiveActivityPlugin } from '@/features/native/liveActivityTypes';
 import type { MicInputPlugin } from '@/features/native/micInputTypes';
-import type { RecorderPlugin } from '@/features/native/recorderTypes';
-
-// 録音のプラグイン（mobile/ios/App/App/Recorder/。MainViewController が登録する）。
-// Proxy なので、Promise の結果にそのまま渡さない（then を呼ばれてネイティブのメソッドとして扱われる）
-export const Recorder = registerPlugin<RecorderPlugin>('Recorder');
 
 // Live Activity のプラグイン（mobile/ios/App/App/LiveActivity/。#453）
 const LiveActivity = registerPlugin<LiveActivityPlugin>('LiveActivity');
