@@ -59,6 +59,10 @@
 		A4540003000000000000001C /* StartRecordingControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4540001000000000000000C /* StartRecordingControl.swift */; };
 		A4540003000000000000002D /* HomeWidgetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4540001000000000000000D /* HomeWidgetTests.swift */; };
 		A4540003000000000000002E /* AppEntryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4540001000000000000000E /* AppEntryTests.swift */; };
+		A45800030000000000000001 /* PreferredInputChoice.swift in Sources */ = {isa = PBXBuildFile; fileRef = A45800010000000000000001 /* PreferredInputChoice.swift */; };
+		A45800030000000000000002 /* PreferredInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = A45800010000000000000002 /* PreferredInput.swift */; };
+		A45800030000000000000003 /* MicInputPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A45800010000000000000003 /* MicInputPlugin.swift */; };
+		A45800030000000000000004 /* PreferredInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A45800010000000000000004 /* PreferredInputTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -147,6 +151,10 @@
 		A4540001000000000000000D /* HomeWidgetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeWidgetTests.swift; sourceTree = "<group>"; };
 		A4540001000000000000000E /* AppEntryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEntryTests.swift; sourceTree = "<group>"; };
 		A4540001000000000000000F /* AppGroup.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AppGroup.entitlements; sourceTree = SOURCE_ROOT; };
+		A45800010000000000000001 /* PreferredInputChoice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferredInputChoice.swift; sourceTree = "<group>"; };
+		A45800010000000000000002 /* PreferredInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferredInput.swift; sourceTree = "<group>"; };
+		A45800010000000000000003 /* MicInputPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MicInputPlugin.swift; sourceTree = "<group>"; };
+		A45800010000000000000004 /* PreferredInputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferredInputTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -209,6 +217,7 @@
 				A45300020000000000000002 /* LiveActivity */,
 				A45400020000000000000001 /* AppEntry */,
 				A45400020000000000000002 /* HomeWidget */,
+				A45800020000000000000001 /* MicInput */,
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
@@ -264,6 +273,16 @@
 			path = HomeWidget;
 			sourceTree = "<group>";
 		};
+		A45800020000000000000001 /* MicInput */ = {
+			isa = PBXGroup;
+			children = (
+				A45800010000000000000003 /* MicInputPlugin.swift */,
+				A45800010000000000000002 /* PreferredInput.swift */,
+				A45800010000000000000001 /* PreferredInputChoice.swift */,
+			);
+			path = MicInput;
+			sourceTree = "<group>";
+		};
 		A45300020000000000000002 /* LiveActivity */ = {
 			isa = PBXGroup;
 			children = (
@@ -303,6 +322,7 @@
 				A4530001000000000000000C /* LiveActivityTests.swift */,
 				A4540001000000000000000D /* HomeWidgetTests.swift */,
 				A4540001000000000000000E /* AppEntryTests.swift */,
+				A45800010000000000000004 /* PreferredInputTests.swift */,
 			);
 			path = AppTests;
 			sourceTree = "<group>";
@@ -486,6 +506,9 @@
 				A45400030000000000000005 /* RecordingShortcuts.swift in Sources */,
 				A45400030000000000000006 /* HomeWidgetWriter.swift in Sources */,
 				A45400030000000000000007 /* HomeWidgetPreview.swift in Sources */,
+				A45800030000000000000001 /* PreferredInputChoice.swift in Sources */,
+				A45800030000000000000002 /* PreferredInput.swift in Sources */,
+				A45800030000000000000003 /* MicInputPlugin.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -502,6 +525,7 @@
 				A4530003000000000000000C /* LiveActivityTests.swift in Sources */,
 				A4540003000000000000002D /* HomeWidgetTests.swift in Sources */,
 				A4540003000000000000002E /* AppEntryTests.swift in Sources */,
+				A45800030000000000000004 /* PreferredInputTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

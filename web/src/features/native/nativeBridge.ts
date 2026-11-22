@@ -9,6 +9,7 @@ import { AppEntrySync } from '@/features/native/appEntrySync';
 import type { AppEntryPlugin } from '@/features/native/appEntryTypes';
 import { LiveActivitySync } from '@/features/native/liveActivitySync';
 import type { LiveActivityPlugin } from '@/features/native/liveActivityTypes';
+import type { MicInputPlugin } from '@/features/native/micInputTypes';
 import type { RecorderPlugin } from '@/features/native/recorderTypes';
 
 // 録音のプラグイン（mobile/ios/App/App/Recorder/。MainViewController が登録する）。
@@ -29,6 +30,14 @@ const AppEntry = registerPlugin<AppEntryPlugin>('AppEntry');
 // ウィジェット・App Intents からの録音の開始・セッションを開くを受け取り始める（spec/mobile.md 11.6）
 export function startAppEntry(store: AppStore) {
     new AppEntrySync(store, AppEntry).start();
+}
+
+// 録音に使うマイクのプラグイン（mobile/ios/App/App/MicInput/。#458）
+const MicInput = registerPlugin<MicInputPlugin>('MicInput');
+
+// 選んだマイクに iOS の入力を固定する（録音中にイヤホンをつないでも切り替わらないように。spec/mobile.md 11.7）。null は OS に任せる
+export async function setPreferredMicInput(label: string | null) {
+    await MicInput.setPreferredInput({ label });
 }
 
 // env(safe-area-inset-*) は viewport-fit=cover のときだけ値が入る。index.html の meta に付いているが、
