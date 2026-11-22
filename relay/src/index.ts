@@ -2,6 +2,7 @@
 //
 // 画面（web/dist）は静的アセットとして配る（wrangler.jsonc の assets）。ここに来るのは、
 // run_worker_first に書いたパス（/h/・/auth/・/me・/pair/・/healthz・/csp-report）だけ（登録の確認画面 /pair?code= は画面が出す）。
+import { appPreflight, setAppCors } from './appOrigin';
 import { handleAuth } from './auth';
 import { CSP_REPORT_PATH, handleCspReport } from './cspReport';
 import { handleMe } from './me';
@@ -33,6 +34,8 @@ export interface Env {
     // CSP の違反の報告（/csp-report。#253）の、接続元ごとの回数の制限（wrangler.jsonc の
     // ratelimits。上の段にもあるので wrangler dev でも効く）。束縛がないのは設定から外したときだけで、そのときは制限しない
     CSP_REPORT_LIMITER?: RateLimit;
+    // アプリに同梱した画面のオリジン（#440。カンマ区切り。appOrigin.ts）。空か、なければ許さない
+    APP_ORIGINS?: string;
 }
 
 export default {
@@ -45,7 +48,9 @@ export default {
         const startedAt = Date.now();
         let response: Response | undefined;
         try {
-            response = withSecurityHeaders(await route(request, env, path), path);
+            // アプリに同梱した画面（#440）からの CORS の preflight と、返事の CORS のヘッダー
+            const answer = appPreflight(request, env, path) ?? (await route(request, env, path));
+            response = withSecurityHeaders(answer, path, (headers) => setAppCors(headers, request, env, path));
             return response;
         } finally {
             recordHttp(env, request, response ?? new Response(null, { status: 500 }), startedAt);
@@ -74,12 +79,17 @@ async function route(request: Request, env: Env, path: string): Promise<Response
 }
 
 // Worker が答える応答に共通で付けるヘッダー（#166）。画面（静的アセット）は web/public/_headers で付ける。
-// アカウント・登録・ログインの返事はキャッシュさせない。WebSocket（101）はそのまま
-export function withSecurityHeaders(response: Response, path: string): Response {
+// アカウント・登録・ログインの返事はキャッシュさせない。WebSocket（101）はそのまま。extra はほかに付けるもの
+export function withSecurityHeaders(
+    response: Response,
+    path: string,
+    extra: (headers: Headers) => void = () => {},
+): Response {
     if (response.status === 101) {
         return response;
     }
     const set = (headers: Headers) => {
+        extra(headers);
         headers.set('X-Frame-Options', 'DENY');
         headers.set('X-Content-Type-Options', 'nosniff');
         headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');

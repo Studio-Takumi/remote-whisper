@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import { isDemo } from '@/api/demo';
-import { isCloud } from '@/api/endpoint';
+import { endpoint, isCloud } from '@/api/endpoint';
 import { AppSidebar } from '@/app/AppSidebar';
 import { DevPanel } from '@/app/DevPanel';
 import { PwaUpdater } from '@/app/PwaUpdater';
@@ -18,6 +18,7 @@ import { CloudEntry } from '@/features/cloud/CloudEntry';
 import { PairPage } from '@/features/cloud/PairPage';
 import { isReady, useCloudStore } from '@/features/cloud/cloud';
 import { pairingCode } from '@/features/cloud/pairing';
+import { AppEndpointSetup } from '@/features/native/AppEndpointSetup';
 import { NewProjectDialog } from '@/features/projects/NewProjectDialog';
 import { MicButton } from '@/features/recording/MicButton';
 import { UnsentAlert } from '@/features/recording/UnsentAlert';
@@ -30,6 +31,10 @@ import { SetupDialog } from '@/features/setup/SetupDialog';
 // セルフホスト版は常にそのまま出す。クラウド版の /pair?code=… は、ホストの登録の確認（#157）
 function App() {
     const ready = useCloudStore((s) => isReady(s.cloud));
+    // 画面をアプリに同梱していて、接続先がまだ決まっていない（#440）。ブラウザ版では常に false
+    if (endpoint.unset) {
+        return <AppEndpointSetup />;
+    }
     const code = isCloud ? pairingCode(location) : null;
     if (code !== null) {
         return <PairPage code={code} />;

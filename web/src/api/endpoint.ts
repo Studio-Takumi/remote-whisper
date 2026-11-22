@@ -1,5 +1,9 @@
 // API・WebSocket の URL を組み立てる唯一の場所（#156。spec/cloud.md 10.2・10.4）。
-// ほかの場所では /api や /ws を自分で組み立てず、ここを通す
+// ほかの場所では /api や /ws を自分で組み立てず、ここを通す。
+// ブラウザ版（iOS アプリの server.url も）は、画面と同じオリジンの相対 URL。画面をアプリに同梱したとき
+// （#440。spec/mobile.md 11.9）だけ、保存した接続先（appEndpoint.ts）の絶対 URL にする
+import { type AppEndpoint, loadAppEndpoint } from '@/features/native/appEndpoint';
+import { isNativeApp } from '@/features/native/nativePlatform';
 
 export type Mode = 'cloud' | 'direct';
 
@@ -17,7 +21,38 @@ export function detectMode(hostname: string, cloudHosts: string[]): Mode {
     return cloudHosts.includes(hostname.toLowerCase()) ? 'cloud' : 'direct';
 }
 
-export const mode: Mode = detectMode(location.hostname, parseCloudHosts(import.meta.env.VITE_CLOUD_HOSTS));
+// 接続先。base は URL の前に付けるオリジン（https://pc.example:8443）で、'' は画面と同じオリジン（相対 URL）。
+// unset は、同梱した画面で接続先がまだ決まっていないとき（App が接続先の画面を出す）
+export type Endpoint = { base: string; mode: Mode; unset: boolean };
+
+// 画面をアプリに同梱しているか。アプリの中で、画面が http(s) で開かれていない（capacitor://localhost）とき。
+// server.url で開いたときは http(s) なので、ブラウザ版と同じに扱う
+export function isBundled(where: { protocol: string }, native: boolean): boolean {
+    return native && where.protocol !== 'http:' && where.protocol !== 'https:';
+}
+
+// 同梱していなければ、画面のホスト名でモードを決める（今まで通り）。同梱していれば、保存した接続先の
+// URL を使い、モードは画面のホスト名ではなく、その URL のホスト名から決める（保存した値は信じない）
+export function resolveEndpoint(
+    hostname: string,
+    cloudHosts: string[],
+    bundled: { saved: AppEndpoint | null } | null,
+): Endpoint {
+    if (!bundled) {
+        return { base: '', mode: detectMode(hostname, cloudHosts), unset: false };
+    }
+    if (!bundled.saved) {
+        return { base: '', mode: 'direct', unset: true };
+    }
+    const url = bundled.saved.url;
+    return { base: url, mode: detectMode(new URL(url).hostname, cloudHosts), unset: false };
+}
+
+const cloudHosts = parseCloudHosts(import.meta.env.VITE_CLOUD_HOSTS);
+// 保存した接続先は、同梱しているときだけ読む
+export const bundled = isBundled(location, isNativeApp());
+export const endpoint = resolveEndpoint(location.hostname, cloudHosts, bundled ? { saved: loadAppEndpoint() } : null);
+export const mode: Mode = endpoint.mode;
 export const isCloud = mode === 'cloud';
 
 // 今つないでいるホスト（クラウド版のみ）。setHostId は cloud.ts の dispatch からだけ呼ぶ（ほかから直接呼ばない）
@@ -43,13 +78,18 @@ function hostPrefix(m: Mode, hostId: string | null) {
 }
 
 // path は /api/... の形。ホストに届く API の URL にする
-export function apiUrl(path: string, m: Mode = mode, hostId: string | null = currentHostId) {
-    return hostPrefix(m, hostId) + path;
+export function apiUrl(path: string, m: Mode = mode, hostId: string | null = currentHostId, base = endpoint.base) {
+    return base + hostPrefix(m, hostId) + path;
 }
 
-// WebSocket の URL。protocol は location.protocol（http: / https:）
+// WebSocket の URL を組み立てる元。接続先の URL があればそれ、なければ画面の location
+export function wsOrigin(base = endpoint.base): { protocol: string; host: string } {
+    return base ? new URL(base) : location;
+}
+
+// WebSocket の URL。protocol は http: / https:
 export function wsUrl(
-    where: { protocol: string; host: string } = location,
+    where: { protocol: string; host: string } = wsOrigin(),
     m: Mode = mode,
     hostId: string | null = currentHostId,
 ) {
@@ -59,9 +99,12 @@ export function wsUrl(
 
 // --- ホストに属さないパス（クラウド版の Worker が答える。セルフホスト版では使わない） ---
 
-export const authLoginUrl = (provider: string) => `/auth/login/${encodeURIComponent(provider)}`;
-export const authLogoutUrl = () => '/auth/logout';
-export const meUrl = (path = '') => `/me${path}`;
+// path は /me などの形
+export const workerUrl = (path: string, base = endpoint.base) => base + path;
+
+export const authLoginUrl = (provider: string) => workerUrl(`/auth/login/${encodeURIComponent(provider)}`);
+export const authLogoutUrl = () => workerUrl('/auth/logout');
+export const meUrl = (path = '') => workerUrl(`/me${path}`);
 // ホストの登録（#157）。確認の画面の API
-export const pairUrl = (path: string) => `/pair/${path}`;
-export const healthzUrl = () => '/healthz';
+export const pairUrl = (path: string) => workerUrl(`/pair/${path}`);
+export const healthzUrl = () => workerUrl('/healthz');

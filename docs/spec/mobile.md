@@ -18,7 +18,7 @@ iOS の PWA は、画面ロック中やバックグラウンドで録音を続�
 - アプリは画面を持たず、セルフホスト版の画面（ホストの FastAPI が配信する `web/dist`）を Capacitor の `server.url` でそのまま開く。web/ のコピーは作らない
   - `webDir` は `../web/dist` を指す。表示には使わないが `cap sync` が要る
   - 開いた画面は普通のブラウザと同じく `/api/...`・`/ws` を同じオリジンで使う。iOS アプリのための API は足さない
-- URL はリポジトリに入れない（公開しているため）。環境変数 `RW_SERVER_URL` か、Git に入れない `mobile/.env.local` から `capacitor.config.ts` が読み、`cap sync` のときにアプリの中の設定に書く。ないときは同梱の `web/dist` を開くだけになる（警告を出す）
+- URL はリポジトリに入れない（公開しているため）。環境変数 `RW_SERVER_URL` か、Git に入れない `mobile/.env.local` から `capacitor.config.ts` が読み、`cap sync` のときにアプリの中の設定に書く。ないときは同梱の `web/dist` を開く（警告を出す）。そのときは画面のオリジンが `capacitor://localhost` になり、接続先の画面が出る（11.9 節）
 - 本番の URL は Tailscale の https の前提。http を開ける ATS の例外は **Debug のビルドだけ** に足す（ビルドの途中で、できあがった Info.plist に `NSAllowsLocalNetworking` を足す。開けるのはローカルの宛先だけ）。開発用の Vite（`http://localhost:5190`）をシミュレーターで開くのに使う
 - 署名の個人の値（Team ID・自分用の Bundle ID）は、Git に入れない `ios/App/Local.xcconfig` に書く。`project.pbxproj` には入れない
 - safe area（ノッチ・ステータスバーの領域）：アプリの中で開くと上のバーがステータスバーに重なっていた（PR1。WebView の `contentInset` では fixed の要素は動かないので直らない）。web/ 側で、アプリの中でだけ `env(safe-area-inset-*)` の余白を当てて直した（11.4 節）
@@ -298,3 +298,45 @@ JS 向けの API（`AppEntry`。型は `web/src/features/native/appEntryTypes.ts
 - server のテスト（`test_uuids.py`）：`/`・`/index.html`・SPA の fallback に `no-cache`、304 にも付くこと、`/assets/*` には付かないこと
 - web のテスト（`staleScreenReload.test.ts`）：ブラウザでは何も読み込まないこと、版が違う・同じ・参加中・ack 待ち・アップロード中・確認待ち・モーダル・入力中・録音を終えた直後・切れている間に止めたとき・クラウド版・`unknown`/`+dirty`・hidden・sessionStorage が使えない・前面に戻ったとき・同じ版で繰り返さないこと
 - 実機：アプリを開いたまま本番を更新 → 裏に回して戻す → 新しい画面になること
+
+## 11.9 画面の同梱（案B）への準備（#440）
+
+今のアプリは、ホストの画面を `server.url` で開く（案A。11.2 節）。将来、画面（`web/dist`）をアプリに同梱して開く（案B）ための準備だけをした。**まだ同梱には切り替えていない**。`server.url` で開いている間は、何も変わらない。
+
+同梱すると画面のオリジンが `capacitor://localhost` になり、ホストと別のオリジンになる。そのため、API・WebSocket の URL を絶対 URL で組み立て、ホストと中間サーバー（relay）がこのオリジンを受け付ける必要がある。
+
+### 見分け方と接続先
+
+- **同梱しているのは、アプリの中（`isNativeApp()`）で、画面が http(s) で開かれていないとき**（`web/src/api/endpoint.ts` の `isBundled`）。`server.url` で開いたときは http(s) なので、ブラウザ版と同じに扱う
+- 接続先（ホストかクラウド版の URL。パスのないオリジン）は、同梱しているときだけ `localStorage` の `remote-whisper.appEndpoint`（`{ url }`）から読む（`web/src/features/native/appEndpoint.ts`）。起動の最初に同期で決める必要があるので、`nativeBridge` の dynamic import ではなく、`isNativeApp()` で分けた同期の読み出しにしている
+- **モード（`direct`・`cloud`）は、同梱しているときは画面のホスト名ではなく、接続先の URL のホスト名で決める**（`resolveEndpoint`。クラウド用のドメイン `VITE_CLOUD_HOSTS` ならクラウド版）。モードは保存せず、読むたびに URL から決め直す（保存された値は信じない。書き換えられた値や、クラウド用のドメインの設定を変えたときに食い違わないように）。同梱していなければ、今まで通り画面のホスト名で決める
+- URL は `endpoint.ts` の `apiUrl`・`wsUrl`・`workerUrl`（と、それを使う `meUrl` など）で組み立てる。接続先がないとき（ブラウザ版・`server.url`）は、前と同じ相対 URL（WebSocket は画面の `location` から）。接続先があれば、その前に付けた絶対 URL（`https:` なら `wss:`）
+  - 通しているもの：REST API（`api.ts`）・WebSocket（`connection.ts`）・アップロード（`upload.ts`）・セッションの音声（`SessionView`）・設定の選択肢（`options.ts`）・開発用のパネル・クラウド版のアカウント（`/me`・`/auth`）・登録（`/pair`）・録音の計測（`sendBeacon`）・お知らせ（`announcements.json`）
+  - **お知らせ（`announcements.json`）と `/healthz` は、URL は組み立てるが、同梱した画面からはまだ読めない**。中間サーバーが CORS を付けるのは `/h/` と `/me` だけで、`announcements.json` は Workers の静的アセット（`web/public/_headers`）、`/healthz` は画面から使っていないため。お知らせは取れなければ出さない（今までの失敗したときと同じ）ので、画面は壊れない。同梱に切り替えるとき（#441 のあと）に、要るものだけ CORS を足す
+
+### 接続先の画面
+
+- 同梱していて接続先がまだないときだけ、App がアプリの画面の代わりに「接続先」の画面（`AppEndpointSetup.tsx`）を出す。URL を入れて「つなぐ」で保存し、読み込み直す。`https://` を省くと `https://` にする。http(s) 以外・ユーザー名やパスワード・パス・`?`・`#` の付いた URL は受け付けない
+- 設定のモーダルの左下（バージョンの下）に、今の接続先と「変える」を出す（同梱しているときだけ）。「変える」で保存を消して読み込み直し、接続先の画面に戻る
+- ブラウザ版と `server.url` では、どちらも出さない（部品は最初のチャンクに入るが、描画しない。`lazy` にしないのは 11.4 節と同じ理由）
+
+### ホストと中間サーバー
+
+- **ホスト（8000 番）**：Origin の確認（api.md 7.5 節）で `capacitor://localhost` を許し、このオリジンにだけ CORS を返す（`APP_ORIGINS`。資格情報なし・preflight あり）。ブラウザの画面はこのオリジンにならないので、ほかのサイトからの CSWSH・DNS rebinding には使えない。8000 番は Cookie を使わないので、設定で止める項目は作っていない
+- **中間サーバー**：`APP_ORIGINS`（wrangler の vars。カンマ区切り）にあるオリジンにだけ、`/h/` と `/me` で CORS を返す（資格情報なし。`Access-Control-Allow-Credentials` を付けない）。`/h/` と `/me` の返事には、オリジンに関係なく `Vary: Origin` を付ける（キャッシュを分けるため）。空にすれば止まる。**このオリジンからのリクエストでは、ログインセッションの Cookie を読まない**（ログインしていない扱い）。状態を変えるリクエストと WebSocket の Origin の確認（cloud.md 10.7 節）は変えていないので、Cookie で認める経路は前と同じく自分のオリジンの画面だけ
+- `ionic://localhost` は許していない（Capacitor の iOS の既定は `capacitor://`。`iosScheme` を変えていない）
+
+### 残っていること
+
+- 同梱したときのクラウド版のログイン（システムのログイン画面とトークン）は #441。それまでは、同梱した画面からクラウド版にはログインできない
+  - #441 への申し送り：トークンの認可は relay の中で終わらせる（`authorization` はホストに渡さず落とす今の動きのまま。ホストに渡すのは署名だけ）。`/h/` の WebSocket と GET 以外に掛けている `sameOrigin` の確認は、アプリのオリジンを「トークンがあるときだけ」通すように分け、Cookie の経路には混ぜない（preflight の `Access-Control-Allow-Headers` にはもう `Authorization` がある）
+- 実機の WKWebView で、`capacitor://localhost` から http（Tailscale でない LAN）のホストにつなげるか（ATS・混在コンテンツ）は、同梱に切り替えるときに確かめる
+- 同梱した画面の service worker（PWA の更新）・通知・画面の URL（`/s/<UUID>` など）の扱いは、同梱に切り替えるときに決める。11.8 節の読み込み直しは、同梱した画面ではアプリを更新しない限り版がそろわない（同じ版で繰り返さないので読み込み直しは続かない）ので、同梱に切り替えるときに見直す
+
+### 確かめ方
+
+- web のテスト（vitest）：`endpoint.test.ts`（同梱の見分け方・モードを接続先の URL で決める・絶対 URL の組み立て・ブラウザ版は相対 URL のまま）、`appEndpoint.test.ts`（URL のそろえ方・保存と読み出し・保存されたモードを読まない・壊れた値）、`AppEndpointSetup.test.tsx`（接続先の画面・設定の接続先がブラウザ版では出ないこと）
+- server のテスト（`test_host_check.py`）：`capacitor://localhost` からの API・WebSocket・preflight が通り、CORS に資格情報が付かないこと。ほかのオリジン（`capacitor://evil.example`・`ionic://localhost` を含む）は前と同じく 403 で、CORS も付かないこと
+- relay のテスト（`appOrigin.test.ts`）：preflight と返事の CORS、`/h/`・`/me` の `Vary: Origin`、Cookie があってもログインしていない扱いになること（`/me`・`/h/` の API と WebSocket・`/pair` の確認と承認）、ほかのオリジン・ほかのパスには付かないこと
+- server のテスト：許していない `Host` に `Origin: capacitor://localhost` を付けても 403（Host の確認は省かない）
+- ブラウザ版が変わっていないこと：`npm run build` の前後で最初に読むファイル（`index.html` が読む JS・CSS）とチャンクの並びが同じこと。Playwright で PC・スマホの幅、ライト・ダークの最初の画面・サイドバー・設定モーダルを撮り、ピクセルで比べる

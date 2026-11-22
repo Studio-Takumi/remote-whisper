@@ -3,9 +3,10 @@
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from remote_whisper.desktop.ports import INSTANCE_ID
-from remote_whisper.host_check import HostCheckMiddleware
+from remote_whisper.host_check import APP_ORIGINS, HostCheckMiddleware
 from remote_whisper.lifecycle import make_lifespan
 from remote_whisper.mock import MockTiming
 from remote_whisper.request_log import log_requests
@@ -52,6 +53,17 @@ def create_app(
     app.state.cloudflared = None
 
     app.middleware("http")(log_requests)
+    # アプリに同梱した画面（capacitor://localhost。#440）からの API の CORS。Host・Origin の
+    # 確認の内側に置く（ほかのオリジンは、ここに来る前に断られる）。Cookie を使わないので
+    # 資格情報は許さない
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=list(APP_ORIGINS),
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+        allow_headers=["Content-Type"],
+        allow_credentials=False,
+        max_age=600,
+    )
     # Host・Origin の確認（#249）。一番外に置き、ほかのサイトからのリクエストは何もさせずに断る。
     # トンネル（8001 番）からのものは見ない
     app.add_middleware(

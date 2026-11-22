@@ -5,6 +5,7 @@
 // - /auth/logout（POST）: ログインセッションを消す
 // 1 人が複数の手段でログインしても 1 人のユーザーにまとめる。同じプロバイダの同じ ID なら同じユーザー。
 // メールアドレスで自動に紐付けはしない（足すのは、ログインしている状態で設定から: ?link=1）
+import { isAppOrigin } from './appOrigin';
 import {
     base64url,
     clearSessionCookie,
@@ -39,8 +40,12 @@ function callbackUrl(request: Request, provider: Provider): string {
     return `${new URL(request.url).origin}/auth/callback/${provider}`;
 }
 
-// ログインしているユーザー（Cookie のログインセッションから）。いなければ null
+// ログインしているユーザー（Cookie のログインセッションから）。いなければ null。
+// アプリに同梱した画面のオリジン（#440）からのものは Cookie を読まない（Cookie で認めるのは自分のオリジンの画面だけ）
 export async function currentUser(request: Request, env: Env): Promise<SessionUser | null> {
+    if (isAppOrigin(request, env)) {
+        return null;
+    }
     const token = getCookie(request, SESSION_COOKIE);
     if (!token) {
         return null;
