@@ -138,6 +138,23 @@ describe('SessionView のタブの置き場（#463）', () => {
         delete window.matchMedia;
     });
 
+    it('高さの足りない画面でも、マイクの警告は上のバーに残す', () => {
+        window.matchMedia = ((query: string) => ({
+            matches: true,
+            media: query,
+            addEventListener() {},
+            removeEventListener() {},
+        })) as unknown as typeof window.matchMedia;
+        useAppStore.setState({ recordingState: 'recording', micState: 'ended' });
+        const slot = document.createElement('div');
+        document.body.append(slot);
+        draw({ current: session(), stickySlot: slot });
+        expect(slot.contains(screen.getByRole('alert'))).toBe(true);
+        slot.remove();
+        // @ts-expect-error jsdom には元からない
+        delete window.matchMedia;
+    });
+
     it('置き場がまだなければ、タブは出さない', () => {
         draw({ current: session(), stickySlot: null });
         expect(screen.queryByRole('tab', { name: '要約' })).toBeNull();

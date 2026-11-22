@@ -117,10 +117,9 @@ export function SessionView({ stickySlot }: { stickySlot?: HTMLElement | null })
         setPlayback((p) => nextPlayback(p, session.id, index, playing, seeked));
     };
 
-    // マイクの警告・再生バー・お知らせ。ふつうは上のバーの中、高さの足りない画面では本文の頭
+    // 再生バー・お知らせ。ふつうは上のバーの中、高さの足りない画面では本文の頭
     const extras: ReactNode = (
         <>
-            <MicAlert />
             {recordingUrl && (
                 <RecordingPlayer
                     src={recordingUrl}
@@ -162,6 +161,8 @@ export function SessionView({ stickySlot }: { stickySlot?: HTMLElement | null })
                     <TabsTrigger value='summary'>要約</TabsTrigger>
                 </TabsList>
             </div>
+            {/* マイクの警告は録音の失敗に関わるので、高さの足りない画面でも上のバーに残す */}
+            <MicAlert />
             {!shortScreen && extras}
         </>
     );
