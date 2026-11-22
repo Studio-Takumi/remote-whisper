@@ -144,7 +144,13 @@ describe('LiveActivitySync', () => {
             ['end'],
             [
                 'start',
-                { sessionId: 's1', state: 'recording', elapsed: 3, title: '情報理論 第8回', lines: ['b', 'c', 'd'] },
+                {
+                    sessionId: 's1',
+                    state: 'recording',
+                    elapsed: 3,
+                    title: '情報理論 第8回',
+                    lines: ['a', 'b', 'c', 'd'],
+                },
             ],
             ['end'],
         ]);
@@ -263,6 +269,21 @@ describe('LiveActivitySync', () => {
         await vi.advanceTimersByTimeAsync(1);
         expect(calls.map((c) => c[0])).toEqual(['end', 'start', 'update']);
         expect(calls[2][1]).toMatchObject({ lines: ['a', 'b', 'c'], title: '仮のタイトル' });
+    });
+
+    it('文字起こしは、新しいほうから最大 12 区切りを送る（つなげて折り返すのは Swift）', async () => {
+        const all = Array.from({ length: 15 }, (_, i) => `s${i}`);
+        const { store, set } = makeStore();
+        const { plugin, calls } = makePlugin();
+        new LiveActivitySync(store, plugin).start();
+        set({
+            recordingState: 'recording',
+            recordingSessionId: 's1',
+            localSessions: [{ projectId: 'p', session: session(all) }],
+        });
+        await flush();
+        const start = calls.find((c) => c[0] === 'start');
+        expect((start?.[1] as { lines: string[] }).lines).toEqual(all.slice(-12));
     });
 
     it('止めたら、待っていた行の更新は送らない', async () => {
