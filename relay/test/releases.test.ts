@@ -113,7 +113,17 @@ describe('GET /releases/latest', () => {
         expect((await check()).status).toBe(404);
     });
 
-    it('GET・HEAD のほかは 405', async () => {
+    it('502 もキャッシュから返し、5 分のあいだは GitHub に聞き直さない', async () => {
+        github = () => new Response('rate limited', { status: 403 });
+        expect((await check()).status).toBe(502);
+        github = () => Response.json([release('v1.1.0')]);
+        expect((await check()).status).toBe(502);
+        expect(spy).toHaveBeenCalledTimes(1);
+    });
+
+    it('HEAD にも答える。GET・HEAD のほかは 405', async () => {
+        const head = await worker.fetch(new Request(`${ORIGIN}/releases/latest`, { method: 'HEAD' }), env);
+        expect(head.status).toBe(200);
         const res = await worker.fetch(new Request(`${ORIGIN}/releases/latest`, { method: 'POST' }), env);
         expect(res.status).toBe(405);
     });

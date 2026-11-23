@@ -106,19 +106,27 @@ export function cacheKey(request: Request): Request {
     return new Request(new URL(RELEASES_PATH, request.url).toString());
 }
 
+// キャッシュには 200 として置き、元のステータスをこのヘッダーに残す（Cache API は 404・502 を置かないことがあるため）
+const CACHED_STATUS = 'X-RW-Cached-Status';
+
 async function latestRelease(request: Request): Promise<Response> {
     const key = cacheKey(request);
     try {
         const hit = await caches.default.match(key);
         if (hit) {
-            return hit;
+            const status = Number(hit.headers.get(CACHED_STATUS) ?? '200');
+            const headers = new Headers(hit.headers);
+            headers.delete(CACHED_STATUS);
+            return new Response(hit.body, { status, headers });
         }
     } catch (e) {
         console.warn(`cache: ${(e as Error).message}`);
     }
     const response = await fromGitHub();
     try {
-        await caches.default.put(key, response.clone());
+        const headers = new Headers(response.headers);
+        headers.set(CACHED_STATUS, String(response.status));
+        await caches.default.put(key, new Response(response.clone().body, { status: 200, headers }));
     } catch (e) {
         console.warn(`cache: ${(e as Error).message}`);
     }
