@@ -356,14 +356,18 @@ JS 向けの API（`AppEntry`。型は `web/src/features/native/appEntryTypes.ts
 
 - 画面のオリジンは中間サーバーそのもの。`ASWebAuthenticationSession` の Cookie は WKWebView と共有されないので、ログインしても WebView の Cookie は付かない。**同梱と同じく、アプリの中のクラウド版はトークンとチケットを使う**（中間サーバーは自分のオリジンからのトークンも通す）。これで `server.url` のままでも、Google でアプリからログインできる
 - トークンがないとき（まだアプリでログインしていない）は、何も付けない。WebView に前からの Cookie があれば、今まで通りそれで使える
+  - そのため、WebView に前からのログインの Cookie が残っていると、端末を（ブラウザから）外してトークンが消えても、ログインの画面に戻らずに Cookie のアカウントで使い続ける。Cookie のログインセッションも止めたいときは、アカウントの画面の「ログアウト」（Cookie のログアウトも呼ぶ）か「すべての端末からログアウト」を使う
 - トークンを WebView の Cookie に替える方法は、Cookie の経路にアプリのログインを混ぜることになるので採らない
 
 ### トークンの持ち方（Swift。`mobile/ios/App/App/AppAuth/`）
 
 - `AppAuthPlugin`：JS との受け渡しだけ。`LoginSheet`（`ASWebAuthenticationSession`）と `AppAuthSession` を持つ（継承は CAPPlugin の 1 段だけ）
 - `AppAuthSession`（actor）：トークンを持ち、アクセストークンの期限まで 60 秒を切っていたら更新してから渡す。同じオリジンの更新は 1 つずつ（更新トークンは使うたびに替わるため）。断られた（401 など）ら手元のトークンを消し、つながらないときは消さない（あとでまた試す）。更新トークンの期限が切れていれば、中間サーバーを呼ばずに消す
-- `KeychainTokenStore`：中間サーバーのオリジンごとに 1 つ。`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`（この端末だけ・iCloud のキーチェーンに入れない・画面ロック中の録音でもつなぎ直すときに読める）
-- `RelayOrigin`：トークンを使う先は `https://` のオリジンだけ（開発用に `http://localhost`・`http://127.0.0.1` も）。パス・クエリ・ユーザー名の付いたものは断る
+  - **更新と、ログアウト・忘れる・ログインし直すが重なったとき**：actor は await のところで割り込まれるので、更新の途中にログアウトが来ると、古いトークンを消したあとで更新の結果が書き戻されることがある。そこで `logout`・`forget`・`completeLogin` は、進行中の更新が終わるのを待ってから読み書きし、オリジンごとの世代の番号を進める。世代が変わったあとに終わった更新・コードの引き換えは結果を置かず、その新しい更新トークンで中間サーバーの端末も消す
+- `KeychainTokenStore`：中間サーバーのオリジンごとに 1 つ。`kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`（この端末だけ・iCloud のキーチェーンに入れない・画面ロック中の録音でもつなぎ直すときに読める）。置くときは書き換え（`SecItemUpdate`）を先に試し、なければ足す（消してから足すと、その間に失敗したときにトークンを失うため）
+  - iOS の Keychain はアプリを消しても残る。入れ直して初めて起動したとき（UserDefaults の印がないとき）に、前のトークンを全部消す（入れ直したらログインし直す）
+- `RelayOrigin`：トークンを使う先は、クラウド版のホスト（`cloudHosts`。本番と staging。web の `VITE_CLOUD_HOSTS` の既定と同じ）の `https://` だけ。JS が渡した `origin` をそのまま信じない（多層防御）。開発用の `localhost`・`127.0.0.1` は Debug のビルドだけ。パス・クエリ・ユーザー名の付いたものは断る。クラウド版のドメインを変えるときは、web の `VITE_CLOUD_HOSTS` と一緒に変える
+- ログインの画面を出している間にもう一度 `login` が呼ばれたら `busy` で断る（web はボタンを押せなくしている）
 - **web に渡すのはアクセストークン（1 時間）だけ**。更新トークンは Swift と Keychain の外に出さない
 - 端末の名前は `UIDevice.current.name`（iOS 16 からは機種名だけ）
 
@@ -371,7 +375,7 @@ JS 向けの API（`AppEntry`。型は `web/src/features/native/appEntryTypes.ts
 
 | メソッド | 中身 |
 |---|---|
-| `login({ origin, provider })` | ログイン画面を出してトークンを置く。やめたら `code: 'canceled'` で reject、ほかの失敗は `failed` |
+| `login({ origin, provider })` | ログイン画面を出してトークンを置く。やめたら `code: 'canceled'`、ログインの最中なら `busy`、ほかの失敗は `failed` で reject。`origin` がクラウド版のホストでなければ `bad-origin` |
 | `accessToken({ origin })` | `{ token: string \| null }`。期限が近ければ更新してから。ログインしていなければ `null` |
 | `logout({ origin })` | 中間サーバーのこの端末を消し（失敗しても）、手元のトークンを消す |
 | `forget({ origin })` | 手元のトークンだけを消す（すべての端末からログアウト・退会のあと。中間サーバーではもう消えている） |
@@ -380,11 +384,12 @@ JS 向けの API（`AppEntry`。型は `web/src/features/native/appEntryTypes.ts
 
 - **アプリの中（`isNativeApp()`）で、クラウド版につないでいるときだけ**（`appAuthActive`。デモは除く）。ブラウザ版・セルフホスト版では何もしない（`withAppAuth` は受け取った init をそのまま同期で返す・ネイティブのコードも読み込まない）。最初に読むファイルとチャンクの並びは変わらない
 - `origin` は、同梱していれば接続先（`endpoint.base`）、`server.url` なら画面のオリジン
+- **送り先が中間サーバー（`origin`）のときだけ**、トークン・チケットを付ける（`isRelayUrl`。WebSocket はホスト名とポートで比べる）。ほかのオリジンへの fetch には付けない
 - REST（`api.ts`・`options.ts`）・中間サーバーの API（`account.ts` の `request`。`/me`・ホスト・端末・同意・`/pair`）：`Authorization: Bearer <アクセストークン>`
 - アップロード（XMLHttpRequest）：トークンを取ってから `Authorization` を付けて送る
 - WebSocket（`connection.ts`）：つなぐたびに `POST /me/tickets`（`kind: "ws"`）で一度だけのチケットを作り、`?rw_ticket=` に付ける。作れなければ付けずにつなぐ（中間サーバーが断り、いつものつなぎ直しを待つ）
 - 録音の再生（`RecordingPlayer`）：`<audio>` はヘッダーを付けられないので、そのパスの `media` のチケット（1 時間）を付けた URL にしてから読む。残りが 10 分を切るまで使い回す
-- 録音の計測：`sendBeacon` はヘッダーを付けられないので、トークンがあれば `fetch`（`keepalive`）で送る
+- 録音の計測：`sendBeacon` はヘッダーを付けられないので、トークンがあれば `fetch`（`keepalive`）で送る。画面を閉じるとき（pagehide）は、ネイティブの往復を待つと間に合わないので、直前に受け取ったアクセストークン（メモリだけ。50 分まで）でその場で送る。それでも、画面の読み込み直し・アプリの終了と重なると落ちやすい（ブラウザ版の `sendBeacon` より届きにくい。計測なので、落ちても画面は困らない）
 - ログアウト：先にアプリのトークンを消し（`AppAuth.logout`）、Cookie のログアウトも呼ぶ（WebView に前からの Cookie があるときのため）。すべての端末からログアウト・退会のあとは `AppAuth.forget`
 - アカウントの画面：アプリの中では「〜を足す」（ログイン手段を足す）を出さない（Cookie のログインセッションが要るため）。代わりに「ブラウザで開いたときにできます」と出す
 - アカウントの画面の「アプリの端末」（`DevicesSection`）：アプリでログインした端末の一覧と「外す」（ブラウザからも出る。端末がなければ何も出さない）。今の端末には「この端末」と出し、外すボタンは出さない（ログアウトを使う）
@@ -395,7 +400,7 @@ JS 向けの API（`AppEntry`。型は `web/src/features/native/appEntryTypes.ts
 
 ### 確かめ方
 
-- Swift のテスト（`AppAuthTests`。`xcodebuild test`）：PKCE の challenge（RFC 7636 の値）・ログインの URL に verifier を載せないこと・戻ってきた URL の state の確認・`RelayOrigin` の形・コードの引き換え・期限の前の更新・同時の更新は 1 回・断られたら消す・つながらなければ残す・ログアウトはつながらなくても消す
-- web のテスト：`api/appAuth.test.ts`（ブラウザ版・セルフホスト版では何もしないこと、アプリの中ではトークン・チケットを付けること）、`features/cloud/appLogin.test.tsx`（ログインのボタン・アプリの端末）
+- Swift のテスト（`AppAuthTests`。`xcodebuild test`）：PKCE の challenge（RFC 7636 の値）・ログインの URL に verifier を載せないこと・戻ってきた URL の state の確認・`RelayOrigin` の形・コードの引き換え・期限の前の更新・同時の更新は 1 回・断られたら消す・つながらなければ残す・ログアウトはつながらなくても消す・クラウド版のホストだけ・更新の途中のログアウト・忘れる・ログインし直す、とコードの引き換えの途中の取り消し
+- web のテスト：`api/appAuth.test.ts`（ブラウザ版・セルフホスト版では何もしないこと、アプリの中ではトークン・チケットを付けること、中間サーバーでない送り先には付けないこと）、`api/appAuthCallers.test.ts`（ログアウト・すべての端末からログアウト・退会のあとのトークンの片付け、アップロードの `Authorization`、WebSocket のチケット）、`recordingMetrics.test.ts`（headers があれば sendBeacon でなく fetch）、`features/cloud/appLogin.test.tsx`（ログインのボタン・アプリの端末）
 - relay のテスト：`relay/test/appAuth.test.ts`（cloud.md 10.7 節）
-- 実機：アプリで「Google でログイン」→ システムのログイン画面 → アプリに戻ってログインしている → 録音・セッションの音声の再生 → アカウントの画面の「アプリの端末」にこの端末が出る → ブラウザから外すと、アプリはログインの画面に戻る
+- 実機：アプリで「Google でログイン」→ システムのログイン画面 → アプリに戻ってログインしている → 録音・セッションの音声の再生 → アカウントの画面の「アプリの端末」にこの端末が出る → ブラウザから外すと、アプリはログインの画面に戻る（WebView に前からの Cookie がなければ）
