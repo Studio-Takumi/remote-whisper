@@ -159,7 +159,13 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           RAW_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          CLOUDFLARE_ACCOUNT_ID="$(printf '%s' "$RAW_ACCOUNT_ID" | tr -cd '0-9a-fA-F')" npx wrangler deploy --env "$TARGET"
+          # relay 自身の版（v1.1.0+abc1234）を渡す。/releases/latest が最新の版として返す（#477）。取れなければ渡さない
+          VERSION="$(node ../web/scripts/app-version.mjs || true)"
+          VAR_ARGS=()
+          if [ -n "$VERSION" ] && [ "$VERSION" != "unknown" ]; then
+            VAR_ARGS=(--var "APP_VERSION:$VERSION")
+          fi
+          CLOUDFLARE_ACCOUNT_ID="$(printf '%s' "$RAW_ACCOUNT_ID" | tr -cd '0-9a-fA-F')" npx wrangler deploy --env "$TARGET" "${VAR_ARGS[@]}"
 
       # 反映まで少しかかることがあるので、何回か試す
       - name: Health check
