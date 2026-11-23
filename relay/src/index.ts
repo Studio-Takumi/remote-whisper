@@ -1,13 +1,14 @@
 // クラウド版の中間サーバー（Cloudflare Workers）。仕様書 spec/cloud.md 10 章
 //
 // 画面（web/dist）は静的アセットとして配る（wrangler.jsonc の assets）。ここに来るのは、
-// run_worker_first に書いたパス（/h/・/auth/・/me・/pair/・/healthz・/csp-report）だけ（登録の確認画面 /pair?code= は画面が出す）。
+// run_worker_first に書いたパス（/h/・/auth/・/me・/pair/・/healthz・/csp-report・/releases/）だけ（登録の確認画面 /pair?code= は画面が出す）。
 import { appPreflight, setAppCors } from './appOrigin';
 import { handleAuth } from './auth';
 import { CSP_REPORT_PATH, handleCspReport } from './cspReport';
 import { handleMe } from './me';
 import { recordHttp } from './metrics';
 import { handlePairing } from './pairing';
+import { RELEASES_PATH, handleReleases } from './releases';
 import { handleHostRelay } from './relay';
 
 export interface Env {
@@ -74,6 +75,10 @@ async function route(request: Request, env: Env, path: string): Promise<Response
     }
     if (path === CSP_REPORT_PATH) {
         return handleCspReport(request, env);
+    }
+    // ホストのアップデートの確認（#472）
+    if (path === RELEASES_PATH) {
+        return handleReleases(request, env);
     }
     return new Response('Not found', { status: 404 });
 }

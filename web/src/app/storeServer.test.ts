@@ -70,6 +70,33 @@ describe('常時の購読', () => {
     });
 });
 
+describe('ホストの新しい版（#472）', () => {
+    const NOTES = 'https://github.com/Studio-Takumi/remote-whisper/releases/tag/v1.1.0';
+
+    it('つないだときはまだ確かめていなくても、あとから version が届いたら取り直して知らせる', async () => {
+        let reply: Record<string, unknown> = { version: 'v1.0.0', latest: null, updateAvailable: false };
+        await setup();
+        vi.spyOn(api, 'get').mockImplementation(async (path: string) => {
+            if (path === '/api/version') {
+                return reply;
+            }
+            throw new Error('offline');
+        });
+        // つないだとき（ホストはまだ確かめ終えていない）
+        ws.reconnect();
+        await vi.waitFor(() => expect(store.getState().serverVersion).toBe('v1.0.0'));
+        expect(store.getState().hostUpdate).toBeNull();
+        // ホストの確認が終わった
+        reply = { version: 'v1.0.0', latest: { version: 'v1.1.0', url: NOTES }, updateAvailable: true };
+        ws.receive({ type: 'version' });
+        await vi.waitFor(() => expect(store.getState().hostUpdate).toEqual({ version: 'v1.1.0', url: NOTES }));
+        // 確認を止めた（latest が null に戻る）ら消える
+        reply = { version: 'v1.0.0', latest: null, updateAvailable: false };
+        ws.receive({ type: 'version' });
+        await vi.waitFor(() => expect(store.getState().hostUpdate).toBeNull());
+    });
+});
+
 describe('最終の要約の作り直し', () => {
     it('返事が先なら、届くまで「作成中」にする', async () => {
         await setup();

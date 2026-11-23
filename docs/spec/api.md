@@ -35,7 +35,7 @@
 | POST | `/api/projects/{pid}/context-sets` | 参考資料ファイルを指定して、参考資料の作成を始める |
 | PATCH | `/api/projects/{pid}` | プロジェクトの設定を変える（#341。今は最終要約のコピーの置き場所 `summaryDir` だけ。files.md 5.4 節）。本文は `{ "summaryDir": "summary" }`（省いたものは今のまま。直下に戻すときは空の文字列で、`null` は `422`）。そろえた値で保存し、プロジェクト（一覧の 1 件と同じ形）を返す。不正なパスは `422`、ないプロジェクトは `404`。録音中もトンネルからも変えられる |
 | PATCH | `/api/projects/{pid}/selection` | 使う参考資料と、用語リスト・コンテキストそれぞれを使うかどうか、録音中に用語を拾うか（`pickTerms`）を設定する。録音中は `409` |
-| GET | `/api/version` | サーバーのバージョン（`{"version": "v1.0.0+2b23d9b"}`。5.5 節の `appVersion` と同じ値） |
+| GET | `/api/version` | サーバーのバージョンと、アップデートの確認（#472。10.12 節）の結果（`{"version": "v1.0.0+2b23d9b", "latest": {"version": "v1.1.0", "url": "<リリースノート>"}, "updateAvailable": true}`）。`version` は 5.5 節の `appVersion` と同じ値。`latest` はまだ確かめていない・取れなかった・止めているときは `null`。`updateAvailable` は `latest` の x.y が `version` より新しいときだけ `true`（z とハッシュの違いは見ない。`version` がハッシュだけ・`unknown` なら `false`）。古いサーバーは `version` だけ |
 | GET | `/api/push/key` | 最終要約の通知（#245。6.14 節）の VAPID の公開鍵（`{"publicKey": "<base64url>"}`）。秘密鍵は返さない |
 | POST | `/api/push/subscriptions` | 通知の購読を足す。本文はブラウザの `PushSubscription.toJSON()`（`endpoint`・`keys.p256dh`・`keys.auth`）。同じ `endpoint` は置き換える。push サービスの URL でない・鍵が読めなければ `422` |
 | DELETE | `/api/push/subscriptions?endpoint=…` | 通知の購読を消す（その端末の設定をオフにした）。なければ何もしない |
@@ -95,6 +95,7 @@
 | `terms` | `terms`（録音中に拾って用語リストに足した語）、`rejected`（消された語）、`manual`（手で足した語）。用語リスト（文字起こし抽出）・手で足した語が変わったときに送る |
 | `corrections` | 置き換え（6.13 節）を足した・外した（全員に送る）。画面はそのセッションの文字起こしを取り直す |
 | `projectOrder` | プロジェクトの並び順（`projectOrder`、5.3 節）が変わった（#173。全員に送る）。画面は設定を取り直して一覧を並べ直す（知らないプロジェクトがあれば一覧ごと取り直す） |
+| `version` | アップデートの確認（#472。10.12 節）の結果が変わった（確認が終わった・設定でオン・オフした。全員に送る）。項目はない。画面は `GET /api/version`（7.1 節）を取り直す |
 | `sessionMoved` | セッションを別のプロジェクトへ移した（#172。全員に送る）。`session`・`sessionUuid`・`from`・`to`（プロジェクト ID）。画面は一覧を取り直し、開いていたら移した先で開いたままにする |
 | `contextSet` | `project`（プロジェクト ID）、`id`、`status`（`generating` / `ready` / `failed`） |
 | `watching` | `watch` の返事（#238）。`state`（`recording` / `paused` / `disconnected` / `idle`）。`idle` は録音中ではない（自分で録音しているセッションも `idle`）ので見ない。そうでなければ、そこまでの `transcript`（`[{time, text}]`）・`liveSummary`・`title` が付く。参加に対応したサーバー（#241）は `join`（`{available, reason}`。`reason` は参加できないときだけ `limit`（つながっている音源が `recording.maxSources` に達した・音源 ID が 16 個に達した）/ `disabled`（`recording.maxSources` が 1））も付ける |

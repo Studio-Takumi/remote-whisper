@@ -440,6 +440,14 @@ class NetworkSettings(_Model):
         return list(dict.fromkeys(names))
 
 
+class UpdateSettings(_Model):
+    """アップデートの確認（#472。spec/cloud.md 10.12）。録音中も変えられる"""
+
+    # 起動時と 24 時間ごとに、中間サーバーに最新の版を聞くか（ホストの版とランダムな ID を送る）。
+    # オフなら何も送らない
+    check: bool = True
+
+
 class Settings(_Model):
     version: int = SETTINGS_VERSION
     whisper: WhisperSettings = Field(default_factory=WhisperSettings)
@@ -452,6 +460,7 @@ class Settings(_Model):
     display: DisplaySettings = Field(default_factory=DisplaySettings)
     cloud: CloudSettings = Field(default_factory=CloudSettings)
     network: NetworkSettings = Field(default_factory=NetworkSettings)
+    updates: UpdateSettings = Field(default_factory=UpdateSettings)
     # サイドバーのプロジェクトの並び順（プロジェクト ID。#173。録音中も変えられる）。
     # ここにないものは先頭
     project_order: list[str] = Field(default_factory=list)

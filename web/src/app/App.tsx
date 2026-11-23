@@ -6,6 +6,7 @@ import { isDemo } from '@/api/demo';
 import { endpoint, isCloud } from '@/api/endpoint';
 import { AppSidebar } from '@/app/AppSidebar';
 import { DevPanel } from '@/app/DevPanel';
+import { HostUpdateNotice } from '@/app/HostUpdateNotice';
 import { PwaUpdater } from '@/app/PwaUpdater';
 import { TopBar } from '@/app/TopBar';
 import { startRouter } from '@/app/router';
@@ -84,6 +85,7 @@ function AppMain() {
                 <UnsentAlert />
                 <UnsentElsewhereAlert />
                 <PwaUpdater />
+                <HostUpdateNotice />
                 <SessionView stickySlot={stickySlot} />
                 <MicButton />
             </SidebarInset>

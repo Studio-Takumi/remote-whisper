@@ -89,6 +89,10 @@ async def _start(parts: Parts, home: Path, mock: bool) -> asyncio.Task:
     # 偽の Whisper（テスト）では何もしない）
     if not mock and os.environ.get("REMOTE_WHISPER_WHISPER_BACKEND") != "fake":
         parts.gpu_stats.start()
+    # 新しい版が出ていないかを、起動時と 24 時間ごとに中間サーバーに聞く（#472）。
+    # モックは開発とテストで使うので聞かない
+    if not mock:
+        ctx.updates.start()
     # 音声の受信量と送ったメッセージの数を、1 分ごとにまとめてログに書く（#134）
     traffic_task = asyncio.create_task(traffic.run())
     log.info("server started (version %s, data in %s)", app_version(), home)
@@ -102,6 +106,7 @@ async def _stop(parts: Parts, traffic_task: asyncio.Task) -> None:
         await traffic_task
     await parts.gpu_stats.close()
     await parts.janitor.close()
+    await ctx.updates.close()
     await ctx.uploads.close()
     # モデルの取得と WhisperX を入れるのを止める（入れている途中なら、次に起動したときに戻す）
     await ctx.setup.close()

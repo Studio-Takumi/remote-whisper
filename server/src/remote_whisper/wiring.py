@@ -32,6 +32,7 @@ from remote_whisper.storage.janitor import Janitor
 from remote_whisper.storage.projects import ProjectStore
 from remote_whisper.summary.final_summary import FinalSummarizer
 from remote_whisper.transcript.transcriber import FinalTranscriber, installed
+from remote_whisper.update_check import UpdateChecker
 
 
 @dataclass
@@ -62,6 +63,10 @@ def build_parts(home: Path, mock: bool, mock_timing: MockTiming | None) -> Parts
         backend, openvino_device = _wire_whisper_and_llm(parts)
         material_range = _wire_real(ctx, home, on_count, backend, openvino_device)
     _wire_uploads_and_setup(ctx, home, mock, material_range)
+    # 結果が変わったら、画面に /api/version を取り直させる（#472）
+    ctx.updates = UpdateChecker(
+        home, ctx.settings, on_change=lambda: ctx.hub.broadcast({"type": "version"})
+    )
     return parts
 
 

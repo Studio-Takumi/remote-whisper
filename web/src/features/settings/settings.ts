@@ -131,6 +131,11 @@ export type Settings = {
     network?: {
         allowedHosts: string[];
     };
+    // アップデートの確認（#472）。オンなら、ホストが起動時と 24 時間ごとに、版とランダムな ID を中間サーバーに送って
+    // 最新の版を聞く。古いサーバーにはない
+    updates?: {
+        check: boolean;
+    };
     // サイドバーのプロジェクトの並び順（プロジェクト ID。#173）。ここにないものは先頭。
     // 一覧（GET /api/projects）はこの順で返ってくる。変えるのは並び替えのときだけ（changeSettings は送らない）
     projectOrder: string[];
@@ -223,6 +228,9 @@ export const defaultSettings: Settings = {
     },
     network: {
         allowedHosts: [],
+    },
+    updates: {
+        check: true,
     },
     projectOrder: [],
 };

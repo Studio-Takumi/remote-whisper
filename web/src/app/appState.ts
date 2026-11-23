@@ -4,6 +4,7 @@ import type { StoreApi } from 'zustand';
 import type { LiveSource, SettingsOptions } from '@/api/protocol';
 import type { ServerStatus } from '@/api/status';
 import type { ContextSelection, Generating } from '@/api/types';
+import type { ReleaseJson } from '@/app/version';
 import type { LocalSession } from '@/features/projects/localSessions';
 import type { MicState } from '@/features/recording/audio/microphone';
 import type { UnsentElsewhere } from '@/features/recording/audio/unsentStore';
@@ -59,6 +60,8 @@ export type AppState = {
     options: SettingsOptions;
     // サーバーのバージョン（v1.0.0+34a7607 の形）。取れていなければ null
     serverVersion: string | null;
+    // ホストの新しい版（#472）。ホストの x.y より新しい版が出ているときだけ入る
+    hostUpdate: ReleaseJson | null;
     server: ServerStatus;
     // 参考資料セットの選択を保存するまでの間の、手元の選択（プロジェクトごと）。
     // 参考資料セットの一覧はサーバーのデータなので、ここではなくキャッシュに置く（cachedContextSets）

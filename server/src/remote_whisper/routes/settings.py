@@ -77,6 +77,9 @@ async def patch_settings(
     # プロジェクトの並びが変わったら、ほかの端末にも知らせる（#173）
     if settings.to_json()["projectOrder"] != before:
         await ctx.hub.broadcast({"type": "projectOrder"})
+    # アップデートの確認をオンにしたら、その場で 1 回確かめる。オフにしたら結果を隠す（#472）
+    if ctx.updates is not None:
+        await ctx.updates.settings_changed()
     # 使う LLM を変えたら切り替える（録音中なら、録音がすべて終わってから。#325）
     if ctx.ollama is not None and hasattr(ctx.ollama, "sync"):
         await ctx.ollama.sync()
