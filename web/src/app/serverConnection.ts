@@ -9,7 +9,7 @@ import { queryClient } from '@/app/query';
 import { type MessageContext, receiveServerMessage } from '@/app/serverMessages';
 import type { StatusReceiver } from '@/app/serverStatus';
 import { readProjectInfos } from '@/app/sessionData';
-import type { VersionJson } from '@/app/version';
+import { type VersionJson, hostUpdateOf } from '@/app/version';
 import { refreshContextSets } from '@/features/materials/contextSetCache';
 import { interruptOnPageHide, ownedSession } from '@/features/recording/closedRecordings';
 import { recordingConnectionChanged } from '@/features/recording/reconnect';
@@ -24,7 +24,8 @@ export async function loadServerVersion(store: ServerContext['store']) {
         return;
     }
     try {
-        store.setState({ serverVersion: (await api.get<VersionJson>('/api/version')).version });
+        const json = await api.get<VersionJson>('/api/version');
+        store.setState({ serverVersion: json.version, hostUpdate: hostUpdateOf(json) });
     } catch {
         // 取れなければ前の値のまま
     }

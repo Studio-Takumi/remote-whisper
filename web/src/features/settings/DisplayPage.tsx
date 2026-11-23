@@ -50,22 +50,38 @@ export function DisplayPage({
                     />
                 </Row>
             </Section>
-            {/* 8000 番を開ける名前（#249）。古いサーバー（network がない）では出さない */}
-            {draft.network && (
+            {(draft.network || draft.updates) && (
                 <Section title='接続'>
-                    <Row
-                        id='allowed-hosts'
-                        label='許可するホスト名'
-                        description='IP アドレス・localhost・Tailscale の名前・この PC の名前のほかに開く名前です。カンマで区切ります'
-                    >
-                        <Input
+                    {/* 8000 番を開ける名前（#249）。古いサーバー（network がない）では出さない */}
+                    {draft.network && (
+                        <Row
                             id='allowed-hosts'
-                            className='w-56'
-                            placeholder='pc.example.com'
-                            value={draft.network.allowedHosts.join(', ')}
-                            onChange={(e) => onChangeAllowedHosts(e.target.value.split(','))}
-                        />
-                    </Row>
+                            label='許可するホスト名'
+                            description='IP アドレス・localhost・Tailscale の名前・この PC の名前のほかに開く名前です。カンマで区切ります'
+                        >
+                            <Input
+                                id='allowed-hosts'
+                                className='w-56'
+                                placeholder='pc.example.com'
+                                value={draft.network.allowedHosts.join(', ')}
+                                onChange={(e) => onChangeAllowedHosts(e.target.value.split(','))}
+                            />
+                        </Row>
+                    )}
+                    {/* アップデートの確認（#472）。古いサーバー（updates がない）では出さない */}
+                    {draft.updates && (
+                        <Row
+                            id='update-check'
+                            label='アップデートの確認'
+                            description='ホストの版とランダムな ID を送って、新しい版を確かめます'
+                        >
+                            <Switch
+                                id='update-check'
+                                checked={draft.updates.check}
+                                onCheckedChange={(check) => update('updates', { check })}
+                            />
+                        </Row>
+                    )}
                 </Section>
             )}
             {/* 端末ごとの設定（テーマ・通知。#239・#245）。全体設定の保存とは別に、切り替えたときに効く */}

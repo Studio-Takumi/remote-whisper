@@ -92,6 +92,7 @@ export const useAppStore = create<AppState>()((set, _get, store) => {
         settingsLoaded: isDemo,
         options: fallbackOptions,
         serverVersion: null,
+        hostUpdate: null,
         server: initialServerStatus,
         contextSelections: {},
         generating: null,
