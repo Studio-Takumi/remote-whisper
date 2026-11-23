@@ -3,7 +3,7 @@ import { TriangleAlertIcon } from 'lucide-react';
 import { useAppStore } from '@/app/store';
 import { webVersion } from '@/app/version';
 
-// サーバーと画面のバージョン（コミットハッシュ）を並べて出す。
+// サーバーと画面のバージョン（v1.0.0+34a7607 の形）を並べて出す。
 // 食い違っていたら、ブラウザに古い画面が残っているので、読み込み直すように促す
 export function VersionInfo() {
     const serverVersion = useAppStore((s) => s.serverVersion);

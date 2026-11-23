@@ -11,5 +11,5 @@ router = APIRouter(prefix="/api/version")
 
 @router.get("")
 def get_version() -> dict[str, Any]:
-    """サーバーのバージョン（コミットハッシュ）。画面のバージョンと食い違っていないかを見るのに使う"""
+    """サーバーのバージョン（v1.0.0+34a7607 の形）。画面と食い違っていないかを見るのに使う"""
     return {"version": app_version()}
