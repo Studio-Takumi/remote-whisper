@@ -72,7 +72,7 @@ export function canRemove(me: Me) {
 // 中間サーバーの API を呼ぶ（Cookie つき。アプリの中ではアプリのトークンも。#441）。
 // 失敗したら、返事の detail を文にした Error（status つき）
 export async function request<T>(url: string, init: RequestInit = {}): Promise<T> {
-    const res = await fetch(url, await withAppAuth({ credentials: 'same-origin', ...init }));
+    const res = await fetch(url, await withAppAuth(url, { credentials: 'same-origin', ...init }));
     if (!res.ok) {
         const detail = await res
             .json()
@@ -96,7 +96,8 @@ export async function fetchMe(): Promise<Me | null> {
 }
 
 // ログアウト。アプリの中では、先にアプリのトークン（この端末）を消す。Cookie のログインセッションも消す
-// （server.url の WebView に前からの Cookie が残っていることがあるため。同梱した画面では別のオリジンなので 403 になる）
+// （server.url の WebView に前からの Cookie が残っていることがあるため。同梱した画面からは、/auth/ に CORS がないので
+// fetch が失敗する（TypeError）。どちらも呼ぶ側が握りつぶす）
 export async function logout() {
     await appLogout().catch(() => undefined);
     return request<{ ok: boolean }>(authLogoutUrl(), { method: 'POST' });

@@ -13,13 +13,35 @@ export function relayOrigin(base = endpoint.base, here: { origin: string } = loc
     return base || here.origin;
 }
 
+// 送り先が中間サーバーか（ほかのオリジンにトークン・チケットを出さない）。ws:・wss: はホスト名とポートで比べる
+export function isRelayUrl(url: string, origin = relayOrigin(), here = location.href) {
+    try {
+        const target = new URL(url, here);
+        const relay = new URL(origin);
+        return target.protocol.startsWith('ws') ? target.host === relay.host : target.origin === relay.origin;
+    } catch {
+        return false;
+    }
+}
+
+// 直前に受け取ったアクセストークン（メモリだけ。画面を閉じるときの計測を、ネイティブの往復を待たずに送るため）
+let lastToken: { token: string; at: number } | null = null;
+// アクセストークンは 1 時間。アプリは期限の 60 秒前に替えるので、これより古いものは使わない
+const LAST_TOKEN_MAX_AGE_MS = 50 * 60 * 1000;
+
+export function cachedAppToken(now = Date.now()): string | null {
+    return lastToken && now - lastToken.at < LAST_TOKEN_MAX_AGE_MS ? lastToken.token : null;
+}
+
 // 使えるアクセストークン（アプリが期限の前に更新する）。ログインしていない・アプリの中でないときは null
 export async function appAccessToken(): Promise<string | null> {
     if (!appAuthActive) {
         return null;
     }
     try {
-        return await (await loadAppAuthBridge()).appAuthToken(relayOrigin());
+        const token = await (await loadAppAuthBridge()).appAuthToken(relayOrigin());
+        lastToken = token ? { token, at: Date.now() } : null;
+        return token;
     } catch {
         return null;
     }
@@ -34,9 +56,10 @@ export function addBearer(init: RequestInit, token: string | null): RequestInit 
     return { ...init, headers };
 }
 
-// fetch の init にトークンを足す。アプリの中のクラウド版でなければ、受け取った init をそのまま（同期で）返す
-export function withAppAuth(init: RequestInit = {}): RequestInit | Promise<RequestInit> {
-    if (!appAuthActive) {
+// url への fetch の init にトークンを足す。アプリの中のクラウド版で、送り先が中間サーバーのときだけ。
+// そうでなければ、受け取った init をそのまま（同期で）返す
+export function withAppAuth(url: string, init: RequestInit = {}): RequestInit | Promise<RequestInit> {
+    if (!appAuthActive || !isRelayUrl(url)) {
         return init;
     }
     return appAccessToken().then((token) => addBearer(init, token));
@@ -78,7 +101,7 @@ export function withTicket(url: string, ticket: string) {
 
 // WebSocket の URL にチケット（一度だけ・60 秒）を付ける。作れなければ元の URL（中間サーバーが 401 で断り、つなぎ直しを待つ）
 export async function appSocketUrl(url: string, hostId = getHostId()): Promise<string> {
-    if (!appAuthActive || !hostId) {
+    if (!appAuthActive || !hostId || !isRelayUrl(url)) {
         return url;
     }
     const t = await issueTicket(hostId, 'ws', '/ws');
@@ -94,7 +117,7 @@ export function mediaTarget(src: string, here = location.href): { hostId: string
 // 音声の URL にチケット（そのパスだけ・1 時間）を付ける。作れなければ元の URL（トークンがなければ WebView の Cookie で読む。
 // どちらもなければ中間サーバーが 401 で断り、再生バーは読み込めなかったときと同じ扱いになる）
 export async function appMediaUrl(src: string, now = Date.now()): Promise<string> {
-    const target = appAuthActive ? mediaTarget(src) : null;
+    const target = appAuthActive && isRelayUrl(src) ? mediaTarget(src) : null;
     if (!target) {
         return src;
     }
@@ -117,8 +140,10 @@ export async function appLogin(provider: string) {
     await (await loadAppAuthBridge()).appAuthLogin(relayOrigin(), provider);
 }
 
+// やめた・ほかのログインの最中（busy）。どちらもエラーとして出さない
 export function isCanceled(e: unknown) {
-    return (e as { code?: string }).code === 'canceled';
+    const code = (e as { code?: string }).code;
+    return code === 'canceled' || code === 'busy';
 }
 
 // この端末をログアウトする（中間サーバーのこの端末も消す）

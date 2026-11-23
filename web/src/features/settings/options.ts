@@ -5,7 +5,8 @@ import type { LlmBackend, OllamaModels } from '@/features/settings/settings';
 
 // 設定で選べる値（GET /api/settings/options）を取る
 export async function fetchOptions(): Promise<SettingsOptions> {
-    const res = await fetch(apiUrl('/api/settings/options'), await withAppAuth());
+    const url = apiUrl('/api/settings/options');
+    const res = await fetch(url, await withAppAuth(url));
     if (!res.ok) {
         throw new Error(`GET /api/settings/options: ${res.status}`);
     }

@@ -18,9 +18,10 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     let res: Response;
     try {
         // アプリの中のクラウド版では、アプリのトークンも付ける（#441）
+        const url = apiUrl(path);
         res = await fetch(
-            apiUrl(path),
-            await withAppAuth({
+            url,
+            await withAppAuth(url, {
                 method,
                 headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
                 body: body === undefined ? undefined : JSON.stringify(body),

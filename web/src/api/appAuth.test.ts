@@ -34,6 +34,8 @@ vi.mock('@/api/endpoint', () => ({
 
 const HOST = '11111111-2222-4333-8444-555555555555';
 const RECORDING = `/h/${HOST}/api/projects/p-1/sessions/20261009-143012/recording`;
+// server.url の画面（中間サーバーそのもの）からの WebSocket
+const SOCKET = `ws://${location.host}/h/${HOST}/ws`;
 
 function setNative(native: boolean) {
     const w = window as { Capacitor?: unknown };
@@ -75,7 +77,7 @@ describe('ブラウザ版・セルフホスト版', () => {
             const m = await load(opts);
             expect(m.appAuthActive).toBe(false);
             const init = { method: 'POST' };
-            expect(m.withAppAuth(init)).toBe(init);
+            expect(m.withAppAuth('/me', init)).toBe(init);
             expect(await m.appAccessToken()).toBeNull();
             expect(await m.appSocketUrl('wss://x/h/1/ws')).toBe('wss://x/h/1/ws');
             expect(await m.appMediaUrl(RECORDING)).toBe(RECORDING);
@@ -91,31 +93,42 @@ describe('アプリの中のクラウド版', () => {
     it('API に Authorization: Bearer を付ける（ほかのヘッダーは残す）', async () => {
         const m = await load({ native: true });
         expect(m.appAuthActive).toBe(true);
-        const init = await m.withAppAuth({ method: 'POST', headers: { 'Content-Type': 'application/json' } });
+        const init = await m.withAppAuth(`/h/${HOST}/api/projects`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+        });
         const headers = new Headers(init.headers);
         expect(headers.get('Authorization')).toBe('Bearer access-1');
         expect(headers.get('Content-Type')).toBe('application/json');
         expect(bridge.appAuthToken).toHaveBeenCalledWith(location.origin);
+        expect(m.cachedAppToken()).toBe('access-1');
+        expect(m.cachedAppToken(Date.now() + 51 * 60 * 1000)).toBeNull();
+    });
+
+    it('中間サーバーでない送り先には、トークンもチケットも付けない', async () => {
+        const m = await load({ native: true });
+        const init = { method: 'GET' };
+        expect(m.withAppAuth('https://evil.example/me', init)).toBe(init);
+        expect(await m.appSocketUrl(`wss://evil.example/h/${HOST}/ws`)).toBe(`wss://evil.example/h/${HOST}/ws`);
+        expect(await m.appMediaUrl(`https://evil.example${RECORDING}`)).toBe(`https://evil.example${RECORDING}`);
+        expect(bridge.appAuthToken).not.toHaveBeenCalled();
+        expect(fetchMock).not.toHaveBeenCalled();
     });
 
     it('トークンがなければ何も付けない（server.url の WebView の Cookie のまま）', async () => {
         bridge.token = null;
         const m = await load({ native: true });
         const init = { method: 'GET' };
-        expect(await m.withAppAuth(init)).toBe(init);
-        expect(await m.appSocketUrl('wss://x/ws')).toBe('wss://x/ws');
+        expect(await m.withAppAuth('/me', init)).toBe(init);
+        expect(await m.appSocketUrl(SOCKET)).toBe(SOCKET);
         expect(await m.appMediaUrl(RECORDING)).toBe(RECORDING);
         expect(fetchMock).not.toHaveBeenCalled();
     });
 
     it('WebSocket には、つなぐたびに一度だけのチケットを付ける', async () => {
         const m = await load({ native: true });
-        expect(await m.appSocketUrl(`wss://rw.example/h/${HOST}/ws`)).toBe(
-            `wss://rw.example/h/${HOST}/ws?rw_ticket=t1`,
-        );
-        expect(await m.appSocketUrl(`wss://rw.example/h/${HOST}/ws`)).toBe(
-            `wss://rw.example/h/${HOST}/ws?rw_ticket=t2`,
-        );
+        expect(await m.appSocketUrl(SOCKET)).toBe(`${SOCKET}?rw_ticket=t1`);
+        expect(await m.appSocketUrl(SOCKET)).toBe(`${SOCKET}?rw_ticket=t2`);
         const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
         expect(url).toBe('/me/tickets');
         expect(new Headers(init.headers).get('Authorization')).toBe('Bearer access-1');
@@ -143,7 +156,7 @@ describe('アプリの中のクラウド版', () => {
     it('チケットを作れなければ元の URL のまま', async () => {
         fetchMock.mockResolvedValue(new Response('{}', { status: 403 }));
         const m = await load({ native: true });
-        expect(await m.appSocketUrl('wss://x/ws')).toBe('wss://x/ws');
+        expect(await m.appSocketUrl(SOCKET)).toBe(SOCKET);
         expect(await m.appMediaUrl(RECORDING)).toBe(RECORDING);
     });
 
@@ -156,6 +169,7 @@ describe('アプリの中のクラウド版', () => {
         await m.appForget();
         expect(bridge.appAuthForget).toHaveBeenCalledWith(location.origin);
         expect(m.isCanceled(Object.assign(new Error('canceled'), { code: 'canceled' }))).toBe(true);
+        expect(m.isCanceled(Object.assign(new Error('busy'), { code: 'busy' }))).toBe(true);
         expect(m.isCanceled(new Error('x'))).toBe(false);
     });
 });
@@ -172,5 +186,18 @@ describe('道具', () => {
         expect(m.mediaTarget(`/h/${HOST}/api/projects`)).toBeNull();
         expect(m.mediaTarget('/api/projects/p/sessions/s/recording')).toBeNull();
         expect(m.withTicket('/a?b=1', 'x y')).toBe('/a?b=1&rw_ticket=x%20y');
+    });
+
+    it('送り先が中間サーバーか', async () => {
+        const m = await load({ native: false });
+        const relay = 'https://rw.example';
+        const here = 'capacitor://localhost/';
+        expect(m.isRelayUrl('https://rw.example/me', relay, here)).toBe(true);
+        expect(m.isRelayUrl('wss://rw.example/h/x/ws', relay, here)).toBe(true);
+        expect(m.isRelayUrl('https://rw.example.evil.example/me', relay, here)).toBe(false);
+        expect(m.isRelayUrl('https://rw.example:8443/me', relay, here)).toBe(false);
+        expect(m.isRelayUrl('wss://evil.example/ws', relay, here)).toBe(false);
+        expect(m.isRelayUrl('/me', relay, here)).toBe(false);
+        expect(m.isRelayUrl('/me', relay, 'https://rw.example/s/1')).toBe(true);
     });
 });

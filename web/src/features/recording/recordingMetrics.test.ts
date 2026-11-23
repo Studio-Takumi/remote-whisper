@@ -183,6 +183,24 @@ describe('送る', () => {
         expect(sendBeacon.mock.calls[0][1].type).toContain('text/plain');
     });
 
+    it('アプリのトークン（headers）があれば、ページを閉じるときも sendBeacon でなく fetch で Authorization を付ける（#441）', () => {
+        const sendBeacon = vi.fn().mockReturnValue(true);
+        const fetchFn = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+        const sent = sendRecordingMetrics(new RecordingMetrics({ hostId: 'h' }), {
+            cloud: true,
+            url,
+            beacon: true,
+            sendBeacon,
+            fetchFn,
+            headers: { Authorization: 'Bearer t' },
+        });
+        expect(sent).toBe(true);
+        expect(sendBeacon).not.toHaveBeenCalled();
+        const [, init] = fetchFn.mock.calls[0];
+        expect(init.headers).toEqual({ 'Content-Type': 'application/json', Authorization: 'Bearer t' });
+        expect(init.keepalive).toBe(true);
+    });
+
     it('ホストは録音を始めたときのもの（あとで切り替えても変わらない）', () => {
         const m = new RecordingMetrics({ hostId: 'host-a' });
         expect(m.take()?.hostId).toBe('host-a');
