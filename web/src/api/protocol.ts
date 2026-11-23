@@ -121,6 +121,8 @@ export type ServerMessage =
     | { type: 'sessionMoved'; session: string; sessionUuid: string | null; from: string; to: string }
     // プロジェクトの並び順が変わった（#173。全員に送る）。一覧と設定を取り直す
     | { type: 'projectOrder' }
+    // ホストのアップデートの確認の結果が変わった（#472。全員に送る）。GET /api/version を取り直す
+    | { type: 'version' }
     // 置き換え（#176）を足した・外した。そのセッションの文字起こしを取り直す
     | { type: 'corrections'; session: string }
     | { type: 'contextSet'; project: string; id: string; status: ContextSetStatus }

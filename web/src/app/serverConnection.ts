@@ -59,6 +59,10 @@ function receive(ctx: ServerContext, m: ServerMessage) {
     if (m.type === 'status') {
         ctx.status.receive(m);
     }
+    // ホストのアップデートの確認の結果が変わった（#472）。つないだあとに確認が終わったときも知らせを出す
+    if (m.type === 'version') {
+        void loadServerVersion(ctx.store);
+    }
     receiveServerMessage(ctx, m);
 }
 

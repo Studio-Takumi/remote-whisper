@@ -73,7 +73,7 @@ export function DisplayPage({
                         <Row
                             id='update-check'
                             label='アップデートの確認'
-                            description='ホストの版とランダムな ID を送って、新しい版を確かめます'
+                            description='ホストの版と ID（クラウド版に登録していればホスト ID、していなければランダムな ID）を送って、新しい版を確かめます'
                         >
                             <Switch
                                 id='update-check'
