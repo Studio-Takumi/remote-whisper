@@ -219,6 +219,21 @@ describe('ログイン（システムのログイン画面）', () => {
         }
         expect((await SELF.fetch(`${ORIGIN}/auth/app/login/nope?challenge=${p.challenge}`)).status).toBe(404);
     });
+
+    it('アプリのログインだけ、毎回アカウントを選ぶ（同意する）画面を出させる', async () => {
+        const p = await pkce();
+        for (const [provider, prompt] of [
+            ['google', 'select_account'],
+            ['discord', 'consent'],
+            ['github', 'select_account'],
+        ]) {
+            const app = await SELF.fetch(appLoginUrl(p).replace('/github?', `/${provider}?`), { redirect: 'manual' });
+            expect(new URL(app.headers.get('Location') ?? '').searchParams.get('prompt'), provider).toBe(prompt);
+            // ブラウザのログインは今まで通り付けない
+            const web = await SELF.fetch(`${ORIGIN}/auth/login/${provider}`, { redirect: 'manual' });
+            expect(new URL(web.headers.get('Location') ?? '').searchParams.has('prompt'), provider).toBe(false);
+        }
+    });
 });
 
 describe('コードをトークンに替える', () => {

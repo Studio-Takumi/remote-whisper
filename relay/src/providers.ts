@@ -16,6 +16,9 @@ type Config = {
     clientId: (env: Env) => string | undefined;
     clientSecret: (env: Env) => string | undefined;
     profile: (accessToken: string) => Promise<Profile>;
+    // iOS アプリのログイン（#441）のときだけ足す引数。前に同意していても、プロバイダの画面を黙って通さず、
+    // 毎回アカウントを選ぶ（同意する）画面を出す（悪意のあるアプリが始めたログインに気づけるように。spec/cloud.md 10.7）
+    appPrompt: Record<string, string>;
 };
 
 async function getJson<T>(url: string, accessToken: string): Promise<T> {
@@ -40,6 +43,7 @@ export const CONFIGS: Record<Provider, Config> = {
         scope: 'openid email profile',
         clientId: (env) => env.GOOGLE_CLIENT_ID,
         clientSecret: (env) => env.GOOGLE_CLIENT_SECRET,
+        appPrompt: { prompt: 'select_account' },
         profile: async (token) => {
             const p = await getJson<{ sub: string; name?: string; email?: string }>(
                 'https://openidconnect.googleapis.com/v1/userinfo',
@@ -54,6 +58,8 @@ export const CONFIGS: Record<Provider, Config> = {
         scope: 'identify email',
         clientId: (env) => env.DISCORD_CLIENT_ID,
         clientSecret: (env) => env.DISCORD_CLIENT_SECRET,
+        // Discord にアカウントを選ぶ prompt はない。consent で、前に許可していても許可の画面を出す
+        appPrompt: { prompt: 'consent' },
         profile: async (token) => {
             const p = await getJson<{
                 id: string;
@@ -71,6 +77,7 @@ export const CONFIGS: Record<Provider, Config> = {
         scope: 'read:user',
         clientId: (env) => env.GITHUB_CLIENT_ID,
         clientSecret: (env) => env.GITHUB_CLIENT_SECRET,
+        appPrompt: { prompt: 'select_account' },
         profile: async (token) => {
             const p = await getJson<{ id: number; login: string; name?: string | null; email?: string | null }>(
                 'https://api.github.com/user',

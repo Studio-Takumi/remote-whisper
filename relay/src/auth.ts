@@ -180,6 +180,8 @@ async function login(request: Request, env: Env, provider: Provider, app: AppLog
         state,
         code_challenge: challenge,
         code_challenge_method: 'S256',
+        // アプリのログインだけ、毎回アカウントを選ぶ（同意する）画面を出す（ブラウザのログインは今まで通り）
+        ...(app ? config.appPrompt : {}),
     }).toString();
     // state をこのブラウザにも持たせ、戻ってきたときに同じブラウザかを確かめる（ログイン CSRF の対策。
     // ほかの人が始めたログインの続きの URL を踏ませて、その人のアカウントにログインさせる・手段を足させるのを防ぐ）
