@@ -41,6 +41,8 @@ class AppContext:
     push: Any = None
     # 初回のセットアップの案内（SetupService。#291）
     setup: Any = None
+    # アップデートの確認（update_check.UpdateChecker。#472）。GET /api/version が結果を返す
+    updates: Any = None
     # GPU を使う処理（Whisper・Ollama）を順番に実行するキュー。
     # 待っている数は status の queue、ジョブの一覧は jobs で送る
     gpu: GpuQueue = field(init=False)

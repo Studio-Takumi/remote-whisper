@@ -115,4 +115,9 @@ def test_version_without_git_repository_is_unknown(tmp_path):
 
 
 def test_version_api(client):
-    assert client.get("/api/version").json() == {"version": app_version()}
+    # アップデートを確かめていないあいだは latest が null（#472）
+    assert client.get("/api/version").json() == {
+        "version": app_version(),
+        "latest": None,
+        "updateAvailable": False,
+    }

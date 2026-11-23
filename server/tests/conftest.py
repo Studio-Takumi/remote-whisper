@@ -37,6 +37,17 @@ def _isolated_home(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_update_check(request, monkeypatch):
+    """起動したアプリが、本番の中間サーバーにアップデートを聞きに行かないようにする（#472）
+
+    アップデートの確認そのもののテスト（test_update_check）では差し替えない
+    """
+    if request.module.__name__ == "test_update_check":
+        return
+    monkeypatch.setattr("remote_whisper.update_check.UpdateChecker.start", lambda self: None)
+
+
+@pytest.fixture(autouse=True)
 def _testclient_host(request, monkeypatch):
     """TestClient は Host に `testserver` を入れるので、この PC の名前として扱う（#249）
 
