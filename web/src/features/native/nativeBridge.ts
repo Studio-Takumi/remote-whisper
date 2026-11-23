@@ -8,7 +8,7 @@ import { isCloud } from '@/api/endpoint';
 import type { AppStore } from '@/app/appState';
 import { loadServerVersion } from '@/app/serverConnection';
 import { webVersion } from '@/app/version';
-import type { AppAuthPlugin } from '@/features/native/appAuthTypes';
+import type { AppAccess, AppAuthPlugin } from '@/features/native/appAuthTypes';
 import { AppEntrySync } from '@/features/native/appEntrySync';
 import type { AppEntryPlugin } from '@/features/native/appEntryTypes';
 import { LiveActivitySync } from '@/features/native/liveActivitySync';
@@ -47,9 +47,9 @@ export async function appAuthLogin(origin: string, provider: string) {
     await AppAuth.login({ origin, provider });
 }
 
-export async function appAuthToken(origin: string): Promise<string | null> {
-    const { token } = await AppAuth.accessToken({ origin });
-    return token;
+export async function appAuthToken(origin: string): Promise<AppAccess | null> {
+    const { token, expiresAt } = await AppAuth.accessToken({ origin });
+    return token ? { token, expiresAt: typeof expiresAt === 'number' ? expiresAt : null } : null;
 }
 
 export async function appAuthLogout(origin: string) {

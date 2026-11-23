@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const bridge = vi.hoisted(() => ({
     loaded: 0,
     token: 'access-1' as string | null,
+    // アクセストークンの期限（UNIX ミリ秒。古いアプリは null）
+    expiresAt: null as number | null,
     appAuthToken: vi.fn(),
     appAuthLogin: vi.fn(),
     appAuthLogout: vi.fn(),
@@ -57,7 +59,10 @@ let fetchMock: ReturnType<typeof vi.fn>;
 beforeEach(() => {
     bridge.loaded = 0;
     bridge.token = 'access-1';
-    bridge.appAuthToken.mockReset().mockImplementation(async () => bridge.token);
+    bridge.expiresAt = Date.now() + 60 * 60 * 1000;
+    bridge.appAuthToken
+        .mockReset()
+        .mockImplementation(async () => (bridge.token ? { token: bridge.token, expiresAt: bridge.expiresAt } : null));
     bridge.appAuthLogin.mockReset().mockResolvedValue(undefined);
     bridge.appAuthLogout.mockReset().mockResolvedValue(undefined);
     bridge.appAuthForget.mockReset().mockResolvedValue(undefined);
@@ -102,7 +107,30 @@ describe('アプリの中のクラウド版', () => {
         expect(headers.get('Content-Type')).toBe('application/json');
         expect(bridge.appAuthToken).toHaveBeenCalledWith(location.origin);
         expect(m.cachedAppToken()).toBe('access-1');
-        expect(m.cachedAppToken(Date.now() + 51 * 60 * 1000)).toBeNull();
+    });
+
+    it('画面を閉じるとき用のトークンは、トークンの期限（の 60 秒前）まで。ログアウト・forget で捨てる', async () => {
+        const m = await load({ native: true });
+        // 期限まで 5 分しかないトークン（アプリは 60 秒前まで替えずに返す）
+        bridge.expiresAt = Date.now() + 5 * 60 * 1000;
+        await m.appAccessToken();
+        expect(m.cachedAppToken()).toBe('access-1');
+        expect(m.cachedAppToken(Date.now() + 4 * 60 * 1000 + 30_000)).toBeNull();
+        await m.appLogout();
+        expect(m.cachedAppToken()).toBeNull();
+        await m.appAccessToken();
+        expect(m.cachedAppToken()).toBe('access-1');
+        await m.appForget();
+        expect(m.cachedAppToken()).toBeNull();
+        // 期限を返さない古いアプリでは、受け取ってから 10 分だけ
+        bridge.expiresAt = null;
+        await m.appAccessToken();
+        expect(m.cachedAppToken()).toBe('access-1');
+        expect(m.cachedAppToken(Date.now() + 11 * 60 * 1000)).toBeNull();
+        // ログインしていなければ捨てる
+        bridge.token = null;
+        await m.appAccessToken();
+        expect(m.cachedAppToken()).toBeNull();
     });
 
     it('中間サーバーでない送り先には、トークンもチケットも付けない', async () => {
@@ -194,6 +222,10 @@ describe('道具', () => {
         const here = 'capacitor://localhost/';
         expect(m.isRelayUrl('https://rw.example/me', relay, here)).toBe(true);
         expect(m.isRelayUrl('wss://rw.example/h/x/ws', relay, here)).toBe(true);
+        // 中間サーバーが https なら ws:（暗号化なし）は通さない。http なら ws: だけ
+        expect(m.isRelayUrl('ws://rw.example/h/x/ws', relay, here)).toBe(false);
+        expect(m.isRelayUrl('ws://localhost:8787/h/x/ws', 'http://localhost:8787', here)).toBe(true);
+        expect(m.isRelayUrl('wss://localhost:8787/h/x/ws', 'http://localhost:8787', here)).toBe(false);
         expect(m.isRelayUrl('https://rw.example.evil.example/me', relay, here)).toBe(false);
         expect(m.isRelayUrl('https://rw.example:8443/me', relay, here)).toBe(false);
         expect(m.isRelayUrl('wss://evil.example/ws', relay, here)).toBe(false);

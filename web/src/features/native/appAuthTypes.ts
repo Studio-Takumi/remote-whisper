@@ -3,10 +3,14 @@ export interface AppAuthPlugin {
     // システムのログイン画面を出し、戻ってきたコードをトークンに替えてアプリの中（Keychain）に置く。
     // origin は中間サーバーのオリジン（https://…）。やめたら code が 'canceled' の Error で reject
     login(options: { origin: string; provider: string }): Promise<void>;
-    // 使えるアクセストークン（期限が近ければ更新してから）。ログインしていなければ null。更新トークンは渡さない
-    accessToken(options: { origin: string }): Promise<{ token: string | null }>;
+    // 使えるアクセストークンとその期限（UNIX ミリ秒。期限が近ければ更新してから）。ログインしていなければ null。
+    // 更新トークンは渡さない
+    accessToken(options: { origin: string }): Promise<{ token: string | null; expiresAt?: number | null }>;
     // 中間サーバーのこの端末を消し、アプリの中のトークンも消す
     logout(options: { origin: string }): Promise<void>;
     // アプリの中のトークンだけを消す（すべての端末からログアウト・退会のあと）
     forget(options: { origin: string }): Promise<void>;
 }
+
+// 受け取ったアクセストークンと期限（UNIX ミリ秒。分からなければ null）
+export type AppAccess = { token: string; expiresAt: number | null };

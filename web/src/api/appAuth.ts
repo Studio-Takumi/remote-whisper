@@ -13,24 +13,31 @@ export function relayOrigin(base = endpoint.base, here: { origin: string } = loc
     return base || here.origin;
 }
 
-// 送り先が中間サーバーか（ほかのオリジンにトークン・チケットを出さない）。ws:・wss: はホスト名とポートで比べる
+// 送り先が中間サーバーか（ほかのオリジンにトークン・チケットを出さない）。WebSocket はホスト名とポートで比べ、
+// scheme は中間サーバーに合わせる（https なら wss: だけ、http なら ws: だけ）
 export function isRelayUrl(url: string, origin = relayOrigin(), here = location.href) {
     try {
         const target = new URL(url, here);
         const relay = new URL(origin);
-        return target.protocol.startsWith('ws') ? target.host === relay.host : target.origin === relay.origin;
+        if (target.protocol === 'ws:' || target.protocol === 'wss:') {
+            const socket = relay.protocol === 'https:' ? 'wss:' : 'ws:';
+            return target.protocol === socket && target.host === relay.host;
+        }
+        return target.origin === relay.origin;
     } catch {
         return false;
     }
 }
 
-// 直前に受け取ったアクセストークン（メモリだけ。画面を閉じるときの計測を、ネイティブの往復を待たずに送るため）
-let lastToken: { token: string; at: number } | null = null;
-// アクセストークンは 1 時間。アプリは期限の 60 秒前に替えるので、これより古いものは使わない
-const LAST_TOKEN_MAX_AGE_MS = 50 * 60 * 1000;
+// 直前に受け取ったアクセストークンと期限（メモリだけ。画面を閉じるときの計測を、ネイティブの往復を待たずに送るため）
+let lastToken: { token: string; expiresAt: number } | null = null;
+// 期限までこれより短いものは使わない（送っている間に切れないように）
+const LAST_TOKEN_MARGIN_MS = 60 * 1000;
+// 期限を返さない古いアプリでは、受け取ってからこの間だけ使う
+const LAST_TOKEN_FALLBACK_MS = 10 * 60 * 1000;
 
 export function cachedAppToken(now = Date.now()): string | null {
-    return lastToken && now - lastToken.at < LAST_TOKEN_MAX_AGE_MS ? lastToken.token : null;
+    return lastToken && lastToken.expiresAt - LAST_TOKEN_MARGIN_MS > now ? lastToken.token : null;
 }
 
 // 使えるアクセストークン（アプリが期限の前に更新する）。ログインしていない・アプリの中でないときは null
@@ -39,9 +46,11 @@ export async function appAccessToken(): Promise<string | null> {
         return null;
     }
     try {
-        const token = await (await loadAppAuthBridge()).appAuthToken(relayOrigin());
-        lastToken = token ? { token, at: Date.now() } : null;
-        return token;
+        const access = await (await loadAppAuthBridge()).appAuthToken(relayOrigin());
+        lastToken = access
+            ? { token: access.token, expiresAt: access.expiresAt ?? Date.now() + LAST_TOKEN_FALLBACK_MS }
+            : null;
+        return access?.token ?? null;
     } catch {
         return null;
     }
@@ -151,8 +160,14 @@ export async function appLogout() {
     if (!appAuthActive) {
         return;
     }
-    mediaTickets.clear();
+    forgetInMemory();
     await (await loadAppAuthBridge()).appAuthLogout(relayOrigin());
+}
+
+// メモリに持っているトークンとチケットを捨てる
+function forgetInMemory() {
+    mediaTickets.clear();
+    lastToken = null;
 }
 
 // アプリの中のトークンだけを消す（すべての端末からログアウト・退会のあと）
@@ -160,6 +175,6 @@ export async function appForget() {
     if (!appAuthActive) {
         return;
     }
-    mediaTickets.clear();
+    forgetInMemory();
     await (await loadAppAuthBridge()).appAuthForget(relayOrigin());
 }
