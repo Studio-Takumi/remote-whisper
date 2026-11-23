@@ -1,4 +1,5 @@
 // WebSocket /ws の接続（spec/api.md 7.2）。接続は1本で、録音とサーバーの状態の通知の両方に使う
+import { appAuthActive, appSocketUrl } from '@/api/appAuth';
 import { wsUrl } from '@/api/endpoint';
 import type { ClientMessage, ServerMessage } from '@/api/protocol';
 
@@ -64,8 +65,19 @@ class Connection {
         if (this.opening) {
             return this.opening;
         }
-        this.opening = new Promise<void>((resolve, reject) => {
-            const ws = new WebSocket(wsUrl());
+        // アプリの中のクラウド版では、一度だけのチケットを付けてからつなぐ（#441）。ほかは今まで通りすぐつなぐ
+        const connecting = appAuthActive
+            ? appSocketUrl(wsUrl()).then((url) => this.connect(url, timeoutMs))
+            : this.connect(wsUrl(), timeoutMs);
+        this.opening = connecting.finally(() => {
+            this.opening = null;
+        });
+        return this.opening;
+    }
+
+    private connect(url: string, timeoutMs: number): Promise<void> {
+        return new Promise<void>((resolve, reject) => {
+            const ws = new WebSocket(url);
             ws.binaryType = 'arraybuffer';
             const timer = setTimeout(() => {
                 ws.close();
@@ -96,10 +108,7 @@ class Connection {
                 const message = JSON.parse(e.data) as ServerMessage;
                 this.listeners.forEach((l) => l(message));
             };
-        }).finally(() => {
-            this.opening = null;
         });
-        return this.opening;
     }
 
     get isOpen() {

@@ -51,6 +51,13 @@
 		A45800030000000000000002 /* PreferredInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = A45800010000000000000002 /* PreferredInput.swift */; };
 		A45800030000000000000003 /* MicInputPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A45800010000000000000003 /* MicInputPlugin.swift */; };
 		A45800030000000000000004 /* PreferredInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A45800010000000000000004 /* PreferredInputTests.swift */; };
+		A44100030000000000000001 /* AppLoginRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = A44100010000000000000001 /* AppLoginRequest.swift */; };
+		A44100030000000000000002 /* AppTokenStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A44100010000000000000002 /* AppTokenStore.swift */; };
+		A44100030000000000000003 /* AppAuthClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A44100010000000000000003 /* AppAuthClient.swift */; };
+		A44100030000000000000004 /* AppAuthSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = A44100010000000000000004 /* AppAuthSession.swift */; };
+		A44100030000000000000005 /* LoginSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A44100010000000000000005 /* LoginSheet.swift */; };
+		A44100030000000000000006 /* AppAuthPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A44100010000000000000006 /* AppAuthPlugin.swift */; };
+		A44100030000000000000007 /* AppAuthTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A44100010000000000000007 /* AppAuthTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -131,6 +138,13 @@
 		A45800010000000000000002 /* PreferredInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferredInput.swift; sourceTree = "<group>"; };
 		A45800010000000000000003 /* MicInputPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MicInputPlugin.swift; sourceTree = "<group>"; };
 		A45800010000000000000004 /* PreferredInputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreferredInputTests.swift; sourceTree = "<group>"; };
+		A44100010000000000000001 /* AppLoginRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLoginRequest.swift; sourceTree = "<group>"; };
+		A44100010000000000000002 /* AppTokenStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTokenStore.swift; sourceTree = "<group>"; };
+		A44100010000000000000003 /* AppAuthClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppAuthClient.swift; sourceTree = "<group>"; };
+		A44100010000000000000004 /* AppAuthSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppAuthSession.swift; sourceTree = "<group>"; };
+		A44100010000000000000005 /* LoginSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginSheet.swift; sourceTree = "<group>"; };
+		A44100010000000000000006 /* AppAuthPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppAuthPlugin.swift; sourceTree = "<group>"; };
+		A44100010000000000000007 /* AppAuthTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppAuthTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -193,6 +207,7 @@
 				A45400020000000000000001 /* AppEntry */,
 				A45400020000000000000002 /* HomeWidget */,
 				A45800020000000000000001 /* MicInput */,
+				A44100020000000000000001 /* AppAuth */,
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
@@ -245,6 +260,19 @@
 			path = MicInput;
 			sourceTree = "<group>";
 		};
+		A44100020000000000000001 /* AppAuth */ = {
+			isa = PBXGroup;
+			children = (
+				A44100010000000000000006 /* AppAuthPlugin.swift */,
+				A44100010000000000000004 /* AppAuthSession.swift */,
+				A44100010000000000000003 /* AppAuthClient.swift */,
+				A44100010000000000000002 /* AppTokenStore.swift */,
+				A44100010000000000000001 /* AppLoginRequest.swift */,
+				A44100010000000000000005 /* LoginSheet.swift */,
+			);
+			path = AppAuth;
+			sourceTree = "<group>";
+		};
 		A45300020000000000000002 /* LiveActivity */ = {
 			isa = PBXGroup;
 			children = (
@@ -279,6 +307,7 @@
 				A4540001000000000000000D /* HomeWidgetTests.swift */,
 				A4540001000000000000000E /* AppEntryTests.swift */,
 				A45800010000000000000004 /* PreferredInputTests.swift */,
+				A44100010000000000000007 /* AppAuthTests.swift */,
 			);
 			path = AppTests;
 			sourceTree = "<group>";
@@ -459,6 +488,12 @@
 				A45800030000000000000001 /* PreferredInputChoice.swift in Sources */,
 				A45800030000000000000002 /* PreferredInput.swift in Sources */,
 				A45800030000000000000003 /* MicInputPlugin.swift in Sources */,
+				A44100030000000000000001 /* AppLoginRequest.swift in Sources */,
+				A44100030000000000000002 /* AppTokenStore.swift in Sources */,
+				A44100030000000000000003 /* AppAuthClient.swift in Sources */,
+				A44100030000000000000004 /* AppAuthSession.swift in Sources */,
+				A44100030000000000000005 /* LoginSheet.swift in Sources */,
+				A44100030000000000000006 /* AppAuthPlugin.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -470,6 +505,7 @@
 				A4540003000000000000002D /* HomeWidgetTests.swift in Sources */,
 				A4540003000000000000002E /* AppEntryTests.swift in Sources */,
 				A45800030000000000000004 /* PreferredInputTests.swift in Sources */,
+				A44100030000000000000007 /* AppAuthTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

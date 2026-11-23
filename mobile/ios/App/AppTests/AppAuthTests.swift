@@ -1,0 +1,328 @@
+@testable import App
+import XCTest
+
+/// クラウド版のログイン（#441）：PKCE・戻ってきた URL・中間サーバーのオリジン・トークンの更新と消し方
+final class AppAuthTests: XCTestCase {
+    private static let testHosts: Set<String> = ["rw.example", "rw-dev.example"]
+    private let origin = RelayOrigin("https://rw.example", allowedHosts: testHosts)!
+
+    // MARK: PKCE と URL
+
+    func testChallengeIsTheS256OfTheVerifier() {
+        // RFC 7636 の付録 B の値
+        XCTAssertEqual(
+            AppLoginRequest.challenge(for: "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"),
+            "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+        )
+    }
+
+    func testMakeUsesFreshRandomValues() {
+        let a = AppLoginRequest.make()
+        let b = AppLoginRequest.make()
+        XCTAssertNotEqual(a.verifier, b.verifier)
+        XCTAssertNotEqual(a.state, b.state)
+        XCTAssertEqual(a.verifier.count, 64)
+        XCTAssertEqual(a.challenge.count, 43)
+        XCTAssertEqual(a.state.count, 22)
+    }
+
+    func testLoginURLSendsOnlyTheChallenge() throws {
+        let request = AppLoginRequest(verifier: "v".padding(toLength: 64, withPad: "v", startingAt: 0), state: "s".padding(toLength: 22, withPad: "s", startingAt: 0))
+        let url = try XCTUnwrap(request.loginURL(origin: origin, provider: "google"))
+        let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
+        XCTAssertEqual(components.host, "rw.example")
+        XCTAssertEqual(components.path, "/auth/app/login/google")
+        let items = Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).map { ($0.name, $0.value ?? "") })
+        XCTAssertEqual(items, ["challenge": request.challenge, "challenge_method": "S256", "state": request.state])
+        XCTAssertFalse(url.absoluteString.contains(request.verifier))
+        XCTAssertNil(request.loginURL(origin: origin, provider: "evil"))
+    }
+
+    func testCodeComesOnlyFromThisLoginsCallback() throws {
+        let request = AppLoginRequest(verifier: "verifier", state: "state-1")
+        XCTAssertEqual(try request.code(from: URL(string: "remotewhisper://auth/callback?code=abc&state=state-1")!), "abc")
+        // ほかのログインの state・state なし・コードなし・ほかの URL
+        for bad in [
+            "remotewhisper://auth/callback?code=abc&state=state-2",
+            "remotewhisper://auth/callback?code=abc",
+            "remotewhisper://auth/callback?state=state-1",
+            "remotewhisper://record?code=abc&state=state-1",
+            "remotewhisper://auth/other?code=abc&state=state-1",
+            "https://auth/callback?code=abc&state=state-1",
+        ] {
+            XCTAssertThrowsError(try request.code(from: URL(string: bad)!), bad) {
+                XCTAssertEqual($0 as? AppAuthError, .badCallback, bad)
+            }
+        }
+        XCTAssertThrowsError(try request.code(from: URL(string: "remotewhisper://auth/callback?error=access_denied&state=state-1")!)) {
+            XCTAssertEqual($0 as? AppAuthError, .canceled)
+        }
+    }
+
+    func testCallbackIsNotAnAppEntry() {
+        // ウィジェットの入り口（AppEntryRequest）としては読まない
+        XCTAssertNil(AppEntryRequest(url: URL(string: "remotewhisper://auth/callback?code=abc&state=s")!))
+    }
+
+    func testRelayOriginIsHttpsOnly() {
+        let hosts = Self.testHosts
+        XCTAssertEqual(RelayOrigin("https://RW.example/", allowedHosts: hosts)?.key, "https://rw.example")
+        XCTAssertEqual(RelayOrigin("https://rw.example:8443", allowedHosts: hosts)?.key, "https://rw.example:8443")
+        XCTAssertEqual(RelayOrigin("http://localhost:8787", allowedHosts: hosts, allowsLocal: true)?.key, "http://localhost:8787")
+        for bad in ["http://rw.example", "https://rw.example/path", "https://u:p@rw.example", "https://rw.example?x=1", "capacitor://localhost", "", "rw.example"] {
+            XCTAssertNil(RelayOrigin(bad, allowedHosts: hosts), bad)
+        }
+    }
+
+    func testRelayOriginIsOnlyTheCloudHosts() {
+        // JS が渡した origin を信じない：クラウド版のホストだけ
+        XCTAssertEqual(RelayOrigin("https://rw.studio-takumi.dev")?.key, "https://rw.studio-takumi.dev")
+        XCTAssertEqual(RelayOrigin("https://rw-dev.studio-takumi.dev")?.key, "https://rw-dev.studio-takumi.dev")
+        for bad in ["https://evil.example", "https://rw.studio-takumi.dev.evil.example", "https://x.rw.studio-takumi.dev", "https://192.168.1.2"] {
+            XCTAssertNil(RelayOrigin(bad), bad)
+        }
+        // localhost は開発用（Debug のビルド）だけ
+        XCTAssertNil(RelayOrigin("http://localhost:8787", allowsLocal: false))
+        XCTAssertNotNil(RelayOrigin("http://localhost:8787", allowsLocal: true))
+    }
+
+    // MARK: トークン
+
+    private func tokens(_ id: String, accessIn: Double, refreshIn: Double = 86_400_000, at nowMs: Double) -> AppTokens {
+        AppTokens(accessToken: "access-\(id)", accessExpiresAt: nowMs + accessIn, refreshToken: "refresh-\(id)", refreshExpiresAt: nowMs + refreshIn)
+    }
+
+    private let now = Date(timeIntervalSince1970: 1_800_000_000)
+    private var nowMs: Double { now.timeIntervalSince1970 * 1000 }
+
+    func testLoginExchangesTheCodeWithTheVerifier() async throws {
+        let store = MemoryTokenStore()
+        let transport = FakeTransport { _, _ in (200, try JSONEncoder().encode(self.tokens("1", accessIn: 3_600_000, at: self.nowMs))) }
+        let session = AppAuthSession(store: store, client: AppAuthClient(transport: transport), now: { self.now })
+        try await session.completeLogin(origin: origin, code: "code", verifier: "verifier", deviceName: "iPhone")
+        XCTAssertEqual(transport.calls.first?.0.absoluteString, "https://rw.example/auth/app/token")
+        XCTAssertEqual(transport.calls.first?.1, ["grantType": "authorization_code", "code": "code", "codeVerifier": "verifier", "deviceName": "iPhone"])
+        let token = await session.accessToken(origin: origin)
+        XCTAssertEqual(token, "access-1")
+        // web にはアクセストークンの期限も渡す
+        let access = await session.access(origin: origin)
+        XCTAssertEqual(access?.accessExpiresAt, nowMs + 3_600_000)
+        XCTAssertEqual(transport.calls.count, 1)
+    }
+
+    func testLoginOverOldTokensLogsTheOldDeviceOut() async throws {
+        let store = MemoryTokenStore()
+        store.save(tokens("old", accessIn: 3_600_000, at: nowMs), for: origin)
+        let transport = FakeTransport { url, _ in
+            if url.path == "/auth/app/logout" {
+                return (200, Data())
+            }
+            return (200, try JSONEncoder().encode(self.tokens("login", accessIn: 3_600_000, at: self.nowMs)))
+        }
+        let session = AppAuthSession(store: store, client: AppAuthClient(transport: transport), now: { self.now })
+        try await session.completeLogin(origin: origin, code: "code", verifier: "verifier", deviceName: "iPhone")
+        // 前の端末を中間サーバーから消してから、引き換える
+        XCTAssertEqual(transport.calls.map(\.0.path), ["/auth/app/logout", "/auth/app/token"])
+        XCTAssertEqual(transport.calls.first?.1, ["refreshToken": "refresh-old"])
+        XCTAssertEqual(store.load(origin)?.accessToken, "access-login")
+    }
+
+    func testRejectedLoginStoresNothing() async {
+        let store = MemoryTokenStore()
+        let session = AppAuthSession(store: store, client: AppAuthClient(transport: FakeTransport { _, _ in (400, Data()) }), now: { self.now })
+        do {
+            try await session.completeLogin(origin: origin, code: "code", verifier: "verifier", deviceName: "iPhone")
+            XCTFail("should throw")
+        } catch {
+            XCTAssertEqual(error as? AppAuthError, .rejected(400))
+        }
+        XCTAssertTrue(store.items.isEmpty)
+    }
+
+    func testRefreshesWhenTheAccessTokenIsAboutToExpire() async {
+        let store = MemoryTokenStore()
+        store.save(tokens("old", accessIn: 30_000, at: nowMs), for: origin)
+        let transport = FakeTransport { _, _ in (200, try JSONEncoder().encode(self.tokens("new", accessIn: 3_600_000, at: self.nowMs))) }
+        let session = AppAuthSession(store: store, client: AppAuthClient(transport: transport), now: { self.now })
+        let token = await session.accessToken(origin: origin)
+        XCTAssertEqual(token, "access-new")
+        XCTAssertEqual(transport.calls.first?.1, ["grantType": "refresh_token", "refreshToken": "refresh-old"])
+        XCTAssertEqual(store.load(origin)?.refreshToken, "refresh-new")
+    }
+
+    func testConcurrentCallsRefreshOnce() async {
+        let store = MemoryTokenStore()
+        store.save(tokens("old", accessIn: 0, at: nowMs), for: origin)
+        let transport = FakeTransport { _, _ in
+            try await Task.sleep(nanoseconds: 50_000_000)
+            return (200, try JSONEncoder().encode(self.tokens("new", accessIn: 3_600_000, at: self.nowMs)))
+        }
+        let session = AppAuthSession(store: store, client: AppAuthClient(transport: transport), now: { self.now })
+        async let a = session.accessToken(origin: origin)
+        async let b = session.accessToken(origin: origin)
+        let results = await [a, b]
+        XCTAssertEqual(results, ["access-new", "access-new"])
+        XCTAssertEqual(transport.calls.count, 1)
+    }
+
+    func testRejectedRefreshForgetsTheTokens() async {
+        let store = MemoryTokenStore()
+        store.save(tokens("old", accessIn: 0, at: nowMs), for: origin)
+        let session = AppAuthSession(store: store, client: AppAuthClient(transport: FakeTransport { _, _ in (401, Data()) }), now: { self.now })
+        let token = await session.accessToken(origin: origin)
+        XCTAssertNil(token)
+        XCTAssertNil(store.load(origin))
+    }
+
+    func testNetworkErrorKeepsTheTokensForLater() async {
+        let store = MemoryTokenStore()
+        store.save(tokens("old", accessIn: 0, at: nowMs), for: origin)
+        let session = AppAuthSession(store: store, client: AppAuthClient(transport: FakeTransport { _, _ in throw URLError(.notConnectedToInternet) }), now: { self.now })
+        let token = await session.accessToken(origin: origin)
+        XCTAssertNil(token)
+        XCTAssertEqual(store.load(origin)?.refreshToken, "refresh-old")
+    }
+
+    func testExpiredRefreshTokenIsForgottenWithoutCallingTheRelay() async {
+        let store = MemoryTokenStore()
+        store.save(tokens("old", accessIn: -10, refreshIn: -10, at: nowMs), for: origin)
+        let transport = FakeTransport { _, _ in (200, Data()) }
+        let session = AppAuthSession(store: store, client: AppAuthClient(transport: transport), now: { self.now })
+        let token = await session.accessToken(origin: origin)
+        XCTAssertNil(token)
+        XCTAssertNil(store.load(origin))
+        XCTAssertTrue(transport.calls.isEmpty)
+    }
+
+    func testLogoutForgetsEvenWhenTheRelayIsUnreachable() async {
+        let store = MemoryTokenStore()
+        store.save(tokens("1", accessIn: 3_600_000, at: nowMs), for: origin)
+        let other = RelayOrigin("https://rw-dev.example", allowedHosts: Self.testHosts)!
+        store.save(tokens("2", accessIn: 3_600_000, at: nowMs), for: other)
+        let transport = FakeTransport { _, _ in throw URLError(.notConnectedToInternet) }
+        let session = AppAuthSession(store: store, client: AppAuthClient(transport: transport), now: { self.now })
+        await session.logout(origin: origin)
+        XCTAssertNil(store.load(origin))
+        XCTAssertEqual(transport.calls.first?.0.absoluteString, "https://rw.example/auth/app/logout")
+        XCTAssertEqual(transport.calls.first?.1, ["refreshToken": "refresh-1"])
+        // ほかのオリジンのトークンは残す
+        XCTAssertNotNil(store.load(other))
+    }
+
+    // MARK: 更新の途中に割り込まれたとき
+
+    /// 更新・引き換えは遅く（delay）、ログアウトはすぐ返す中間サーバー
+    private func slowRelay(delay: UInt64 = 100_000_000) -> FakeTransport {
+        FakeTransport { url, json in
+            if url.path == "/auth/app/logout" {
+                return (200, Data())
+            }
+            try await Task.sleep(nanoseconds: delay)
+            let id = json["grantType"] == "authorization_code" ? "login" : "new"
+            return (200, try JSONEncoder().encode(self.tokens(id, accessIn: 3_600_000, at: self.nowMs)))
+        }
+    }
+
+    private func refreshInFlight(_ session: AppAuthSession) async throws -> Task<String?, Never> {
+        let origin = origin
+        let task = Task { await session.accessToken(origin: origin) }
+        try await Task.sleep(nanoseconds: 20_000_000)
+        return task
+    }
+
+    private func logoutCalls(_ transport: FakeTransport) -> [[String: String]] {
+        transport.calls.filter { $0.0.path == "/auth/app/logout" }.map(\.1)
+    }
+
+    func testLogoutDuringRefreshDoesNotWriteTheTokensBack() async throws {
+        let store = MemoryTokenStore()
+        store.save(tokens("old", accessIn: 0, at: nowMs), for: origin)
+        let transport = slowRelay()
+        let session = AppAuthSession(store: store, client: AppAuthClient(transport: transport), now: { self.now })
+        let refresh = try await refreshInFlight(session)
+        await session.logout(origin: origin)
+        _ = await refresh.value
+        XCTAssertNil(store.load(origin))
+        // 中間サーバーには、更新で替わった新しい更新トークンでログアウトする（古いものでは消えない）
+        XCTAssertEqual(logoutCalls(transport), [["refreshToken": "refresh-new"]])
+        let after = await session.accessToken(origin: origin)
+        XCTAssertNil(after)
+    }
+
+    func testForgetDuringRefreshDoesNotWriteTheTokensBack() async throws {
+        let store = MemoryTokenStore()
+        store.save(tokens("old", accessIn: 0, at: nowMs), for: origin)
+        let transport = slowRelay()
+        let session = AppAuthSession(store: store, client: AppAuthClient(transport: transport), now: { self.now })
+        let refresh = try await refreshInFlight(session)
+        await session.forget(origin: origin)
+        _ = await refresh.value
+        XCTAssertNil(store.load(origin))
+    }
+
+    func testLoginDuringRefreshKeepsTheNewLogin() async throws {
+        let store = MemoryTokenStore()
+        store.save(tokens("old", accessIn: 0, at: nowMs), for: origin)
+        let transport = slowRelay()
+        let session = AppAuthSession(store: store, client: AppAuthClient(transport: transport), now: { self.now })
+        let refresh = try await refreshInFlight(session)
+        try await session.completeLogin(origin: origin, code: "code", verifier: "verifier", deviceName: "iPhone")
+        _ = await refresh.value
+        XCTAssertEqual(store.load(origin)?.accessToken, "access-login")
+    }
+
+    func testLogoutDuringTheCodeExchangeDiscardsTheNewLogin() async throws {
+        let store = MemoryTokenStore()
+        let transport = slowRelay()
+        let session = AppAuthSession(store: store, client: AppAuthClient(transport: transport), now: { self.now })
+        let origin = origin
+        let login = Task { try await session.completeLogin(origin: origin, code: "code", verifier: "verifier", deviceName: "iPhone") }
+        try await Task.sleep(nanoseconds: 20_000_000)
+        await session.forget(origin: origin)
+        do {
+            try await login.value
+            XCTFail("should be canceled")
+        } catch {
+            XCTAssertEqual(error as? AppAuthError, .canceled)
+        }
+        XCTAssertNil(store.load(origin))
+        XCTAssertEqual(logoutCalls(transport), [["refreshToken": "refresh-login"]])
+    }
+}
+
+/// Keychain の代わり（署名なしのシミュレーターのテストでは Keychain が使えないことがあるため）
+private final class MemoryTokenStore: AppTokenStore {
+    private(set) var items: [RelayOrigin: AppTokens] = [:]
+
+    func load(_ origin: RelayOrigin) -> AppTokens? { items[origin] }
+    func save(_ tokens: AppTokens, for origin: RelayOrigin) { items[origin] = tokens }
+    func remove(_ origin: RelayOrigin) { items[origin] = nil }
+}
+
+/// 中間サーバーの代わり。呼ばれた URL と本文を覚える
+private final class FakeTransport: AppAuthTransport, @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [(URL, [String: String])] = []
+    private let respond: (URL, [String: String]) async throws -> (Int, Data)
+
+    init(_ respond: @escaping (URL, [String: String]) async throws -> (Int, Data)) {
+        self.respond = respond
+    }
+
+    var calls: [(URL, [String: String])] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recorded
+    }
+
+    private func record(_ url: URL, _ json: [String: String]) {
+        lock.lock()
+        defer { lock.unlock() }
+        recorded.append((url, json))
+    }
+
+    func post(_ url: URL, json: [String: String]) async throws -> (Int, Data) {
+        record(url, json)
+        return try await respond(url, json)
+    }
+}

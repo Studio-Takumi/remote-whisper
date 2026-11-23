@@ -353,6 +353,8 @@ export function sendRecordingMetrics(
         beacon?: boolean;
         fetchFn?: typeof fetch;
         sendBeacon?: (url: string, data: Blob) => boolean;
+        // fetch に足すヘッダー（アプリのトークン。#441）。sendBeacon はヘッダーを付けられないので、あれば fetch で送る
+        headers?: Record<string, string>;
     },
 ): boolean {
     if (!where.cloud || !metrics) {
@@ -364,12 +366,12 @@ export function sendRecordingMetrics(
     }
     const body = JSON.stringify(payload);
     try {
-        if (where.beacon && where.sendBeacon) {
+        if (where.beacon && where.sendBeacon && !where.headers) {
             return where.sendBeacon(where.url, new Blob([body], { type: 'text/plain;charset=UTF-8' }));
         }
         void (where.fetchFn ?? fetch)(where.url, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...where.headers },
             body,
             keepalive: true,
         }).catch(() => {});

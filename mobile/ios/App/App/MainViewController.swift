@@ -5,11 +5,13 @@ import UIKit
 /// 継承はこの 1 段だけにして、Live Activity は LiveActivityPlugin に持たせる。
 /// 録音は web/ のいつもの Web の録音（getUserMedia）で行い、Swift では録らない。
 /// ウィジェット・App Intents から開いたときの頼みごとは AppEntryPlugin が web/ に伝える。
-/// web/ で選んだマイクへの入力の固定は MicInputPlugin → PreferredInput
+/// web/ で選んだマイクへの入力の固定は MicInputPlugin → PreferredInput。
+/// クラウド版のログイン（システムのログイン画面とトークン）は AppAuthPlugin → AppAuthSession
 class MainViewController: CAPBridgeViewController {
     override open func capacitorDidLoad() {
         bridge?.registerPluginInstance(LiveActivityPlugin())
         bridge?.registerPluginInstance(AppEntryPlugin())
         bridge?.registerPluginInstance(MicInputPlugin())
+        bridge?.registerPluginInstance(AppAuthPlugin())
     }
 }

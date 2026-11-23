@@ -3,10 +3,12 @@ import { useEffect, useState } from 'react';
 
 import { toast } from 'sonner';
 
+import { appAuthActive } from '@/api/appAuth';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { DevicesSection } from '@/features/cloud/DevicesSection';
 import { HostsSection } from '@/features/cloud/HostsSection';
 import {
     PROVIDER_LABELS,
@@ -138,17 +140,27 @@ export function AccountDialog({ open, onOpenChange }: { open: boolean; onOpenCha
                                     </li>
                                 ))}
                             </ul>
-                            <div className='flex flex-wrap gap-2'>
-                                {addableProviders(me).map((p) => (
-                                    <Button key={p} size='sm' variant='outline' asChild>
-                                        <a href={loginHref(p, { link: true, returnTo: location.pathname })}>
-                                            {PROVIDER_LABELS[p]} を足す
-                                        </a>
-                                    </Button>
-                                ))}
-                            </div>
+                            {appAuthActive ? (
+                                // 手段を足すのは Cookie のログインセッションが要るので、アプリではできない（#441）
+                                addableProviders(me).length > 0 && (
+                                    <p className='text-xs text-muted-foreground'>
+                                        ログインの手段を足すのは、ブラウザで開いたときにできます
+                                    </p>
+                                )
+                            ) : (
+                                <div className='flex flex-wrap gap-2'>
+                                    {addableProviders(me).map((p) => (
+                                        <Button key={p} size='sm' variant='outline' asChild>
+                                            <a href={loginHref(p, { link: true, returnTo: location.pathname })}>
+                                                {PROVIDER_LABELS[p]} を足す
+                                            </a>
+                                        </Button>
+                                    ))}
+                                </div>
+                            )}
                         </section>
                         <HostsSection open={open} />
+                        <DevicesSection open={open} />
                         <section className='flex flex-col gap-1 border-t pt-3'>
                             <div className='flex items-center justify-between gap-2'>
                                 <Label htmlFor='account-data-collection' className='font-medium'>

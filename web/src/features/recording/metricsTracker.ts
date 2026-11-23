@@ -1,5 +1,6 @@
 // 録音ごとの数字（#206。クラウド版のときだけ集めて送る）。今の（直近の）録音のものと、
 // 録音を終えて最終の要約を待っているものを持つ
+import { appAccessToken, appAuthActive, cachedAppToken } from '@/api/appAuth';
 import type { AudioSender } from '@/api/connection';
 import { isDemo } from '@/api/demo';
 import { getHostId, isCloud, meUrl } from '@/api/endpoint';
@@ -8,12 +9,27 @@ import { RecordingMetrics, metricsSettings, sendRecordingMetrics } from '@/featu
 import type { Settings } from '@/features/settings/settings';
 
 function send(m: RecordingMetrics, beacon = false) {
-    sendRecordingMetrics(m, {
+    const where = {
         cloud: isCloud,
         url: meUrl('/metrics/recording'),
         beacon,
-        sendBeacon: (url, data) => navigator.sendBeacon(url, data),
-    });
+        sendBeacon: (url: string, data: Blob) => navigator.sendBeacon(url, data),
+    };
+    if (!appAuthActive) {
+        sendRecordingMetrics(m, where);
+        return;
+    }
+    // アプリの中のクラウド版では、アプリのトークンを付けて fetch で送る（sendBeacon はヘッダーを付けられない。#441）。
+    // トークンがなければ今まで通り（server.url の WebView の Cookie）
+    const withToken = (token: string | null) =>
+        sendRecordingMetrics(m, token ? { ...where, headers: { Authorization: `Bearer ${token}` } } : where);
+    const cached = cachedAppToken();
+    if (beacon && cached) {
+        // 画面を閉じるとき：ネイティブの往復を待つと間に合わないので、直前に受け取ったトークンでその場で送る
+        withToken(cached);
+        return;
+    }
+    void appAccessToken().then(withToken);
 }
 
 export class MetricsTracker {

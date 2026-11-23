@@ -8,6 +8,7 @@ import { isCloud } from '@/api/endpoint';
 import type { AppStore } from '@/app/appState';
 import { loadServerVersion } from '@/app/serverConnection';
 import { webVersion } from '@/app/version';
+import type { AppAccess, AppAuthPlugin } from '@/features/native/appAuthTypes';
 import { AppEntrySync } from '@/features/native/appEntrySync';
 import type { AppEntryPlugin } from '@/features/native/appEntryTypes';
 import { LiveActivitySync } from '@/features/native/liveActivitySync';
@@ -37,6 +38,26 @@ const MicInput = registerPlugin<MicInputPlugin>('MicInput');
 // 選んだマイクに iOS の入力を固定する（録音中にイヤホンをつないでも切り替わらないように。spec/mobile.md 11.7）。null は OS に任せる
 export async function setPreferredMicInput(label: string | null) {
     await MicInput.setPreferredInput({ label });
+}
+
+// クラウド版のログインのプラグイン（mobile/ios/App/App/AppAuth/。#441）。プラグインは Proxy なので、結果は包んで返す
+const AppAuth = registerPlugin<AppAuthPlugin>('AppAuth');
+
+export async function appAuthLogin(origin: string, provider: string) {
+    await AppAuth.login({ origin, provider });
+}
+
+export async function appAuthToken(origin: string): Promise<AppAccess | null> {
+    const { token, expiresAt } = await AppAuth.accessToken({ origin });
+    return token ? { token, expiresAt: typeof expiresAt === 'number' ? expiresAt : null } : null;
+}
+
+export async function appAuthLogout(origin: string) {
+    await AppAuth.logout({ origin });
+}
+
+export async function appAuthForget(origin: string) {
+    await AppAuth.forget({ origin });
 }
 
 // サーバーが新しい版になっていたら、前面に戻ったとき・接続したときに画面を読み込み直す（spec/mobile.md 11.8）

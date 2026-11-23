@@ -755,6 +755,26 @@ const scenes = [
         },
     },
     {
+        // アカウントの画面の「アプリの端末」（#441。iOS アプリでログインした端末があるとき）
+        name: 'cloud-devices',
+        cloud: {
+            devices: [
+                { id: 'd1', name: 'iPhone', createdAt: 1760000000000, lastSeenAt: 1763700000000, current: false },
+                { id: 'd2', name: 'iPad', createdAt: 1760000000000, lastSeenAt: 1763100000000, current: false },
+            ],
+        },
+        manual: true,
+        shots: ['cloud-devices'],
+        async open(page, { mobile, shot }) {
+            await page.waitForFunction(() => window.appStore);
+            await openMenu(page, mobile);
+            await page.getByRole('button', { name: 'アカウント', exact: true }).click();
+            await page.getByRole('dialog', { name: 'アカウント' }).waitFor();
+            await page.getByText('アプリの端末').waitFor();
+            await shot('cloud-devices', { fullDialog: true });
+        },
+    },
+    {
         name: 'cloud-announcement',
         cloud: {
             announcements: [
@@ -1138,6 +1158,8 @@ async function routeCloud(page, options) {
         (route) => (me ? route.fulfill({ json: me }) : route.fulfill({ status: 401, json: { detail: 'login' } })),
     );
     await page.route('**/me/hosts', (route) => route.fulfill({ json: { hosts } }));
+    // アプリでログインした端末（#441）。なければアカウントの画面に何も出ない
+    await page.route('**/me/devices', (route) => route.fulfill({ json: { devices: options.devices ?? [] } }));
     await page.route('**/me/metrics/**', (route) => route.fulfill({ json: { ok: true } }));
     await page.route('**/announcements.json', (route) => route.fulfill({ json: options.announcements ?? [] }));
     await page.route('**/pair/request*', (route) =>
