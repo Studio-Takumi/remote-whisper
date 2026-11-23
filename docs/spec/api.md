@@ -35,7 +35,7 @@
 | POST | `/api/projects/{pid}/context-sets` | 参考資料ファイルを指定して、参考資料の作成を始める |
 | PATCH | `/api/projects/{pid}` | プロジェクトの設定を変える（#341。今は最終要約のコピーの置き場所 `summaryDir` だけ。files.md 5.4 節）。本文は `{ "summaryDir": "summary" }`（省いたものは今のまま。直下に戻すときは空の文字列で、`null` は `422`）。そろえた値で保存し、プロジェクト（一覧の 1 件と同じ形）を返す。不正なパスは `422`、ないプロジェクトは `404`。録音中もトンネルからも変えられる |
 | PATCH | `/api/projects/{pid}/selection` | 使う参考資料と、用語リスト・コンテキストそれぞれを使うかどうか、録音中に用語を拾うか（`pickTerms`）を設定する。録音中は `409` |
-| GET | `/api/version` | サーバーのバージョン（`{"version": "v1.0.0+2b23d9b"}`。5.5 節の `appVersion` と同じ値） |
+| GET | `/api/version` | サーバーのバージョンと、アップデートの確認（#472。10.12 節）の結果（`{"version": "v1.0.0+2b23d9b", "latest": {"version": "v1.1.0", "url": "<リリースノート>"}, "updateAvailable": true}`）。`version` は 5.5 節の `appVersion` と同じ値。`latest` はまだ確かめていない・取れなかった・止めているときは `null`。`updateAvailable` は `latest` の x.y が `version` より新しいときだけ `true`（z とハッシュの違いは見ない。`version` がハッシュだけ・`unknown` なら `false`）。古いサーバーは `version` だけ |
 | GET | `/api/push/key` | 最終要約の通知（#245。6.14 節）の VAPID の公開鍵（`{"publicKey": "<base64url>"}`）。秘密鍵は返さない |
 | POST | `/api/push/subscriptions` | 通知の購読を足す。本文はブラウザの `PushSubscription.toJSON()`（`endpoint`・`keys.p256dh`・`keys.auth`）。同じ `endpoint` は置き換える。push サービスの URL でない・鍵が読めなければ `422` |
 | DELETE | `/api/push/subscriptions?endpoint=…` | 通知の購読を消す（その端末の設定をオフにした）。なければ何もしない |

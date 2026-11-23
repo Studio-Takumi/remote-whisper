@@ -22,7 +22,7 @@ Tailscale・uv・Ollama などを自分で入れられる人だけでなく、�
 | 画面の配信 | ホストの FastAPI（`web/dist`） | Worker（同じ `web/dist` を静的アセットとして） |
 | API・WebSocket | `/api/...`・`/ws` | `/h/<hostId>/api/...`・`/h/<hostId>/ws` |
 | ログイン | なし（7.4 節） | Google・Discord・GitHub（10.7 節） |
-| 外への通信 | **何も送らない**（お知らせを取りに行くことも含めて） | 中間サーバーとだけ |
+| 外への通信 | **アップデートの確認だけ**（ホストが中間サーバーに版とランダムな ID を送る。設定で止められる。10.12 節）。ほかは何も送らない（お知らせを取りに行くことも含めて） | 中間サーバーとだけ |
 | 広告 | 出さない | 後で出す（10.13 節） |
 - 画面は `location.hostname` がクラウド用のドメイン（ビルド時の設定で渡す）ならクラウド版として動く。コードと設定の値は `cloud`・`direct`
   - ビルド時の設定は環境変数 `VITE_CLOUD_HOSTS`（カンマ区切り）。渡さなければ staging の `rw-dev.studio-takumi.dev` と本番の `rw.studio-takumi.dev`
@@ -434,7 +434,7 @@ erDiagram
 
 ## 10.9 計測
 
-**数値だけ**を Analytics Engine に書く。WebSocket は素通しなので（10.3 節）、次の 2 つから取る。ホストから計測のために何かを送ることはしない。
+**数値だけ**を Analytics Engine に書く。WebSocket は素通しなので（10.3 節）、次の 2 つから取る。ホストから計測のために何かを送ることはしない（アップデートの確認で来たリクエストを 1 行書くだけ。下の「アップデートの確認の形」）。
 
 1. **Worker が中継する HTTP**（#163）: ユーザー ID・ホスト ID、メソッド・パス（ID は `:id` に伏せる）・ステータス・かかった ms・本文の大きさ、WebSocket をつないだ回数（つなぐときは HTTP なので）、ログイン・登録の回数、国、ブラウザ・OS の大まかな種類
 2. **画面が録音ごとに送る数字**（#206）: クラウド版のときだけ、録音 1 回につき 1 回、最終要約ができたとき（ページを閉じたときは `sendBeacon` でその時点まで）に `POST /me/metrics/recording` で送る。ユーザーは Worker がログインの情報から付け、ホストは本文の `hostId` を受け取って、Worker がそのユーザーの（解除していない）ホストかを確かめる（違えば捨てる）。送られる数字は偽れる前提で扱い、回数の制限を付ける（1 ユーザーあたり 1 時間に 60 件まで。形は下の「録音ごとの数字の形」）
@@ -462,7 +462,7 @@ Worker は、`/healthz` 以外のすべての HTTP（ホストへの中継・ロ
 
 | 列 | 中身 |
 |---|---|
-| `blob1` | 種類（`relay`・`auth`・`pair`・`me`・`csp`（`/csp-report`）・`other`） |
+| `blob1` | 種類（`relay`・`auth`・`pair`・`me`・`csp`（`/csp-report`）・`releases`（`/releases/latest`）・`other`） |
 | `blob2` | メソッド |
 | `blob3` | パス。決まった語（許可リスト）だけ残し、UUID・数字・16 文字以上の英数字は `:id`、ほか（プロジェクト ID・用語など）は `:v` に伏せる。クエリは書かない。区切り 6 つ・96 文字まで |
 | `blob4` | 国（`cf.country`。分からなければ `XX`） |
@@ -485,7 +485,7 @@ SELECT toStartOfDay(timestamp) AS day,
        count(DISTINCT blob7) AS users,
        sumIf(_sample_interval, blob9 = 'ws' AND double1 = 101) AS ws_connects
 FROM remote_whisper_staging
-WHERE blob1 NOT IN ('recording', 'recording_host', 'csp_violation') AND timestamp > now() - INTERVAL '30' DAY
+WHERE blob1 NOT IN ('recording', 'recording_host', 'csp_violation', 'update_check') AND timestamp > now() - INTERVAL '30' DAY
 GROUP BY day ORDER BY day;
 
 -- 中継した API の遅さ（パスごとの 50%・95%）
@@ -500,7 +500,7 @@ GROUP BY path ORDER BY requests DESC LIMIT 20;
 -- エラーの多いところ（4xx・5xx）
 SELECT blob1 AS kind, blob3 AS path, double1 AS status, sum(_sample_interval) AS n
 FROM remote_whisper_staging
-WHERE blob1 NOT IN ('recording', 'recording_host', 'csp_violation') AND double1 >= 400 AND timestamp > now() - INTERVAL '1' DAY
+WHERE blob1 NOT IN ('recording', 'recording_host', 'csp_violation', 'update_check') AND double1 >= 400 AND timestamp > now() - INTERVAL '1' DAY
 GROUP BY kind, path, status ORDER BY n DESC LIMIT 20;
 ```
 
@@ -526,6 +526,24 @@ SELECT blob2 AS directive, blob3 AS disposition, blob4 AS page, blob5 AS blocked
 FROM remote_whisper_staging
 WHERE blob1 = 'csp_violation' AND timestamp > now() - INTERVAL '7' DAY
 GROUP BY directive, disposition, page, blocked, browser ORDER BY n DESC LIMIT 50;
+```
+
+### アップデートの確認の形（#472）
+
+`GET /releases/latest`（10.12 節の「アップデートの確認」）に来るたびに、1 行書く（`relay/src/releases.ts`。キャッシュから返すときも書く）。ホストが付けるヘッダーの `X-RW-Id` が UUID の形、`X-RW-Version` が `^[\w.+-]{1,32}$`（登録の `appVersion` と同じ形）のときだけ書き、違えば書かない（応答はいつも通り返す）。国など `cf` 由来の値・IP アドレス・User-Agent は書かない。書けなくても応答は止めない。来たこと自体は HTTP の計測の行（`blob1` が `releases`、パスは `/releases/latest`。ヘッダーの ID と版は入らない）にもなるので、HTTP の計測を集計するときは `update_check` を除く。
+
+| 列 | 中身 |
+|---|---|
+| `blob1` | `update_check` |
+| `blob2` | ホストの版（`v1.0.0+34a7607` など） |
+| `index1` | ホストの ID（クラウドに登録していればホスト ID、していなければホストが作ったランダムな UUID。小文字） |
+
+```sql
+-- この 30 日に確かめに来たホストの数と、版ごとの内訳（ホストの ID でサンプリングされるので、数は目安）
+SELECT blob2 AS version, count(DISTINCT index1) AS hosts, sum(_sample_interval) AS checks
+FROM remote_whisper_staging
+WHERE blob1 = 'update_check' AND timestamp > now() - INTERVAL '30' DAY
+GROUP BY version ORDER BY hosts DESC;
 ```
 
 ### 録音ごとの数字の形（#206）
@@ -638,7 +656,20 @@ GROUP BY minutes_from ORDER BY minutes_from;
 - クラウド版の画面: **クラウド版のときだけ**、ホストにつながって画面が出たときに読む（`cache: no-cache`）。期間内（`since`〜`until`）でまだ見ていないものを、画面の上に小さなバナーで出す（録音のボタンや文字起こしには重ねない）。閉じたら同じ `id` は出さない（見た `id` は localStorage に覚える。使えなくても動く）。`title` は文字として出し（HTML にしない）、`url` は `https` のものだけリンクにする
 - 常駐アイコン: クラウドに登録しているとき（cloud.json に `relayKey` がある）だけ、cloud.json の `relayUrl`（登録した中間サーバー）の `/announcements.json` を、起動時と 1 日 1 回ほど読む。期間内の `release` で、今の版（パッケージの version。git のハッシュは数字で比べられないので使わない。読めなければ読みに行かない）より新しい版があれば、通知で「新しい版があります（x.y.z）」と出す。通知した版はデータのルートの `announcements-state.json`（cloud.json とは別）に覚え、同じ版（とそれより古い版）では出さない。つながらない・JSON が壊れているときは何もせず、次の回に回す
 - 版の比べ方は数字の比較（major.minor.patch。`v` やプレリリースの印は見ない。読めない版は比べない）
-- セルフホスト版の画面と、クラウドに登録していない常駐アイコンは読みに行かない（外に何も送らない）
+- セルフホスト版の画面と、クラウドに登録していない常駐アイコンは読みに行かない（外にはアップデートの確認のほか何も送らない）
+
+### アップデートの確認（#472）
+
+ホストは手で更新するので、新しい版（x.y）が出たことを画面で知らせる。
+
+- **ホスト（Python）が確かめる**（`server/src/remote_whisper/update_check.py`）。セルフホスト版でもクラウド版でも分けずに、起動時と 24 時間ごとに 1 回、中間サーバーの `GET /releases/latest` を読む。聞く先は、クラウドに登録していれば cloud.json の `relayUrl`、していなければ設定の `cloud.relayUrl`（既定は本番）。モック（`--mock`）では聞かない
+- **送るもの**: ヘッダーの `X-RW-Version`（ホストの版。5.5 節の形）と `X-RW-Id`（ホストの ID）だけ。ID は、クラウドに登録していればそのホスト ID、していなければ初回に作るランダムな UUID（データのルートの `install-id`）。OS・設定などほかの情報は送らない。クエリには何も付けない
+- **止める**: 設定の `updates.check`（5.3 節。画面は「表示・その他」の「接続」の「アップデートの確認」）をオフにすると、中間サーバーへのリクエストを出さない。次の回から効く
+- 失敗（オフライン・中間サーバーが落ちている・返事の形が違う）は黙って次の回に回す。録音などには影響させない。前に取れた結果は残す
+- 結果は `GET /api/version`（7.1 節）の `latest`（`{"version", "url"}`。`url` はリリースノート）と `updateAvailable` で返す。`updateAvailable` は **x.y が上がったときだけ** `true`（z とハッシュの違いは見ない。ホストの版が取れない（ハッシュだけ・`unknown`）ときは `false`）。止めているときは `latest` が `null`
+- **中間サーバー**（`relay/src/releases.ts`）: `GET /releases/latest` は GitHub Releases の最新を返す（`{"version": "v1.1.0", "url": "<リリースノート>", "publishedAt"}`）。下書き・プレリリースと、`vX.Y.Z` ちょうどでないタグ（`-rc` など）は除く。GitHub API には User-Agent を付けて未認証で聞き、Worker のキャッシュ（Cache API）に 1 時間置く（リリースのたびにデプロイしなくてよい。回数の制限にもかからない）。リリースがなければ `404`、GitHub に届かない・断られたら `502`（5 分キャッシュ）。来たたびに Analytics Engine に 1 行書く（10.9 節の「アップデートの確認の形」）
+- **画面**: 設定モーダルのバージョンの下に「v1.1 が出ています」とリリースノートへのリンクを出す。トーストは版ごとに 1 回だけ出す（出した版は localStorage に覚え、同じ版ではもう出さない。localStorage が使えなければ、開いている間だけ覚える）。クラウド版でも、`/api/version` はトンネルの先のホストのものなので、ホストの x.y が古ければ同じものを出す
+- 常駐アイコンのお知らせ（上の `announcements.json`）とは別のもの
 
 ## 10.13 広告
 
