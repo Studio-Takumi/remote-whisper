@@ -40,13 +40,18 @@ final class KeychainTokenStore: AppTokenStore {
         return try? JSONDecoder().decode(AppTokens.self, from: data)
     }
 
+    /// 先に書き換えを試し、まだなければ足す（消してから足すと、その間に失敗したときにトークンを失うため）
     func save(_ tokens: AppTokens, for origin: RelayOrigin) {
         guard let data = try? JSONEncoder().encode(tokens) else { return }
-        SecItemDelete(query(origin) as CFDictionary)
-        var q = query(origin)
-        q[kSecValueData as String] = data
-        q[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        let status = SecItemAdd(q as CFDictionary, nil)
+        let attributes: [String: Any] = [
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+        ]
+        var status = SecItemUpdate(query(origin) as CFDictionary, attributes as CFDictionary)
+        if status == errSecItemNotFound {
+            let add = query(origin).merging(attributes) { $1 }
+            status = SecItemAdd(add as CFDictionary, nil)
+        }
         if status != errSecSuccess {
             print("[AppAuth] could not save the tokens: \(status)")
         }
@@ -54,5 +59,15 @@ final class KeychainTokenStore: AppTokenStore {
 
     func remove(_ origin: RelayOrigin) {
         SecItemDelete(query(origin) as CFDictionary)
+    }
+
+    /// iOS の Keychain はアプリを消しても残る。入れ直して初めて起動したとき（UserDefaults の印がないとき）に、
+    /// 前に入れていたときのトークンを全部消す（入れ直したらログインし直す）
+    func clearIfReinstalled(defaults: UserDefaults = .standard) {
+        let key = "RWAppAuthInstalled"
+        guard !defaults.bool(forKey: key) else { return }
+        let all: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service]
+        SecItemDelete(all as CFDictionary)
+        defaults.set(true, forKey: key)
     }
 }

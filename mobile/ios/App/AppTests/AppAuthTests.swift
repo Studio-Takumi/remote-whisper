@@ -3,7 +3,8 @@ import XCTest
 
 /// クラウド版のログイン（#441）：PKCE・戻ってきた URL・中間サーバーのオリジン・トークンの更新と消し方
 final class AppAuthTests: XCTestCase {
-    private let origin = RelayOrigin("https://rw.example")!
+    private static let testHosts: Set<String> = ["rw.example", "rw-dev.example"]
+    private let origin = RelayOrigin("https://rw.example", allowedHosts: testHosts)!
 
     // MARK: PKCE と URL
 
@@ -64,12 +65,25 @@ final class AppAuthTests: XCTestCase {
     }
 
     func testRelayOriginIsHttpsOnly() {
-        XCTAssertEqual(RelayOrigin("https://RW.example/")?.key, "https://rw.example")
-        XCTAssertEqual(RelayOrigin("https://rw.example:8443")?.key, "https://rw.example:8443")
-        XCTAssertEqual(RelayOrigin("http://localhost:8787")?.key, "http://localhost:8787")
+        let hosts = Self.testHosts
+        XCTAssertEqual(RelayOrigin("https://RW.example/", allowedHosts: hosts)?.key, "https://rw.example")
+        XCTAssertEqual(RelayOrigin("https://rw.example:8443", allowedHosts: hosts)?.key, "https://rw.example:8443")
+        XCTAssertEqual(RelayOrigin("http://localhost:8787", allowedHosts: hosts, allowsLocal: true)?.key, "http://localhost:8787")
         for bad in ["http://rw.example", "https://rw.example/path", "https://u:p@rw.example", "https://rw.example?x=1", "capacitor://localhost", "", "rw.example"] {
+            XCTAssertNil(RelayOrigin(bad, allowedHosts: hosts), bad)
+        }
+    }
+
+    func testRelayOriginIsOnlyTheCloudHosts() {
+        // JS が渡した origin を信じない：クラウド版のホストだけ
+        XCTAssertEqual(RelayOrigin("https://rw.studio-takumi.dev")?.key, "https://rw.studio-takumi.dev")
+        XCTAssertEqual(RelayOrigin("https://rw-dev.studio-takumi.dev")?.key, "https://rw-dev.studio-takumi.dev")
+        for bad in ["https://evil.example", "https://rw.studio-takumi.dev.evil.example", "https://x.rw.studio-takumi.dev", "https://192.168.1.2"] {
             XCTAssertNil(RelayOrigin(bad), bad)
         }
+        // localhost は開発用（Debug のビルド）だけ
+        XCTAssertNil(RelayOrigin("http://localhost:8787", allowsLocal: false))
+        XCTAssertNotNil(RelayOrigin("http://localhost:8787", allowsLocal: true))
     }
 
     // MARK: トークン
@@ -163,7 +177,7 @@ final class AppAuthTests: XCTestCase {
     func testLogoutForgetsEvenWhenTheRelayIsUnreachable() async {
         let store = MemoryTokenStore()
         store.save(tokens("1", accessIn: 3_600_000, at: nowMs), for: origin)
-        let other = RelayOrigin("https://rw-dev.example")!
+        let other = RelayOrigin("https://rw-dev.example", allowedHosts: Self.testHosts)!
         store.save(tokens("2", accessIn: 3_600_000, at: nowMs), for: other)
         let transport = FakeTransport { _, _ in throw URLError(.notConnectedToInternet) }
         let session = AppAuthSession(store: store, client: AppAuthClient(transport: transport), now: { self.now })
@@ -173,6 +187,86 @@ final class AppAuthTests: XCTestCase {
         XCTAssertEqual(transport.calls.first?.1, ["refreshToken": "refresh-1"])
         // ほかのオリジンのトークンは残す
         XCTAssertNotNil(store.load(other))
+    }
+
+    // MARK: 更新の途中に割り込まれたとき
+
+    /// 更新・引き換えは遅く（delay）、ログアウトはすぐ返す中間サーバー
+    private func slowRelay(delay: UInt64 = 100_000_000) -> FakeTransport {
+        FakeTransport { url, json in
+            if url.path == "/auth/app/logout" {
+                return (200, Data())
+            }
+            try await Task.sleep(nanoseconds: delay)
+            let id = json["grantType"] == "authorization_code" ? "login" : "new"
+            return (200, try JSONEncoder().encode(self.tokens(id, accessIn: 3_600_000, at: self.nowMs)))
+        }
+    }
+
+    private func refreshInFlight(_ session: AppAuthSession) async throws -> Task<String?, Never> {
+        let origin = origin
+        let task = Task { await session.accessToken(origin: origin) }
+        try await Task.sleep(nanoseconds: 20_000_000)
+        return task
+    }
+
+    private func logoutCalls(_ transport: FakeTransport) -> [[String: String]] {
+        transport.calls.filter { $0.0.path == "/auth/app/logout" }.map(\.1)
+    }
+
+    func testLogoutDuringRefreshDoesNotWriteTheTokensBack() async throws {
+        let store = MemoryTokenStore()
+        store.save(tokens("old", accessIn: 0, at: nowMs), for: origin)
+        let transport = slowRelay()
+        let session = AppAuthSession(store: store, client: AppAuthClient(transport: transport), now: { self.now })
+        let refresh = try await refreshInFlight(session)
+        await session.logout(origin: origin)
+        _ = await refresh.value
+        XCTAssertNil(store.load(origin))
+        // 中間サーバーには、更新で替わった新しい更新トークンでログアウトする（古いものでは消えない）
+        XCTAssertEqual(logoutCalls(transport), [["refreshToken": "refresh-new"]])
+        let after = await session.accessToken(origin: origin)
+        XCTAssertNil(after)
+    }
+
+    func testForgetDuringRefreshDoesNotWriteTheTokensBack() async throws {
+        let store = MemoryTokenStore()
+        store.save(tokens("old", accessIn: 0, at: nowMs), for: origin)
+        let transport = slowRelay()
+        let session = AppAuthSession(store: store, client: AppAuthClient(transport: transport), now: { self.now })
+        let refresh = try await refreshInFlight(session)
+        await session.forget(origin: origin)
+        _ = await refresh.value
+        XCTAssertNil(store.load(origin))
+    }
+
+    func testLoginDuringRefreshKeepsTheNewLogin() async throws {
+        let store = MemoryTokenStore()
+        store.save(tokens("old", accessIn: 0, at: nowMs), for: origin)
+        let transport = slowRelay()
+        let session = AppAuthSession(store: store, client: AppAuthClient(transport: transport), now: { self.now })
+        let refresh = try await refreshInFlight(session)
+        try await session.completeLogin(origin: origin, code: "code", verifier: "verifier", deviceName: "iPhone")
+        _ = await refresh.value
+        XCTAssertEqual(store.load(origin)?.accessToken, "access-login")
+    }
+
+    func testLogoutDuringTheCodeExchangeDiscardsTheNewLogin() async throws {
+        let store = MemoryTokenStore()
+        let transport = slowRelay()
+        let session = AppAuthSession(store: store, client: AppAuthClient(transport: transport), now: { self.now })
+        let origin = origin
+        let login = Task { try await session.completeLogin(origin: origin, code: "code", verifier: "verifier", deviceName: "iPhone") }
+        try await Task.sleep(nanoseconds: 20_000_000)
+        await session.forget(origin: origin)
+        do {
+            try await login.value
+            XCTFail("should be canceled")
+        } catch {
+            XCTAssertEqual(error as? AppAuthError, .canceled)
+        }
+        XCTAssertNil(store.load(origin))
+        XCTAssertEqual(logoutCalls(transport), [["refreshToken": "refresh-login"]])
     }
 }
 

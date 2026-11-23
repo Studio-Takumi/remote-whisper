@@ -15,11 +15,14 @@ public class AppAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "forget", returnType: CAPPluginReturnPromise),
     ]
 
-    private let session = AppAuthSession(
-        store: KeychainTokenStore(),
-        client: AppAuthClient(transport: URLSessionTransport())
-    )
+    private static let store = KeychainTokenStore()
+    private let session = AppAuthSession(store: AppAuthPlugin.store, client: AppAuthClient(transport: URLSessionTransport()))
     private var sheet: LoginSheet?
+
+    override public func load() {
+        // 入れ直したアプリに、前のトークンを残さない
+        Self.store.clearIfReinstalled()
+    }
 
     private func origin(_ call: CAPPluginCall) -> RelayOrigin? {
         guard let origin = RelayOrigin(call.getString("origin") ?? "") else {
@@ -39,6 +42,11 @@ public class AppAuthPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         Task { @MainActor in
+            // ログインの最中にもう一度呼ばれたら（ボタンの連打など）、前のログインに任せる
+            guard self.sheet == nil else {
+                call.reject("busy", "busy")
+                return
+            }
             let sheet = LoginSheet(window: self.bridge?.viewController?.view.window)
             self.sheet = sheet
             defer { self.sheet = nil }

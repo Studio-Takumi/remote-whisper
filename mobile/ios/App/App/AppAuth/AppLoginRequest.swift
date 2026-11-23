@@ -91,12 +91,22 @@ func base64url(_ data: Data) -> String {
 }
 
 /// トークンを使う中間サーバー（クラウド版）のオリジン。https だけ（開発用に http://localhost も）。
-/// トークンはオリジンごとに分けて持つ（staging と本番で混ぜない）
+/// トークンはオリジンごとに分けて持つ（staging と本番で混ぜない）。
+/// JS が渡した origin をそのまま信じず、クラウド版のホスト（`cloudHosts`）だけにする（web の `VITE_CLOUD_HOSTS` の既定と同じ）。
+/// Debug のビルドだけ、開発用の localhost・127.0.0.1（wrangler dev）も許す
 struct RelayOrigin: Equatable, Hashable {
     let url: URL
 
-    /// "https://rw.example" の形（パス・クエリ・ユーザー名のない URL）だけ
-    init?(_ value: String) {
+    /// 本番と staging（spec/cloud.md 10.15）。クラウド版のドメインを変えたら、web の VITE_CLOUD_HOSTS と一緒に変える
+    static let cloudHosts: Set<String> = ["rw.studio-takumi.dev", "rw-dev.studio-takumi.dev"]
+    #if DEBUG
+        static let allowsLocal = true
+    #else
+        static let allowsLocal = false
+    #endif
+
+    /// "https://rw.example" の形（パス・クエリ・ユーザー名のない URL）で、許したホストのものだけ
+    init?(_ value: String, allowedHosts: Set<String> = RelayOrigin.cloudHosts, allowsLocal: Bool = RelayOrigin.allowsLocal) {
         guard let components = URLComponents(string: value), let scheme = components.scheme?.lowercased(),
               let host = components.host?.lowercased(), !host.isEmpty,
               components.user == nil, components.password == nil, components.query == nil, components.fragment == nil,
@@ -105,7 +115,8 @@ struct RelayOrigin: Equatable, Hashable {
             return nil
         }
         let local = host == "localhost" || host == "127.0.0.1"
-        guard scheme == "https" || (scheme == "http" && local) else { return nil }
+        guard (scheme == "https" && allowedHosts.contains(host)) || (allowsLocal && local && (scheme == "http" || scheme == "https"))
+        else { return nil }
         var normalized = URLComponents()
         normalized.scheme = scheme
         normalized.host = host
