@@ -282,6 +282,9 @@ iOS アプリの WebView（WKWebView）の中では Google の OAuth が通ら�
   1. アプリが PKCE の `verifier`（乱数）と `state` を作り、システムのログイン画面で `GET /auth/app/login/<provider>?challenge=<SHA-256 の base64url>&challenge_method=S256&state=<state>` を開く。そのあとの OAuth はブラウザのログインと同じ（state の D1 と Cookie の両方の確認も同じ。システムのログイン画面は Safari と同じブラウザなので Cookie が使える）。`challenge`・`state` は `oauth_states` の `app_challenge`・`app_state` に置く。手段を足す（`?link=1`）のは Cookie のログインセッションが要るので、アプリのログインでは受けない（`400`）
   2. コールバックで、Cookie のログインセッションの代わりに**一度だけ使える 2 分のコード**（`app_auth_codes`。ハッシュと `challenge` だけ置く）を作り、`remotewhisper://auth/callback?code=<コード>&state=<state>` へ `302` で戻す（戻る先は固定。Universal Links は有料の Apple Developer Program が要るので使わない）。プロバイダの画面で断ったら `?error=access_denied&state=<state>`
   3. アプリのネイティブのコードが `POST /auth/app/token`（`{"grantType": "authorization_code", "code", "codeVerifier", "deviceName"}`）で替える。`SHA-256(codeVerifier)` が `challenge` と合うときだけトークンを返す。コードは合っても合わなくても、読んだら消す。カスタムスキームはほかのアプリも名乗れるが、`ASWebAuthenticationSession` は始めたアプリにだけ戻し、コードを横取りされても `verifier` がなければ替えられない
+- **PKCE とカスタムスキームで守れる範囲**: PKCE が防ぐのは、正規のアプリが始めたログインのコードを横から取られる**受け身の横取りだけ**。端末に悪意のあるアプリが入っていれば、そのアプリは**自分で作った `challenge`** を付けて `/auth/app/login` を始められる（自分の `ASWebAuthenticationSession` で開く、または Safari でリンクを踏ませて `remotewhisper://` を自分が受ける）。`verifier` も相手の手にあるので、PKCE では防げない（RFC 8252 8.6 の「クライアントのなりすまし」。Universal Links を使わない以上、残るリスク）
+  - そのため、**アプリのログインのときだけ**プロバイダに毎回アカウントを選ぶ（同意する）画面を出させる（`providers.ts` の `appPrompt`。Google と GitHub は `prompt=select_account`、Discord はアカウントを選ぶ `prompt` がないので `prompt=consent`）。前に同意していても黙って一瞬で戻らないので、本人が始めていないログインに気づける。ブラウザのログインには付けない（今まで通り）
+  - 入られてしまったときは、アカウントの画面の「アプリの端末」（`/me/devices`）に知らない端末が出るので、そこから外す
 - **トークン**（`app_sessions`。端末ごとに 1 行。値はハッシュだけ置く）: 返事は `{accessToken, accessExpiresAt, refreshToken, refreshExpiresAt}`
   - アクセストークンは 1 時間。`Authorization: Bearer <アクセストークン>` で `/h/`・`/me`・`/pair` の確認と承認に使う。毎回 D1 を引くので、行を消せばすぐ使えなくなる
   - 更新トークンは 60 日（更新するたびに延びる）。`POST /auth/app/token`（`{"grantType": "refresh_token", "refreshToken"}`）で、アクセストークンと更新トークンの**両方を替える**（前のものはどちらも使えなくなる。同じ更新トークンで 2 回は替えられない）。前の更新トークンをもう一度使われたときに全部を止める（再利用の検知）はしていない（電波が切れて返事を受け取れなかっただけで、ログアウトさせてしまうため）
@@ -298,6 +301,7 @@ iOS アプリの WebView（WKWebView）の中では Google の OAuth が通ら�
   - `kind: "ws"`: `path` は `/ws` だけ。60 秒・**一度だけ**（使ったら消す）。`Origin` が自分のオリジンかアプリの画面のオリジンのときだけ通す
   - `kind: "media"`: `path` はセッションの録音ファイル（`/api/projects/<pid>/sessions/<sid>/recording`）だけ。1 時間・期限まで何度でも（`<audio>` が Range で読み直すため）。GET・HEAD だけ
   - 作ったホスト・パス（クエリを除く）でだけ使える。端末を消すとチケットも消える（CASCADE）。チケットがあるときはチケットだけで決める（違えば Cookie・`Authorization` に戻らない）
+  - 1 つの端末が持てるのは、期限前のものを 30 枚まで（超えたら古いものから消す）。作るたびに、期限切れのチケット（全員の分）を消す（D1 に溜めない）。期限切れのコード・端末・ログインの途中の状態も、それぞれ作るときに消している
   - `rw_ticket` はホストに渡さず、署名にも入れない（ほかのクエリは書き方を変えずに渡す）
 - **`server.url` で開いているアプリ**（今の運用。mobile.md 11.2 節）: 画面のオリジンは中間サーバーそのもの。`ASWebAuthenticationSession` の Cookie は WKWebView と共有されないので、ログインしても WebView に Cookie は付かない。そこで同梱したときと同じく、アプリの中のクラウド版の画面はトークンとチケットを使う（自分のオリジンからのトークンは通す）。WebView に Cookie を移す（トークンを Cookie に替える）方法は、Cookie の経路にアプリのログインを混ぜることになるので採らない
 - secret は増やしていない（トークン・コード・チケットは乱数で、D1 にハッシュだけを置く）

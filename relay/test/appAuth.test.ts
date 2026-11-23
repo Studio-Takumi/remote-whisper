@@ -219,6 +219,21 @@ describe('ログイン（システムのログイン画面）', () => {
         }
         expect((await SELF.fetch(`${ORIGIN}/auth/app/login/nope?challenge=${p.challenge}`)).status).toBe(404);
     });
+
+    it('アプリのログインだけ、毎回アカウントを選ぶ（同意する）画面を出させる', async () => {
+        const p = await pkce();
+        for (const [provider, prompt] of [
+            ['google', 'select_account'],
+            ['discord', 'consent'],
+            ['github', 'select_account'],
+        ]) {
+            const app = await SELF.fetch(appLoginUrl(p).replace('/github?', `/${provider}?`), { redirect: 'manual' });
+            expect(new URL(app.headers.get('Location') ?? '').searchParams.get('prompt'), provider).toBe(prompt);
+            // ブラウザのログインは今まで通り付けない
+            const web = await SELF.fetch(`${ORIGIN}/auth/login/${provider}`, { redirect: 'manual' });
+            expect(new URL(web.headers.get('Location') ?? '').searchParams.has('prompt'), provider).toBe(false);
+        }
+    });
 });
 
 describe('コードをトークンに替える', () => {
@@ -305,6 +320,21 @@ describe('アクセストークン', () => {
         const t = await appTokens();
         for (const origin of [EVIL, 'capacitor://evil', 'ionic://localhost']) {
             expect((await bearer('/me', t.accessToken, { origin })).status, origin).toBe(401);
+        }
+    });
+
+    it('ほかのサイトの画面から Bearer で登録を承認・拒否できない（アプリの画面からならログインは通る）', async () => {
+        const t = await appTokens();
+        for (const path of ['/pair/approve', '/pair/reject']) {
+            const evil = await bearer(path, t.accessToken, {
+                method: 'POST',
+                origin: EVIL,
+                body: { code: 'K7QM-4PXD' },
+            });
+            expect(evil.status, path).toBe(401);
+            // 認可は通り、申請がないので 404
+            const app = await bearer(path, t.accessToken, { method: 'POST', body: { code: 'K7QM-4PXD' } });
+            expect(app.status, path).toBe(404);
         }
     });
 
@@ -605,6 +635,92 @@ describe('チケット（WebSocket・音声）', () => {
             body: JSON.stringify({ refreshToken: t.refreshToken }),
         });
         expect((await SELF.fetch(`${ORIGIN}/h/${hostId}${RECORDING}?rw_ticket=${value}`)).status).toBe(401);
+    });
+
+    it('期限が切れたチケットは、WebSocket も音声も使えない', async () => {
+        const t = await appTokens();
+        const hostId = await newHost(t.userId);
+        const issue = async (kind: string, path: string) =>
+            ((await (await ticket(t.accessToken, { hostId, kind, path })).json()) as { ticket: string }).ticket;
+        const ws = await issue('ws', '/ws');
+        const media = await issue('media', RECORDING);
+        await env.DB.prepare('UPDATE app_tickets SET expires_at = ? WHERE user_id = ?')
+            .bind(Date.now() - 1, t.userId)
+            .run();
+        expect(
+            (
+                await SELF.fetch(`${ORIGIN}/h/${hostId}/ws?rw_ticket=${ws}`, {
+                    headers: { Upgrade: 'websocket', Origin: APP },
+                })
+            ).status,
+        ).toBe(401);
+        expect((await SELF.fetch(`${ORIGIN}/h/${hostId}${RECORDING}?rw_ticket=${media}`)).status).toBe(401);
+        expect(forwarded).toHaveLength(0);
+    });
+
+    it('取り違えたチケットは使えない（音声のチケットをほかの録音に・WebSocket のチケットを GET に）', async () => {
+        const t = await appTokens();
+        const hostId = await newHost(t.userId);
+        const issue = async (kind: string, path: string) =>
+            ((await (await ticket(t.accessToken, { hostId, kind, path })).json()) as { ticket: string }).ticket;
+        const media = await issue('media', RECORDING);
+        // 同じホスト・同じプロジェクトの、別のセッションの録音
+        const otherSession = RECORDING.replace('20261009-143012', '20261009-150000');
+        expect((await SELF.fetch(`${ORIGIN}/h/${hostId}${otherSession}?rw_ticket=${media}`)).status).toBe(401);
+        // 同じホストの、別のプロジェクトの録音
+        const otherProject = RECORDING.replace('p-abc123', 'p-def456');
+        expect((await SELF.fetch(`${ORIGIN}/h/${hostId}${otherProject}?rw_ticket=${media}`)).status).toBe(401);
+        // WebSocket のチケットは、Upgrade でない GET（/ws にも録音にも）には使えない
+        const ws = await issue('ws', '/ws');
+        expect(
+            (await SELF.fetch(`${ORIGIN}/h/${hostId}/ws?rw_ticket=${ws}`, { headers: { Origin: APP } })).status,
+        ).toBe(401);
+        expect((await SELF.fetch(`${ORIGIN}/h/${hostId}${RECORDING}?rw_ticket=${ws}`)).status).toBe(401);
+        expect(forwarded).toHaveLength(0);
+    });
+
+    it('退会すると、トークンもチケットも使えない', async () => {
+        const t = await appTokens();
+        const hostId = await newHost(t.userId);
+        const { ticket: media } = (await (
+            await ticket(t.accessToken, { hostId, kind: 'media', path: RECORDING })
+        ).json()) as { ticket: string };
+        expect((await bearer('/me', t.accessToken, { method: 'DELETE' })).status).toBe(200);
+        expect((await bearer('/me', t.accessToken)).status).toBe(401);
+        expect((await token({ grantType: 'refresh_token', refreshToken: t.refreshToken })).status).toBe(401);
+        expect((await SELF.fetch(`${ORIGIN}/h/${hostId}${RECORDING}?rw_ticket=${media}`)).status).toBe(401);
+        const rows = await env.DB.prepare(
+            'SELECT (SELECT COUNT(*) FROM app_sessions WHERE user_id = ?1) AS s, (SELECT COUNT(*) FROM app_tickets WHERE user_id = ?1) AS t',
+        )
+            .bind(t.userId)
+            .first<{ s: number; t: number }>();
+        expect(rows).toEqual({ s: 0, t: 0 });
+        expect(forwarded).toHaveLength(0);
+    });
+
+    it('1 つの端末のチケットは 30 枚まで（古いものから消す）。期限切れの行は作るときに消す', async () => {
+        const t = await appTokens();
+        const other = await appTokens();
+        const hostId = await newHost(t.userId);
+        const otherHost = await newHost(other.userId);
+        // ほかの人の、期限切れのチケット
+        await ticket(other.accessToken, { hostId: otherHost, kind: 'ws', path: '/ws' });
+        await env.DB.prepare('UPDATE app_tickets SET expires_at = 1 WHERE user_id = ?').bind(other.userId).run();
+        const issued: string[] = [];
+        for (let i = 0; i < 31; i++) {
+            const res = await ticket(t.accessToken, { hostId, kind: 'media', path: RECORDING });
+            issued.push(((await res.json()) as { ticket: string }).ticket);
+        }
+        const count = async (userId: string) =>
+            (
+                await env.DB.prepare('SELECT COUNT(*) AS n FROM app_tickets WHERE user_id = ?')
+                    .bind(userId)
+                    .first<{ n: number }>()
+            )?.n;
+        expect(await count(t.userId)).toBe(30);
+        expect(await count(other.userId)).toBe(0);
+        expect((await SELF.fetch(`${ORIGIN}/h/${hostId}${RECORDING}?rw_ticket=${issued[0]}`)).status).toBe(401);
+        expect((await SELF.fetch(`${ORIGIN}/h/${hostId}${RECORDING}?rw_ticket=${issued[30]}`)).status).toBe(206);
     });
 
     it('クエリからチケットだけを取り出す（ほかの書き方は変えない）', () => {
