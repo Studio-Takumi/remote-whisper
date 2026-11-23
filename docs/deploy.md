@@ -40,8 +40,10 @@
 1. PR を main にマージする
 2. CI（`.github/workflows/ci.yml`）が通る
 3. Deploy（`.github/workflows/deploy.yml`）が動き、行き先を決める（`PRODUCTION_READY` が `true` なら本番、そうでなければ staging）
-4. 画面をビルドし（`VITE_CLOUD_HOSTS` に staging と本番のドメイン）、D1 のマイグレーションを当て（足すだけ）、`wrangler deploy` し、`/healthz` を確かめる
+4. 画面をビルドし（`VITE_CLOUD_HOSTS` に staging と本番のドメイン）、D1 のマイグレーションを当て（足すだけ）、`wrangler deploy`（relay の版を `--var APP_VERSION:<版>` で渡す。ホストの「新しい版があります」の元になる。#477）し、`/healthz` を確かめる
 5. 失敗したら Actions が赤くなる（`DISCORD_WEBHOOK_URL` があれば Discord にも）
+
+リリースを出すときは、`vX.Y.Z` のタグを打ったら GitHub の Release も公開する（下書きのままにしない）。relay の版がタグから作られ、ホストへの「新しい版があります」の知らせはそのリリースノートへのリンクを出すため、公開が遅れるとリンク先が見られない間も知らせが出る。
 
 ブランチを staging で確かめるときは、Actions → Deploy → Run workflow でブランチを選び、行き先を `staging` にする。
 
