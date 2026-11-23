@@ -35,6 +35,9 @@ export const REFRESH_TTL_MS = 60 * 24 * 60 * 60 * 1000;
 // チケットの期限。WebSocket は一度だけ、音声は期限まで何度でも（Range で読み直すため）
 export const WS_TICKET_TTL_MS = 60 * 1000;
 export const MEDIA_TICKET_TTL_MS = 60 * 60 * 1000;
+// 1 つの端末が持てるチケットの数（期限前のもの。超えたら古いものから消す。D1 に溜めないため）。
+// 音声のチケットは開いた録音ごとに 1 時間残るので、ふつうに使う分よりは多めにする
+export const MAX_TICKETS_PER_SESSION = 30;
 // 1 人が持てるアプリのログインセッションの数（超えたら、いちばん長く使っていないものから消す）
 export const MAX_APP_SESSIONS = 20;
 // last_seen_at を書き直す間隔
@@ -335,12 +338,17 @@ export async function issueTicket(request: Request, env: Env, user: SessionUser)
     const ticket = randomToken();
     const now = Date.now();
     const expiresAt = now + (kind === 'ws' ? WS_TICKET_TTL_MS : MEDIA_TICKET_TTL_MS);
+    // 期限切れのチケット（全員の分）を消してから足し、この端末の分が上限を超えたら古いものから消す（同じ batch で）
     await env.DB.batch([
         env.DB.prepare('DELETE FROM app_tickets WHERE expires_at <= ?').bind(now),
         env.DB.prepare(
             `INSERT INTO app_tickets (ticket_hash, app_session_id, user_id, host_id, kind, path, created_at, expires_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         ).bind(await sha256(ticket), user.sessionId, user.userId, hostId, kind, path, now, expiresAt),
+        env.DB.prepare(
+            `DELETE FROM app_tickets WHERE app_session_id = ?1 AND rowid NOT IN
+               (SELECT rowid FROM app_tickets WHERE app_session_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT ?2)`,
+        ).bind(user.sessionId, MAX_TICKETS_PER_SESSION),
     ]);
     return json({ ticket, expiresAt });
 }

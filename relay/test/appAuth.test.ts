@@ -698,6 +698,31 @@ describe('チケット（WebSocket・音声）', () => {
         expect(forwarded).toHaveLength(0);
     });
 
+    it('1 つの端末のチケットは 30 枚まで（古いものから消す）。期限切れの行は作るときに消す', async () => {
+        const t = await appTokens();
+        const other = await appTokens();
+        const hostId = await newHost(t.userId);
+        const otherHost = await newHost(other.userId);
+        // ほかの人の、期限切れのチケット
+        await ticket(other.accessToken, { hostId: otherHost, kind: 'ws', path: '/ws' });
+        await env.DB.prepare('UPDATE app_tickets SET expires_at = 1 WHERE user_id = ?').bind(other.userId).run();
+        const issued: string[] = [];
+        for (let i = 0; i < 31; i++) {
+            const res = await ticket(t.accessToken, { hostId, kind: 'media', path: RECORDING });
+            issued.push(((await res.json()) as { ticket: string }).ticket);
+        }
+        const count = async (userId: string) =>
+            (
+                await env.DB.prepare('SELECT COUNT(*) AS n FROM app_tickets WHERE user_id = ?')
+                    .bind(userId)
+                    .first<{ n: number }>()
+            )?.n;
+        expect(await count(t.userId)).toBe(30);
+        expect(await count(other.userId)).toBe(0);
+        expect((await SELF.fetch(`${ORIGIN}/h/${hostId}${RECORDING}?rw_ticket=${issued[0]}`)).status).toBe(401);
+        expect((await SELF.fetch(`${ORIGIN}/h/${hostId}${RECORDING}?rw_ticket=${issued[30]}`)).status).toBe(206);
+    });
+
     it('クエリからチケットだけを取り出す（ほかの書き方は変えない）', () => {
         expect(takeTicket('')).toEqual({ ticket: null, rest: '' });
         expect(takeTicket('?a=%20b&c')).toEqual({ ticket: null, rest: '?a=%20b&c' });
