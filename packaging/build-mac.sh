@@ -165,7 +165,12 @@ cp "$work/cloudflared/cloudflared" "$app/cloudflared"
 chmod 755 "$app/cloudflared"
 
 # 5. ビルドの印（bundle.py が見る。バージョンもここから。edition は配布物の種類。#408）
-printf '{\n  "version": "%s",\n  "edition": "mlx",\n  "cloudflared": "%s"\n}\n' "$version" "$CLOUDFLARED_VERSION" \
+# 画面（web のビルド）と同じ規則の v1.0.0 / v1.0.0+34a7607 の形（#471）。git から取れなければ --version の値
+bundle_version="$(cd "$repo/web" && node scripts/app-version.mjs)"
+if [ -z "$bundle_version" ] || [ "$bundle_version" = "unknown" ]; then
+    bundle_version="$version"
+fi
+printf '{\n  "version": "%s",\n  "edition": "mlx",\n  "cloudflared": "%s"\n}\n' "$bundle_version" "$CLOUDFLARED_VERSION" \
     > "$app/bundle.json"
 
 # 6. .app の外側（起動用のスクリプト・Info.plist・アイコン）

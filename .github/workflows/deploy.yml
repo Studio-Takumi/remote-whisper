@@ -92,6 +92,8 @@ jobs:
         if: steps.secrets.outputs.enabled == 'true'
         with:
           persist-credentials: false
+          # バージョン（v1.0.0+34a7607）を git のタグから作るので、タグまで取る（#471）
+          fetch-depth: 0
           # CI が通ったコミット。手動のときはその実行のコミット
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 

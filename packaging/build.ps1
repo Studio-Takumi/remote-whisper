@@ -137,7 +137,17 @@ if ($actual -ne $CloudflaredSha256) {
 }
 
 # 5. ビルドの印（bundle.py が見る。バージョンもここから）
-@{ version = $Version; edition = $Edition; cloudflared = $CloudflaredVersion } | ConvertTo-Json |
+# 画面（web のビルド）と同じ規則の v1.0.0 / v1.0.0+34a7607 の形（#471）。git から取れなければ -Version の値
+Push-Location $Web
+try {
+    $BundleVersion = (& node scripts/app-version.mjs)
+    if ($LASTEXITCODE -ne 0) { $BundleVersion = '' }
+} finally {
+    Pop-Location
+}
+$BundleVersion = "$BundleVersion".Trim()
+if (-not $BundleVersion -or $BundleVersion -eq 'unknown') { $BundleVersion = $Version }
+@{ version = $BundleVersion; edition = $Edition; cloudflared = $CloudflaredVersion } | ConvertTo-Json |
     Set-Content -Encoding utf8 (Join-Path $App 'bundle.json')
 
 Remove-Item -Recurse -Force $Work
