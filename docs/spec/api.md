@@ -95,6 +95,7 @@
 | `terms` | `terms`（録音中に拾って用語リストに足した語）、`rejected`（消された語）、`manual`（手で足した語）。用語リスト（文字起こし抽出）・手で足した語が変わったときに送る |
 | `corrections` | 置き換え（6.13 節）を足した・外した（全員に送る）。画面はそのセッションの文字起こしを取り直す |
 | `projectOrder` | プロジェクトの並び順（`projectOrder`、5.3 節）が変わった（#173。全員に送る）。画面は設定を取り直して一覧を並べ直す（知らないプロジェクトがあれば一覧ごと取り直す） |
+| `version` | アップデートの確認（#472。10.12 節）の結果が変わった（確認が終わった・設定でオン・オフした。全員に送る）。項目はない。画面は `GET /api/version`（7.1 節）を取り直す |
 | `sessionMoved` | セッションを別のプロジェクトへ移した（#172。全員に送る）。`session`・`sessionUuid`・`from`・`to`（プロジェクト ID）。画面は一覧を取り直し、開いていたら移した先で開いたままにする |
 | `contextSet` | `project`（プロジェクト ID）、`id`、`status`（`generating` / `ready` / `failed`） |
 | `watching` | `watch` の返事（#238）。`state`（`recording` / `paused` / `disconnected` / `idle`）。`idle` は録音中ではない（自分で録音しているセッションも `idle`）ので見ない。そうでなければ、そこまでの `transcript`（`[{time, text}]`）・`liveSummary`・`title` が付く。参加に対応したサーバー（#241）は `join`（`{available, reason}`。`reason` は参加できないときだけ `limit`（つながっている音源が `recording.maxSources` に達した・音源 ID が 16 個に達した）/ `disabled`（`recording.maxSources` が 1））も付ける |

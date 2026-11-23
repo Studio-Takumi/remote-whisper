@@ -22,7 +22,7 @@ Tailscale・uv・Ollama などを自分で入れられる人だけでなく、�
 | 画面の配信 | ホストの FastAPI（`web/dist`） | Worker（同じ `web/dist` を静的アセットとして） |
 | API・WebSocket | `/api/...`・`/ws` | `/h/<hostId>/api/...`・`/h/<hostId>/ws` |
 | ログイン | なし（7.4 節） | Google・Discord・GitHub（10.7 節） |
-| 外への通信 | **アップデートの確認だけ**（ホストが中間サーバーに版とランダムな ID を送る。設定で止められる。10.12 節）。ほかは何も送らない（お知らせを取りに行くことも含めて） | 中間サーバーとだけ |
+| 外への通信 | **アップデートの確認だけ**（ホストが中間サーバーに版と ID（クラウド版に登録していればホスト ID、していなければランダムな ID）を送る。設定で止められる。10.12 節）。ほかは何も送らない（お知らせを取りに行くことも含めて） | 中間サーバーとだけ |
 | 広告 | 出さない | 後で出す（10.13 節） |
 - 画面は `location.hostname` がクラウド用のドメイン（ビルド時の設定で渡す）ならクラウド版として動く。コードと設定の値は `cloud`・`direct`
   - ビルド時の設定は環境変数 `VITE_CLOUD_HOSTS`（カンマ区切り）。渡さなければ staging の `rw-dev.studio-takumi.dev` と本番の `rw.studio-takumi.dev`
@@ -663,11 +663,12 @@ GROUP BY minutes_from ORDER BY minutes_from;
 ホストは手で更新するので、新しい版（x.y）が出たことを画面で知らせる。
 
 - **ホスト（Python）が確かめる**（`server/src/remote_whisper/update_check.py`）。セルフホスト版でもクラウド版でも分けずに、起動時と 24 時間ごとに 1 回、中間サーバーの `GET /releases/latest` を読む。聞く先は、クラウドに登録していれば cloud.json の `relayUrl`、していなければ設定の `cloud.relayUrl`（既定は本番）。モック（`--mock`）では聞かない
-- **送るもの**: ヘッダーの `X-RW-Version`（ホストの版。5.5 節の形）と `X-RW-Id`（ホストの ID）だけ。ID は、クラウドに登録していればそのホスト ID、していなければ初回に作るランダムな UUID（データのルートの `install-id`）。OS・設定などほかの情報は送らない。クエリには何も付けない
-- **止める**: 設定の `updates.check`（5.3 節。画面は「表示・その他」の「接続」の「アップデートの確認」）をオフにすると、中間サーバーへのリクエストを出さない。次の回から効く
+- **送るもの**: ヘッダーの `X-RW-Version`（ホストの版。5.5 節の形）と `X-RW-Id`（ホストの ID）だけ。ID は、クラウドに登録していればそのホスト ID、していなければ初回に作るランダムな UUID（データのルートの `install-id`）。OS・設定などほかの情報は送らない。User-Agent は固定の `remote-whisper`（httpx の版は送らない）。クエリには何も付けない
+- **止める**: 設定の `updates.check`（5.3 節。画面は「表示・その他」の「接続」の「アップデートの確認」）をオフにすると、中間サーバーへのリクエストを出さず、`/api/version` の `latest` も `null` にする。オフからオンにしたら、次の 24 時間を待たずにその場で 1 回確かめる（モックでは確かめない）
 - 失敗（オフライン・中間サーバーが落ちている・返事の形が違う）は黙って次の回に回す。録音などには影響させない。前に取れた結果は残す
 - 結果は `GET /api/version`（7.1 節）の `latest`（`{"version", "url"}`。`url` はリリースノート）と `updateAvailable` で返す。`updateAvailable` は **x.y が上がったときだけ** `true`（z とハッシュの違いは見ない。ホストの版が取れない（ハッシュだけ・`unknown`）ときは `false`）。止めているときは `latest` が `null`
-- **中間サーバー**（`relay/src/releases.ts`）: `GET /releases/latest` は GitHub Releases の最新を返す（`{"version": "v1.1.0", "url": "<リリースノート>", "publishedAt"}`）。下書き・プレリリースと、`vX.Y.Z` ちょうどでないタグ（`-rc` など）は除く。GitHub API には User-Agent を付けて未認証で聞き、Worker のキャッシュ（Cache API）に 1 時間置く（リリースのたびにデプロイしなくてよい。回数の制限にもかからない）。リリースがなければ `404`、GitHub に届かない・断られたら `502`（5 分キャッシュ）。来たたびに Analytics Engine に 1 行書く（10.9 節の「アップデートの確認の形」）
+- **結果が変わったら画面に知らせる**: 確認の結果（`/api/version` の `latest`・`updateAvailable`）が変わったとき（確認が終わった・設定でオン・オフした）、WebSocket で全員に `version`（7.2 節）を送り、画面は `/api/version` を取り直す。起動してすぐ開いた画面（最初の `/api/version` が確認より先で `latest: null`）にも、確認が終わったところで知らせが出る
+- **中間サーバー**（`relay/src/releases.ts`）: `GET /releases/latest` は GitHub Releases の最新を返す（`{"version": "v1.1.0", "url": "<リリースノート>", "publishedAt"}`）。下書き・プレリリースと、`vX.Y.Z` ちょうどでないタグ（`-rc` など）は除く。GitHub API には User-Agent を付けて未認証で聞き、Worker のキャッシュ（Cache API）に 1 時間置く（リリースのたびにデプロイしなくてよい。回数の制限にもかからない）。リリースがなければ `404`、GitHub に届かない・断られたら `502`（5 分キャッシュ）。Cache API は 404・502 を置かないことがあるので、キャッシュには 200 として置き、元のステータスを `X-RW-Cached-Status` に残して、返すときに戻す。来たたびに Analytics Engine に 1 行書く（10.9 節の「アップデートの確認の形」）
 - **画面**: 設定モーダルのバージョンの下に「v1.1 が出ています」とリリースノートへのリンクを出す。トーストは版ごとに 1 回だけ出す（出した版は localStorage に覚え、同じ版ではもう出さない。localStorage が使えなければ、開いている間だけ覚える）。クラウド版でも、`/api/version` はトンネルの先のホストのものなので、ホストの x.y が古ければ同じものを出す
 - 常駐アイコンのお知らせ（上の `announcements.json`）とは別のもの
 
