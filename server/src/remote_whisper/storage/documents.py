@@ -189,7 +189,7 @@ class TranscriptMeta(_Meta):
     # 最終の要約を作れなかった（Ollama につながらないなど）。作れたら false に戻す。
     # spec/flows.md 6.7
     summary_failed: bool = False
-    # 録音したサーバーのバージョン（コミットハッシュ）。以前のファイルにはない
+    # 録音したサーバーのバージョン（v1.0.0+34a7607 の形）。以前のファイルにはない
     app_version: str | None = None
     # 録音中に文字起こしから拾って、用語リストに足した語と、画面で消された語（#103）
     picked_terms: list[str] = Field(default_factory=list)
@@ -233,7 +233,7 @@ class SummaryMeta(_Meta):
     context_set: str | None = None
     use_context: bool = False
     generated_at: str
-    # 要約を作ったサーバーのバージョン（コミットハッシュ）。以前のファイルにはない
+    # 要約を作ったサーバーのバージョン（v1.0.0+34a7607 の形）。以前のファイルにはない
     app_version: str | None = None
     # 使った要約度（1〜5。#100）。概要と、部分ごとの要約（詳細）。以前のファイルにはない
     overview_density: int | None = None

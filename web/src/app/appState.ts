@@ -57,7 +57,7 @@ export type AppState = {
     settingsLoaded: boolean;
     // 設定で選べる値。サーバーから取れなければダミーのまま
     options: SettingsOptions;
-    // サーバーのバージョン（コミットハッシュ）。取れていなければ null
+    // サーバーのバージョン（v1.0.0+34a7607 の形）。取れていなければ null
     serverVersion: string | null;
     server: ServerStatus;
     // 参考資料セットの選択を保存するまでの間の、手元の選択（プロジェクトごと）。

@@ -14,6 +14,6 @@ export default defineConfig({
     test: {
         // data.ts などが location・document を使うので、ブラウザの代わりに jsdom で動かす
         environment: 'jsdom',
-        include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
+        include: ['src/**/*.test.ts', 'src/**/*.test.tsx', 'scripts/**/*.test.ts'],
     },
 });
