@@ -12,7 +12,7 @@ import contextlib
 import logging
 import re
 import uuid
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -29,6 +29,7 @@ RELEASES_PATH = "/releases/latest"
 # 中間サーバー（relay/src/releases.ts）と同じ名前
 VERSION_HEADER = "X-RW-Version"
 ID_HEADER = "X-RW-Id"
+USER_AGENT = "remote-whisper"
 ID_FILE = "install-id"
 CHECK_INTERVAL_SEC = 24 * 60 * 60
 REQUEST_TIMEOUT_SEC = 10.0
@@ -101,15 +102,23 @@ class UpdateChecker:
         current_version: Callable[[], str] = app_version,
         transport: httpx.AsyncBaseTransport | None = None,
         interval: float = CHECK_INTERVAL_SEC,
+        on_change: Callable[[], Awaitable[None]] | None = None,
     ):
         self.home = home
         self.settings = settings
         self.current_version = current_version
         self.transport = transport
         self.interval = interval
+        # GET /api/version の結果が変わったときに呼ぶ（WebSocket で全員に version を送る）
+        self.on_change = on_change
         # 最後に取れた最新の版。取れなかった回は前のものを残す
         self.latest: LatestRelease | None = None
         self._task: asyncio.Task | None = None
+        # 設定でオンにしたときの 1 回の確認
+        self._extra: set[asyncio.Task] = set()
+        # 最後に知らせた結果と、最後に見た設定
+        self._published: dict[str, Any] = {"latest": None, "updateAvailable": False}
+        self._was_enabled = self.enabled
 
     @property
     def enabled(self) -> bool:
@@ -120,11 +129,14 @@ class UpdateChecker:
             self._task = asyncio.create_task(self._loop())
 
     async def close(self) -> None:
-        if self._task is not None:
-            self._task.cancel()
+        tasks = [t for t in (self._task, *self._extra) if t is not None]
+        for task in tasks:
+            task.cancel()
+        for task in tasks:
             with contextlib.suppress(asyncio.CancelledError):
-                await self._task
-            self._task = None
+                await task
+        self._task = None
+        self._extra.clear()
 
     async def _loop(self) -> None:
         while True:
@@ -132,7 +144,7 @@ class UpdateChecker:
             await asyncio.sleep(self.interval)
 
     async def check(self) -> None:
-        """1 回聞く。止めていれば何もしない。何があっても例外は投げない"""
+        """1 回聞く。止めていれば何もしない。結果が変わったら知らせる。何があっても例外は投げない"""
         if not self.enabled:
             return
         try:
@@ -142,6 +154,30 @@ class UpdateChecker:
             return
         if latest is not None:
             self.latest = latest
+        await self._publish()
+
+    async def settings_changed(self) -> None:
+        """設定を保存したあとに呼ぶ。オンにしたら、その場で 1 回確かめる
+        （起動していなければ聞かない）。オフにしたら、結果（latest）を隠したことを知らせる"""
+        enabled = self.enabled
+        turned_on = enabled and not self._was_enabled
+        self._was_enabled = enabled
+        if turned_on and self._task is not None:
+            task = asyncio.create_task(self.check())
+            self._extra.add(task)
+            task.add_done_callback(self._extra.discard)
+        await self._publish()
+
+    async def _publish(self) -> None:
+        status = self.status_json()
+        if status == self._published:
+            return
+        self._published = status
+        if self.on_change is not None:
+            try:
+                await self.on_change()
+            except Exception:  # noqa: BLE001 知らせの失敗で、確認を止めない
+                log.warning("failed to announce the update check", exc_info=True)
 
     def _relay_url(self) -> str:
         # 登録済みなら登録した中間サーバー、そうでなければ設定の中間サーバー（既定は本番）
@@ -156,7 +192,11 @@ class UpdateChecker:
             ID_HEADER: await asyncio.to_thread(install_id, self.home),
         }
         async with httpx.AsyncClient(
-            base_url=self._relay_url(), timeout=REQUEST_TIMEOUT_SEC, transport=self.transport
+            base_url=self._relay_url(),
+            timeout=REQUEST_TIMEOUT_SEC,
+            transport=self.transport,
+            # httpx の既定（python-httpx/<版>）を送らない。版は X-RW-Version だけで送る
+            headers={"User-Agent": USER_AGENT},
         ) as client:
             res = await client.get(RELEASES_PATH, headers=headers)
         res.raise_for_status()

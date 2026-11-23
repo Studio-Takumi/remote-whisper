@@ -63,7 +63,10 @@ def build_parts(home: Path, mock: bool, mock_timing: MockTiming | None) -> Parts
         backend, openvino_device = _wire_whisper_and_llm(parts)
         material_range = _wire_real(ctx, home, on_count, backend, openvino_device)
     _wire_uploads_and_setup(ctx, home, mock, material_range)
-    ctx.updates = UpdateChecker(home, ctx.settings)
+    # 結果が変わったら、画面に /api/version を取り直させる（#472）
+    ctx.updates = UpdateChecker(
+        home, ctx.settings, on_change=lambda: ctx.hub.broadcast({"type": "version"})
+    )
     return parts
 
 

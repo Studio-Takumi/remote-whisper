@@ -1,6 +1,7 @@
 """アップデートの確認（#472）。x.y だけを比べ、送るのは版と ID だけ、止めたら何も送らない"""
 
 import asyncio
+import time
 import uuid
 from dataclasses import replace
 
@@ -89,6 +90,142 @@ def test_check_remembers_the_latest_and_sends_only_version_and_id(home):
     # クエリやほかの情報は付けない
     assert request.url.query == b""
     assert not {k.lower() for k in request.headers} & {"cookie", "authorization"}
+    # User-Agent は固定の値（httpx の版を送らない）
+    assert request.headers["User-Agent"] == "remote-whisper"
+
+
+def test_announces_only_when_the_result_changes(home):
+    relay = FakeRelay()
+    checker = make_checker(home, relay)
+    calls: list[bool] = []
+
+    async def announce():
+        calls.append(True)
+
+    checker.on_change = announce
+    asyncio.run(checker.check())
+    assert calls == [True]
+    # 同じ結果・失敗では知らせない
+    asyncio.run(checker.check())
+    relay.response = httpx.ConnectError("offline")
+    asyncio.run(checker.check())
+    assert calls == [True]
+    # 新しい版が出たら知らせる
+    relay.response = httpx.Response(200, json={"version": "v1.2.0", "url": NOTES})
+    asyncio.run(checker.check())
+    assert calls == [True, True]
+
+
+def test_a_failing_announcement_does_not_break_the_check(home):
+    checker = make_checker(home, FakeRelay())
+
+    async def broken():
+        raise RuntimeError("socket closed")
+
+    checker.on_change = broken
+    asyncio.run(checker.check())
+    assert checker.status_json()["updateAvailable"] is True
+
+
+def test_turning_it_on_checks_at_once_and_off_hides_the_result(home):
+    SettingsStore(home).update({"updates": {"check": False}})
+    relay = FakeRelay()
+    checker = make_checker(home, relay)
+    checker.interval = 3600
+    calls: list[dict] = []
+
+    async def announce():
+        calls.append(checker.status_json())
+
+    checker.on_change = announce
+
+    async def run():
+        checker.start()
+        await asyncio.sleep(0.05)
+        # 起動時はオフなので聞かない
+        assert relay.requests == []
+        checker.settings.update({"updates": {"check": True}})
+        await checker.settings_changed()
+        await asyncio.sleep(0.05)
+        assert len(relay.requests) == 1
+        assert calls[-1]["updateAvailable"] is True
+        checker.settings.update({"updates": {"check": False}})
+        await checker.settings_changed()
+        assert calls[-1] == {"latest": None, "updateAvailable": False}
+        await checker.close()
+
+    asyncio.run(run())
+    assert len(calls) == 2
+
+
+def test_turning_it_on_does_not_check_when_not_started(home):
+    # モック（start しない）では、オンにしても聞かない
+    SettingsStore(home).update({"updates": {"check": False}})
+    relay = FakeRelay()
+    checker = make_checker(home, relay)
+
+    async def run():
+        checker.settings.update({"updates": {"check": True}})
+        await checker.settings_changed()
+        await asyncio.sleep(0.05)
+
+    asyncio.run(run())
+    assert relay.requests == []
+
+
+def test_screen_learns_the_result_that_arrives_after_it_connected(home):
+    # 画面が /api/version を読んだあとで確認が終わっても、WebSocket の version で取り直せる
+    app = create_app(home, mock=True)
+    ctx = app.state.ctx
+    relay = FakeRelay()
+    checker = UpdateChecker(
+        home,
+        ctx.settings,
+        current_version=lambda: "v1.0.0",
+        transport=relay.transport(),
+        on_change=lambda: ctx.hub.broadcast({"type": "version"}),
+    )
+    ctx.updates = checker
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        assert client.get("/api/version").json()["latest"] is None
+        client.portal.call(checker.check)
+        message = ws.receive_json()
+        while message.get("type") != "version":
+            message = ws.receive_json()
+        assert client.get("/api/version").json()["updateAvailable"] is True
+
+
+def test_settings_patch_tells_the_checker(home):
+    app = create_app(home, mock=True)
+    seen: list[bool] = []
+
+    class Spy:
+        def status_json(self):
+            return {"latest": None, "updateAvailable": False}
+
+        async def settings_changed(self):
+            seen.append(app.state.ctx.settings.get().updates.check)
+
+        async def close(self):
+            pass
+
+    app.state.ctx.updates = Spy()
+    with TestClient(app) as client:
+        assert client.patch("/api/settings", json={"updates": {"check": False}}).status_code == 200
+    assert seen == [False]
+
+
+def test_a_hanging_relay_does_not_hold_up_startup_or_shutdown(home):
+    async def hang(request):
+        await asyncio.sleep(3600)
+
+    app = create_app(home)
+    ctx = app.state.ctx
+    ctx.updates = UpdateChecker(home, ctx.settings, transport=httpx.MockTransport(hang))
+    started = time.monotonic()
+    with TestClient(app) as client:
+        assert client.get("/api/version").json()["latest"] is None
+    assert time.monotonic() - started < 5
 
 
 def test_failures_are_ignored_and_keep_the_last_result(home):
