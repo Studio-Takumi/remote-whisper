@@ -37,6 +37,8 @@ export interface Env {
     CSP_REPORT_LIMITER?: RateLimit;
     // アプリに同梱した画面のオリジン（#440。カンマ区切り。appOrigin.ts）。空か、なければ許さない
     APP_ORIGINS?: string;
+    // relay 自身の版（#477。デプロイのとき --var で渡す。なければ /releases/latest は 404）
+    APP_VERSION?: string;
 }
 
 export default {

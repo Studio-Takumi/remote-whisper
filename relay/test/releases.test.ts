@@ -1,44 +1,19 @@
-// 最新のリリース（#472）。GitHub の一覧から正式なリリースを選び、1 時間キャッシュし、確かめに来た版と ID だけを書く
-import { SELF, env } from 'cloudflare:test';
+// 最新のリリース（#472・#477）。relay 自身の版（APP_VERSION）から返し、確かめに来た版と ID だけを書く
+import { env } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import worker, { type Env } from '../src/index';
-import {
-    GITHUB_RELEASES_URL,
-    ID_HEADER,
-    VERSION_HEADER,
-    cacheKey,
-    pickLatest,
-    updateCheckDataPoint,
-} from '../src/releases';
+import { ID_HEADER, RELEASE_PAGE, VERSION_HEADER, latestFromAppVersion, updateCheckDataPoint } from '../src/releases';
 
 const ORIGIN = 'https://rw-dev.example';
 const ID = '11111111-2222-4333-8444-555555555555';
-const PAGE = 'https://github.com/Studio-Takumi/remote-whisper/releases/tag/';
-
-function release(tag: string, extra: Record<string, unknown> = {}) {
-    return {
-        tag_name: tag,
-        html_url: PAGE + tag,
-        draft: false,
-        prerelease: false,
-        published_at: '2026-11-20T00:00:00Z',
-        ...extra,
-    };
-}
 
 let spy: ReturnType<typeof vi.spyOn>;
-let github: () => Response;
 
-beforeEach(async () => {
-    await caches.default.delete(cacheKey(new Request(ORIGIN)));
-    github = () => Response.json([release('v1.1.0'), release('v1.0.2')]);
+beforeEach(() => {
+    // 外には問い合わせない
     spy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
-        const url = input instanceof Request ? input.url : String(input);
-        if (url !== GITHUB_RELEASES_URL) {
-            throw new Error(`unexpected fetch: ${url}`);
-        }
-        return github();
+        throw new Error(`unexpected fetch: ${input instanceof Request ? input.url : String(input)}`);
     });
 });
 
@@ -46,83 +21,59 @@ afterEach(() => {
     spy.mockRestore();
 });
 
+function withVersion(version: string | undefined, e: object = env): Env {
+    return { ...e, APP_VERSION: version } as unknown as Env;
+}
+
 function recorder() {
     const points: { blobs: string[]; doubles: number[]; indexes: string[] }[] = [];
     const metrics = { writeDataPoint: (p: (typeof points)[number]) => points.push(p) };
-    return { points, env: { ...env, METRICS: metrics } as unknown as Env };
+    return { points, env: { ...env, APP_VERSION: 'v1.1.0', METRICS: metrics } as unknown as Env };
 }
 
-function check(headers: Record<string, string> = {}, e: Env = env) {
+function check(headers: Record<string, string> = {}, e: Env = withVersion('v1.1.0')) {
     return worker.fetch(new Request(`${ORIGIN}/releases/latest`, { headers }), e);
 }
 
-describe('一覧から選ぶ', () => {
-    it('下書き・プレリリース・-rc などの付いたタグは除き、数字で一番新しいもの', () => {
-        expect(
-            pickLatest([
-                release('v2.0.0-rc.1'),
-                release('v1.10.0', { prerelease: true }),
-                release('v1.9.0', { draft: true }),
-                release('v1.2.0'),
-                release('v1.10.0+build'),
-                release('v1.3.0', { html_url: 'https://evil.example/' }),
-            ]),
-        ).toEqual({ version: 'v1.2.0', url: `${PAGE}v1.2.0`, publishedAt: '2026-11-20T00:00:00Z' });
-        expect(pickLatest([release('v1.9.0'), release('v1.10.0')])?.version).toBe('v1.10.0');
-        expect(pickLatest([])).toBeNull();
-        expect(pickLatest({ message: 'Not Found' })).toBeNull();
+describe('relay 自身の版から作る', () => {
+    it('vX.Y.Z の部分を取る（+ハッシュ・.dirty は落とす）', () => {
+        const expected = { version: 'v1.1.0', url: `${RELEASE_PAGE}v1.1.0`, publishedAt: null };
+        expect(latestFromAppVersion('v1.1.0')).toEqual(expected);
+        expect(latestFromAppVersion('v1.1.0+abc1234')).toEqual(expected);
+        expect(latestFromAppVersion('v1.1.0+abc1234.dirty')).toEqual(expected);
+        expect(latestFromAppVersion('v1.10.0')?.version).toBe('v1.10.0');
+    });
+
+    it('ハッシュだけ・unknown・-rc・空・未設定は null', () => {
+        for (const v of ['abc1234', 'abc1234+dirty', 'unknown', 'v1.1.0-rc.1', 'v1.1', 'x v1.1.0', '', undefined]) {
+            expect(latestFromAppVersion(v)).toBeNull();
+        }
     });
 });
 
 describe('GET /releases/latest', () => {
-    it('最新を返す。GitHub には User-Agent を付けて聞く', async () => {
-        const res = await SELF.fetch(`${ORIGIN}/releases/latest`);
+    it('relay の版が v1.1.0+abc1234 なら v1.1.0 とそのリリースノートの URL を返す。GitHub には聞かない', async () => {
+        const res = await check({}, withVersion('v1.1.0+abc1234'));
         expect(res.status).toBe(200);
         expect(await res.json()).toEqual({
             version: 'v1.1.0',
-            url: `${PAGE}v1.1.0`,
-            publishedAt: '2026-11-20T00:00:00Z',
+            url: 'https://github.com/Studio-Takumi/remote-whisper/releases/tag/v1.1.0',
+            publishedAt: null,
         });
-        const init = spy.mock.calls[0][1] as RequestInit;
-        expect(new Headers(init.headers).get('User-Agent')).toBeTruthy();
+        expect(spy).not.toHaveBeenCalled();
     });
 
-    it('1 時間はキャッシュから返し、GitHub に聞き直さない', async () => {
-        expect((await check()).status).toBe(200);
-        github = () => Response.json([release('v9.0.0')]);
-        const res = await check();
-        expect(((await res.json()) as { version: string }).version).toBe('v1.1.0');
-        expect(spy).toHaveBeenCalledTimes(1);
-        expect(res.headers.get('Cache-Control')).toBe('public, max-age=3600');
-    });
-
-    it('GitHub に届かない・断られたら 502（5 分キャッシュ）、リリースがなければ 404', async () => {
-        github = () => {
-            throw new Error('network');
-        };
-        const failed = await check();
-        expect(failed.status).toBe(502);
-        expect(failed.headers.get('Cache-Control')).toBe('public, max-age=300');
-
-        await caches.default.delete(cacheKey(new Request(ORIGIN)));
-        github = () => new Response('rate limited', { status: 403 });
-        expect((await check()).status).toBe(502);
-
-        await caches.default.delete(cacheKey(new Request(ORIGIN)));
-        github = () => Response.json([release('v1.0.0-rc.1')]);
-        expect((await check()).status).toBe(404);
-    });
-
-    it('502 もキャッシュから返し、5 分のあいだは GitHub に聞き直さない', async () => {
-        github = () => new Response('rate limited', { status: 403 });
-        expect((await check()).status).toBe(502);
-        github = () => Response.json([release('v1.1.0')]);
-        expect((await check()).status).toBe(502);
-        expect(spy).toHaveBeenCalledTimes(1);
+    it('版がハッシュだけ・未設定なら 404', async () => {
+        expect((await check({}, withVersion('abc1234'))).status).toBe(404);
+        expect((await check({}, withVersion(undefined))).status).toBe(404);
+        expect(spy).not.toHaveBeenCalled();
     });
 
     it('HEAD にも答える。GET・HEAD のほかは 405', async () => {
-        const head = await worker.fetch(new Request(`${ORIGIN}/releases/latest`, { method: 'HEAD' }), env);
+        const head = await worker.fetch(
+            new Request(`${ORIGIN}/releases/latest`, { method: 'HEAD' }),
+            withVersion('v1.1.0'),
+        );
         expect(head.status).toBe(200);
         const res = await worker.fetch(new Request(`${ORIGIN}/releases/latest`, { method: 'POST' }), env);
         expect(res.status).toBe(405);
@@ -144,10 +95,10 @@ describe('確かめに来たことを書く', () => {
         const rows = points.filter((p) => p.blobs[0] === 'update_check');
         expect(rows).toEqual([{ blobs: ['update_check', 'v1.0.0+34a7607.dirty'], doubles: [], indexes: [ID] }]);
         expect(JSON.stringify(rows)).not.toMatch(/JP|203\.0\.113\.9/);
-        // キャッシュから返すときも書く
+        // 版が取れなくて 404 のときも書く
         await worker.fetch(
             new Request(`${ORIGIN}/releases/latest`, { headers: { [VERSION_HEADER]: 'v1.0.0', [ID_HEADER]: ID } }),
-            e,
+            { ...e, APP_VERSION: undefined } as unknown as Env,
         );
         expect(points.filter((p) => p.blobs[0] === 'update_check')).toHaveLength(2);
     });
@@ -181,7 +132,7 @@ describe('確かめに来たことを書く', () => {
                 points.push(p);
             },
         };
-        const e = { ...env, METRICS: metrics } as unknown as Env;
+        const e = { ...env, APP_VERSION: 'v1.1.0', METRICS: metrics } as unknown as Env;
         const res = await check({ [VERSION_HEADER]: 'v1.0.0', [ID_HEADER]: ID }, e);
         expect(res.status).toBe(200);
         expect(points).toHaveLength(1);
