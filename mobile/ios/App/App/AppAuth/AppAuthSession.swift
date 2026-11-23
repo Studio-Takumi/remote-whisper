@@ -40,6 +40,12 @@ actor AppAuthSession {
     /// 替えている途中にログアウトなどが来たら、置かずに中間サーバーのその端末も消す
     func completeLogin(origin: RelayOrigin, code: String, verifier: String, deviceName: String) async throws {
         let mine = await settle(origin)
+        // 前のログインのトークンが残っていれば、先に手元から消し（このあと更新に使われないように）、中間サーバーの端末も消す。
+        // 上書きするだけだと、前の端末がサーバーに期限まで残るため
+        if let old = store.load(origin) {
+            store.remove(origin)
+            await client.logout(origin: origin, refreshToken: old.refreshToken)
+        }
         let tokens = try await client.exchange(origin: origin, code: code, verifier: verifier, deviceName: deviceName)
         guard generation[origin] == mine else {
             await client.logout(origin: origin, refreshToken: tokens.refreshToken)
@@ -51,12 +57,18 @@ actor AppAuthSession {
     /// 使えるアクセストークン。ログインしていない・更新トークンが切れた・断られたときは nil。
     /// 断られた（401 など）ときは手元のトークンを消す。つながらないときは消さない（あとでまた試す）
     func accessToken(origin: RelayOrigin) async -> String? {
+        await access(origin: origin)?.accessToken
+    }
+
+    /// accessToken と同じで、置いているトークン全体を返す（web にアクセストークンの期限も渡すため。
+    /// 呼ぶ側は更新トークンを外へ出さない）
+    func access(origin: RelayOrigin) async -> AppTokens? {
         if let running = refreshing[origin] {
-            return await running.value?.accessToken
+            return await running.value
         }
         guard let tokens = store.load(origin) else { return nil }
         if tokens.accessExpiresAt - Self.refreshMargin * 1000 > nowMs {
-            return tokens.accessToken
+            return tokens
         }
         if tokens.refreshExpiresAt <= nowMs {
             store.remove(origin)
@@ -87,7 +99,7 @@ actor AppAuthSession {
             return result
         }
         refreshing[origin] = task
-        return await task.value?.accessToken
+        return await task.value
     }
 
     /// ログインしているか（トークンを持っているか）

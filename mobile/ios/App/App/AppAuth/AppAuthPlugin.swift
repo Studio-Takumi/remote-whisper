@@ -68,12 +68,13 @@ public class AppAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
-    /// `{ origin }` → `{ token: string | null }`。期限が近ければ更新してから返す
+    /// `{ origin }` → `{ token: string | null, expiresAt: number | null }`。期限が近ければ更新してから返す
     @objc func accessToken(_ call: CAPPluginCall) {
         guard let origin = origin(call) else { return }
         Task {
-            let token = await session.accessToken(origin: origin)
-            call.resolve(["token": token as Any])
+            // 渡すのはアクセストークンとその期限（UNIX ミリ秒）だけ。更新トークンは渡さない
+            let tokens = await session.access(origin: origin)
+            call.resolve(["token": tokens?.accessToken as Any, "expiresAt": tokens?.accessExpiresAt as Any])
         }
     }
 

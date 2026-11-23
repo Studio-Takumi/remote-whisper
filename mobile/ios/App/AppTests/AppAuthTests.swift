@@ -104,7 +104,27 @@ final class AppAuthTests: XCTestCase {
         XCTAssertEqual(transport.calls.first?.1, ["grantType": "authorization_code", "code": "code", "codeVerifier": "verifier", "deviceName": "iPhone"])
         let token = await session.accessToken(origin: origin)
         XCTAssertEqual(token, "access-1")
+        // web にはアクセストークンの期限も渡す
+        let access = await session.access(origin: origin)
+        XCTAssertEqual(access?.accessExpiresAt, nowMs + 3_600_000)
         XCTAssertEqual(transport.calls.count, 1)
+    }
+
+    func testLoginOverOldTokensLogsTheOldDeviceOut() async throws {
+        let store = MemoryTokenStore()
+        store.save(tokens("old", accessIn: 3_600_000, at: nowMs), for: origin)
+        let transport = FakeTransport { url, _ in
+            if url.path == "/auth/app/logout" {
+                return (200, Data())
+            }
+            return (200, try JSONEncoder().encode(self.tokens("login", accessIn: 3_600_000, at: self.nowMs)))
+        }
+        let session = AppAuthSession(store: store, client: AppAuthClient(transport: transport), now: { self.now })
+        try await session.completeLogin(origin: origin, code: "code", verifier: "verifier", deviceName: "iPhone")
+        // 前の端末を中間サーバーから消してから、引き換える
+        XCTAssertEqual(transport.calls.map(\.0.path), ["/auth/app/logout", "/auth/app/token"])
+        XCTAssertEqual(transport.calls.first?.1, ["refreshToken": "refresh-old"])
+        XCTAssertEqual(store.load(origin)?.accessToken, "access-login")
     }
 
     func testRejectedLoginStoresNothing() async {
