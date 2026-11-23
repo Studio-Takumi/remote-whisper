@@ -46,6 +46,8 @@ const KNOWN_SEGMENTS = new Set([
     'approve',
     'reject',
     'csp-report',
+    'releases',
+    'latest',
     // ホストの API
     'api',
     'ws',
@@ -115,6 +117,7 @@ function kindOf(path: string): string {
     if (path.startsWith('/pair/')) return 'pair';
     if (path === '/me' || path.startsWith('/me/')) return 'me';
     if (path === '/csp-report') return 'csp';
+    if (path.startsWith('/releases/')) return 'releases';
     return 'other';
 }
 
