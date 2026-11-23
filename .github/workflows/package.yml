@@ -121,6 +121,8 @@ jobs:
         shell: pwsh
         env:
           VERSION: ${{ steps.version.outputs.version }}
+          # タグの push のビルドは、タグ名そのまま（rc も。#471）
+          RW_APP_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
         run: ./packaging/build.ps1 -OutDir "$env:RUNNER_TEMP/rw-build" -Version $env:VERSION -Edition $env:EDITION
 
       # インストールせずに、ビルドしたフォルダから動かして確かめる
@@ -270,6 +272,8 @@ jobs:
       - name: Build the app and the dmg
         env:
           VERSION: ${{ steps.version.outputs.version }}
+          # タグの push のビルドは、タグ名そのまま（rc も。#471）
+          RW_APP_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
         run: |
           uname -m
           sw_vers

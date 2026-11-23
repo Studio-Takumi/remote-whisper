@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { UNKNOWN, appVersion } from './app-version.mjs';
 
@@ -19,6 +19,7 @@ const commit = (name: string) => {
 };
 
 beforeEach(() => {
+    vi.stubEnv('RW_APP_VERSION', '');
     repo = mkdtempSync(join(tmpdir(), 'rw-version-'));
     git('init', '-q');
     git('config', 'user.email', 'test@example.com');
@@ -28,7 +29,10 @@ beforeEach(() => {
     commit('first');
 });
 
-afterEach(() => rmSync(repo, { recursive: true, force: true }));
+afterEach(() => {
+    vi.unstubAllEnvs();
+    rmSync(repo, { recursive: true, force: true });
+});
 
 const head = () => git('rev-parse', '--short', 'HEAD');
 
@@ -75,6 +79,13 @@ describe('appVersion', () => {
     it('falls back to the hash when only rc tags exist', () => {
         git('tag', 'v1.0.0-rc1');
         expect(appVersion(repo)).toBe(head());
+    });
+
+    it('uses RW_APP_VERSION as is, even an rc tag name', () => {
+        git('tag', 'v1.0.0');
+        commit('second');
+        vi.stubEnv('RW_APP_VERSION', 'v1.1.0-rc1');
+        expect(appVersion(repo)).toBe('v1.1.0-rc1');
     });
 
     it('is unknown outside a git repository', () => {

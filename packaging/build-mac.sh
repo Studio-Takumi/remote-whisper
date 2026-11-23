@@ -64,6 +64,18 @@ if ! [[ "$version" =~ ^[0-9A-Za-z][0-9A-Za-z._+-]*$ ]]; then
     exit 1
 fi
 
+# bundle.json と画面のビルドに入れる版（#471）。画面と同じ規則の v1.0.0 / v1.0.0+34a7607 の形で、
+# 環境変数 RW_APP_VERSION があればそれ（タグの push のビルドは、タグ名そのまま）。
+# ビルドで追跡ファイルが書き換わって +dirty にならないよう、最初に一度だけ取って画面のビルドにも渡す
+if [ -z "${RW_APP_VERSION:-}" ]; then
+    RW_APP_VERSION="$(cd "$repo/web" && node scripts/app-version.mjs)"
+fi
+if [ -z "$RW_APP_VERSION" ] || [ "$RW_APP_VERSION" = "unknown" ]; then
+    RW_APP_VERSION="$version"
+fi
+export RW_APP_VERSION
+bundle_version="$RW_APP_VERSION"
+
 mkdir -p "$out_dir"
 out_dir="$(cd "$out_dir" && pwd -P)"
 app_bundle="$out_dir/$APP_NAME.app"
@@ -165,11 +177,7 @@ cp "$work/cloudflared/cloudflared" "$app/cloudflared"
 chmod 755 "$app/cloudflared"
 
 # 5. ビルドの印（bundle.py が見る。バージョンもここから。edition は配布物の種類。#408）
-# 画面（web のビルド）と同じ規則の v1.0.0 / v1.0.0+34a7607 の形（#471）。git から取れなければ --version の値
-bundle_version="$(cd "$repo/web" && node scripts/app-version.mjs)"
-if [ -z "$bundle_version" ] || [ "$bundle_version" = "unknown" ]; then
-    bundle_version="$version"
-fi
+# 版は最初に決めた $bundle_version（画面のビルドと同じ値）
 printf '{\n  "version": "%s",\n  "edition": "mlx",\n  "cloudflared": "%s"\n}\n' "$bundle_version" "$CLOUDFLARED_VERSION" \
     > "$app/bundle.json"
 

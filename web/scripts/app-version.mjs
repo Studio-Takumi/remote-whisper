@@ -3,7 +3,7 @@
 //   タグより進んでいる      v1.0.0+34a7607
 //   未コミットの変更がある  v1.0.0+34a7607.dirty
 //   タグが取れない          34a7607（変更があれば 34a7607+dirty）。git がなければ unknown
-// -rc などのハイフンを含むタグは拾わない。
+// -rc などのハイフンを含むタグは拾わない。ただし環境変数 RW_APP_VERSION があればそれをそのまま使う（タグの push の配布ビルド）。
 // vite.config.ts が読むほか、`node scripts/app-version.mjs` で配布物のビルド（packaging/）も同じ文字列を取る
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -33,6 +33,9 @@ function releaseTag(cwd) {
 
 /** @param {string} [cwd] */
 export function appVersion(cwd = process.cwd()) {
+    // 配布のビルド（タグの push）は、タグ名そのまま（-rc のタグも）を環境変数で渡す
+    const override = process.env.RW_APP_VERSION?.trim();
+    if (override) return override;
     let commit;
     let dirty;
     try {

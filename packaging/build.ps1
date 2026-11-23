@@ -46,6 +46,21 @@ if (-not $Version) {
 }
 if ($Version -notmatch '^[0-9A-Za-z][0-9A-Za-z._+-]*$') { throw "invalid version: $Version" }
 
+# bundle.json と画面のビルドに入れる版（#471）。画面と同じ規則の v1.0.0 / v1.0.0+34a7607 の形で、
+# 環境変数 RW_APP_VERSION があればそれ（タグの push のビルドは、タグ名そのまま）。
+# ビルドで追跡ファイルが書き換わって +dirty にならないよう、最初に一度だけ取って画面のビルドにも渡す
+if (-not $env:RW_APP_VERSION) {
+    Push-Location (Join-Path $Repo 'web')
+    try {
+        $env:RW_APP_VERSION = "$(& node scripts/app-version.mjs)".Trim()
+        if ($LASTEXITCODE -ne 0) { $env:RW_APP_VERSION = '' }
+    } finally {
+        Pop-Location
+    }
+}
+if (-not $env:RW_APP_VERSION -or $env:RW_APP_VERSION -eq 'unknown') { $env:RW_APP_VERSION = $Version }
+$BundleVersion = $env:RW_APP_VERSION
+
 $OutDir = [System.IO.Path]::GetFullPath($OutDir)
 $App = Join-Path $OutDir 'app'
 $Work = Join-Path $OutDir 'work'
@@ -137,16 +152,7 @@ if ($actual -ne $CloudflaredSha256) {
 }
 
 # 5. ビルドの印（bundle.py が見る。バージョンもここから）
-# 画面（web のビルド）と同じ規則の v1.0.0 / v1.0.0+34a7607 の形（#471）。git から取れなければ -Version の値
-Push-Location $Web
-try {
-    $BundleVersion = (& node scripts/app-version.mjs)
-    if ($LASTEXITCODE -ne 0) { $BundleVersion = '' }
-} finally {
-    Pop-Location
-}
-$BundleVersion = "$BundleVersion".Trim()
-if (-not $BundleVersion -or $BundleVersion -eq 'unknown') { $BundleVersion = $Version }
+# 版は最初に決めた $BundleVersion（画面のビルドと同じ値）
 @{ version = $BundleVersion; edition = $Edition; cloudflared = $CloudflaredVersion } | ConvertTo-Json |
     Set-Content -Encoding utf8 (Join-Path $App 'bundle.json')
 
