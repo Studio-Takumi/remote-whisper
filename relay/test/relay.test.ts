@@ -139,7 +139,8 @@ describe('中継', () => {
         const res = await call(`/h/${hostId}/api/projects?x=1`, {
             cookie,
             headers: {
-                Authorization: 'Bearer x',
+                // Bearer はアプリのトークンとして読む（#441。appAuth.test.ts）ので、ここではほかの形
+                Authorization: 'Basic eDp4',
                 'X-RW-Relay': 'v1;forged',
                 'X-RW-Host': 'forged',
                 'CF-Connecting-IP': '203.0.113.1',

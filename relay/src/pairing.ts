@@ -9,7 +9,7 @@
 // - GET /pair/request?code=: 確認の画面に出す申請（PC 名など）
 // - POST /pair/approve・/pair/reject {code}: 承認・拒否。承認したときに hosts に入れる
 import { currentUser } from './auth';
-import { base64url, error, json, randomToken, readLimited, sameOrigin, sha256 } from './http';
+import { base64url, error, json, randomToken, readLimited, sha256, writeAllowed } from './http';
 import type { Env } from './index';
 import { type HostTunnel, MAX_HOSTS_PER_USER, TunnelUnavailable, deleteTunnel, ensureTunnel } from './tunnel';
 
@@ -451,7 +451,7 @@ async function fromBrowser(request: Request, env: Env, path: string): Promise<Re
     if (!user) {
         return error(401, 'ログインしてください');
     }
-    if (request.method !== 'GET' && !sameOrigin(request)) {
+    if (request.method !== 'GET' && !writeAllowed(request, user)) {
         return error(403, 'Forbidden');
     }
     let code: string | null;

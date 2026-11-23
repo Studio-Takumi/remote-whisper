@@ -3,10 +3,21 @@
 // - /auth/login/<provider>?return=<パス>: state と PKCE の値を作って D1 に置き、プロバイダへ送る
 // - /auth/callback/<provider>: state を確かめて（1 回だけ・10 分）、コードをトークンに替え、ユーザーを決める
 // - /auth/logout（POST）: ログインセッションを消す
+// - /auth/app/login/<provider>・/auth/app/token・/auth/app/logout: iOS アプリのログイン（#441。appAuth.ts）
 // 1 人が複数の手段でログインしても 1 人のユーザーにまとめる。同じプロバイダの同じ ID なら同じユーザー。
 // メールアドレスで自動に紐付けはしない（足すのは、ログインしている状態で設定から: ?link=1）
+import {
+    type AppLogin,
+    appCodeLocation,
+    appDeniedLocation,
+    bearerUser,
+    handleAppLogout,
+    handleAppToken,
+    parseAppLogin,
+} from './appAuth';
 import { isAppOrigin } from './appOrigin';
 import {
+    type SessionUser,
     base64url,
     clearSessionCookie,
     error,
@@ -15,6 +26,7 @@ import {
     randomToken,
     safeReturnTo,
     sameOrigin,
+    sameString,
     sessionCookie,
     sha256,
     SESSION_COOKIE,
@@ -30,7 +42,7 @@ export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 // last_seen_at を書き直す間隔（毎回書かないように）
 const TOUCH_INTERVAL_MS = 60 * 60 * 1000;
 
-export type SessionUser = { userId: string; sessionId: string };
+export type { SessionUser };
 
 function redirect(location: string, headers: HeadersInit = {}): Response {
     return new Response(null, { status: 302, headers: { Location: location, ...headers } });
@@ -40,9 +52,20 @@ function callbackUrl(request: Request, provider: Provider): string {
     return `${new URL(request.url).origin}/auth/callback/${provider}`;
 }
 
-// ログインしているユーザー（Cookie のログインセッションから）。いなければ null。
-// アプリに同梱した画面のオリジン（#440）からのものは Cookie を読まない（Cookie で認めるのは自分のオリジンの画面だけ）
+// ログインしているユーザー（/h/・/me・/pair の確認と承認）。いなければ null。
+// Authorization: Bearer があればアプリのトークンだけで決め、Cookie は読まない（#441。トークンが違えば、Cookie があっても
+// ログインしていない扱い）。なければ Cookie のログインセッション（cookieUser）
 export async function currentUser(request: Request, env: Env): Promise<SessionUser | null> {
+    const authorization = request.headers.get('Authorization');
+    if (authorization !== null && /^bearer\b/i.test(authorization.trim())) {
+        return bearerUser(request, env, authorization);
+    }
+    return cookieUser(request, env);
+}
+
+// Cookie のログインセッションのユーザー。いなければ null。
+// アプリに同梱した画面のオリジン（#440）からのものは Cookie を読まない（Cookie で認めるのは自分のオリジンの画面だけ）
+export async function cookieUser(request: Request, env: Env): Promise<SessionUser | null> {
     if (isAppOrigin(request, env)) {
         return null;
     }
@@ -64,13 +87,16 @@ export async function currentUser(request: Request, env: Env): Promise<SessionUs
     }
     // 計測（#163）で、このリクエストのユーザーとして使う
     rememberUser(request, row.user_id);
-    return { userId: row.user_id, sessionId: row.id };
+    return { userId: row.user_id, sessionId: row.id, kind: 'web' };
 }
 
 export async function handleAuth(request: Request, env: Env, path: string): Promise<Response> {
     const [, , action, provider] = path.split('/');
     if (action === 'logout' && request.method === 'POST') {
         return logout(request, env);
+    }
+    if (action === 'app') {
+        return handleApp(request, env, path);
     }
     if (!provider || !isProvider(provider)) {
         return error(404, 'ログインの手段がありません');
@@ -84,7 +110,29 @@ export async function handleAuth(request: Request, env: Env, path: string): Prom
     return error(404, 'Not found');
 }
 
-async function login(request: Request, env: Env, provider: Provider): Promise<Response> {
+// iOS アプリのログイン（#441。appAuth.ts）。
+// /auth/app/login/<provider>（システムのログイン画面で開く）・/auth/app/token・/auth/app/logout（アプリのネイティブのコードから）
+async function handleApp(request: Request, env: Env, path: string): Promise<Response> {
+    const [, , , step, provider] = path.split('/');
+    if (step === 'login' && request.method === 'GET' && provider && isProvider(provider)) {
+        const app = parseAppLogin(new URL(request.url));
+        // ログイン手段を足す（?link=1）のは Cookie のログインセッションが要るので、アプリのログインではしない
+        if (!app || new URL(request.url).searchParams.has('link')) {
+            return error(400, 'ログインをやり直してください（アプリから始めたログインの形が違います）');
+        }
+        return login(request, env, provider, app);
+    }
+    if (path === '/auth/app/token' && request.method === 'POST') {
+        return handleAppToken(request, env);
+    }
+    if (path === '/auth/app/logout' && request.method === 'POST') {
+        return handleAppLogout(request, env);
+    }
+    return error(404, 'Not found');
+}
+
+// app は、アプリから始めたログインのとき（コールバックで Cookie の代わりに一度だけのコードを作ってアプリへ戻す）
+async function login(request: Request, env: Env, provider: Provider, app: AppLogin | null = null): Promise<Response> {
     const config = CONFIGS[provider];
     const clientId = config.clientId(env);
     if (!clientId) {
@@ -92,9 +140,9 @@ async function login(request: Request, env: Env, provider: Provider): Promise<Re
     }
     const url = new URL(request.url);
     let linkUserId: string | null = null;
-    if (url.searchParams.get('link') === '1') {
-        // ログイン手段を足す（ログインしている人だけ）
-        const user = await currentUser(request, env);
+    if (!app && url.searchParams.get('link') === '1') {
+        // ログイン手段を足す（Cookie でログインしている人だけ。トップレベルの遷移なので Authorization は付かない）
+        const user = await cookieUser(request, env);
         if (!user) {
             return error(401, 'ログインしてください');
         }
@@ -107,14 +155,16 @@ async function login(request: Request, env: Env, provider: Provider): Promise<Re
     // 期限切れの途中の状態は、ついでに消す
     await env.DB.prepare('DELETE FROM oauth_states WHERE expires_at <= ?').bind(now).run();
     await env.DB.prepare(
-        'INSERT INTO oauth_states (state_hash, provider, code_verifier, return_to, link_user_id, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO oauth_states (state_hash, provider, code_verifier, return_to, link_user_id, app_challenge, app_state, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
     )
         .bind(
             await sha256(state),
             provider,
             verifier,
-            safeReturnTo(url.searchParams.get('return')),
+            app ? '/' : safeReturnTo(url.searchParams.get('return')),
             linkUserId,
+            app?.challenge ?? null,
+            app?.state ?? null,
             now,
             now + STATE_TTL_MS,
         )
@@ -130,6 +180,8 @@ async function login(request: Request, env: Env, provider: Provider): Promise<Re
         state,
         code_challenge: challenge,
         code_challenge_method: 'S256',
+        // アプリのログインだけ、毎回アカウントを選ぶ（同意する）画面を出す（ブラウザのログインは今まで通り）
+        ...(app ? config.appPrompt : {}),
     }).toString();
     // state をこのブラウザにも持たせ、戻ってきたときに同じブラウザかを確かめる（ログイン CSRF の対策。
     // ほかの人が始めたログインの続きの URL を踏ませて、その人のアカウントにログインさせる・手段を足させるのを防ぐ）
@@ -140,18 +192,6 @@ const STATE_COOKIE = '__Host-rw_oauth_state';
 
 function stateCookie(value: string, maxAgeSec: number): string {
     return `${STATE_COOKIE}=${value}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAgeSec}`;
-}
-
-// 長さを漏らさずに比べる
-function sameString(a: string, b: string): boolean {
-    if (a.length !== b.length) {
-        return false;
-    }
-    let diff = 0;
-    for (let i = 0; i < a.length; i++) {
-        diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-    }
-    return diff === 0;
 }
 
 async function callback(request: Request, env: Env, provider: Provider): Promise<Response> {
@@ -174,19 +214,24 @@ async function callback(request: Request, env: Env, provider: Provider): Promise
             code_verifier: string;
             return_to: string;
             link_user_id: string | null;
+            app_challenge: string | null;
+            app_state: string | null;
             expires_at: number;
         }>();
     if (!row || row.provider !== provider || row.expires_at <= Date.now()) {
         return error(400, 'ログインをやり直してください（期限が切れたか、使い終わった state です）');
     }
     const clearState = { 'Set-Cookie': stateCookie('', 0) };
+    // アプリから始めたログイン（#441）。戻る先はアプリ（固定の URL）で、Cookie のログインセッションは作らない
+    const app: AppLogin | null =
+        row.app_challenge && row.app_state ? { challenge: row.app_challenge, state: row.app_state } : null;
     if (!code) {
         // プロバイダの画面で断った
-        return redirect(row.return_to, clearState);
+        return redirect(app ? appDeniedLocation(app) : row.return_to, clearState);
     }
     if (row.link_user_id) {
         // 手段を足すのは、始めた人がまだ同じユーザーでログインしているときだけ
-        const user = await currentUser(request, env);
+        const user = await cookieUser(request, env);
         if (user?.userId !== row.link_user_id) {
             return error(400, 'ログインをやり直してください（ログインしているユーザーが変わりました）');
         }
@@ -213,6 +258,9 @@ async function callback(request: Request, env: Env, provider: Provider): Promise
     if (row.link_user_id) {
         // 足しただけ。今のログインセッションのまま
         return redirect(row.return_to, clearState);
+    }
+    if (app) {
+        return redirect(await appCodeLocation(env, result.userId, app), clearState);
     }
     const token = randomToken();
     const now = Date.now();

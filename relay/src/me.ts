@@ -1,7 +1,8 @@
 // 自分のアカウント（#155）: /me（ログインしているか・ログイン手段の一覧）、ログイン手段を外す、退会
+import { issueTicket, listDevices, removeDevice } from './appAuth';
 import { currentUser } from './auth';
 import { PRIVACY_URL, TERMS_URL, TOS_VERSION, dataCollectionGranted, postConsent, putDataCollection } from './consent';
-import { TOO_LARGE, clearSessionCookie, error, json, readJsonLimited, sameOrigin } from './http';
+import { type SessionUser, TOO_LARGE, clearSessionCookie, error, json, readJsonLimited, writeAllowed } from './http';
 import type { Env } from './index';
 import { PROVIDERS } from './providers';
 import { postRecordingMetrics } from './recordingMetrics';
@@ -12,9 +13,20 @@ export async function handleMe(request: Request, env: Env, path: string): Promis
     if (!user) {
         return error(401, 'ログインしてください');
     }
-    // 状態を変えるものは、同じオリジンの画面からだけ（CSRF の対策）
-    if (request.method !== 'GET' && !sameOrigin(request)) {
+    // 状態を変えるものは、Cookie なら同じオリジンの画面からだけ（CSRF の対策。アプリのトークンは勝手に付かないので要らない）
+    if (request.method !== 'GET' && !writeAllowed(request, user)) {
         return error(403, 'Forbidden');
+    }
+    // アプリの端末（#441。appAuth.ts）
+    if (path === '/me/tickets' && request.method === 'POST') {
+        return issueTicket(request, env, user);
+    }
+    if (path === '/me/devices' && request.method === 'GET') {
+        return listDevices(env, user);
+    }
+    const d = /^\/me\/devices\/([^/]+)$/.exec(path);
+    if (d && request.method === 'DELETE') {
+        return removeDevice(env, user, d[1]);
     }
     if (path === '/me/metrics/recording' && request.method === 'POST') {
         return postRecordingMetrics(request, env, user.userId);
@@ -36,7 +48,7 @@ export async function handleMe(request: Request, env: Env, path: string): Promis
     }
     const m = /^\/me\/identities\/([^/]+)$/.exec(path);
     if (m && request.method === 'DELETE') {
-        return removeIdentity(env, user.userId, user.sessionId, m[1]);
+        return removeIdentity(env, user, m[1]);
     }
     if (path === '/me/hosts' && request.method === 'GET') {
         return hosts(env, user.userId);
@@ -152,13 +164,17 @@ async function me(env: Env, userId: string): Promise<Response> {
     });
 }
 
-// すべての端末からログアウト（#250）。そのユーザーのログインセッションを全部消す（今の端末も）
+// すべての端末からログアウト（#250）。そのユーザーのログインセッションを全部消す（今の端末も。アプリの端末も。#441）
 async function logoutEverywhere(env: Env, userId: string): Promise<Response> {
-    await env.DB.prepare('DELETE FROM web_sessions WHERE user_id = ?').bind(userId).run();
+    await env.DB.batch([
+        env.DB.prepare('DELETE FROM web_sessions WHERE user_id = ?').bind(userId),
+        env.DB.prepare('DELETE FROM app_sessions WHERE user_id = ?').bind(userId),
+    ]);
     return json({ ok: true }, 200, { 'Set-Cookie': clearSessionCookie() });
 }
 
-async function removeIdentity(env: Env, userId: string, sessionId: string, identityId: string): Promise<Response> {
+async function removeIdentity(env: Env, user: SessionUser, identityId: string): Promise<Response> {
+    const { userId, sessionId } = user;
     const count = await env.DB.prepare('SELECT COUNT(*) AS n FROM auth_identities WHERE user_id = ?')
         .bind(userId)
         .first<{ n: number }>();
@@ -176,8 +192,13 @@ async function removeIdentity(env: Env, userId: string, sessionId: string, ident
         return error(404, 'そのログイン手段はありません');
     }
     // 外した手段で入った人（盗んだ人）を締め出すため、今の端末以外のログインセッションを消す（#250）。
-    // 今の端末は、操作している本人なので残す
-    await env.DB.prepare('DELETE FROM web_sessions WHERE user_id = ? AND id != ?').bind(userId, sessionId).run();
+    // 今の端末は、操作している本人なので残す（アプリの端末も同じ。#441）
+    const keepWeb = user.kind === 'web' ? sessionId : '';
+    const keepApp = user.kind === 'app' ? sessionId : '';
+    await env.DB.batch([
+        env.DB.prepare('DELETE FROM web_sessions WHERE user_id = ? AND id != ?').bind(userId, keepWeb),
+        env.DB.prepare('DELETE FROM app_sessions WHERE user_id = ? AND id != ?').bind(userId, keepApp),
+    ]);
     return me(env, userId);
 }
 
