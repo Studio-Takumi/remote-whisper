@@ -323,6 +323,21 @@ describe('アクセストークン', () => {
         }
     });
 
+    it('ほかのサイトの画面から Bearer で登録を承認・拒否できない（アプリの画面からならログインは通る）', async () => {
+        const t = await appTokens();
+        for (const path of ['/pair/approve', '/pair/reject']) {
+            const evil = await bearer(path, t.accessToken, {
+                method: 'POST',
+                origin: EVIL,
+                body: { code: 'K7QM-4PXD' },
+            });
+            expect(evil.status, path).toBe(401);
+            // 認可は通り、申請がないので 404
+            const app = await bearer(path, t.accessToken, { method: 'POST', body: { code: 'K7QM-4PXD' } });
+            expect(app.status, path).toBe(404);
+        }
+    });
+
     it('トークンが違えば、Cookie があってもログインしていない扱い（Cookie に戻らない）', async () => {
         const t = await appTokens();
         const cookie = await newCookie(t.userId);
@@ -620,6 +635,67 @@ describe('チケット（WebSocket・音声）', () => {
             body: JSON.stringify({ refreshToken: t.refreshToken }),
         });
         expect((await SELF.fetch(`${ORIGIN}/h/${hostId}${RECORDING}?rw_ticket=${value}`)).status).toBe(401);
+    });
+
+    it('期限が切れたチケットは、WebSocket も音声も使えない', async () => {
+        const t = await appTokens();
+        const hostId = await newHost(t.userId);
+        const issue = async (kind: string, path: string) =>
+            ((await (await ticket(t.accessToken, { hostId, kind, path })).json()) as { ticket: string }).ticket;
+        const ws = await issue('ws', '/ws');
+        const media = await issue('media', RECORDING);
+        await env.DB.prepare('UPDATE app_tickets SET expires_at = ? WHERE user_id = ?')
+            .bind(Date.now() - 1, t.userId)
+            .run();
+        expect(
+            (
+                await SELF.fetch(`${ORIGIN}/h/${hostId}/ws?rw_ticket=${ws}`, {
+                    headers: { Upgrade: 'websocket', Origin: APP },
+                })
+            ).status,
+        ).toBe(401);
+        expect((await SELF.fetch(`${ORIGIN}/h/${hostId}${RECORDING}?rw_ticket=${media}`)).status).toBe(401);
+        expect(forwarded).toHaveLength(0);
+    });
+
+    it('取り違えたチケットは使えない（音声のチケットをほかの録音に・WebSocket のチケットを GET に）', async () => {
+        const t = await appTokens();
+        const hostId = await newHost(t.userId);
+        const issue = async (kind: string, path: string) =>
+            ((await (await ticket(t.accessToken, { hostId, kind, path })).json()) as { ticket: string }).ticket;
+        const media = await issue('media', RECORDING);
+        // 同じホスト・同じプロジェクトの、別のセッションの録音
+        const otherSession = RECORDING.replace('20261009-143012', '20261009-150000');
+        expect((await SELF.fetch(`${ORIGIN}/h/${hostId}${otherSession}?rw_ticket=${media}`)).status).toBe(401);
+        // 同じホストの、別のプロジェクトの録音
+        const otherProject = RECORDING.replace('p-abc123', 'p-def456');
+        expect((await SELF.fetch(`${ORIGIN}/h/${hostId}${otherProject}?rw_ticket=${media}`)).status).toBe(401);
+        // WebSocket のチケットは、Upgrade でない GET（/ws にも録音にも）には使えない
+        const ws = await issue('ws', '/ws');
+        expect(
+            (await SELF.fetch(`${ORIGIN}/h/${hostId}/ws?rw_ticket=${ws}`, { headers: { Origin: APP } })).status,
+        ).toBe(401);
+        expect((await SELF.fetch(`${ORIGIN}/h/${hostId}${RECORDING}?rw_ticket=${ws}`)).status).toBe(401);
+        expect(forwarded).toHaveLength(0);
+    });
+
+    it('退会すると、トークンもチケットも使えない', async () => {
+        const t = await appTokens();
+        const hostId = await newHost(t.userId);
+        const { ticket: media } = (await (
+            await ticket(t.accessToken, { hostId, kind: 'media', path: RECORDING })
+        ).json()) as { ticket: string };
+        expect((await bearer('/me', t.accessToken, { method: 'DELETE' })).status).toBe(200);
+        expect((await bearer('/me', t.accessToken)).status).toBe(401);
+        expect((await token({ grantType: 'refresh_token', refreshToken: t.refreshToken })).status).toBe(401);
+        expect((await SELF.fetch(`${ORIGIN}/h/${hostId}${RECORDING}?rw_ticket=${media}`)).status).toBe(401);
+        const rows = await env.DB.prepare(
+            'SELECT (SELECT COUNT(*) FROM app_sessions WHERE user_id = ?1) AS s, (SELECT COUNT(*) FROM app_tickets WHERE user_id = ?1) AS t',
+        )
+            .bind(t.userId)
+            .first<{ s: number; t: number }>();
+        expect(rows).toEqual({ s: 0, t: 0 });
+        expect(forwarded).toHaveLength(0);
     });
 
     it('クエリからチケットだけを取り出す（ほかの書き方は変えない）', () => {
