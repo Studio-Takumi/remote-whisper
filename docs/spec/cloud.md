@@ -530,7 +530,7 @@ GROUP BY directive, disposition, page, blocked, browser ORDER BY n DESC LIMIT 50
 
 ### アップデートの確認の形（#472）
 
-`GET /releases/latest`（10.12 節の「アップデートの確認」）に来るたびに、1 行書く（`relay/src/releases.ts`。キャッシュから返すときも書く）。ホストが付けるヘッダーの `X-RW-Id` が UUID の形、`X-RW-Version` が `^[\w.+-]{1,32}$`（登録の `appVersion` と同じ形）のときだけ書き、違えば書かない（応答はいつも通り返す）。国など `cf` 由来の値・IP アドレス・User-Agent は書かない。書けなくても応答は止めない。来たこと自体は HTTP の計測の行（`blob1` が `releases`、パスは `/releases/latest`。ヘッダーの ID と版は入らない）にもなるので、HTTP の計測を集計するときは `update_check` を除く。
+`GET /releases/latest`（10.12 節の「アップデートの確認」）に来るたびに、1 行書く（`relay/src/releases.ts`。版が取れず `404` を返すときも書く）。ホストが付けるヘッダーの `X-RW-Id` が UUID の形、`X-RW-Version` が `^[\w.+-]{1,32}$`（登録の `appVersion` と同じ形）のときだけ書き、違えば書かない（応答はいつも通り返す）。国など `cf` 由来の値・IP アドレス・User-Agent は書かない。書けなくても応答は止めない。来たこと自体は HTTP の計測の行（`blob1` が `releases`、パスは `/releases/latest`。ヘッダーの ID と版は入らない）にもなるので、HTTP の計測を集計するときは `update_check` を除く。
 
 | 列 | 中身 |
 |---|---|
@@ -668,7 +668,7 @@ GROUP BY minutes_from ORDER BY minutes_from;
 - 失敗（オフライン・中間サーバーが落ちている・返事の形が違う）は黙って次の回に回す。録音などには影響させない。前に取れた結果は残す
 - 結果は `GET /api/version`（7.1 節）の `latest`（`{"version", "url"}`。`url` はリリースノート）と `updateAvailable` で返す。`updateAvailable` は **x.y が上がったときだけ** `true`（z とハッシュの違いは見ない。ホストの版が取れない（ハッシュだけ・`unknown`）ときは `false`）。止めているときは `latest` が `null`
 - **結果が変わったら画面に知らせる**: 確認の結果（`/api/version` の `latest`・`updateAvailable`）が変わったとき（確認が終わった・設定でオン・オフした）、WebSocket で全員に `version`（7.2 節）を送り、画面は `/api/version` を取り直す。起動してすぐ開いた画面（最初の `/api/version` が確認より先で `latest: null`）にも、確認が終わったところで知らせが出る
-- **中間サーバー**（`relay/src/releases.ts`）: `GET /releases/latest` は GitHub Releases の最新を返す（`{"version": "v1.1.0", "url": "<リリースノート>", "publishedAt"}`）。下書き・プレリリースと、`vX.Y.Z` ちょうどでないタグ（`-rc` など）は除く。GitHub API には User-Agent を付けて未認証で聞き、Worker のキャッシュ（Cache API）に 1 時間置く（リリースのたびにデプロイしなくてよい。回数の制限にもかからない）。リリースがなければ `404`、GitHub に届かない・断られたら `502`（5 分キャッシュ）。Cache API は 404・502 を置かないことがあるので、キャッシュには 200 として置き、元のステータスを `X-RW-Cached-Status` に残して、返すときに戻す。来たたびに Analytics Engine に 1 行書く（10.9 節の「アップデートの確認の形」）
+- **中間サーバー**（`relay/src/releases.ts`）: `GET /releases/latest` は **relay 自身の版**から最新の版を返す（`{"version": "v1.1.0", "url": "<リリースノート>", "publishedAt": null}`）。relay は main から自動でデプロイされ、デプロイのとき（`.github/workflows/deploy.yml`）に `web/scripts/app-version.mjs`（git describe 由来。5.5 節の形）で作った版を `wrangler deploy --var APP_VERSION:<版>` で渡す（版が取れなければ渡さない。ローカルの `wrangler dev` とテストは未設定）。返すのは版の頭の `vX.Y.Z`（`+ハッシュ`・`.dirty` は落とす）、`url` は `https://github.com/Studio-Takumi/remote-whisper/releases/tag/vX.Y.Z` を組み立てる。ハッシュだけ・`unknown`・`-rc` など頭が `vX.Y.Z` で取れない版や、未設定のときは `404`。GitHub API には問い合わせず、キャッシュもしない（GitHub API の回数の制限や、Release が下書きのままで何も返らない問題を避けるため）。relay の版の x.y は最新のタグの x.y と同じになるので、ホストの比べ方（x.y が上がったときだけ）はこれで足りる。**タグ（`vX.Y.Z`）を打ったら Release も公開する**（下書きのままだと、リンク先が見られない間も知らせが出る）。来たたびに Analytics Engine に 1 行書く（10.9 節の「アップデートの確認の形」）
 - **画面**: 設定モーダルのバージョンの下に「v1.1 が出ています」とリリースノートへのリンクを出す。トーストは版ごとに 1 回だけ出す（出した版は localStorage に覚え、同じ版ではもう出さない。localStorage が使えなければ、開いている間だけ覚える）。クラウド版でも、`/api/version` はトンネルの先のホストのものなので、ホストの x.y が古ければ同じものを出す
 - 常駐アイコンのお知らせ（上の `announcements.json`）とは別のもの
 
