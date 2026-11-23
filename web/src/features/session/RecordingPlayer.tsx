@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode, RefObject, SyntheticEvent } from 'react';
 
+import { appAuthActive, appMediaUrl } from '@/api/appAuth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -16,6 +17,30 @@ import {
     saveRate,
 } from '@/features/session/playbackRate';
 import { type SessionSource, sourceKindLabel, sourceLabel, sourceTitle } from '@/features/session/sources';
+
+// <audio> はヘッダーを付けられないので、アプリの中のクラウド版では、チケットを付けた URL にしてから読む（#441）。
+// ほかは src のまま（チケットを待つ間だけ null）
+function usePlayableSrc(src: string): string | null {
+    const [ticketed, setTicketed] = useState<{ src: string; url: string } | null>(null);
+    useEffect(() => {
+        if (!appAuthActive) {
+            return;
+        }
+        let alive = true;
+        void appMediaUrl(src).then((url) => {
+            if (alive) {
+                setTicketed({ src, url });
+            }
+        });
+        return () => {
+            alive = false;
+        };
+    }, [src]);
+    if (!appAuthActive) {
+        return src;
+    }
+    return ticketed?.src === src ? ticketed.url : null;
+}
 
 // 録音の再生バー（spec/ui.md 8・spec/api.md 7.1）。読み込めなかったら onError を呼ぶ（出すかどうかは呼ぶ側が決める）。
 // 再生速度（#268）は端末ごとに覚え、src が変わると等速に戻るので読み込みのたびにかけ直す（spec/ui.md 8）。onLoaded は音源の切り替え（#371）用
@@ -38,6 +63,7 @@ export function RecordingPlayer({
     children?: ReactNode;
 }) {
     const [rate, setRate] = useState(loadRate);
+    const playable = usePlayableSrc(src);
     const unmount = useRef(onUnmount);
     useEffect(() => {
         unmount.current = onUnmount;
@@ -62,7 +88,7 @@ export function RecordingPlayer({
             <audio
                 key={src}
                 ref={audio}
-                src={src}
+                src={playable ?? undefined}
                 controls
                 preload='metadata'
                 // ダークテーマでは、ブラウザが描く再生バーも暗い色にする

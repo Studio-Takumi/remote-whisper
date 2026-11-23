@@ -1,4 +1,5 @@
 // サーバーの REST API（docs/spec/api.md 7.1 節）を呼ぶ
+import { withAppAuth } from '@/api/appAuth';
 import { apiUrl } from '@/api/endpoint';
 import type { Correction } from '@/features/session/corrections';
 import type { SessionSource } from '@/features/session/sources';
@@ -16,11 +17,15 @@ export class ApiError extends Error {
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
     let res: Response;
     try {
-        res = await fetch(apiUrl(path), {
-            method,
-            headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
-            body: body === undefined ? undefined : JSON.stringify(body),
-        });
+        // アプリの中のクラウド版では、アプリのトークンも付ける（#441）
+        res = await fetch(
+            apiUrl(path),
+            await withAppAuth({
+                method,
+                headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+                body: body === undefined ? undefined : JSON.stringify(body),
+            }),
+        );
     } catch {
         throw new ApiError(0, 'ホストにつながりません');
     }

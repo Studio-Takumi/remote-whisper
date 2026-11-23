@@ -13,6 +13,9 @@ export function isNativeApp(): boolean {
 // ネイティブを呼ぶコード（別のチャンク）。アプリの中でだけ読み込む
 const loadBridge = () => import('@/features/native/nativeBridge');
 
+// クラウド版のログインのプラグイン（#441。api/appAuth.ts からだけ使う）。アプリの中でだけ呼ぶ
+export const loadAppAuthBridge = loadBridge;
+
 // アプリの中で開いたときだけ、<html> に rw-native を付ける（safe area の余白は index.css の .rw-native の下だけで当てる）
 // ほか、ステータスバーの文字の色を合わせる
 export function startNativeShell() {

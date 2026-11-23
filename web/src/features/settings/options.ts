@@ -1,10 +1,11 @@
+import { withAppAuth } from '@/api/appAuth';
 import { apiUrl } from '@/api/endpoint';
 import type { SettingsOptions } from '@/api/protocol';
 import type { LlmBackend, OllamaModels } from '@/features/settings/settings';
 
 // 設定で選べる値（GET /api/settings/options）を取る
 export async function fetchOptions(): Promise<SettingsOptions> {
-    const res = await fetch(apiUrl('/api/settings/options'));
+    const res = await fetch(apiUrl('/api/settings/options'), await withAppAuth());
     if (!res.ok) {
         throw new Error(`GET /api/settings/options: ${res.status}`);
     }

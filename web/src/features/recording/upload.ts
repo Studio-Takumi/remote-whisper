@@ -1,6 +1,7 @@
 // 音声ファイルのアップロード（#180。POST /api/projects/{pid}/sessions/upload）。
 // 進み具合を出すため、fetch ではなく XMLHttpRequest で送る。本文はファイルそのもの
 import type { SessionJson } from '@/api/api';
+import { appAccessToken, appAuthActive } from '@/api/appAuth';
 import { apiUrl } from '@/api/endpoint';
 
 // 選べるファイル。動画は音声だけを使う
@@ -65,11 +66,22 @@ export function uploadSource(
     return sendFile(sourceUploadUrl(projectId, sessionId, file), file, onProgress);
 }
 
+// アプリの中のクラウド版では、アプリのトークンを取ってから送る（#441）。ほかは今まで通りすぐ送る
 function sendFile<T>(url: string, file: File, onProgress: (percent: number) => void): Promise<T> {
+    if (appAuthActive) {
+        return appAccessToken().then((token) => sendWith<T>(url, file, onProgress, token));
+    }
+    return sendWith<T>(url, file, onProgress, null);
+}
+
+function sendWith<T>(url: string, file: File, onProgress: (percent: number) => void, token: string | null): Promise<T> {
     return new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.open('POST', url);
         xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+        if (token) {
+            xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+        }
         xhr.upload.onprogress = (e) => {
             if (e.lengthComputable) {
                 onProgress(Math.floor((e.loaded / e.total) * 100));
