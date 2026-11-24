@@ -6,13 +6,7 @@ import { HostPicker } from '@/features/cloud/HostPicker';
 import { LoginButtons } from '@/features/cloud/LoginButtons';
 import { fetchMe, logout, useAccountStore } from '@/features/cloud/account';
 import { useCloudStore } from '@/features/cloud/cloud';
-import type { CloudStage } from '@/features/cloud/cloud';
 import { stopPushOnSignOut } from '@/features/settings/push';
-
-const PLACEHOLDERS: Record<Exclude<CloudStage, 'login' | 'consent'>, { title: string; body: string }> = {
-    hosts: { title: 'ホストの選択', body: '使うホスト（文字起こしをするマシン）を選ぶ画面が入ります（#161）' },
-    ready: { title: 'ホストにつながっています', body: '' },
-};
 
 export function CloudEntry() {
     const stage = useCloudStore((s) => s.cloud.stage);
@@ -44,7 +38,7 @@ export function CloudEntry() {
 
     return (
         <main className='mx-auto flex min-h-svh max-w-md flex-col justify-center gap-4 p-6' data-cloud-stage={stage}>
-            <p className='text-xs text-muted-foreground'>Remote Whisper（クラウド版・準備中）</p>
+            <p className='text-xs text-muted-foreground'>Remote Whisper（クラウド版）</p>
             {stage === 'login' ? (
                 <>
                     <h1 className='text-xl font-semibold'>ログイン</h1>
@@ -56,21 +50,9 @@ export function CloudEntry() {
                 ) : (
                     <p className='text-sm text-muted-foreground'>確かめています…</p>
                 )
-            ) : stage === 'hosts' ? (
-                <HostPicker />
             ) : (
-                <>
-                    <h1 className='text-xl font-semibold'>{PLACEHOLDERS[stage].title}</h1>
-                    <p className='text-sm'>{PLACEHOLDERS[stage].body}</p>
-                    {me && (
-                        <p className='text-xs text-muted-foreground'>
-                            {me.displayName} でログインしています
-                            <button className='ml-1 underline' onClick={() => void signOut()}>
-                                ログアウト
-                            </button>
-                        </p>
-                    )}
-                </>
+                // ホストを選んだら（ready）App がアプリの画面に切り替えるので、ここに来るのは hosts だけ
+                <HostPicker />
             )}
         </main>
     );

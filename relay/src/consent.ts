@@ -6,9 +6,9 @@ import type { Env } from './index';
 export const TOS_VERSION = '2026-10-20';
 // データ収集の説明文の版（consents.version に入れる）。説明を変えたら上げる
 export const DATA_COLLECTION_VERSION = '2026-10-20';
-// 文面は LP に置く。ここでは版とリンク先だけ（仮の URL）
-export const TERMS_URL = 'https://studio-takumi.dev/remote-whisper/terms';
-export const PRIVACY_URL = 'https://studio-takumi.dev/remote-whisper/privacy';
+// 文面は公式サイト（rw-hp）に置く。ここでは版とリンク先だけ
+export const TERMS_URL = 'https://rw-hp.studio-takumi.dev/policy/terms-cloud';
+export const PRIVACY_URL = 'https://rw-hp.studio-takumi.dev/policy/privacy';
 
 // データ収集の今の許可。consents の最後の行（なければ false）
 export async function dataCollectionGranted(env: Env, userId: string): Promise<boolean> {

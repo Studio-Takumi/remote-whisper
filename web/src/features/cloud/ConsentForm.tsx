@@ -1,4 +1,5 @@
-// 初回の同意の画面（#162）。利用規約・プライバシーポリシーへの同意と、データ収集の許可（既定はオフ）
+// 初回の同意の画面（#162）。利用規約・プライバシーポリシーへの同意。
+// データ収集は同意と一緒に許可として記録し、ここでは知らせるだけ（変える画面は置かない）
 import { useState } from 'react';
 
 import { toast } from 'sonner';
@@ -6,7 +7,6 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
 import { type Me, canSubmitConsent, fetchMe, postConsent, useAccountStore } from '@/features/cloud/account';
 import { useCloudStore } from '@/features/cloud/cloud';
 
@@ -14,7 +14,6 @@ export function ConsentForm({ me, onSignOut }: { me: Me; onSignOut: () => void }
     const dispatch = useCloudStore((s) => s.dispatch);
     const setMe = useAccountStore((s) => s.setMe);
     const [agreed, setAgreed] = useState(false);
-    const [dataCollection, setDataCollection] = useState(false);
     const [busy, setBusy] = useState(false);
 
     // 送信は済んだが、状態の取り直しに失敗したとき（やり直しで二重に送らない）
@@ -24,7 +23,7 @@ export function ConsentForm({ me, onSignOut }: { me: Me; onSignOut: () => void }
         setBusy(true);
         if (!posted) {
             try {
-                await postConsent(me, dataCollection);
+                await postConsent(me, true);
                 setPosted(true);
             } catch (e) {
                 toast.error(`同意を送れませんでした: ${(e as Error).message}`);
@@ -65,21 +64,9 @@ export function ConsentForm({ me, onSignOut }: { me: Me; onSignOut: () => void }
                 <Checkbox id='consent-tos' checked={agreed} onCheckedChange={(v) => setAgreed(v === true)} />
                 <Label htmlFor='consent-tos'>利用規約とプライバシーポリシーに同意する</Label>
             </div>
-            <section className='flex flex-col gap-2 rounded-md border p-3'>
-                <div className='flex items-center justify-between gap-2'>
-                    <Label htmlFor='consent-data'>データ収集を許可する（任意）</Label>
-                    <Switch
-                        id='consent-data'
-                        aria-describedby='consent-data-desc'
-                        checked={dataCollection}
-                        disabled={posted}
-                        onCheckedChange={setDataCollection}
-                    />
-                </div>
-                <p id='consent-data-desc' className='text-xs text-muted-foreground'>
-                    現在は収集していません。収集を始めるときは、何を何に使うかをここに書きます。あとから設定で変えられます
-                </p>
-            </section>
+            <p className='text-xs text-muted-foreground'>
+                クラウド版では品質改善のためのデータ収集を行なっています（文字起こしや要約の本文等は収集していません）
+            </p>
             <Button disabled={!canSubmitConsent(agreed, busy)} onClick={() => void submit()}>
                 同意して進む
             </Button>
