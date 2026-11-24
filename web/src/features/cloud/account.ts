@@ -29,7 +29,7 @@ export type Me = {
     tosCurrent: string;
     termsUrl: string;
     privacyUrl: string;
-    // データ収集の今の許可（既定はオフ）
+    // データ収集の今の許可（初回の同意で許可した状態から始まる）
     dataCollection: boolean;
     identities: Identity[];
     providers: Provider[];
