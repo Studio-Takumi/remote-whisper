@@ -1,5 +1,5 @@
 // 初回の同意の画面（#162）。利用規約・プライバシーポリシーへの同意。
-// データ収集は許可した状態で始め、ここでは知らせるだけ（変えるのはアカウントの画面から）
+// データ収集は同意と一緒に許可として記録し、ここでは知らせるだけ（変える画面は置かない）
 import { useState } from 'react';
 
 import { toast } from 'sonner';
@@ -65,7 +65,7 @@ export function ConsentForm({ me, onSignOut }: { me: Me; onSignOut: () => void }
                 <Label htmlFor='consent-tos'>利用規約とプライバシーポリシーに同意する</Label>
             </div>
             <p className='text-xs text-muted-foreground'>
-                データ収集は「許可する」で始まります。あとから「アカウント」の画面でいつでも変えられます
+                クラウド版では品質改善のためのデータ収集を行なっています（文字起こしや要約の本文等は収集していません）
             </p>
             <Button disabled={!canSubmitConsent(agreed, busy)} onClick={() => void submit()}>
                 同意して進む

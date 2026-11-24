@@ -29,7 +29,7 @@ export type Me = {
     tosCurrent: string;
     termsUrl: string;
     privacyUrl: string;
-    // データ収集の今の許可（初回の同意で許可した状態から始まる）
+    // データ収集の今の許可（初回の同意で許可する。画面からは変えない）
     dataCollection: boolean;
     identities: Identity[];
     providers: Provider[];
@@ -117,8 +117,6 @@ const jsonInit = (method: string, body: unknown): RequestInit => ({
 });
 export const postConsent = (me: Me, dataCollection: boolean) =>
     request<{ ok: boolean }>(meUrl('/consent'), jsonInit('POST', consentPayload(me, dataCollection)));
-export const putDataCollection = (granted: boolean) =>
-    request<{ ok: boolean; dataCollection: boolean }>(meUrl('/consents/data_collection'), jsonInit('PUT', { granted }));
 export async function deleteAccount() {
     const result = await request<{ ok: boolean }>(meUrl(), { method: 'DELETE' });
     await appForget().catch(() => undefined);
