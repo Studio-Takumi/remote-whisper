@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/Studio-Takumi/remote-whisper/actions/workflows/ci.yml/badge.svg)](https://github.com/Studio-Takumi/remote-whisper/actions/workflows/ci.yml)
 
-![Remote Whisper 声を記録に。会話を知識に。録音中の PC とスマホの画面](docs/images/readme/hero.jpg)
+![Remote Whisper 家のGPUで動く、文字起こし＋AI要約アプリ。要約を表示した PC と録音中のスマホの画面](docs/images/readme/hero.jpg)
 
 **三行まとめ**
 
