@@ -19,7 +19,7 @@ from remote_whisper.storage.documents import (
     write_doc,
 )
 from remote_whisper.storage.session_reader import SessionFiles
-from remote_whisper.transcript import worker_job
+from remote_whisper.transcript import result_save, worker_job
 from remote_whisper.transcript.transcriber import FinalTranscriber
 from remote_whisper.transcript.worker_steps import Progress, parse_progress
 
@@ -295,6 +295,46 @@ def test_build_job_without_the_language_for_auto(home, session_files, tmp_path):
     )
     assert job["language"] is None
     assert job["initialPrompt"] is None
+    # 例文は言語ごとに渡し、子が判定した言語のものを使う
+    assert job["initialPrompts"] == worker_job.INITIAL_PROMPT
+
+
+def test_making_again_follows_the_session_not_the_settings(home, session_files, fake_worker):
+    # 再生成も、全体設定ではなくセッションの languageChoice で起こす（#482）
+    files, meta = session_files
+
+    def job():
+        return json.loads(fake_worker.count.with_name("job.json").read_text(encoding="utf-8"))
+
+    SettingsStore(home).update({"whisper": {"language": "auto"}})
+    run_final(home, fake_worker(), files, meta)
+    assert (job()["language"], job()["initialPrompt"]) == ("ja", worker_job.INITIAL_PROMPT["ja"])
+    assert "initialPrompts" not in job()
+    SettingsStore(home).update({"whisper": {"language": "ja"}})
+    meta.language_choice = "auto"
+    run_final(home, fake_worker(), files, meta)
+    assert (job()["language"], job()["initialPrompt"]) == (None, None)
+
+
+def test_the_final_transcript_is_saved_when_the_language_cannot_be_written(
+    home, session_files, fake_worker, monkeypatch
+):
+    # 判定した言語を文字起こしに書けなくても（ディスクが一杯など）、浄書済み文字起こしは残す
+    files, meta = session_files
+    meta.language_choice = "auto"
+    write_doc(files.transcript, meta, "[00:00:00] Hello.\n")
+    original = result_save.write_doc
+
+    def write(path, doc, body):
+        if path == files.transcript:
+            raise OSError("disk full")
+        original(path, doc, body)
+
+    monkeypatch.setattr(result_save, "write_doc", write)
+    gid = run_final(home, fake_worker(), files, meta)
+    assert gid is not None
+    assert read_doc(files.final_transcript(gid), FinalTranscriptMeta)[0].language == "en"
+    assert read_doc(files.transcript, TranscriptMeta)[0].language == "ja"
 
 
 def test_the_detected_language_is_saved(home, session_files, fake_worker):

@@ -105,6 +105,14 @@ class _OpenVinoAsr:
         }
         self.pipe = openvino_whisper.load(job["openvino"]["model"], job["openvino"]["device"])
 
+    def detect_language(self, audio: Any) -> str | None:
+        """自動判定（#482）。WhisperX の detect_language と同じ使い方"""
+        return self._ov.detect_language(self.pipe, audio)
+
+    def use_initial_prompt(self, prompt: str) -> None:
+        """判定した言語の例文を、このあとの文字起こしに付ける（読み込み直さなくてよい）"""
+        self.options["initial_prompt"] = prompt
+
     def transcribe(
         self,
         audio: Any,
@@ -201,10 +209,27 @@ def begin(job: dict[str, Any]) -> Worker:
     return Worker(job, progress, torch, whisperx, device, compute_type, job.get("language", "ja"))
 
 
+def _detect_language(w: Worker, model: Any, audio: Any) -> str | None:
+    """自動判定（#482）。主の音源の頭で 1 回だけ判定し、ほかの音源と位置合わせも同じ言語にする。
+    判定した言語の例文（指示の initialPrompts）を返す（なければ None）"""
+    w.language = model.detect_language(audio) or FALLBACK_LANGUAGE
+    log.info("detected language: %s", w.language)
+    return (w.job.get("initialPrompts") or {}).get(w.language)
+
+
 def _transcribe(w: Worker, audios: list[Any]) -> list[dict[str, Any]]:
     """音源ごとに文字起こしする。使い終わったモデルは下ろす"""
     t = time.monotonic()
     model = _load_asr(w.job, w.whisperx, w.device, w.compute_type)
+    prompt = _detect_language(w, model, audios[0]) if w.language is None else None
+    if prompt and isinstance(model, _OpenVinoAsr):
+        model.use_initial_prompt(prompt)
+    elif prompt:
+        # WhisperX は例文を読み込むときに決めるので、判定した言語と例文で読み込み直す
+        del model
+        _free(w.torch)
+        job = {**w.job, "language": w.language, "initialPrompt": prompt}
+        model = _load_asr(job, w.whisperx, w.device, w.compute_type)
     w.progress.start("transcribe")
     results = []
     for k, audio in enumerate(audios):
@@ -216,10 +241,6 @@ def _transcribe(w: Worker, audios: list[Any]) -> list[dict[str, Any]]:
                 progress_callback=_percent(w.progress, k, len(audios)),
             )
         )
-        if w.language is None:
-            # 自動判定は主の音源で 1 回だけ。ほかの音源と位置合わせは同じ言語にする
-            w.language = results[0].get("language") or FALLBACK_LANGUAGE
-            log.info("detected language: %s", w.language)
     del model
     _free(w.torch)
     log.info(
@@ -236,7 +257,16 @@ def _align(
     """音源ごとに単語の時刻を合わせる。位置合わせのモデルの名前も返す"""
     t = time.monotonic()
     w.progress.start("align")
-    align_model, metadata = w.whisperx.load_align_model(language_code=w.language, device=w.device)
+    try:
+        align_model, metadata = w.whisperx.load_align_model(
+            language_code=w.language, device=w.device
+        )
+    except ValueError as e:
+        # 位置合わせのモデルがない言語（自動判定で珍しい言語に決まったとき。#482）は、
+        # 位置合わせを飛ばし、単語の時刻のない区間のまま返す（区間ごとに 1 語として文に分ける）
+        log.warning("alignment skipped for %s: %s", w.language, e)
+        w.progress.percent(100.0)
+        return results, None
     align_name = getattr(getattr(align_model, "config", None), "_name_or_path", None)
     aligned = [
         w.whisperx.align(

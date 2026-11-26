@@ -1,5 +1,6 @@
 """Intel の GPU（OpenVINO）での文字起こし（#374）。OpenVINO は入れずに、偽物で確かめる"""
 
+import io
 import types
 from types import SimpleNamespace
 
@@ -385,6 +386,53 @@ def test_final_worker_transcribes_with_openvino(monkeypatch):
     # 自動判定（#482）なら、判定した言語を返す
     auto = model.transcribe(np.zeros(SR), language=None, progress_callback=progress.append)
     assert auto["language"] == "en"
+
+
+def test_detect_language_uses_the_first_voiced_part(monkeypatch):
+    # 自動判定（#482）: 話している最初のまとまりを、言語なしで 1 回だけ起こす
+    monkeypatch.setattr(
+        openvino_whisper,
+        "speech_spans",
+        lambda audio, max_speech_sec=None: [(5 * SR, 15 * SR), (40 * SR, 50 * SR)],
+    )
+    pipe = FakePipe(detected="<|ja|>")
+    assert openvino_whisper.detect_language(pipe, np.zeros(SR * 60, dtype=np.float32)) == "ja"
+    assert [(n, "language" in kwargs) for n, kwargs in pipe.calls] == [(10 * SR, False)]
+    # 話している所がなければ判定しない
+    monkeypatch.setattr(openvino_whisper, "speech_spans", lambda audio, max_speech_sec=None: [])
+    assert openvino_whisper.detect_language(pipe, np.zeros(SR, dtype=np.float32)) is None
+
+
+def test_final_worker_with_openvino_adds_the_example_after_detection(monkeypatch):
+    # 日本語に決まったら、読み込み直さずに例文を付けて起こす
+    loaded = []
+    monkeypatch.setattr(
+        openvino_whisper, "load", lambda repo, device: loaded.append(repo) or "pipe"
+    )
+    monkeypatch.setattr(openvino_whisper, "detect_language", lambda pipe, audio: "ja")
+    calls = []
+
+    def transcribe_long(pipe, audio, options, progress=None):
+        calls.append(options)
+        return [], options["language"]
+
+    monkeypatch.setattr(openvino_whisper, "transcribe_long", transcribe_long)
+    job = {
+        "model": "large-v3-turbo",
+        "language": None,
+        "hotwords": None,
+        "initialPrompt": None,
+        "initialPrompts": {"ja": "例文。"},
+        "openvino": {"device": "GPU.1", "model": "OpenVINO/whisper-large-v3-turbo-fp16-ov"},
+    }
+    torch = types.SimpleNamespace(cuda=types.SimpleNamespace(is_available=lambda: False))
+    w = worker_steps.Worker(
+        job, worker_steps.Progress(False, out=io.StringIO()), torch, None, "cpu", "int8", None
+    )
+    results = worker_steps._transcribe(w, [np.zeros(SR)])
+    assert w.language == "ja" and results[0]["language"] == "ja"
+    assert loaded == ["OpenVINO/whisper-large-v3-turbo-fp16-ov"]
+    assert calls == [{"hotwords": None, "initial_prompt": "例文。", "language": "ja"}]
 
 
 def test_final_worker_uses_whisperx_without_openvino():

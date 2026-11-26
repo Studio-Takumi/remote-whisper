@@ -282,6 +282,16 @@ def windows(spans: list[tuple[int, int]], limit_sec: float = CHUNK_SEC) -> list[
     return out
 
 
+def detect_language(pipe: Any, audio: Any) -> str | None:
+    """浄書の自動判定（#482）。話している最初のまとまり（30 秒まで）を言語なしで起こし、
+    判定した言語を返す。話している所がなければ None"""
+    parts = windows(speech_spans(audio, max_speech_sec=CHUNK_SEC - 1))
+    if not parts:
+        return None
+    a, b = parts[0]
+    return _generate(pipe, audio[a:b], {"language": None})[1]
+
+
 def transcribe_long(
     pipe: Any, audio: Any, options: dict, progress: Any = None
 ) -> tuple[list[dict], str | None]:

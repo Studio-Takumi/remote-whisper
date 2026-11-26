@@ -15,6 +15,10 @@ from remote_whisper.transcript import worker_steps as steps
 Turn = namedtuple("Turn", "start end speaker")
 
 
+# 偽の WhisperX で、位置合わせのモデルがある言語
+ALIGN_LANGUAGES = ("ja", "en")
+
+
 class FakeWhisperX:
     """呼ばれた順を calls に残す。文字起こしは音の値（音源ごとに違う）から決まった文を返す"""
 
@@ -28,6 +32,10 @@ class FakeWhisperX:
         fake = self
 
         class Model:
+            def detect_language(self, audio):
+                fake.calls.append(("detect_language", int(audio[0])))
+                return fake.detected
+
             def transcribe(self, audio, batch_size=0, language="ja", progress_callback=None):
                 value = int(audio[0])
                 fake.calls.append(("transcribe", value, batch_size, language))
@@ -60,6 +68,9 @@ class FakeWhisperX:
 
     def load_align_model(self, language_code=None, device=None):
         self.calls.append(("load_align_model", language_code, device))
+        if language_code not in ALIGN_LANGUAGES:
+            # WhisperX と同じく、既定の位置合わせのモデルがない言語は ValueError
+            raise ValueError(f"No default align-model for language: {language_code}")
         model = types.SimpleNamespace(config=types.SimpleNamespace(_name_or_path="fake-align"))
         return model, {"language": language_code}
 
@@ -82,7 +93,8 @@ class FakeWhisperX:
         for s in result["segments"]:
             speaker = "SPEAKER_00" if s["start"] < 1.5 else "SPEAKER_01"
             s["speaker"] = speaker
-            for w in s["words"]:
+            # WhisperX と同じく、単語がない区間（位置合わせを飛ばしたもの）は区間にだけ付ける
+            for w in s.get("words", []):
                 w["speaker"] = speaker
         return result
 
@@ -196,13 +208,70 @@ def test_single_source_without_diarization(fake_whisperx, capsys):
 def test_auto_language_is_detected_and_used_for_alignment(fake_whisperx):
     # 自動判定（#482）: 言語を渡さずに読み込み、判定した言語で位置合わせして、結果に返す
     fake = fake_whisperx()
-    result = worker.run({**JOB, "language": None, "initialPrompt": None, "diarize": False})
+    job = {**JOB, "language": None, "initialPrompt": None, "initialPrompts": PROMPTS}
+    result = worker.run({**job, "diarize": False})
     assert result["language"] == "en"
-    assert fake.calls[:3] == [
+    # 英語には例文がないので、読み込み直さない
+    assert fake.calls[:4] == [
         ("load_model", "large-v3-turbo", "cpu", "int8", None, {"hotwords": "用語"}),
-        ("transcribe", 1, 4, None),
+        ("detect_language", 1),
+        ("transcribe", 1, 4, "en"),
         ("load_align_model", "en", "cpu"),
     ]
+
+
+PROMPTS = {"ja": "例文。"}
+
+
+def test_auto_language_decided_as_japanese_gets_the_example(fake_whisperx):
+    # 自動判定で日本語に決まったら、例文を付けて読み込み直してから起こす（#141 の例文）
+    fake = fake_whisperx()
+    fake.detected = "ja"
+    job = {**JOB, "language": None, "initialPrompt": None, "initialPrompts": PROMPTS}
+    result = worker.run({**job, "diarize": False})
+    assert result["language"] == "ja"
+    assert fake.calls[:5] == [
+        ("load_model", "large-v3-turbo", "cpu", "int8", None, {"hotwords": "用語"}),
+        ("detect_language", 1),
+        (
+            "load_model",
+            "large-v3-turbo",
+            "cpu",
+            "int8",
+            "ja",
+            {"hotwords": "用語", "initial_prompt": "例文。"},
+        ),
+        ("transcribe", 1, 4, "ja"),
+        ("load_align_model", "ja", "cpu"),
+    ]
+
+
+def test_alignment_is_skipped_without_an_align_model(fake_whisperx):
+    # 判定した言語に位置合わせのモデルがなければ、位置合わせを飛ばして区間のまま返す。
+    # 日本語で起こし直さない（#482）
+    fake = fake_whisperx()
+    fake.detected = "sw"
+    result = worker.run({**JOB, "language": None, "initialPrompt": None, "diarize": False})
+    assert result["language"] == "sw"
+    assert result["alignModel"] is None
+    assert result["segments"] == [
+        {"start": 1.0, "end": 1.5, "text": "音1。", "speaker": None, "words": []}
+    ]
+    assert [c[0] for c in fake.calls] == [
+        "load_model",
+        "detect_language",
+        "transcribe",
+        "load_align_model",
+    ]
+
+
+def test_skipped_alignment_still_assigns_speakers(fake_whisperx):
+    fake = fake_whisperx()
+    fake.detected = "sw"
+    result = worker.run({**JOB, "language": None})
+    assert result["diarization"] == "done"
+    assert result["segments"][0]["speaker"] == "SPEAKER_00"
+    assert "align" not in [c[0] for c in fake.calls]
 
 
 def test_auto_language_is_detected_once_for_multiple_sources(fake_whisperx, monkeypatch):
@@ -226,8 +295,9 @@ def test_auto_language_is_detected_once_for_multiple_sources(fake_whisperx, monk
     }
     result = worker.run(job)
     assert result["language"] == "en"
-    assert [c for c in fake.calls if c[0] in ("transcribe", "load_align_model")] == [
-        ("transcribe", 3, 4, None),
+    assert [c for c in fake.calls if c[0] != "load_model" and c[0] != "align"] == [
+        ("detect_language", 3),
+        ("transcribe", 3, 4, "en"),
         ("transcribe", 4, 4, "en"),
         ("load_align_model", "en", "cpu"),
     ]
