@@ -14,6 +14,16 @@ def test_spaced_only_between_letters_that_use_spaces():
     assert not spaced("word ", "next")
 
 
+def test_no_space_around_closing_and_opening_marks():
+    assert not spaced("wait", "…")
+    assert not spaced("said", "”")
+    assert not spaced("the", "’s")
+    assert not spaced("“", "Hello")
+    assert not spaced("$", "5")
+    # 開きと閉じの区別がつかない " は、ふつうの文字と同じに扱う
+    assert spaced("said", '"Hello')
+
+
 def test_join_texts():
     assert join_texts([" Hello world.", " This is", "", " a test. "]) == (
         "Hello world. This is a test."
