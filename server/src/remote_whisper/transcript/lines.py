@@ -124,7 +124,7 @@ def _words(segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
     WhisperX は単語を空白を外した形で返すので、区間の文字列にあった英単語のあいだのスペースを戻す"""
     words: list[dict[str, Any]] = []
     for seg in segments:
-        text = seg.get("text", "")
+        text = seg.get("text") or ""
         items = [w for w in seg.get("words") or [] if w.get("word")]
         if not items:
             if text.strip():
@@ -138,10 +138,13 @@ def _words(segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
             continue
         pos = 0
         for n, w in enumerate(items):
-            at = text.find(w["word"], pos)
-            gap = n == 0 or (at >= 0 and any(c.isspace() for c in text[pos:at]))
-            if at >= 0:
-                pos = at + len(w["word"])
+            # 単語は、前の単語のすぐ後ろ（空白を飛ばしたところ）にあるはず。
+            # なければ空白はなかったとみなし、単語の長さだけ進める（後ろの同じ文字まで飛ばない）
+            at = pos
+            while at < len(text) and text[at].isspace():
+                at += 1
+            gap = n == 0 or (at > pos and text.startswith(w["word"], at))
+            pos = at + len(w["word"])
             word = {**w, "speaker": w.get("speaker") or seg.get("speaker")}
             words.append(_with_space(words, word, gap))
     return words

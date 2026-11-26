@@ -316,6 +316,45 @@ def test_spaces_between_english_segments(no_morphology):
     assert joined == "Machinelearning works"
 
 
+def test_one_sentence_across_english_segments(no_morphology):
+    # language="ja" で 1 文が 2 つの区間にまたがる（間が短いので 1 行）
+    first = chars("Machinelearning", 0.0)
+    second = chars("workswell.", 1.6)
+    items = sentences([seg(first, "Machine learning"), seg(second, "works well.")])
+    assert texts(items) == [(0.0, "Machine learning works well.", None)]
+
+
+def test_no_leading_space_when_the_speaker_changes_in_english(no_morphology):
+    text = "I think that we should go and I agree with that"
+    words = spaced_words(text, 0.0)
+    turns = [turn(0.0, 1.8, "SPEAKER_00"), turn(1.8, 4.0, "SPEAKER_01")]
+    assert texts(sentences([seg(words, text)], turns)) == [
+        (0.0, "I think that we should go", "SPEAKER_00"),
+        (1.8, "and I agree with that", "SPEAKER_01"),
+    ]
+
+
+def test_english_segment_without_word_times_is_joined_with_spaces(no_morphology):
+    before = spaced_words("Hello there", 0.0)
+    after = spaced_words("See you", 0.6)
+    untimed = {"start": None, "end": None, "text": " no times here ", "words": []}
+    items = sentences([seg(before, "Hello there"), untimed, seg(after, " See you")])
+    assert [s.text for s in items] == ["Hello there no times here See you"]
+
+
+def test_words_missing_from_the_segment_text(no_morphology):
+    # 区間の文字列に単語が見つからなくても落ちず、日本語は詰めたまま
+    words = chars("今日は晴れ", 0.0)
+    assert [s.text for s in sentences([seg(words, "今日は 曇り")])] == ["今日は晴れ"]
+    # 見つからない単語の後ろの同じ文字まで飛んで、空白を数えない
+    words = chars("abxa", 0.0)
+    assert [s.text for s in sentences([seg(words, "abc da")])] == ["abxa"]
+    # 1 文字だけ違うときは、その後ろの空白は数える
+    assert [s.text for s in sentences([seg(words, "abc a")])] == ["abx a"]
+    # 区間の文字列が None
+    assert [s.text for s in sentences([seg(words, None) | {"text": None}])] == ["abxa"]
+
+
 @needs_morphology
 def test_keeps_spaces_between_english_words_in_japanese():
     text = "今日は machine learning と deep learning の話をします。GPU を使います。"
