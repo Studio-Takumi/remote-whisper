@@ -89,6 +89,7 @@ export const useAppStore = create<AppState>()((set, _get, store) => {
         liveDraft: null,
         watching: null,
         settings: defaultSettings,
+        nextLanguage: null,
         settingsLoaded: isDemo,
         options: fallbackOptions,
         serverVersion: null,
@@ -124,7 +125,7 @@ export const useAppStore = create<AppState>()((set, _get, store) => {
                 set((s) => ({ server: { ...s.server, microphone: denied ? 'denied' : 'granted' } })),
             );
         },
-        uploadAudio: (projectId, file) => uploadAudio(ctx, projectId, file),
+        uploadAudio: (projectId, file, language) => uploadAudio(ctx, projectId, file, language),
         pickAudioFiles: (projectId, files) => pickAudioFiles(ctx, projectId, files),
         cancelPickedAudio: () => set({ pickedAudio: null }),
         uploadSeparately: () => uploadSeparately(ctx),
@@ -168,6 +169,7 @@ export const useAppStore = create<AppState>()((set, _get, store) => {
         setSettingsPage: (settingsPage) => set({ settingsPage }),
         setNewProjectOpen: (newProjectOpen) => set({ newProjectOpen }),
         setNoProjects: (noProjects) => set({ noProjects }),
+        setNextLanguage: (nextLanguage) => set({ nextLanguage }),
     };
 });
 

@@ -4,6 +4,7 @@ import { Switch } from '@/components/ui/switch';
 import { recordingLocks } from '@/features/recording/recording';
 import { NumberInput } from '@/features/settings/NumberInput';
 import { OptionSelect, Row, Section } from '@/features/settings/SettingsParts';
+import { TranscriptionLanguageSelect } from '@/features/settings/TranscriptionLanguageSelect';
 import { withCurrent } from '@/features/settings/options';
 import type { Settings } from '@/features/settings/settings';
 import type { UpdateSection } from '@/features/settings/settingsDraft';
@@ -21,8 +22,23 @@ export function WhisperPage({
     // 録音中に変えられない項目の理由。録音していなければ undefined（変えられる）
     lock: (reason: string) => string | undefined;
 }) {
+    const language = draft.whisper.language;
     return (
         <Section>
+            {/* 古いサーバー（言語を持たない）では出さない */}
+            {language !== undefined && (
+                <Row
+                    id='transcription-language'
+                    label='文字起こしの言語'
+                    description='自動判定では、浄書のときに言語を判定します'
+                >
+                    <TranscriptionLanguageSelect
+                        id='transcription-language'
+                        value={language}
+                        onChange={(next) => update('whisper', { language: next })}
+                    />
+                </Row>
+            )}
             <Row
                 id='compute-type'
                 label='計算の精度'

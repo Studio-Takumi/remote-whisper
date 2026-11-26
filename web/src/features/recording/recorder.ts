@@ -113,10 +113,12 @@ async function openRecording(r: Recorder, projectId: string, continueSessionId?:
     r.mic = await openMicrophone(r);
     r.unsubscribe = subscribeRecording(r);
     await connection.open();
+    // 今回だけ変えた文字起こしの言語（#482）。変えていなければ送らない（全体設定になる）
+    const language = r.store.getState().nextLanguage;
     connection.send(
         continueSessionId
             ? { type: 'continue', project: projectId, session: continueSessionId }
-            : { type: 'start', project: projectId },
+            : { type: 'start', project: projectId, ...(language ? { language } : {}) },
     );
     const reply = await connection.waitFor(
         (m): m is StartedMessage | ErrorMessage => m.type === 'started' || m.type === 'error',

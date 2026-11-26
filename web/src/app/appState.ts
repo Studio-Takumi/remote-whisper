@@ -15,7 +15,7 @@ import type { Correction } from '@/features/session/corrections';
 import type { LiveDraft } from '@/features/session/liveMessages';
 import type { LivePartial } from '@/features/session/livePartials';
 import type { LoadedSession } from '@/features/session/sessionDetail';
-import type { Settings } from '@/features/settings/settings';
+import type { Settings, TranscriptionLanguage } from '@/features/settings/settings';
 
 export type Selection = { projectId: string | null; sessionId: string | null };
 
@@ -54,6 +54,10 @@ export type AppState = {
     // 自分で録音していなければ、サーバーに watch を送って見る
     watching: Watching | null;
     settings: Settings;
+    // 新規セッション画面で、今回だけ変えた文字起こしの言語（#482）。null なら全体設定。
+    // 録音を始める・音声ファイルを送るときに使い、新規セッション画面を離れたら null に戻す
+    nextLanguage: TranscriptionLanguage | null;
+    setNextLanguage: (language: TranscriptionLanguage | null) => void;
     // サーバーから設定を読めたか（#339）。読めるまでは settings が既定値なので、保存で上書きしないために見る
     settingsLoaded: boolean;
     // 設定で選べる値。サーバーから取れなければダミーのまま
@@ -78,7 +82,8 @@ export type AppState = {
     // アップロード中の音声ファイル（#180）。percent は 0〜100
     uploading: { projectId: string; name: string; percent: number } | null;
     // 音声ファイルから新しいセッションを作る。終わったら、そのセッションを開く
-    uploadAudio: (projectId: string, file: File) => Promise<void>;
+    // language を省くと、新規セッション画面で選んでいる文字起こしの言語（nextLanguage）
+    uploadAudio: (projectId: string, file: File, language?: TranscriptionLanguage | null) => Promise<void>;
     // 選んだ（ドロップした）音声ファイル。複数なら、まとめるか別々にするかを選ぶまで持つ（#357）
     pickedAudio: { projectId: string; files: File[] } | null;
     pickAudioFiles: (projectId: string, files: File[]) => void;

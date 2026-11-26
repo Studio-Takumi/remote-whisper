@@ -1,9 +1,10 @@
 // WebSocket /ws でやりとりするメッセージ（docs/spec/api.md 7.2 節）。サーバーの server/src/remote_whisper/routes/ws.py と合わせる
-import type { LlmBackend } from '@/features/settings/settings';
+import type { LlmBackend, TranscriptionLanguage } from '@/features/settings/settings';
 
 // ブラウザ → サーバー（制御）。音声はバイナリで、先頭4バイトが連番（uint32 LE）、続きが 16kHz・モノラル・Int16 の PCM
 export type ClientMessage =
-    | { type: 'start'; project: string }
+    // language は今回だけ変えた文字起こしの言語（#482）。省くと全体設定
+    | { type: 'start'; project: string; language?: TranscriptionLanguage }
     | { type: 'stop' }
     | { type: 'pause' }
     | { type: 'unpause' }
