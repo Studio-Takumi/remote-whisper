@@ -144,13 +144,22 @@ def _load(backend: str, spec: ModelSpec) -> Any:
 
 def _transcribe(backend: str, model: Any, pcm: bytes, options: dict) -> list[dict]:
     if backend == "fake":
-        # テスト用: 音声の長さが分かるだけの文字を返す。crash を渡すと、文字起こしの途中で落ちる
+        # テスト用: 音声の長さが分かるだけの文字を返す。crash を渡すと、文字起こしの途中で落ちる。
+        # 言語を渡さなければ（自動判定。#483）、英語と判定したことにする
         if options.get("crash"):
             os._exit(3)
         if options.get("sleep"):
             time.sleep(options["sleep"])
         seconds = len(pcm) / 2 / SAMPLE_RATE
-        return [{"start": 0.0, "end": round(seconds, 2), "text": f"fake {seconds:.1f}s"}]
+        return [
+            {
+                "start": 0.0,
+                "end": round(seconds, 2),
+                "text": f"fake {seconds:.1f}s",
+                "language": options.get("language", "ja") or "en",
+                "language_probability": 1.0,
+            }
+        ]
     import numpy as np
 
     audio = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
@@ -161,7 +170,7 @@ def _transcribe(backend: str, model: Any, pcm: bytes, options: dict) -> list[dic
 
         # greedy だけ（beam_size は使わない）。信頼度は付かない（#374）
         return openvino_whisper.transcribe(model, audio, options)
-    segments, _ = model.transcribe(
+    segments, info = model.transcribe(
         audio,
         language=options.get("language", "ja"),
         beam_size=options.get("beam_size", 5),
@@ -172,7 +181,8 @@ def _transcribe(backend: str, model: Any, pcm: bytes, options: dict) -> list[dic
         # 無音や雑音を渡すと「ご視聴ありがとうございました」などを作ってしまうため（#81）
         vad_filter=options.get("vad_filter", True),
     )
-    # 信頼度は、話していないのに出てきた文を捨てるのに使う（hallucination.py）
+    # 信頼度は、話していないのに出てきた文を捨てるのに使う（hallucination.py）。
+    # 言語（指定したもの、なければ判定したもの）とその確率は、録音中の自動判定に使う（#483）
     return [
         {
             "start": s.start,
@@ -181,6 +191,8 @@ def _transcribe(backend: str, model: Any, pcm: bytes, options: dict) -> list[dic
             "no_speech_prob": s.no_speech_prob,
             "avg_logprob": s.avg_logprob,
             "compression_ratio": s.compression_ratio,
+            "language": info.language,
+            "language_probability": info.language_probability,
         }
         for s in segments
     ]
@@ -207,6 +219,7 @@ def _transcribe_mlx(repo: str, audio: Any, options: dict) -> list[dict]:
         condition_on_previous_text=False,
     )
     shift = offset / SAMPLE_RATE
+    # mlx-whisper は判定した言語の確率を返さない
     return [
         {
             "start": s["start"] + shift,
@@ -215,6 +228,7 @@ def _transcribe_mlx(repo: str, audio: Any, options: dict) -> list[dict]:
             "no_speech_prob": s["no_speech_prob"],
             "avg_logprob": s["avg_logprob"],
             "compression_ratio": s["compression_ratio"],
+            "language": result.get("language"),
         }
         for s in result["segments"]
     ]
