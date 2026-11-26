@@ -23,6 +23,7 @@ async def render_result(
     sources: list[dict[str, Any]],
 ) -> tuple[list[Sentence], str, int]:
     """子の結果を文ごとの行にして、本文と話者の数を返す。複数の音源なら測ったずれも書く"""
+    _record_language(files, meta, result.get("language"))
     diarized = result.get("diarization") == "done"
     # 形態素解析と話者の割り当てで 1 時間の録音なら数秒かかるので、別のスレッドで
     turns = result.get("turns") if diarized else None
@@ -65,6 +66,7 @@ def save_result(
             model=model,
             generated_at=iso(started),
             recording=audio.name,
+            language=meta.language,
             align_model=result.get("alignModel"),
             diarization=result.get("diarization") or "off",
             speakers=speakers,
@@ -91,6 +93,24 @@ def _multi_source_lines(
         source: sentences(segs, turns, language) for source, segs in sorted(by_source.items())
     }
     return merge_sources(per_source, dominant)
+
+
+def _record_language(files: SessionFiles, meta: TranscriptMeta, language: Any) -> None:
+    """自動判定で決まった言語（#482）を、文字起こしのフロントマターの language に書く。
+    あとの処理（文分けなど）はこれを見る。ほかの項目は書き換えない"""
+    if not isinstance(language, str) or not language or language == meta.language:
+        return
+    meta.language = language
+    if not files.transcript.is_file():
+        return
+    try:
+        with transcript_lock(files.transcript):
+            data, body = parse(files.transcript.read_text(encoding="utf-8"))
+            saved = TranscriptMeta.model_validate(data)
+            saved.language = language
+            write_doc(files.transcript, saved, body)
+    except (OSError, ValueError):
+        log.exception("failed to record the language of %s", files.id)
 
 
 def _record_alignment(

@@ -111,6 +111,15 @@ describe('SettingsDialog', () => {
         expect(input('手動のときの音量').value).toBe('-40');
     });
 
+    it('文字起こしの言語は、古いサーバー（whisper.language がない）では出さない（#482）', () => {
+        draw('whisper');
+        expect(screen.getByLabelText('文字起こしの言語').textContent).toContain('日本語');
+        cleanup();
+        const { language: _language, ...whisper } = defaultSettings.whisper;
+        draw('whisper', { settings: { ...defaultSettings, whisper } });
+        expect(screen.queryByText('文字起こしの言語')).toBeNull();
+    });
+
     it('要約のページの項目', () => {
         draw('ollama');
         for (const label of [

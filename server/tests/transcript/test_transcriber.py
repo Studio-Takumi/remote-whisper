@@ -12,9 +12,14 @@ from helpers.recorder import receive_until
 from remote_whisper.gpu.gpu_queue import GpuQueue
 from remote_whisper.hub import Hub
 from remote_whisper.settings import SettingsStore
-from remote_whisper.storage.documents import FinalTranscriptMeta, TranscriptMeta, read_doc
+from remote_whisper.storage.documents import (
+    FinalTranscriptMeta,
+    TranscriptMeta,
+    read_doc,
+    write_doc,
+)
 from remote_whisper.storage.session_reader import SessionFiles
-from remote_whisper.transcript import worker_job
+from remote_whisper.transcript import result_save, worker_job
 from remote_whisper.transcript.transcriber import FinalTranscriber
 from remote_whisper.transcript.worker_steps import Progress, parse_progress
 
@@ -64,6 +69,9 @@ if job.get("sources"):
         sources=[{"id": 1, "offsetSec": 0.0, "driftPpm": 0.0, "windows": None},
                  {"id": 2, "offsetSec": 4.875, "driftPpm": -41.2, "windows": 3}],
     )
+if job.get("language") is None:
+    # 自動判定（#482）: WhisperX が判定した言語を返す
+    result["language"] = "en"
 if sys.argv[2] == "unavailable":
     for c in chars:
         c["speaker"] = None
@@ -275,6 +283,79 @@ def test_build_job_from_the_settings_and_the_session(home, session_files, tmp_pa
     }
     # 音源が 1 つなら sources は渡さない
     assert sources == [{"id": 1, "audio": str(files.recording()), "roughOffsetSec": 0.0}]
+
+
+def test_build_job_without_the_language_for_auto(home, session_files, tmp_path):
+    # 自動判定（#482）は Whisper に言語を渡さず、日本語の例文も渡さない
+    files, meta = session_files
+    meta.language_choice = "auto"
+    whisper = SettingsStore(home).get().whisper
+    job, _ = worker_job.build_job(
+        files, meta, files.recording(), tmp_path / "out.json", "large-v3-turbo", True, whisper, None
+    )
+    assert job["language"] is None
+    assert job["initialPrompt"] is None
+    # 例文は言語ごとに渡し、子が判定した言語のものを使う
+    assert job["initialPrompts"] == worker_job.INITIAL_PROMPT
+
+
+def test_making_again_follows_the_session_not_the_settings(home, session_files, fake_worker):
+    # 再生成も、全体設定ではなくセッションの languageChoice で起こす（#482）
+    files, meta = session_files
+
+    def job():
+        return json.loads(fake_worker.count.with_name("job.json").read_text(encoding="utf-8"))
+
+    SettingsStore(home).update({"whisper": {"language": "auto"}})
+    run_final(home, fake_worker(), files, meta)
+    assert (job()["language"], job()["initialPrompt"]) == ("ja", worker_job.INITIAL_PROMPT["ja"])
+    assert "initialPrompts" not in job()
+    SettingsStore(home).update({"whisper": {"language": "ja"}})
+    meta.language_choice = "auto"
+    run_final(home, fake_worker(), files, meta)
+    assert (job()["language"], job()["initialPrompt"]) == (None, None)
+
+
+def test_the_final_transcript_is_saved_when_the_language_cannot_be_written(
+    home, session_files, fake_worker, monkeypatch
+):
+    # 判定した言語を文字起こしに書けなくても（ディスクが一杯など）、浄書済み文字起こしは残す
+    files, meta = session_files
+    meta.language_choice = "auto"
+    write_doc(files.transcript, meta, "[00:00:00] Hello.\n")
+    original = result_save.write_doc
+
+    def write(path, doc, body):
+        if path == files.transcript:
+            raise OSError("disk full")
+        original(path, doc, body)
+
+    monkeypatch.setattr(result_save, "write_doc", write)
+    gid = run_final(home, fake_worker(), files, meta)
+    assert gid is not None
+    assert read_doc(files.final_transcript(gid), FinalTranscriptMeta)[0].language == "en"
+    assert read_doc(files.transcript, TranscriptMeta)[0].language == "ja"
+
+
+def test_the_detected_language_is_saved(home, session_files, fake_worker):
+    # 自動判定で決まった言語を、文字起こしと最終の文字起こしのフロントマターに書く（#482）
+    files, meta = session_files
+    meta.language_choice = "auto"
+    write_doc(files.transcript, meta, "[00:00:00] Hello.\n")
+    gid = run_final(home, fake_worker(), files, meta)
+    assert meta.language == "en"
+    saved, body = read_doc(files.transcript, TranscriptMeta)
+    assert (saved.language_choice, saved.language) == ("auto", "en")
+    assert body == "[00:00:00] Hello.\n"
+    final, _ = read_doc(files.final_transcript(gid), FinalTranscriptMeta)
+    assert final.language == "en"
+
+
+def test_japanese_keeps_the_language(home, session_files, fake_worker):
+    files, meta = session_files
+    gid = run_final(home, fake_worker(), files, meta)
+    assert meta.language == "ja"
+    assert read_doc(files.final_transcript(gid), FinalTranscriptMeta)[0].language == "ja"
 
 
 def test_worker_timeout_grows_with_the_audio_and_the_sources():

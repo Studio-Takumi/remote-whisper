@@ -171,6 +171,48 @@ describe('SessionView の新しいセッション', () => {
         expect(screen.getByText('録音が始まると、5 分おきにリアルタイム要約がここに出ます')).toBeTruthy();
     });
 
+    it('文字起こしの言語は今回だけ変え、全体設定は書き換えない（#482）', () => {
+        // jsdom にないもの（Radix の Select が使う）
+        Element.prototype.hasPointerCapture ??= () => false;
+        Element.prototype.scrollIntoView ??= () => {};
+        draw();
+        const select = screen.getByLabelText('文字起こしの言語');
+        expect(select.textContent).toContain('日本語');
+        act(() => {
+            fireEvent.pointerDown(select, { button: 0, ctrlKey: false, pointerType: 'mouse' });
+        });
+        act(() => {
+            fireEvent.click(screen.getByRole('option', { name: '自動判定' }));
+        });
+        expect(useAppStore.getState().nextLanguage).toBe('auto');
+        expect(useAppStore.getState().settings.whisper.language).toBe('ja');
+        expect(screen.getByLabelText('文字起こしの言語').textContent).toContain('自動判定');
+    });
+
+    it('新規セッション画面を離れると、今回だけの言語を消す', () => {
+        draw({ projects: [PROJECT, { id: 'p2', name: 'ゼミ', path: '/data/seminar' }] });
+        act(() => useAppStore.getState().setNextLanguage('auto'));
+        // ほかのプロジェクトの新規セッション画面
+        act(() => useAppStore.setState({ selection: { projectId: 'p2', sessionId: null } }));
+        expect(useAppStore.getState().nextLanguage).toBeNull();
+        act(() => useAppStore.getState().setNextLanguage('auto'));
+        // セッションを開いた
+        act(() => {
+            useAppStore.setState({
+                selection: { projectId: PROJECT.id, sessionId: 's1' },
+                localSessions: [{ projectId: PROJECT.id, session: session({ id: 's1' }) }],
+            });
+        });
+        expect(useAppStore.getState().nextLanguage).toBeNull();
+    });
+
+    it('古いサーバー（whisper.language がない）では言語の欄を出さない', () => {
+        const { language: _language, ...whisper } = defaultSettings.whisper;
+        useAppStore.setState({ settings: { ...defaultSettings, whisper } });
+        draw();
+        expect(screen.queryByLabelText('文字起こしの言語')).toBeNull();
+    });
+
     it('ほかのセッションで録音中ならそう出す', () => {
         useAppStore.setState({ recordingState: 'recording', recordingSessionId: 'other' });
         draw();

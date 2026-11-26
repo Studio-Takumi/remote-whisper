@@ -15,6 +15,15 @@ describe('uploadUrl', () => {
             '/api/projects/p/sessions/upload?name=a.mp3&lastModified=1&sources=3',
         );
     });
+
+    it('今回だけ変えた文字起こしの言語を language に付ける（#482）', () => {
+        expect(uploadUrl('p', { name: 'a.mp3', lastModified: 1 }, undefined, 'auto')).toBe(
+            '/api/projects/p/sessions/upload?name=a.mp3&lastModified=1&language=auto',
+        );
+        expect(uploadUrl('p', { name: 'a.mp3', lastModified: 1 }, undefined, null)).toBe(
+            '/api/projects/p/sessions/upload?name=a.mp3&lastModified=1',
+        );
+    });
 });
 
 describe('sourceUploadUrl', () => {

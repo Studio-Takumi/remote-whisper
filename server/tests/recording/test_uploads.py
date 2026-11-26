@@ -80,6 +80,23 @@ def test_wav_is_converted_to_mp3(client, project, tmp_path):
     assert read_doc(d / f"transcript-{sid}.md", TranscriptMeta)[0].recording == mp3.name
 
 
+def test_the_transcription_language_can_be_changed_for_the_upload(client, project, tmp_path):
+    # 文字起こしの言語（#482）。省けば全体設定、language で今回だけ変えられる
+    pid, d = project
+    wav = write_audio(tmp_path / "talk.wav", "pcm_s16le", fmt="wav")
+    sid = upload(client, pid, wav).json()["id"]
+    wait_done(client)
+    assert read_doc(d / f"transcript-{sid}.md", TranscriptMeta)[0].language_choice == "ja"
+    url = f"/api/projects/{pid}/sessions/upload"
+    res = client.post(url, params={"name": "b.wav", "language": "auto"}, content=wav.read_bytes())
+    assert res.status_code == 202
+    wait_done(client)
+    meta = read_doc(d / f"transcript-{res.json()['id']}.md", TranscriptMeta)[0]
+    assert meta.language_choice == "auto"
+    res = client.post(url, params={"name": "c.wav", "language": "en"}, content=wav.read_bytes())
+    assert res.status_code == 422
+
+
 def test_start_time_comes_from_the_last_modified_time(client, project, tmp_path):
     pid, d = project
     wav = write_audio(tmp_path / "a.wav", "pcm_s16le", seconds=60, fmt="wav")

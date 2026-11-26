@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { isDemo } from '@/api/demo';
 import type { ActionContext } from '@/app/actionContext';
 import { UploadError, uploadAudio as sendAudio, uploadSource } from '@/features/recording/upload';
-import { finalModelLabel, llmModels } from '@/features/settings/settings';
+import { type TranscriptionLanguage, finalModelLabel, llmModels } from '@/features/settings/settings';
 
 // 音声ファイルから作ったセッションを開く。最終の文字起こしと最終の要約は、サーバーが後ろで作る
 async function openUploaded(ctx: ActionContext, projectId: string, sessionId: string) {
@@ -18,7 +18,13 @@ async function openUploaded(ctx: ActionContext, projectId: string, sessionId: st
     }
 }
 
-export async function uploadAudio(ctx: ActionContext, projectId: string, file: File) {
+// language は今回だけ変えた文字起こしの言語（#482）。省くと新規セッション画面で選んでいるもの
+export async function uploadAudio(
+    ctx: ActionContext,
+    projectId: string,
+    file: File,
+    language: TranscriptionLanguage | null = ctx.store.getState().nextLanguage,
+) {
     const { getState: get, setState: set } = ctx.store;
     if (isDemo) {
         toast.info('デモでは音声ファイルを使えません');
@@ -30,8 +36,12 @@ export async function uploadAudio(ctx: ActionContext, projectId: string, file: F
     }
     set({ uploading: { projectId, name: file.name, percent: 0 } });
     try {
-        const created = await sendAudio(projectId, file, (percent) =>
-            set({ uploading: { projectId, name: file.name, percent } }),
+        const created = await sendAudio(
+            projectId,
+            file,
+            (percent) => set({ uploading: { projectId, name: file.name, percent } }),
+            undefined,
+            language,
         );
         await openUploaded(ctx, projectId, created.id);
         toast.success(`${file.name} から作ります。要約まで少しかかります`);
@@ -62,9 +72,11 @@ export async function uploadSeparately(ctx: ActionContext) {
     if (!picked) {
         return;
     }
-    // 1 つずつ送る（同時に送れるのは 1 つだけ）。最後に作ったセッションが開く
+    // 1 つずつ送る（同時に送れるのは 1 つだけ）。最後に作ったセッションが開く。
+    // 1 つ目を開くと新規セッション画面を離れるので、選んでいた言語は先に取っておく
+    const language = get().nextLanguage;
     for (const file of picked.files) {
-        await get().uploadAudio(picked.projectId, file);
+        await get().uploadAudio(picked.projectId, file, language);
     }
 }
 
@@ -102,7 +114,7 @@ export async function uploadSources(ctx: ActionContext, main: number) {
         set({ uploading: { projectId, name: `${files[i].name}（${i + 1}/${total}）`, percent } });
     progress(0, 0);
     try {
-        const created = await sendAudio(projectId, files[0], (p) => progress(0, p), total);
+        const created = await sendAudio(projectId, files[0], (p) => progress(0, p), total, get().nextLanguage);
         // 送れなかったファイル。old は 404（まとめられない古いホスト）
         const failed: string[] = [];
         let old = false;

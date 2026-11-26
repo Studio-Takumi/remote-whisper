@@ -3,15 +3,25 @@
 import type { SessionJson } from '@/api/api';
 import { appAccessToken, appAuthActive, isRelayUrl } from '@/api/appAuth';
 import { apiUrl } from '@/api/endpoint';
+import type { TranscriptionLanguage } from '@/features/settings/settings';
 
 // 選べるファイル。動画は音声だけを使う
 export const AUDIO_ACCEPT = 'audio/*,video/*,.m4a,.mp3,.wav,.flac,.ogg,.opus,.webm,.aac';
 
-// sources は複数のファイルを 1 つのセッションにまとめるときのファイルの数（#241・#357。1 つ目のファイルに付ける）
-export function uploadUrl(projectId: string, file: { name: string; lastModified: number }, sources?: number) {
+// sources は複数のファイルを 1 つのセッションにまとめるときのファイルの数（#241・#357。1 つ目のファイルに付ける）。
+// language は今回だけ変えた文字起こしの言語（#482）。省くと全体設定
+export function uploadUrl(
+    projectId: string,
+    file: { name: string; lastModified: number },
+    sources?: number,
+    language?: TranscriptionLanguage | null,
+) {
     const params = new URLSearchParams({ name: file.name, lastModified: String(file.lastModified) });
     if (sources !== undefined) {
         params.set('sources', String(sources));
+    }
+    if (language) {
+        params.set('language', language);
     }
     return apiUrl(`/api/projects/${encodeURIComponent(projectId)}/sessions/upload?${params}`);
 }
@@ -52,8 +62,9 @@ export function uploadAudio(
     file: File,
     onProgress: (percent: number) => void,
     sources?: number,
+    language?: TranscriptionLanguage | null,
 ): Promise<SessionJson> {
-    return sendFile<SessionJson>(uploadUrl(projectId, file, sources), file, onProgress);
+    return sendFile<SessionJson>(uploadUrl(projectId, file, sources, language), file, onProgress);
 }
 
 // まとめるセッションに、ほかの音源のファイルを足す。足した音源（id・name）を返す

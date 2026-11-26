@@ -337,8 +337,14 @@ async def _handle_control(ctx: AppContext, ws: WebSocket, session: Any, text: st
         project = message.get("project")
         if not isinstance(project, str) or not project:
             raise RecordingError("bad_message", "project を指定してください")
+        # 今回だけ変えた文字起こしの言語（#482）。省いたら全体設定
+        language = message.get("language")
+        if language not in (None, "ja", "auto"):
+            raise RecordingError("bad_message", "language は ja か auto にしてください")
         max_concurrent = ctx.settings.get().recording.max_concurrent
-        return await recorder.start(ws, _project_id(ctx, project), max_concurrent)
+        return await recorder.start(
+            ws, _project_id(ctx, project), max_concurrent, language=language
+        )
     if kind == "continue":
         # 途中で終わったセッションの続きを録音する（#101）
         if active:

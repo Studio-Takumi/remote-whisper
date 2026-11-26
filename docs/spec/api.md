@@ -13,7 +13,7 @@
 | POST | `/api/projects` | ディレクトリをプロジェクトとして登録する（すでにあればそれを返す） |
 | GET | `/api/sessions/{uuid}` | セッションの UUID から、セッションのメタ情報と `projectId`・`projectUuid` を返す（#177）。なければ `404` |
 | GET | `/api/projects/{pid}/sessions` | セッションの一覧（サイドバー用） |
-| POST | `/api/projects/{pid}/sessions/upload` | 音声ファイルから新しいセッションを作る（6.11 節、#180）。クエリは `name`・`lastModified`、本文はファイルそのもの。`202` で作ったセッションを返す。複数のファイルを 1 つのセッションにするとき（6.16 節）は、1 つ目のファイル（主の音源）をクエリ `sources=<ファイルの数>`（2〜`recording.maxSources`。超えたら `422`）を付けて送る（古いサーバーは `sources` を無視するので、先に `/api/settings/options` の `recording.maxSources` で対応を確かめる。下の「古いクライアント・サーバーとの組み合わせ」）。このときは、ファイルがそろうまで浄書を始めない |
+| POST | `/api/projects/{pid}/sessions/upload` | 音声ファイルから新しいセッションを作る（6.11 節、#180）。クエリは `name`・`lastModified`、本文はファイルそのもの。`202` で作ったセッションを返す。クエリ `language`（`ja` / `auto`。#482）で、そのセッションの文字起こしの言語を今回だけ変えられる（省くと全体設定の `whisper.language`。ほかの値は `422`。古いサーバーは無視して全体設定になる）。複数のファイルを 1 つのセッションにするとき（6.16 節）は、1 つ目のファイル（主の音源）をクエリ `sources=<ファイルの数>`（2〜`recording.maxSources`。超えたら `422`）を付けて送る（古いサーバーは `sources` を無視するので、先に `/api/settings/options` の `recording.maxSources` で対応を確かめる。下の「古いクライアント・サーバーとの組み合わせ」）。このときは、ファイルがそろうまで浄書を始めない |
 | POST | `/api/projects/{pid}/sessions/{sid}/sources/upload` | 複数のファイルから作るセッションに、2 つ目以降のファイル（ほかの音源）を足す（6.16 節、#241）。クエリは `name`・`lastModified`、本文はファイルそのもの。受け付ける形式・大きさの上限・エラーは `upload` と同じ。`202` で音源（`id`・`name`）を返す。`sources` の数をそろえたら浄書を始める。`sources` を付けて作ったセッションでない・もうそろっている・浄書を始めたあとは `409`。最後にファイルが届いて（届き始めて）から 30 分、次のファイルが届かなければ、届いた分だけで浄書を始める（ログに書く）。待っている間は、セッションの移動と浄書済み文字起こしの再生成は `409` |
 | GET | `/api/projects/{pid}/sessions/{sid}` | セッションのメタ情報 |
 | POST | `/api/projects/{pid}/sessions/{sid}/move` | セッションを別のプロジェクトへ移す（#172。5.4 節）。本文は `{ "to": "<移動先のプロジェクト ID か UUID>" }`。移せなければ `409`（理由を `detail` に）、同じプロジェクトなら `400`、途中で失敗したら元に戻して `500`。移したセッションのメタ情報と `projectId`（移動先）を返す |
@@ -75,7 +75,7 @@
 
 | 種類 | 中身 |
 |---|---|
-| 制御 | `{"type":"start","project":"<pid>"}` / `{"type":"stop"}` / `{"type":"pause"}` / `{"type":"unpause"}` / `{"type":"resume","session":"<sid>","nextSeq":n}`（`resume` は再接続のためのもので、一時停止からの再開は `unpause`） / `{"type":"continue","project":"<pid>","session":"<sid>"}`（途中で終わったセッションと、普通に終えてから `recording.continueWindowMin` 分以内のセッションの続きを録音する。6.7 節） / `{"type":"interrupt","session":"<sid か UUID>"}`（録音していたページが閉じられたセッションを、つなぎ直すのを待たずに `interrupted` にする。#448・6.7 節） |
+| 制御 | `{"type":"start","project":"<pid>","language":"ja"}`（`language` は今回だけ変えた文字起こしの言語。`ja` / `auto`、省くと全体設定の `whisper.language`。ほかの値は `bad_message`。#482） / `{"type":"stop"}` / `{"type":"pause"}` / `{"type":"unpause"}` / `{"type":"resume","session":"<sid>","nextSeq":n}`（`resume` は再接続のためのもので、一時停止からの再開は `unpause`） / `{"type":"continue","project":"<pid>","session":"<sid>"}`（途中で終わったセッションと、普通に終えてから `recording.continueWindowMin` 分以内のセッションの続きを録音する。6.7 節） / `{"type":"interrupt","session":"<sid か UUID>"}`（録音していたページが閉じられたセッションを、つなぎ直すのを待たずに `interrupted` にする。#448・6.7 節） |
 | 音声 | バイナリ。先頭4バイトが連番（uint32、リトルエンディアン）、続きが 16kHz・モノラル・Int16 の PCM |
 | 見る（#238） | `{"type":"watch","session":"<sid か UUID>"}` / `{"type":"unwatch"}`。ほかのクライアントで録音中のセッションを見る・見るのをやめる（下の「録音中のセッションを見る」） |
 | 参加（#241） | `{"type":"join","session":"<sid か UUID>","name":"<端末の名前>"}` / `{"type":"join","session":"…","source":n,"nextSeq":n,"lost":true?}`（切れたあとのつなぎ直し。`lost` は読み込み直して手元の音をなくしたとき） / `{"type":"leave"}`。録音中のセッションに音源として参加する・抜ける（下の「録音中の参加」、6.16 節）。参加している間の音声のバイナリは、その音源の音声として受け取る |

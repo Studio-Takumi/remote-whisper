@@ -40,12 +40,22 @@ export function finalModelLabel(models: OllamaModels) {
     return models.overview === models.detail ? models.detail : `${models.overview} / ${models.detail}`;
 }
 
+export type TranscriptionLanguage = 'ja' | 'auto';
+
+// 文字起こしの言語の選択肢（#482）。英語などを一つずつ選ばせず、日本語と自動判定の 2 つだけ
+export const transcriptionLanguages: { value: TranscriptionLanguage; label: string }[] = [
+    { value: 'ja', label: '日本語' },
+    { value: 'auto', label: '自動判定' },
+];
+
 // setting.json の中身（docs/spec/files.md 5.3 節）。後で GET /api/settings から取り、PATCH /api/settings で保存する
 export type Settings = {
     version: 1;
     whisper: {
         model: string;
         computeType: string;
+        // 文字起こしの言語（#482）。auto は浄書のときに判定する。古いサーバーにはない（そのときは画面に出さない）
+        language?: TranscriptionLanguage;
         beamSize: number;
         partialIntervalSec: number;
         silenceMs: number;
@@ -146,6 +156,7 @@ export const defaultSettings: Settings = {
     whisper: {
         model: 'large-v3-turbo',
         computeType: 'float16',
+        language: 'ja',
         beamSize: 5,
         partialIntervalSec: 1.0,
         silenceMs: 600,
