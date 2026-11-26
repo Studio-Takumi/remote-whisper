@@ -133,6 +133,24 @@ def test_the_transcription_language_comes_from_the_settings_or_the_start(client,
         assert receive_until(ws, of_type("error"))[-1]["code"] == "bad_message"
 
 
+def test_continuing_keeps_the_transcription_language(client, project):
+    # 続きを録音しても、始めたときの文字起こしの言語のまま（全体設定を変えていても）
+    pid, d = project
+    assert client.patch("/api/settings", json={"whisper": {"language": "auto"}}).status_code == 200
+    sid = interrupted_session(client, pid)
+    assert client.patch("/api/settings", json={"whisper": {"language": "ja"}}).status_code == 200
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        ws.send_json({"type": "continue", "project": pid, "session": sid})
+        receive_until(ws, of_type("started"))
+        ws.send_bytes(chunk(0))
+        receive_until(ws, of_type("ack", seq=0))
+        ws.send_json({"type": "stop"})
+        receive_until(ws, of_type("status", recordings=0))
+    finished(client, sid)
+    assert read_doc(d / f"transcript-{sid}.md", TranscriptMeta)[0].language_choice == "auto"
+
+
 def test_paused_audio_is_not_written(client, project, keep_wav):
     pid, d = project
     with client.websocket_connect("/ws") as ws:

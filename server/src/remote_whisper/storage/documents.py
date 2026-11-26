@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Literal, TypeVar
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 from pydantic.alias_generators import to_camel
 
 from remote_whisper.materials.toc import MaterialRange, MaterialToc
@@ -186,6 +186,15 @@ class TranscriptMeta(_Meta):
     # あとの処理（文分けなど）は language を見る。以前のファイルにはない（ja）
     language_choice: Literal["ja", "auto"] = "ja"
     language: str = "ja"
+
+    @field_validator("language_choice", "language", mode="before")
+    @classmethod
+    def _known_language(cls, value: Any, info: ValidationInfo) -> Any:
+        """手で書き換えた・知らない値は ja として読む（セッションごと読めなくならないように）"""
+        if info.field_name == "language_choice":
+            return value if value in ("ja", "auto") else "ja"
+        return value if isinstance(value, str) and value else "ja"
+
     whisper: WhisperUsed | None = None
     context_set: str | None = None
     use_hotwords: bool = False

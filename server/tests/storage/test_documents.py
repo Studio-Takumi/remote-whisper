@@ -5,6 +5,7 @@ import pytest
 from remote_whisper.storage.documents import (
     SUMMARY_RE,
     ContextSetMeta,
+    FinalTranscriptMeta,
     FrontmatterError,
     MaterialRef,
     SummaryMeta,
@@ -52,6 +53,36 @@ def test_parse_spec_example(tmp_path):
     assert meta.app_version is None
     assert meta.duration_sec == 5368
     assert body.startswith("[00:00:03] 今日は")
+
+
+def test_old_files_are_read_as_japanese(tmp_path):
+    # 文字起こしの言語（#482）のない古いファイルは ja として読む
+    path = tmp_path / "transcript-20261009-143012.md"
+    path.write_text(SPEC_TRANSCRIPT.replace("language: ja\n", ""), encoding="utf-8")
+    meta, _ = read_doc(path, TranscriptMeta)
+    assert (meta.language_choice, meta.language) == ("ja", "ja")
+    final = tmp_path / "transcript-final-20261009-143012-20261009-160011.md"
+    final.write_text(
+        "---\nid: 20261009-143012\ngenerationId: 20261009-160011\nmodel: large-v3-turbo\n"
+        "generatedAt: 2026-10-09T16:00:11+09:00\n---\n[00:00:03] はい。\n",
+        encoding="utf-8",
+    )
+    assert read_doc(final, FinalTranscriptMeta)[0].language == "ja"
+
+
+@pytest.mark.parametrize(
+    ("choice", "language"), [("fr", "en"), ("null", "null"), ("[auto]", "''"), ("ja", "123")]
+)
+def test_unknown_language_values_are_read_as_japanese(tmp_path, choice, language):
+    # 手で書き換えた・知らない値でも、セッションごと読めなくならない
+    path = tmp_path / "transcript-20261009-143012.md"
+    text = SPEC_TRANSCRIPT.replace(
+        "language: ja\n", f"languageChoice: {choice}\nlanguage: {language}\n"
+    )
+    path.write_text(text, encoding="utf-8")
+    meta, _ = read_doc(path, TranscriptMeta)
+    assert meta.language_choice == "ja"
+    assert meta.language == ("en" if language == "en" else "ja")
 
 
 def test_roundtrip_keeps_values(tmp_path):
