@@ -24,6 +24,7 @@ class FakeWhisperX:
         self.calls: list[tuple] = []
         self.diarize_error = diarize_error
         self.assign_error = assign_error
+        self.detected = "en"
         fake = self
 
         class Model:
@@ -33,7 +34,8 @@ class FakeWhisperX:
                 progress_callback(50.0)
                 progress_callback(100.0)
                 segment = {"start": value * 1.0, "end": value + 0.5, "text": f"音{value}。"}
-                return {"segments": [segment], "language": language}
+                # 言語を渡さない（自動判定）なら、判定した言語を返す（#482）
+                return {"segments": [segment], "language": language or fake.detected}
 
         class Pipeline:
             def __init__(self, model_name=None, device=None):
@@ -151,6 +153,7 @@ def test_single_source_result_calls_and_progress(fake_whisperx, capsys):
         "diarizationError": None,
         "alignModel": "fake-align",
         "device": "cpu",
+        "language": "ja",
     }
     assert fake.calls == [
         (
@@ -188,6 +191,54 @@ def test_single_source_without_diarization(fake_whisperx, capsys):
     assert fake.calls[0][-1] is None
     assert [c[0] for c in fake.calls] == ["load_model", "transcribe", "load_align_model", "align"]
     assert [line["total"] for line in progress_lines(capsys)] == [3] * 6
+
+
+def test_auto_language_is_detected_and_used_for_alignment(fake_whisperx):
+    # 自動判定（#482）: 言語を渡さずに読み込み、判定した言語で位置合わせして、結果に返す
+    fake = fake_whisperx()
+    result = worker.run({**JOB, "language": None, "initialPrompt": None, "diarize": False})
+    assert result["language"] == "en"
+    assert fake.calls[:3] == [
+        ("load_model", "large-v3-turbo", "cpu", "int8", None, {"hotwords": "用語"}),
+        ("transcribe", 1, 4, None),
+        ("load_align_model", "en", "cpu"),
+    ]
+
+
+def test_auto_language_is_detected_once_for_multiple_sources(fake_whisperx, monkeypatch):
+    # ほかの音源は、主の音源で判定した言語で起こす
+    fake = fake_whisperx()
+    prepared = multisource.Prepared(
+        gated=[np.full(4, 3.0), np.full(4, 4.0)],
+        joined=np.full(4, 5.0),
+        choice=np.array([0] * 50),
+        margin=np.full(50, 10.0),
+    )
+    alignment = multisource.Alignment(offset_sec=0.0, drift_ppm=0.0, windows=3)
+    monkeypatch.setattr(multisource, "align", lambda main, other, rough: alignment)
+    monkeypatch.setattr(multisource, "to_main_time", lambda x, a, n: np.asarray(x)[:n])
+    monkeypatch.setattr(multisource, "prepare", lambda sources, present: prepared)
+    job = {
+        **JOB,
+        "language": None,
+        "diarize": False,
+        "sources": [{"id": 1, "audio": "rec-1"}, {"id": 7, "audio": "rec-2"}],
+    }
+    result = worker.run(job)
+    assert result["language"] == "en"
+    assert [c for c in fake.calls if c[0] in ("transcribe", "load_align_model")] == [
+        ("transcribe", 3, 4, None),
+        ("transcribe", 4, 4, "en"),
+        ("load_align_model", "en", "cpu"),
+    ]
+
+
+def test_auto_language_falls_back_to_japanese(fake_whisperx):
+    fake = fake_whisperx()
+    fake.detected = None
+    result = worker.run({**JOB, "language": None, "diarize": False})
+    assert result["language"] == "ja"
+    assert ("load_align_model", "ja", "cpu") in fake.calls
 
 
 def test_diarization_error_is_reported_and_skipped(fake_whisperx):
@@ -295,6 +346,7 @@ def test_multiple_sources_result_calls_and_progress(fake_whisperx, monkeypatch, 
         "diarizationError": None,
         "alignModel": "fake-align",
         "device": "cpu",
+        "language": "ja",
         "sources": [
             {"id": 1, "offsetSec": 0.0, "driftPpm": 0.0, "windows": None},
             {"id": 7, "offsetSec": 0.123, "driftPpm": -41.2, "windows": 3},

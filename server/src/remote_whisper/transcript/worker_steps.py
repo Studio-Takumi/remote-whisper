@@ -16,6 +16,8 @@ log = logging.getLogger("remote_whisper.transcript.worker")
 # 進み具合の行の頭（#340）
 PROGRESS_PREFIX = "PROGRESS "
 STEPS = ("load", "transcribe", "align", "diarize")
+# 自動判定で言語が返ってこなかったとき（#482）
+FALLBACK_LANGUAGE = "ja"
 
 
 def parse_progress(line: str) -> dict[str, Any] | None:
@@ -104,12 +106,17 @@ class _OpenVinoAsr:
         self.pipe = openvino_whisper.load(job["openvino"]["model"], job["openvino"]["device"])
 
     def transcribe(
-        self, audio: Any, batch_size: int = 0, language: str = "ja", progress_callback: Any = None
+        self,
+        audio: Any,
+        batch_size: int = 0,
+        language: str | None = "ja",
+        progress_callback: Any = None,
     ) -> dict[str, Any]:
-        segments = self._ov.transcribe_long(
+        """language が None なら自動判定（#482）。WhisperX と同じく、決まった言語を返す"""
+        segments, found = self._ov.transcribe_long(
             self.pipe, audio, {**self.options, "language": language}, progress_callback
         )
-        return {"segments": segments, "language": language}
+        return {"segments": segments, "language": found}
 
 
 def _load_asr(job: dict[str, Any], whisperx: Any, device: str, compute_type: str) -> Any:
@@ -175,7 +182,8 @@ class Worker:
     whisperx: Any
     device: str
     compute_type: str
-    language: str
+    # None は自動判定（#482）。主の音源の文字起こしで決まった言語を入れる
+    language: str | None
 
 
 def begin(job: dict[str, Any]) -> Worker:
@@ -208,6 +216,10 @@ def _transcribe(w: Worker, audios: list[Any]) -> list[dict[str, Any]]:
                 progress_callback=_percent(w.progress, k, len(audios)),
             )
         )
+        if w.language is None:
+            # 自動判定は主の音源で 1 回だけ。ほかの音源と位置合わせは同じ言語にする
+            w.language = results[0].get("language") or FALLBACK_LANGUAGE
+            log.info("detected language: %s", w.language)
     del model
     _free(w.torch)
     log.info(
@@ -282,4 +294,9 @@ def run_steps(
     state: dict[str, Any] = {"turns": [], "diarization": "off", "diarizationError": None}
     if w.job.get("diarize"):
         results, state = _diarize(w, joined, results)
-    return results, {**state, "alignModel": align_name, "device": w.device}
+    return results, {
+        **state,
+        "alignModel": align_name,
+        "device": w.device,
+        "language": w.language,
+    }

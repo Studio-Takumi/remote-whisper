@@ -103,17 +103,20 @@ def test_repo_for():
 class FakePipe:
     """WhisperPipeline の偽物。渡されたものを覚えて、決めた区間を返す"""
 
-    def __init__(self, chunks=None, texts=None):
+    def __init__(self, chunks=None, texts=None, detected="<|en|>"):
         self.calls: list[tuple[int, dict]] = []
         self.chunks = chunks
         self.texts = texts
+        self.detected = detected
 
     def generate(self, audio, **kwargs):
         self.calls.append((len(audio), kwargs))
         chunks = self.chunks
         if chunks is None:
             chunks = [SimpleNamespace(start_ts=0.0, end_ts=1.0, text="こんにちは")]
-        return SimpleNamespace(chunks=chunks, texts=self.texts or [])
+        # 言語を渡さなければ、判定した言語が入る
+        language = kwargs.get("language", self.detected)
+        return SimpleNamespace(chunks=chunks, texts=self.texts or [], language=language)
 
 
 def test_generate_passes_greedy_options_and_has_no_scores():
@@ -250,15 +253,39 @@ def test_transcribe_long_shifts_times_drops_repetition_and_reports_progress(monk
         ]
     )
     progress = []
-    result = openvino_whisper.transcribe_long(
+    result, language = openvino_whisper.transcribe_long(
         pipe, np.zeros(SR * 60, dtype=np.float32), {"initial_prompt": "例文。"}, progress.append
     )
     assert [(s["start"], s["end"], s["text"]) for s in result] == [
         (0.0, 2.0, "はい。"),
         (40.0, 42.0, "はい。"),
     ]
+    assert language == "ja"
     assert progress == [50.0, 100.0]
     assert [n for n, _ in pipe.calls] == [10 * SR, 10 * SR]
+
+
+def test_transcribe_long_detects_the_language_once(monkeypatch):
+    # 自動判定（#482）: 最初のまとまりは言語を渡さず、残りは判定した言語で起こす
+    monkeypatch.setattr(
+        openvino_whisper,
+        "speech_spans",
+        lambda audio, max_speech_sec=None: [(0, 10 * SR), (40 * SR, 50 * SR)],
+    )
+    pipe = FakePipe(detected="en")
+    _, language = openvino_whisper.transcribe_long(
+        pipe, np.zeros(SR * 60, dtype=np.float32), {"language": None}
+    )
+    assert language == "en"
+    assert "language" not in pipe.calls[0][1]
+    assert pipe.calls[1][1]["language"] == "<|en|>"
+
+
+def test_language_code_accepts_both_forms():
+    assert openvino_whisper._language_code("<|en|>") == "en"
+    assert openvino_whisper._language_code("fr") == "fr"
+    assert openvino_whisper._language_code("") is None
+    assert openvino_whisper._language_code(None) is None
 
 
 # --- 録音中の文字起こし（whisper_worker） ---
@@ -331,7 +358,7 @@ def test_final_worker_transcribes_with_openvino(monkeypatch):
     def transcribe_long(pipe, audio, options, progress=None):
         calls.append((pipe, options))
         progress(100.0)
-        return [{"start": 0.0, "end": 1.0, "text": "はい。"}]
+        return [{"start": 0.0, "end": 1.0, "text": "はい。"}], options["language"] or "en"
 
     monkeypatch.setattr(openvino_whisper, "transcribe_long", transcribe_long)
     job = {
@@ -347,6 +374,7 @@ def test_final_worker_transcribes_with_openvino(monkeypatch):
         np.zeros(SR), batch_size=8, language="ja", progress_callback=progress.append
     )
     assert result["segments"] == [{"start": 0.0, "end": 1.0, "text": "はい。"}]
+    assert result["language"] == "ja"
     assert calls == [
         (
             ("OpenVINO/whisper-large-v3-turbo-fp16-ov", "GPU.1"),
@@ -354,6 +382,9 @@ def test_final_worker_transcribes_with_openvino(monkeypatch):
         )
     ]
     assert progress == [100.0]
+    # 自動判定（#482）なら、判定した言語を返す
+    auto = model.transcribe(np.zeros(SR), language=None, progress_callback=progress.append)
+    assert auto["language"] == "en"
 
 
 def test_final_worker_uses_whisperx_without_openvino():

@@ -164,13 +164,27 @@ def max_new_tokens(samples: int) -> int:
 def generate(pipe: Any, audio: Any, options: dict) -> list[dict]:
     """音声（16kHz・モノラルの float32）を 1 回で文字起こしする。
     信頼度は付けず、compression_ratio は計算して付ける"""
+    return _generate(pipe, audio, options)[0]
+
+
+def _language_code(raw: Any) -> str | None:
+    """結果の言語（"en" や "<|en|>"）を "en" の形にする。なければ None"""
+    code = str(raw or "").strip().removeprefix("<|").removesuffix("|>")
+    return code or None
+
+
+def _generate(pipe: Any, audio: Any, options: dict) -> tuple[list[dict], str | None]:
+    """generate と同じで、使った言語（自動判定なら判定した言語）も返す"""
     kwargs: dict[str, Any] = {
-        "language": f"<|{options.get('language') or 'ja'}|>",
         "task": "transcribe",
         # タイムスタンプありのほうが、同じ語の繰り返しが出にくい（#347）
         "return_timestamps": True,
         "max_new_tokens": max_new_tokens(len(audio)),
     }
+    # 言語を None にしたときは渡さない（自動判定。#482）。キーがなければ日本語
+    language = options.get("language", "ja")
+    if language:
+        kwargs["language"] = f"<|{language}|>"
     if options.get("initial_prompt"):
         kwargs["initial_prompt"] = options["initial_prompt"]
     if options.get("hotwords"):
@@ -194,7 +208,7 @@ def generate(pipe: Any, audio: Any, options: dict) -> list[dict]:
     for s in segments:
         s["compression_ratio"] = compression_ratio(s["text"])
     _log_if_cut(segments, kwargs["max_new_tokens"], duration)
-    return segments
+    return segments, language or _language_code(getattr(result, "language", None))
 
 
 def _log_if_cut(segments: list[dict], limit: int, duration: float) -> None:
@@ -268,17 +282,23 @@ def windows(spans: list[tuple[int, int]], limit_sec: float = CHUNK_SEC) -> list[
     return out
 
 
-def transcribe_long(pipe: Any, audio: Any, options: dict, progress: Any = None) -> list[dict]:
+def transcribe_long(
+    pipe: Any, audio: Any, options: dict, progress: Any = None
+) -> tuple[list[dict], str | None]:
     """浄書の文字起こし（transcript.worker）。
-    VAD で分けた 30 秒までのまとまりごとに文字起こしする。progress は %"""
+    VAD で分けた 30 秒までのまとまりごとに文字起こしする。progress は %。
+    使った言語も返す。言語が None なら最初のまとまりで判定し、残りはその言語にする（#482）"""
     from remote_whisper.recording.hallucination import MAX_COMPRESSION_RATIO
 
     spans = speech_spans(audio, max_speech_sec=CHUNK_SEC - 1)
     parts = windows(spans)
     segments: list[dict] = []
+    language = options.get("language", "ja")
     for k, (a, b) in enumerate(parts):
         shift = a / SAMPLE_RATE
-        for s in generate(pipe, audio[a:b], options):
+        found, detected = _generate(pipe, audio[a:b], {**options, "language": language})
+        language = language or detected
+        for s in found:
             if not s["text"].strip():
                 continue
             if s["compression_ratio"] > MAX_COMPRESSION_RATIO:
@@ -293,4 +313,4 @@ def transcribe_long(pipe: Any, audio: Any, options: dict, progress: Any = None) 
             )
         if progress is not None:
             progress((k + 1) * 100 / len(parts))
-    return segments
+    return segments, language
