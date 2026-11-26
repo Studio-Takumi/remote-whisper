@@ -84,7 +84,7 @@ sequenceDiagram
   - ただし `auto` で、VAD が話しているとみなした長さが 0.6 秒未満のチャンクから定番の文が出たら、信頼度が高くても捨てる。持ち上げた声の切れ端からは、信頼度の高い定番の文が出ることがあるため。本当に言ったなら 1 秒前後は話している。
   - 捨てた文は、理由と信頼度と一緒にサーバーのログに残す。
 - partial は LocalAgreement で「確定部分」と「未確定部分」に分けて送る。クライアントは確定部分だけを文字送りの演出で表示し、未確定部分は薄い色で表示する想定。
-- 録音中は、全体設定のうち文字起こしのモデル・区切り・マイクの処理を変更できない（5.3 節）。そのセッションで使った設定値は、フロントマターに記録する。
+- 録音中は、全体設定のうち文字起こしのモデル・区切り・マイクの処理を変更できない（5.3 節）。そのセッションで使った設定値は、フロントマターに記録する。文字起こしの言語（#482）は、`start` で送られた `language`（なければ全体設定の `whisper.language`）を `languageChoice` に記録する。録音中の文字起こしは、今は `languageChoice` にかかわらず日本語で起こす（#483）。
 - stop を受けたら、まず文字起こしの状態（`done`）・終了日時・長さを確定し、設定のロックを外す。残りのチャンクの final と mp3 への変換はその後ろで行う（クライアントが「録音中」のまま待たないようにするため）。この間にサーバーが落ちると、最後のチャンクが文字起こしに残らないことがある（録音ファイルは次の起動時に変換する。6.7 節）。
 - **録音中に用語を拾う**（#103。全体設定の `ollama.pickTerms`（既定はオフ、#116）とプロジェクトの `selection.pickTerms` の両方がオンのとき）: 長い録音では、繰り返し出てくる固有名詞や専門用語がある。リアルタイム要約と同じ間隔（`liveSummaryIntervalMin`、GPU キューの優先度 2）で、前回から増えた文字起こし（長ければ新しい方の約 4000 文字）から、固有名詞・専門用語を Ollama で抜き出す（JSON Schema で一覧を返させる。思考モードはオフ）。
   - 誤認識した語を足すと、その誤りが固まる。そのため、次の条件をすべて満たす語だけを採用する。
@@ -246,6 +246,7 @@ Ollama への頼み（図の 1 ページ・用語リストやメモの 1 部分�
 - **作り方**: WhisperX（faster-whisper の `BatchedInferencePipeline` でまとめて文字起こし → wav2vec2 で文字ごとの時刻 → pyannote で話者分け）を使う。
   - 文字起こしのモデルは、作り始める時点の `whisper.model`（`computeType` も同じ）。録音のときと同じ用語リスト（手で足した語、用語リスト（資料抽出）、用語リスト（文字起こし抽出）の順。6.2 節）を hotwords で渡す。手で足した語は、参考資料を使わないセッションでも渡す（#175）。日本語では、句読点つきの短い例文を `initial_prompt` で渡す（large-v3-turbo は日本語で「。」をあまり打たず、文ごとに分けにくいため。#141）。
   - 日本語の時刻合わせのモデルは、WhisperX の日本語の既定の `jonatasgrosman/wav2vec2-large-xlsr-53-japanese`。
+  - **文字起こしの言語**（#482。5.3 節の `whisper.language`）: そのセッションの `languageChoice`（5.5 節）が `ja` なら、今までどおり `ja` を渡す。`auto` なら言語を渡さず（例文も渡さない）、Whisper に判定させる（WhisperX は録音の頭の 30 秒、OpenVINO は最初の 30 秒までのまとまりで判定する）。音源が 2 つ以上のときは主の音源で 1 回だけ判定し、ほかの音源はその言語で起こす。時刻合わせのモデルは、決まった言語の WhisperX の既定のもの。判定できなかったら `ja` にする。決まった言語は、文字起こしと浄書済み文字起こしのフロントマターの `language` に書き（5.5 節）、文に分けるとき（下の「行」）もこれを見る。再生成するときも、そのセッションの `languageChoice` を使う（全体設定ではない）。
   - 話者分けのモデルは `pyannote/speaker-diarization-community-1`。HuggingFace のトークン（環境変数 `HF_TOKEN`、画面から保存したもの（6.15 節）、`hf auth login` で `HF_HOME` に保存したもの、の順に使う）と、モデルのページで利用条件に同意していることが要る。使えない（トークンがない・同意していない・`whisper.diarize` がオフ）ときは、話者を分けずに作る。
   - モデルは HuggingFace のキャッシュ（`HF_HOME`）に置く。
 - **GPU と VRAM**: GPU キュー（優先度 3、種類 `finalTranscript`）で、子プロセス（`transcript/worker`）として動かす。VRAM（6GB を想定）を空けるため、前にリアルタイム文字起こしの Whisper と、Ollama に読み込まれているモデルを下ろす（LM Studio のときは remote-whisper が載せたものだけを下ろし、手で載せたものが残っていれば、文字起こしが遅くなるかもしれないとログに書く。#326）。子プロセスの中では、文字起こし・時刻合わせ・話者分けのモデルを順に読み込み、使い終わったら下ろす。終わったらプロセスごと終わるので、VRAM は必ず空く。
@@ -259,7 +260,7 @@ Ollama への頼み（図の 1 ページ・用語リストやメモの 1 部分�
 - **置き換え**（#176。6.13 節）: 版のファイルは書き換えず、表示するとき（`GET .../final-transcripts/{gid}`）と最終要約の入力にするときに当てる。「全部」の置き換えは再生成した版にも当たり、「この行だけ」はその版のその行にだけ当たる。再生成するときは、置き換えで足した正しい語も（手で足した語として）hotwords で渡す。
 - **保存**: `transcript-final-<ID>-<版 ID>.md`（5.5 節）。リアルタイム文字起こし（`transcript-<ID>.md`）は残す。再生成すると新しい版が増える（#124）。できたら `finalTranscript` を全員に送る（7.2 節）。
 - 子プロセスは「15 分 + 録音の長さ」で打ち切る（固まっても GPU キューを止めたままにしないため。RTX 2060 で 60 分の録音が 450 秒、10 分が 204 秒［モデルの読み込みを含む］だったので、十分に長くとる）。
-- **子プロセスとのやりとり**: 親は標準入力に JSON の指示（`audio`・`out`・`model`・`computeType`・`language`・`diarize`・`diarizationModel`・`batchSize`、なくてもよい `hotwords`・`initialPrompt`、Intel の GPU のときの `openvino`［`device`・`model`。6.17 節］）を渡し、子は結果の JSON（`segments`［`start`・`end`・`text`・`speaker`・`words`］・`turns`［話者分けの区間］・`diarization`［`done`/`off`/`unavailable`］・`diarizationError`・`alignModel`・`device`）を `out` に書く。終了コードは 0 が成功、3 が WhisperX なし、1 がそのほかの失敗。進み具合（#340）は、標準出力に `PROGRESS {"step", "done", "total", "percent"}` を 1 行ずつ出す（段階は `load` → `transcribe` → `align` → `diarize`［するときだけ］。`percent` は 1% 以上進んだときだけ出す）。親はこの行をログに書かず、GPU キューのジョブの進み具合にする。モデルは 1 つずつ読み込み、使い終わったら下ろす（プロセスごと終わるので、torch と CTranslate2 の VRAM は最後に必ず空く）。
+- **子プロセスとのやりとり**: 親は標準入力に JSON の指示（`audio`・`out`・`model`・`computeType`・`language`（自動判定なら `null`）・`diarize`・`diarizationModel`・`batchSize`、なくてもよい `hotwords`・`initialPrompt`、Intel の GPU のときの `openvino`［`device`・`model`。6.17 節］）を渡し、子は結果の JSON（`segments`［`start`・`end`・`text`・`speaker`・`words`］・`turns`［話者分けの区間］・`diarization`［`done`/`off`/`unavailable`］・`diarizationError`・`alignModel`・`device`・`language`［使った言語。自動判定なら決まった言語］）を `out` に書く。終了コードは 0 が成功、3 が WhisperX なし、1 がそのほかの失敗。進み具合（#340）は、標準出力に `PROGRESS {"step", "done", "total", "percent"}` を 1 行ずつ出す（段階は `load` → `transcribe` → `align` → `diarize`［するときだけ］。`percent` は 1% 以上進んだときだけ出す）。親はこの行をログに書かず、GPU キューのジョブの進み具合にする。モデルは 1 つずつ読み込み、使い終わったら下ろす（プロセスごと終わるので、torch と CTranslate2 の VRAM は最後に必ず空く）。
 - 作れなかったとき（WhisperX が入っていない・子プロセスが失敗した・打ち切った・録音ファイルがない）は、ログに残し、リアルタイム文字起こしから最終要約を作る。作っている途中でサーバーを止めたときも作られない。どちらも、あとから再生成できる（#124）。
 
 ## 6.10 ログ（#134）
@@ -489,7 +490,7 @@ NVIDIA の GPU がない Windows の PC で、単体の Intel の GPU（Arc）�
 - **モデル**: `whisper.model` の OpenVINO 版（`large-v3-turbo` なら `OpenVINO/whisper-large-v3-turbo-<精度>-ov`。`/` を含む名前はそのまま使うので、OpenVINO の形式（IR）のリポジトリを指定する。faster-whisper（CTranslate2）のリポジトリは読み込めない）。録音中は int8（VRAM 約 1.1GB。要約のモデルと並べるため）、浄書は fp16（約 1.8GB）。`whisper.computeType` は使わない。コンパイルしたモデルは HuggingFace のキャッシュ（`HF_HOME`）の下の `openvino-cache` に置く（2 回目からの読み込みが 46 秒 → 6〜7 秒）。
 - **faster-whisper との違い**:
   - ビームサーチは GPU で動かないので greedy（`whisper.beamSize` は使わない）。時刻つき（`return_timestamps`）で起こす（同じ語の繰り返しが出にくい）。greedy は同じ語を繰り返し続けることがあるので、出す長さを音声の長さで抑える（1 秒あたり 12 トークン＋32、448 まで。35 秒を超える区間は 448 で頭打ちになり、文の後ろが欠けうる。出た文字数が上限の 7 割を超えたらログに残す）。
-  - `initial_prompt`・`hotwords` は渡す。`language` は `<|ja|>` の形。
+  - `initial_prompt`・`hotwords` は渡す。`language` は `<|ja|>` の形。自動判定（#482。6.9 節）では、最初のまとまりを `language` なしで起こし、結果の `language`（判定した言語）で残りのまとまりを起こす。
   - **区間の信頼度（`no_speech_prob`・`avg_logprob`）が取れない**。ハルシネーションの判定（6.2 節）は、代わりに、文の時刻の範囲で VAD が話しているとみなした長さ（前後 0.3 秒を含む。録音中に VAD で切り出した区間も、区間の中でもう一度 Silero VAD をかけて測る。区間のどこにも声が見つからなければ、切り出した側を信じて区間全体の長さで見る）と、こちらで計算する `compression_ratio`（繰り返し）で行う。話している長さが 0.2 秒より短い文は「話していない」、定番の文は話している長さが 0.8 秒より短ければ捨てる（信頼度で後押しできないので、faster-whisper の 0.6 秒より長めに求める）。浄書では、繰り返しで埋まった区間（`compression_ratio` が 2.4 より大きい）を捨てる。
 - **GPU の状態**（7.2 節の `gpu`）: NVML の代わりに、Windows の性能カウンター（`\GPU Adapter Memory(*)\Dedicated Usage`・`\GPU Engine(*)\Utilization Percentage` の Compute のエンジン）から、OpenVINO の `DEVICE_LUID` で選んだ GPU の値を `typeperf` で取る。VRAM の全体は OpenVINO の `GPU_DEVICE_TOTAL_MEM_SIZE`。`whisper.intelGpu` が `off`（CPU で起こしている）の間は `null`。
 - **初回のセットアップ**（6.15 節）の `gpu` は `intel`。
