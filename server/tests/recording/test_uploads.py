@@ -192,6 +192,27 @@ def test_whisper_transcription_waits_for_recordings_and_keeps_the_offsets(
     ]
 
 
+def test_whisper_transcription_detects_the_language_when_auto(
+    client, project, tmp_path, monkeypatch
+):
+    # 自動判定（#483）: 浄書がないときの Whisper の文字起こしでも、決まった言語を language に書く。
+    # 偽の Whisper は、言語を渡さなければ英語と判定したことにする
+    monkeypatch.setattr(uploads, "CHUNK_SEC", 3)
+    pid, d = project
+    wav = write_audio(tmp_path / "a.wav", "pcm_s16le", seconds=2.5, fmt="wav")
+    sids = []
+    for language in ("auto", "ja"):
+        res = client.post(
+            f"/api/projects/{pid}/sessions/upload",
+            params={"name": "a.wav", "language": language},
+            content=wav.read_bytes(),
+        )
+        sids.append(res.json()["id"])
+        wait_done(client)
+    metas = [read_doc(d / f"transcript-{sid}.md", TranscriptMeta)[0] for sid in sids]
+    assert [(m.language_choice, m.language) for m in metas] == [("auto", "en"), ("ja", "ja")]
+
+
 def test_too_large_file_is_refused(client, project, tmp_path):
     pid, d = project
     client.patch("/api/settings", json={"recording": {"uploadMaxMb": 1}})

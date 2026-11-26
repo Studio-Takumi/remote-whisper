@@ -5,6 +5,7 @@ import numpy as np
 from remote_whisper.gpu.gpu_queue import GpuQueue
 from remote_whisper.gpu.whisper_worker import WhisperUnavailable
 from remote_whisper.recording import live_transcriber
+from remote_whisper.recording.live_language import LiveLanguage
 from remote_whisper.recording.live_transcriber import LiveTranscriber, load_hotwords
 from remote_whisper.recording.segmenter import Segmenter
 from remote_whisper.recording.vad_segmenter import CONTEXT, VadSegmenter
@@ -321,3 +322,56 @@ def test_join_keeps_japanese_as_it_was():
     )
     assert join([{"text": "使うのは GPU"}, {"text": "CUDA です"}]) == "使うのは GPU CUDA です"
     assert join([]) == ""
+
+
+def test_japanese_is_always_passed_by_default():
+    # 言語を渡さなければ日本語（今までと同じ）
+    async def main():
+        h = Harness()
+        h.live.feed(tone(1.0) + silence(0.5))
+        await h.live.wait()
+        await h.close()
+        return h
+
+    h = run(main())
+    assert h.whisper.calls and all(c["language"] == "ja" for c in h.whisper.calls)
+
+
+def test_auto_detects_until_a_language_is_decided():
+    # 自動判定（#483）: 決まるまでは言語を渡さず、2 秒以上の確かな final で決まった言語を
+    # ほかの音源とも分け合い、それからずっと渡す。文のつなぎ方もその言語にする
+    async def main():
+        decided = []
+        language = LiveLanguage("auto", decided.append)
+        h = Harness()
+        other = Harness()
+        h.live.language = other.live.language = language
+        calls = []
+
+        async def english(pcm, **options):
+            calls.append(options["language"])
+            return [
+                {"start": 0.0, "end": 1.0, "text": "We visited", "language": "en"},
+                {"start": 1.0, "end": 2.0, "text": "東京.", "language": "en"},
+            ]
+
+        h.whisper.transcribe = other.whisper.transcribe = english
+        # 短い区間では決めない
+        h.live.feed(tone(1.0) + silence(0.5))
+        await h.live.wait()
+        h.live.feed(tone(2.5) + silence(0.5))
+        await h.live.wait()
+        before_other = list(calls)
+        other.live.feed(tone(1.0) + silence(0.5))
+        await other.live.wait()
+        await h.close()
+        await other.close()
+        return h, other, calls, before_other, decided
+
+    h, other, calls, before_other, decided = run(main())
+    assert set(before_other) == {None}
+    assert decided == ["en"]
+    # 決まった後は、ほかの音源でも英語を渡す
+    assert calls[len(before_other) :] and set(calls[len(before_other) :]) == {"en"}
+    assert [m["text"] for m in h.of_type("final")] == ["We visited 東京."] * 2
+    assert [m["text"] for m in other.of_type("final")] == ["We visited 東京."]

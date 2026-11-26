@@ -16,6 +16,7 @@ from remote_whisper.gpu.gpu_queue import GpuQueue, Priority
 from remote_whisper.hub import Hub
 from remote_whisper.recording.audio_convert import AudioInfo, convert_audio, decode_pcm, probe
 from remote_whisper.recording.hallucination import drop_reason
+from remote_whisper.recording.live_language import LiveLanguage
 from remote_whisper.recording.live_transcriber import load_hotwords
 from remote_whisper.settings import SettingsStore, TranscriptionLanguage
 from remote_whisper.storage.documents import SourceInfo, parse, recording_name, transcript_name
@@ -445,8 +446,9 @@ class UploadService:
 
     async def _transcribe_with_whisper(self, writer: SessionWriter, recording: Path) -> None:
         meta = writer.meta
+        # 自動判定なら、録音中の文字起こしと同じく、決まるまで区切りごとに判定させる（#483）
+        language = LiveLanguage(meta.language_choice, writer.set_language)
         options: dict[str, Any] = {
-            "language": meta.language,
             "beam_size": self.settings.get().whisper.beam_size,
             "hotwords": (
                 combine_hotwords(load_hotwords(writer.files.dir, meta.context_set), [])
@@ -478,18 +480,20 @@ class UploadService:
             del buffer[:chunk_bytes]
             if not chunk:
                 break
+            chosen = {**options, "language": language.option()}
             segments = await self.gpu.run(
                 Priority.BACKGROUND,
-                lambda chunk=chunk: self.whisper.transcribe(chunk, **options),
+                lambda chunk=chunk, chosen=chosen: self.whisper.transcribe(chunk, **chosen),
                 kind="finalTranscript",
                 session=writer.id,
             )
-            for segment in segments:
-                text = segment["text"].strip()
-                if text and drop_reason(segment) is None:
-                    writer.append_final(offset + segment["start"], text)
-                    lines += 1
-            offset += len(chunk) / 2 / SAMPLE_RATE
+            kept = [s for s in segments if s["text"].strip() and drop_reason(s) is None]
+            for segment in kept:
+                writer.append_final(offset + segment["start"], segment["text"].strip())
+                lines += 1
+            seconds = len(chunk) / 2 / SAMPLE_RATE
+            language.observe(kept, seconds)
+            offset += seconds
         log.info("transcribed the uploaded %s with whisper (%d lines)", writer.id, lines)
 
     async def _summarize(self, writer: SessionWriter) -> None:

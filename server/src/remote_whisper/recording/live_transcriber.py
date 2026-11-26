@@ -15,6 +15,7 @@ from typing import Any
 from remote_whisper.gpu.gpu_queue import GpuQueue, Priority
 from remote_whisper.gpu.whisper_worker import SAMPLE_RATE, WhisperUnavailable, WhisperWorker
 from remote_whisper.recording.hallucination import drop_reason
+from remote_whisper.recording.live_language import LiveLanguage
 from remote_whisper.recording.segmenter import LocalAgreement, Segment, Segmenter
 from remote_whisper.recording.vad_segmenter import Probabilities, VadSegmenter
 from remote_whisper.settings import WhisperSettings
@@ -56,7 +57,10 @@ class LiveTranscriber:
         offset: float = 0.0,
         source: int = 1,
         numbering: Iterator[int] | None = None,
+        language: LiveLanguage | None = None,
     ):
+        # 文字起こしの言語（#483）。音源をまたいでセッションで 1 つを使う。なければ日本語
+        self.language = language if language is not None else LiveLanguage()
         # session は GPU キューの一覧に出すためのもの
         self.session = session
         # 音源 ID（#241・#356）。音源が 2 つ以上のセッションでは partial・final に付ける
@@ -103,7 +107,7 @@ class LiveTranscriber:
 
     def _options(self) -> dict[str, Any]:
         return {
-            "language": "ja",
+            "language": self.language.option(),
             "beam_size": self.settings.beam_size,
             "hotwords": self.hotwords,
             # VAD で切り出した区間は、Whisper の VAD にもう一度かけない（#88）
@@ -176,8 +180,11 @@ class LiveTranscriber:
             log.warning("final of segment %d of %s skipped: %s", segment.index, self.session, e)
             await self._send_final(segment, "")
             return
+        kept = _drop_hallucinations(result, segment, "final")
+        # 自動判定なら、確定した区間で言語を決める（#483）
+        self.language.observe(kept, segment.end - segment.start)
         # 画面で足した置き換え（#176）を当ててから、書いて送る
-        text = self.correct(_join(_drop_hallucinations(result, segment, "final")))
+        text = self.correct(_join(kept, self.language.for_text(kept)))
         # 区間ごとの実行時間（本文は書かない。文字起こしのファイルに残っている）
         log.info(
             "final of segment %d of %s: %.1fs of audio in %.2fs, %d chars",
@@ -271,9 +278,8 @@ class LiveTranscriber:
             return
         if self.segmenter.index != segment.index:
             return
-        committed, tentative = self.agreement.update(
-            _join(_drop_hallucinations(result, segment, "partial"))
-        )
+        kept = _drop_hallucinations(result, segment, "partial")
+        committed, tentative = self.agreement.update(_join(kept, self.language.for_text(kept)))
         await self.send(
             self._tagged(
                 {
@@ -311,8 +317,8 @@ def _drop_hallucinations(result: list[dict], segment: Segment, kind: str) -> lis
     return kept
 
 
-def _join(result: list[dict]) -> str:
-    return join_texts([s["text"] for s in result])
+def _join(result: list[dict], language: str = "ja") -> str:
+    return join_texts([s["text"] for s in result], language)
 
 
 def _consume(future: asyncio.Future) -> None:

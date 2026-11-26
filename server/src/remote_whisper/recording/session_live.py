@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 from remote_whisper.gpu.gpu_queue import GpuQueue
 from remote_whisper.gpu.whisper_worker import WhisperWorker
 from remote_whisper.llm.llm import LlmClient
+from remote_whisper.recording.live_language import LiveLanguage
 from remote_whisper.recording.live_transcriber import LiveTranscriber, load_hotwords
 from remote_whisper.settings import Settings, SettingsStore
 from remote_whisper.summary.live_summary import LiveSummarizer, load_context
@@ -45,6 +46,9 @@ class LiveProcessing:
         self.base_hotwords = (
             load_hotwords(session.writer.files.dir, meta.context_set) if meta.use_hotwords else None
         )
+        # 文字起こしの言語（#483）。自動判定で決まったら、フロントマターの language に書く。
+        # 続きを録音するときも、自動判定なら判定し直す
+        language = LiveLanguage(meta.language_choice, session.writer.set_language)
         self.transcriber = LiveTranscriber(
             whisper,
             gpu,
@@ -55,6 +59,7 @@ class LiveProcessing:
             session=session.id,
             offset=session.offset,
             numbering=self.numbering,
+            language=language,
         )
         # 画面で足した置き換え（#176）を、以後に確定する文に当てる
         self.transcriber.correct = lambda text: apply_all(text, session.writer.meta.corrections)
@@ -76,6 +81,7 @@ class LiveProcessing:
             offset=start,
             source=sid,
             numbering=self.numbering,
+            language=self.transcriber.language,
         )
         live.correct = self.transcriber.correct
         live.tag_source = lambda: True
