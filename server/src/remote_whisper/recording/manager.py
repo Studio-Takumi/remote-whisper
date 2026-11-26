@@ -18,7 +18,7 @@ from remote_whisper.recording.audio_convert import convert_wav
 from remote_whisper.recording.errors import RecordingError, check_continuable
 from remote_whisper.recording.live_transcriber import load_hotwords
 from remote_whisper.recording.session import RecordingSession
-from remote_whisper.settings import SettingsStore
+from remote_whisper.settings import SettingsStore, TranscriptionLanguage
 from remote_whisper.storage.documents import TranscriptMeta, recording_name
 from remote_whisper.storage.projects import ProjectError, ProjectStore
 from remote_whisper.storage.session_writer import SessionWriter
@@ -163,7 +163,14 @@ class RecordingManager:
     def active(self) -> list[RecordingSession]:
         return [s for s in self.sessions.values() if not s.ended]
 
-    async def start(self, ws: WebSocket, project: str, max_concurrent: int) -> RecordingSession:
+    async def start(
+        self,
+        ws: WebSocket,
+        project: str,
+        max_concurrent: int,
+        language: TranscriptionLanguage | None = None,
+    ) -> RecordingSession:
+        """language は、今回だけ変えた文字起こしの言語（#482）。None なら全体設定"""
         if len(self.active()) >= max_concurrent:
             raise RecordingError("too_many_recordings", "同時に録音できる数を超えています")
         started = now()
@@ -174,7 +181,9 @@ class RecordingManager:
             started = now()
             sid = make_id(started)
         try:
-            writer = SessionWriter(self.projects, project, sid, started, self.settings.get())
+            writer = SessionWriter(
+                self.projects, project, sid, started, self.settings.get(), language
+            )
         except ProjectError as e:
             raise RecordingError("project_not_found", "プロジェクトがありません") from e
         # WAV を先に開いてから、文字起こしと project.json を作る（WAV を開けなければ何も残さない）

@@ -12,7 +12,12 @@ from fastapi import WebSocket
 from remote_whisper.hub import Hub
 from remote_whisper.llm.ollama import OllamaUnavailable, ollama_error
 from remote_whisper.recording.errors import RecordingError, check_continuable
-from remote_whisper.settings import FinalModels, OllamaModels, SettingsStore
+from remote_whisper.settings import (
+    FinalModels,
+    OllamaModels,
+    SettingsStore,
+    TranscriptionLanguage,
+)
 from remote_whisper.storage.projects import ProjectError, ProjectStore
 from remote_whisper.storage.session_writer import SessionWriter
 from remote_whisper.storage.timeutil import make_id, now
@@ -464,12 +469,16 @@ class MockRecorder:
     def final_models(self) -> FinalModels:
         return (self.settings.get().llm_models() if self.settings else OllamaModels()).final()
 
-    def _writer(self, project: str, sid: str) -> SessionWriter | None:
+    def _writer(
+        self, project: str, sid: str, language: TranscriptionLanguage | None = None
+    ) -> SessionWriter | None:
         """登録されたプロジェクトなら、ファイルを書く SessionWriter を作る。知らなければ None"""
         if self.projects is None or self.settings is None:
             return None
         try:
-            writer = SessionWriter(self.projects, project, sid, now(), self.settings.get())
+            writer = SessionWriter(
+                self.projects, project, sid, now(), self.settings.get(), language
+            )
         except ProjectError:
             return None
         writer.start()
@@ -478,7 +487,13 @@ class MockRecorder:
     def active(self) -> list[MockSession]:
         return [s for s in self.sessions.values() if not s.ended]
 
-    async def start(self, ws: WebSocket, project: str, max_concurrent: int) -> MockSession:
+    async def start(
+        self,
+        ws: WebSocket,
+        project: str,
+        max_concurrent: int,
+        language: TranscriptionLanguage | None = None,
+    ) -> MockSession:
         if len(self.active()) >= max_concurrent:
             raise RecordingError("too_many_recordings", "同時に録音できる数を超えています")
         sid = make_id(now())
@@ -486,7 +501,7 @@ class MockRecorder:
         while sid in self.sessions:
             await asyncio.sleep(0.2)
             sid = make_id(now())
-        writer = self._writer(project, sid)
+        writer = self._writer(project, sid, language)
         session = MockSession(self, sid, project, ws, writer)
         self.sessions[sid] = session
         await self._count_changed()

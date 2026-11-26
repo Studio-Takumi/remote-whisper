@@ -17,7 +17,7 @@ from remote_whisper.hub import Hub
 from remote_whisper.recording.audio_convert import AudioInfo, convert_audio, decode_pcm, probe
 from remote_whisper.recording.hallucination import drop_reason
 from remote_whisper.recording.live_transcriber import load_hotwords
-from remote_whisper.settings import SettingsStore
+from remote_whisper.settings import SettingsStore, TranscriptionLanguage
 from remote_whisper.storage.documents import SourceInfo, parse, recording_name, transcript_name
 from remote_whisper.storage.projects import ProjectStore
 from remote_whisper.storage.session_reader import summary_source
@@ -155,9 +155,11 @@ class UploadService:
         last_modified_ms: float | None,
         body: AsyncIterator[bytes],
         sources: int | None = None,
+        language: TranscriptionLanguage | None = None,
     ) -> Uploaded:
         """アップロードされたファイルを受け取り、セッションを作って、
-        後ろで文字起こしと要約を始める（#241。sources は複数のときの数）"""
+        後ろで文字起こしと要約を始める（#241。sources は複数のときの数。
+        language は今回だけ変えた文字起こしの言語で、None なら全体設定。#482）"""
         if sources is not None:
             limit = self.settings.get().recording.max_sources
             if not 2 <= sources <= limit:
@@ -184,7 +186,9 @@ class UploadService:
             recording: Path | None = None
             try:
                 recording = await asyncio.to_thread(self._place, path, info, project_dir, sid)
-                writer = SessionWriter(self.projects, pid, sid, started, self.settings.get())
+                writer = SessionWriter(
+                    self.projects, pid, sid, started, self.settings.get(), language
+                )
                 writer.meta.recording = recording.name
                 writer.start_upload(info.duration_sec, Path(name).name, uploaded)
             except Exception as e:

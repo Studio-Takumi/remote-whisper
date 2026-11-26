@@ -78,9 +78,15 @@ class _Model(BaseModel):
     )
 
 
+TranscriptionLanguage = Literal["ja", "auto"]
+
+
 class WhisperSettings(_Model):
     model: str = "large-v3-turbo"
     compute_type: str = "float16"
+    # 文字起こしの言語（#482）。auto は最終の文字起こしで Whisper に判定させる。
+    # 録音を始めるときに、そのセッションだけ変えられる
+    language: TranscriptionLanguage = "ja"
     beam_size: int = Field(5, ge=1)
     partial_interval_sec: float = Field(1.0, gt=0)
     silence_ms: int = Field(600, gt=0)

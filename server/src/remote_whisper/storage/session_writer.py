@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from remote_whisper.materials.toc import MaterialRange
-from remote_whisper.settings import Settings
+from remote_whisper.settings import Settings, TranscriptionLanguage
 from remote_whisper.storage.atomic_write import atomic_write_text
 from remote_whisper.storage.documents import (
     SourceInfo,
@@ -79,8 +79,16 @@ def fmt_clock(sec: float) -> str:
 
 class SessionWriter:
     def __init__(
-        self, store: ProjectStore, pid: str, sid: str, started: datetime, settings: Settings
+        self,
+        store: ProjectStore,
+        pid: str,
+        sid: str,
+        started: datetime,
+        settings: Settings,
+        language: TranscriptionLanguage | None = None,
     ):
+        """language は、録音を始めるときに今回だけ変えた文字起こしの言語（#482）。
+        None なら全体設定"""
         self.store = store
         self.pid = pid
         self.id = sid
@@ -100,6 +108,7 @@ class SessionWriter:
             project=project.path,
             status="recording",
             started_at=iso(started),
+            language_choice=language or settings.whisper.language,
             whisper=WhisperUsed(
                 model=settings.whisper.model,
                 beam_size=settings.whisper.beam_size,

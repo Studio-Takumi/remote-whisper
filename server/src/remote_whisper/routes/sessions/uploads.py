@@ -8,6 +8,7 @@ from starlette.requests import ClientDisconnect
 from remote_whisper.context import Pid
 from remote_whisper.recording.uploads import UploadError
 from remote_whisper.routes.sessions.common import Ctx, load_project, load_session, session_json
+from remote_whisper.settings import TranscriptionLanguage
 from remote_whisper.storage.projects import ProjectError
 
 router = APIRouter(prefix="/api/projects/{pid}/sessions")
@@ -21,14 +22,16 @@ async def upload(
     name: Annotated[str, Query(min_length=1, max_length=255)],
     last_modified: Annotated[float | None, Query(alias="lastModified")] = None,
     sources: Annotated[int | None, Query(ge=2)] = None,
+    language: TranscriptionLanguage | None = None,
 ) -> dict[str, Any]:
     """音声ファイルをアップロードして、新しいセッションを作る（#180）。
-    spec/flows.md 6.11・6.16（sources は複数のときの数）"""
+    spec/flows.md 6.11・6.16（sources は複数のときの数。language は今回だけ変えた
+    文字起こしの言語で、省くと全体設定。#482）"""
     if ctx.uploads is None:
         raise HTTPException(status_code=503, detail="このホストではアップロードできません")
     try:
         uploaded = await ctx.uploads.receive(
-            pid, name, last_modified, request.stream(), sources=sources
+            pid, name, last_modified, request.stream(), sources=sources, language=language
         )
     except ProjectError as e:
         raise HTTPException(status_code=e.status, detail=e.message) from e

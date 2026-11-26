@@ -50,17 +50,19 @@ def build_job(
     openvino_device: str | None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """子プロセスに渡す指示と、使う音源。whisper は設定の whisper"""
+    # 自動判定（#482）は言語を渡さない（Whisper が判定する）。例文も渡さない
+    language = None if meta.language_choice == "auto" else meta.language_choice
     job: dict[str, Any] = {
         "audio": str(audio),
         "out": str(out),
         "model": model,
         "computeType": whisper.compute_type,
-        "language": meta.language,
+        "language": language,
         "diarize": diarize,
         "diarizationModel": DIARIZATION_MODEL,
         "batchSize": BATCH_SIZE,
         "hotwords": hotwords(files, meta),
-        "initialPrompt": INITIAL_PROMPT.get(meta.language),
+        "initialPrompt": INITIAL_PROMPT.get(language or ""),
     }
     if openvino_device is not None:
         # 浄書は fp16（#347。録音は終わっているので VRAM に余裕がある）

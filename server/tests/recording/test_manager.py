@@ -111,6 +111,28 @@ def test_duplicates_and_gaps_are_not_written(client, project, keep_wav):
         assert w.getnframes() == 300
 
 
+def test_the_transcription_language_comes_from_the_settings_or_the_start(client, project):
+    # 文字起こしの言語（#482）。全体設定か、録音を始めるときに今回だけ変えたもの
+    pid, d = project
+    sids = []
+    assert client.patch("/api/settings", json={"whisper": {"language": "auto"}}).status_code == 200
+    for message in ({}, {"language": "ja"}):
+        with client.websocket_connect("/ws") as ws:
+            ws.receive_json()
+            ws.send_json({"type": "start", "project": pid, **message})
+            sids.append(receive_until(ws, of_type("started"))[-1]["session"])
+            ws.send_json({"type": "stop"})
+            receive_until(ws, of_type("status", recordings=0))
+        finished(client, sids[-1])
+    choices = [read_doc(d / f"transcript-{sid}.md", TranscriptMeta)[0] for sid in sids]
+    # 最終の文字起こしで判定するまでは ja
+    assert [(m.language_choice, m.language) for m in choices] == [("auto", "ja"), ("ja", "ja")]
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        ws.send_json({"type": "start", "project": pid, "language": "en"})
+        assert receive_until(ws, of_type("error"))[-1]["code"] == "bad_message"
+
+
 def test_paused_audio_is_not_written(client, project, keep_wav):
     pid, d = project
     with client.websocket_connect("/ws") as ws:

@@ -181,6 +181,10 @@ class TranscriptMeta(_Meta):
     started_at: str
     ended_at: str | None = None
     duration_sec: int | None = None
+    # 文字起こしの言語（#482）。録音を始めたときに選んだもの（ja / auto）と、文字起こしの言語。
+    # auto は最終の文字起こしで判定した言語を language に書く（それまでは ja）。
+    # あとの処理（文分けなど）は language を見る。以前のファイルにはない（ja）
+    language_choice: Literal["ja", "auto"] = "ja"
     language: str = "ja"
     whisper: WhisperUsed | None = None
     context_set: str | None = None
@@ -252,6 +256,8 @@ class FinalTranscriptMeta(_Meta):
     generated_at: str
     # 起こし直した録音のファイル
     recording: str | None = None
+    # 文字起こしの言語（#482。自動判定なら判定した言語）。以前のファイルにはない（ja）
+    language: str = "ja"
     # 単語の時刻を合わせたモデル（wav2vec2）
     align_model: str | None = None
     # 話者分け。done は分けた、off は設定で切っていた、unavailable はモデルを使えなかった
