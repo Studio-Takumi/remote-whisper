@@ -278,6 +278,60 @@ def test_segments_without_word_times_become_one_line():
     assert texts(items) == [(5.0, "時刻のない文", None)]
 
 
+def spaced_words(text, start, step=0.3):
+    """スペースで区切った単語（WhisperX の英語と同じ。単語は前後の空白を外した形）"""
+    words = []
+    t = start
+    for w in text.split():
+        words.append({"word": w, "start": round(t, 3), "end": round(t + step, 3)})
+        t += step
+    return words
+
+
+def test_keeps_spaces_in_english_aligned_as_english():
+    # language="en" の時刻合わせ: 区間は文ごとで、区間の文字列は前の空白を持つことがある（#481）
+    first = spaced_words("Hello world.", 0.0)
+    second = spaced_words("This is a short test.", 1.0)
+    items = sentences([seg(first, " Hello world."), seg(second, "This is a short test.")])
+    assert texts(items) == [(0.0, "Hello world. This is a short test.", None)]
+    later = spaced_words("See you.", 4.0)
+    items = sentences([seg(first, " Hello world."), seg(later, " See you.")])
+    assert texts(items) == [(0.0, "Hello world.", None), (4.0, "See you.", None)]
+
+
+def test_keeps_spaces_in_english_aligned_as_japanese(no_morphology):
+    # language="ja" の時刻合わせ: 1 文字ずつの単語で、空白は単語にならない（#481）
+    text = "Hello world, this is a test."
+    words = chars(text.replace(" ", ""), 0.0)
+    assert texts(sentences([seg(words, text)])) == [(0.0, text, None)]
+
+
+def test_spaces_between_english_segments(no_morphology):
+    first = chars("Machinelearning", 0.0)
+    second = chars("works", 2.5)
+    items = sentences([seg(first, "Machine learning"), seg(second, "works")])
+    assert [s.text for s in items] == ["Machine learning", "works"]
+    # 区間の境目は、区間の文字列に空白がなくても英字どうしならスペースを入れる
+    joined = "".join(w["word"] for w in lines._words([seg(first), seg(second)]))
+    assert joined == "Machinelearning works"
+
+
+@needs_morphology
+def test_keeps_spaces_between_english_words_in_japanese():
+    text = "今日は machine learning と deep learning の話をします。GPU を使います。"
+    words = chars(text.replace(" ", ""), 0.0)
+    assert [s.text for s in sentences([seg(words, text)])] == [
+        "今日はmachine learningとdeep learningの話をします。",
+        "GPUを使います。",
+    ]
+
+
+def test_spaces_between_japanese_words_are_still_dropped(no_morphology):
+    text = "はい そうです 2026 年の 3 月"
+    words = chars(text.replace(" ", ""), 0.0)
+    assert [s.text for s in sentences([seg(words, text)])] == ["はいそうです2026年の3月"]
+
+
 def test_render_without_diarization():
     body, speakers = render([Sentence(3725.0, "一時間後の文", "SPEAKER_00")], diarized=False)
     assert body == "[01:02:05] 一時間後の文\n"

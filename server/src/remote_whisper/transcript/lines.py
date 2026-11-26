@@ -8,6 +8,7 @@ from functools import cache
 from typing import Any
 
 from remote_whisper.storage.session_writer import fmt_clock
+from remote_whisper.transcript.spacing import spaced
 
 log = logging.getLogger(__name__)
 
@@ -109,24 +110,40 @@ class _Turn:
     speaker: str
 
 
+def _with_space(words: list[dict[str, Any]], word: dict[str, Any], gap: bool) -> dict[str, Any]:
+    """前の単語とのあいだにスペースが要れば、単語の頭に付ける（#481）。
+    gap は元の文字列で前の単語とのあいだに空白があったか（区間の境目では、あったとみなす）"""
+    previous = words[-1]["word"] if words else ""
+    if gap and spaced(previous, word["word"]):
+        return {**word, "word": " " + word["word"]}
+    return word
+
+
 def _words(segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """単語を順に並べる。単語の時刻がない区間（時刻を合わせられなかったもの）は、区間を1つの単語にする"""
+    """単語を順に並べる。単語の時刻がない区間（時刻を合わせられなかったもの）は、区間を1つの単語にする。
+    WhisperX は単語を空白を外した形で返すので、区間の文字列にあった英単語のあいだのスペースを戻す"""
     words: list[dict[str, Any]] = []
     for seg in segments:
+        text = seg.get("text", "")
         items = [w for w in seg.get("words") or [] if w.get("word")]
         if not items:
-            if seg.get("text", "").strip():
-                words.append(
-                    {
-                        "word": seg["text"].strip(),
-                        "start": seg.get("start"),
-                        "end": seg.get("end"),
-                        "speaker": seg.get("speaker"),
-                    }
-                )
+            if text.strip():
+                word = {
+                    "word": text.strip(),
+                    "start": seg.get("start"),
+                    "end": seg.get("end"),
+                    "speaker": seg.get("speaker"),
+                }
+                words.append(_with_space(words, word, True))
             continue
-        for w in items:
-            words.append({**w, "speaker": w.get("speaker") or seg.get("speaker")})
+        pos = 0
+        for n, w in enumerate(items):
+            at = text.find(w["word"], pos)
+            gap = n == 0 or (at >= 0 and any(c.isspace() for c in text[pos:at]))
+            if at >= 0:
+                pos = at + len(w["word"])
+            word = {**w, "speaker": w.get("speaker") or seg.get("speaker")}
+            words.append(_with_space(words, word, gap))
     return words
 
 
