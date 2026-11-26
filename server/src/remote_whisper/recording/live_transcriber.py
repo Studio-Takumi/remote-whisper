@@ -19,6 +19,7 @@ from remote_whisper.recording.segmenter import LocalAgreement, Segment, Segmente
 from remote_whisper.recording.vad_segmenter import Probabilities, VadSegmenter
 from remote_whisper.settings import WhisperSettings
 from remote_whisper.storage.documents import hotwords_name, parse
+from remote_whisper.transcript.spacing import join_texts
 
 log = logging.getLogger(__name__)
 
@@ -311,7 +312,7 @@ def _drop_hallucinations(result: list[dict], segment: Segment, kind: str) -> lis
 
 
 def _join(result: list[dict]) -> str:
-    return "".join(s["text"].strip() for s in result).strip()
+    return join_texts([s["text"] for s in result])
 
 
 def _consume(future: asyncio.Future) -> None:
