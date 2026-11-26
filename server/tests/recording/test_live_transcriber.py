@@ -290,3 +290,34 @@ def test_load_hotwords(tmp_path):
     assert load_hotwords(tmp_path, "s1") == "用語A、用語B"
     assert load_hotwords(tmp_path, "missing") is None
     assert load_hotwords(tmp_path, None) is None
+
+
+def test_final_keeps_spaces_between_english_segments():
+    # faster-whisper（language="ja"）は英語の文を区間ごとに返す。境目のスペースを残す（#481）
+    async def main():
+        h = Harness()
+
+        async def english(pcm, **options):
+            return [
+                {"start": 0.0, "end": 1.0, "text": "Hello world."},
+                {"start": 1.0, "end": 2.0, "text": " This is machine learning."},
+            ]
+
+        h.whisper.transcribe = english
+        h.live.feed(tone(1.0) + silence(0.5))
+        await h.live.wait()
+        await h.close()
+        return h
+
+    h = run(main())
+    assert [m["text"] for m in h.of_type("final")] == ["Hello world. This is machine learning."]
+
+
+def test_join_keeps_japanese_as_it_was():
+    join = live_transcriber._join
+    assert join([{"text": " 今日は"}, {"text": "晴れです。 "}]) == "今日は晴れです。"
+    assert join([{"text": "GPUを使う"}, {"text": "machine learningの話。"}]) == (
+        "GPUを使うmachine learningの話。"
+    )
+    assert join([{"text": "使うのは GPU"}, {"text": "CUDA です"}]) == "使うのは GPU CUDA です"
+    assert join([]) == ""
