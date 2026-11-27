@@ -3,11 +3,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Row, Section } from '@/features/settings/SettingsParts';
+import { settingsMessages } from '@/features/settings/i18n';
 import { LLM_NAMES, type LlmBackend, type Settings, llmBackend } from '@/features/settings/settings';
 import { type LmStudioSettings, defaultLmStudio } from '@/features/settings/settingsDraft';
-
-// クラウド版（トンネル）からは変えられない項目（接続先・使う LLM・トークン。サーバーの TUNNEL_LOCKED）
-const TUNNEL_LOCK = 'クラウド版からは変えられません';
+import { useT } from '@/i18n/messages';
 
 // 「要約」ページの上の、要約に使うアプリ（LLM。#327）と、その接続先
 export function LlmSection({
@@ -24,9 +23,11 @@ export function LlmSection({
     onChangeOllamaHost: (host: string) => void;
     onChangeLmStudio: (patch: Partial<LmStudioSettings>) => void;
 }) {
+    const t = useT(settingsMessages);
     const backend = llmBackend(draft);
     const lmstudio = { ...defaultLmStudio, ...draft.lmstudio };
-    const locked = isCloud ? TUNNEL_LOCK : undefined;
+    // クラウド版（トンネル）からは変えられない項目（接続先・使う LLM・トークン。サーバーの TUNNEL_LOCKED）
+    const locked = isCloud ? t('llmSection.tunnelLock') : undefined;
     const tokenSet = saved.lmstudio?.tokenSet ?? false;
     // 消すことにした（保存すると消える）
     const clearing = lmstudio.token === null;
@@ -34,9 +35,9 @@ export function LlmSection({
         <Section>
             <Row
                 id='llm-backend'
-                label='要約に使うアプリ'
+                label={t('llmSection.backend')}
                 locked={locked}
-                description='要約・用語リスト・コンテキストを作るアプリです。録音中に変えたときは、録音が終わってから切り替わります'
+                description={t('llmSection.backendDescription')}
             >
                 <Select value={backend} onValueChange={(v) => onChangeBackend(v as LlmBackend)}>
                     <SelectTrigger id='llm-backend' className='w-44'>
@@ -52,7 +53,7 @@ export function LlmSection({
             </Row>
             {backend === 'lmstudio' ? (
                 <>
-                    <Row id='lmstudio-host' label='LM Studio の URL' locked={locked}>
+                    <Row id='lmstudio-host' label={t('llmSection.url', { llm: LLM_NAMES.lmstudio })} locked={locked}>
                         <Input
                             id='lmstudio-host'
                             className='w-56'
@@ -62,14 +63,14 @@ export function LlmSection({
                     </Row>
                     <Row
                         id='lmstudio-token'
-                        label='LM Studio のトークン'
+                        label={t('llmSection.token', { llm: LLM_NAMES.lmstudio })}
                         locked={locked}
                         description={
                             clearing
-                                ? '保存すると消えます'
+                                ? t('llmSection.tokenClearing')
                                 : tokenSet
-                                  ? '設定済みです。変えるときだけ入れます'
-                                  : 'LM Studio で認証を求める設定にしたときだけ入れます'
+                                  ? t('llmSection.tokenSet')
+                                  : t('llmSection.tokenUnset', { llm: LLM_NAMES.lmstudio })
                         }
                     >
                         <div className='flex items-center gap-2'>
@@ -79,13 +80,17 @@ export function LlmSection({
                                 type='password'
                                 autoComplete='off'
                                 className='w-40'
-                                placeholder={tokenSet && !clearing ? '設定済み' : '未設定'}
+                                placeholder={
+                                    tokenSet && !clearing
+                                        ? t('llmSection.tokenSetShort')
+                                        : t('llmSection.tokenUnsetShort')
+                                }
                                 value={typeof lmstudio.token === 'string' ? lmstudio.token : ''}
                                 onChange={(e) => onChangeLmStudio({ token: e.target.value })}
                             />
                             {tokenSet && !clearing && (
                                 <Button variant='outline' size='sm' onClick={() => onChangeLmStudio({ token: null })}>
-                                    消す
+                                    {t('llmSection.clear')}
                                 </Button>
                             )}
                             {clearing && (
@@ -94,14 +99,14 @@ export function LlmSection({
                                     size='sm'
                                     onClick={() => onChangeLmStudio({ token: undefined })}
                                 >
-                                    やめる
+                                    {t('llmSection.cancelClear')}
                                 </Button>
                             )}
                         </div>
                     </Row>
                 </>
             ) : (
-                <Row id='ollama-host' label='Ollama の URL' locked={locked}>
+                <Row id='ollama-host' label={t('llmSection.url', { llm: LLM_NAMES.ollama })} locked={locked}>
                     <Input
                         id='ollama-host'
                         className='w-56'

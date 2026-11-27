@@ -1,6 +1,7 @@
 // 最終要約ができたときの通知（Web Push。#245・spec/ui.md 8 章）。端末ごとの設定で、既定はオフ。
 // オンにしたときにだけブラウザの許可を求め、購読をホストに送る（POST /api/push/subscriptions）
 import { api } from '@/api/api';
+import { settingsMessages } from '@/features/settings/i18n';
 
 const ENABLED_KEY = 'rw.pushNotify';
 
@@ -45,11 +46,11 @@ export function pushSupport(env: PushEnv = currentEnv()): PushSupport {
 export function pushSupportMessage(support: PushSupport) {
     switch (support) {
         case 'insecure':
-            return 'HTTPS で開いているときだけ使えます（http では使えません）';
+            return settingsMessages.t('push.insecure');
         case 'unsupported':
-            return 'このブラウザでは使えません。iPhone はホーム画面に追加したアプリ（iOS 16.4 以降）でだけ使えます';
+            return settingsMessages.t('push.unsupported');
         case 'denied':
-            return '通知が許可されていません。ブラウザの設定で、このサイトの通知を許可してください';
+            return settingsMessages.t('push.denied');
         default:
             return '';
     }

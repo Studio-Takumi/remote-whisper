@@ -1,6 +1,8 @@
 import { CircleAlertIcon, CircleCheckIcon, ExternalLinkIcon } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
+import { setupMessages } from '@/features/setup/i18n';
+import { useT } from '@/i18n/messages';
 
 // 手順の枠。見出しの左に、そろっているか（または icon）を出す
 export function Step({
@@ -16,6 +18,7 @@ export function Step({
     icon?: React.ReactNode;
     children: React.ReactNode;
 }) {
+    const t = useT(setupMessages);
     return (
         <section className='flex flex-col gap-2 rounded-lg border p-3'>
             <div className='flex flex-wrap items-center gap-x-2 gap-y-0.5'>
@@ -23,12 +26,12 @@ export function Step({
                     (ok ? (
                         <CircleCheckIcon
                             className='size-4 shrink-0 text-emerald-600 dark:text-emerald-400'
-                            aria-label='そろっています'
+                            aria-label={t('stepParts.ready')}
                         />
                     ) : (
                         <CircleAlertIcon
                             className='size-4 shrink-0 text-amber-600 dark:text-amber-400'
-                            aria-label='足りません'
+                            aria-label={t('stepParts.missing')}
                         />
                     ))}
                 <h3 className='text-sm font-semibold'>{title}</h3>

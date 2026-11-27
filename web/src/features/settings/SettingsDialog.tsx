@@ -2,7 +2,9 @@ import type { SettingsOptions } from '@/api/protocol';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { SettingsForm } from '@/features/settings/SettingsForm';
+import { settingsMessages } from '@/features/settings/i18n';
 import { SETTINGS_PAGES, type Settings } from '@/features/settings/settings';
+import { useT } from '@/i18n/messages';
 
 // 全体設定のモーダル。左にカテゴリ、右に項目を並べる
 export function SettingsDialog({
@@ -30,6 +32,7 @@ export function SettingsDialog({
     recording: boolean;
     onSave: (settings: Settings) => void;
 }) {
+    const t = useT(settingsMessages);
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent
@@ -45,9 +48,9 @@ export function SettingsDialog({
                 }}
             >
                 <DialogHeader>
-                    <DialogTitle>設定</DialogTitle>
+                    <DialogTitle>{t('settingsDialog.title')}</DialogTitle>
                     <DialogDescription>
-                        {recording ? '全体設定（録音中は一部の項目は変更不可）' : '全体設定（どの端末でも共通）'}
+                        {recording ? t('settingsDialog.descriptionRecording') : t('settingsDialog.description')}
                     </DialogDescription>
                 </DialogHeader>
                 {/* DialogContent は閉じると消えるので、開くたびに今の設定から下書きを作り直せる */}
@@ -65,9 +68,9 @@ export function SettingsDialog({
                     />
                 ) : (
                     <div className='flex flex-1 flex-col items-center justify-center gap-3 text-sm text-muted-foreground'>
-                        <p>設定を読み込めていません</p>
+                        <p>{t('settingsDialog.loadFailed')}</p>
                         <Button variant='outline' onClick={onRetry}>
-                            再読み込み
+                            {t('settingsDialog.reload')}
                         </Button>
                     </div>
                 )}
