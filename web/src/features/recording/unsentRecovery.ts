@@ -13,6 +13,7 @@ import {
     splitByHost,
     unsentSeconds,
 } from '@/features/recording/audio/unsentStore';
+import { recordingMessages } from '@/features/recording/i18n';
 import { closeRecording, openMicrophone, persistUnsent, startOrContinue } from '@/features/recording/recorder';
 import type { ErrorMessage, Recorder, StartedMessage } from '@/features/recording/recorderState';
 import { subscribeRecording } from '@/features/recording/recordingMessages';
@@ -95,7 +96,7 @@ export async function recoverUnsent(r: Recorder) {
         await startOrContinue(r, entry.project, entry.session);
     } catch (e) {
         closeRecording(r);
-        toast.error(`届いていない音声を送れません: ${(e as Error).message}`);
+        toast.error(recordingMessages.t('unsentRecovery.sendFailed', { message: (e as Error).message }));
     } finally {
         r.starting = false;
         r.resuming = false;

@@ -6,12 +6,13 @@ import { isDemo } from '@/api/demo';
 import { fetchFinalTranscript } from '@/api/transcripts';
 import type { ActionContext } from '@/app/actionContext';
 import { recordingLocks } from '@/features/recording/recording';
+import { sessionMessages } from '@/features/session/i18n';
 import { finalModelLabel, llmModels } from '@/features/settings/settings';
 
 export async function regenerateFinalTranscript(ctx: ActionContext, sessionId: string) {
     const get = ctx.store.getState;
     if (isDemo) {
-        toast.info('デモでは文字起こしを再生成できません');
+        toast.info(sessionMessages.t('regenerateActions.finalDemo'));
         return;
     }
     if (get().recordingState !== 'idle') {
@@ -30,11 +31,11 @@ export async function regenerateFinalTranscript(ctx: ActionContext, sessionId: s
     } catch (e) {
         ctx.sessions.forgetFinalTranscript(sessionId);
         if (e instanceof ApiError && e.status === 409) {
-            toast.error('録音中または録音を終えた直後です。少し待ってから再生成してください');
+            toast.error(sessionMessages.t('regenerateActions.busy'));
         } else if (e instanceof ApiError && e.status === 410) {
-            toast.error('録音ファイルが期限切れのため、再生成できません');
+            toast.error(sessionMessages.t('regenerateActions.finalExpired'));
         } else {
-            toast.error(`文字起こしを再生成できません: ${(e as Error).message}`);
+            toast.error(sessionMessages.t('regenerateActions.finalFailed', { message: (e as Error).message }));
         }
     }
 }
@@ -48,14 +49,14 @@ export async function showFinalTranscript(ctx: ActionContext, sessionId: string,
         const finalTranscript = await fetchFinalTranscript(projectId, sessionId, generationId);
         ctx.sessions.patchSession(sessionId, (x) => ({ ...x, finalTranscript }));
     } catch (e) {
-        toast.error(`文字起こしを読み込めません: ${(e as Error).message}`);
+        toast.error(sessionMessages.t('regenerateActions.loadFailed', { message: (e as Error).message }));
     }
 }
 
 export async function regenerateSummary(ctx: ActionContext, sessionId: string) {
     const { getState: get, setState: set } = ctx.store;
     if (isDemo) {
-        toast.info('デモでは要約を再生成できません');
+        toast.info(sessionMessages.t('regenerateActions.summaryDemo'));
         return;
     }
     if (get().recordingState !== 'idle') {
@@ -93,11 +94,11 @@ export async function regenerateSummary(ctx: ActionContext, sessionId: string) {
         }));
     } catch (e) {
         if (e instanceof ApiError && e.status === 409) {
-            toast.error('録音中または録音を終えた直後です。少し待ってから再生成してください');
+            toast.error(sessionMessages.t('regenerateActions.busy'));
         } else if (e instanceof ApiError && e.status === 410) {
-            toast.error('文字起こしが期限切れのため、再生成できません');
+            toast.error(sessionMessages.t('regenerateActions.summaryExpired'));
         } else {
-            toast.error(`要約を再生成できません: ${(e as Error).message}`);
+            toast.error(sessionMessages.t('regenerateActions.summaryFailed', { message: (e as Error).message }));
         }
     }
 }

@@ -3,21 +3,24 @@ import { AudioSender, connection } from '@/api/connection';
 import type { JoinAvailability, ServerMessage } from '@/api/protocol';
 import { type ChosenMic, openChosenMicrophone } from '@/features/recording/audio/micDevice';
 import type { Microphone, Processing } from '@/features/recording/audio/microphone';
+import { recordingMessages } from '@/features/recording/i18n';
 
 // joining は返事（joined）待ち、reconnecting はホストとの接続が切れてつなぎ直すのを待っている間
 export type Joined = { sessionId: string; source: number | null; state: 'joining' | 'joined' | 'reconnecting' };
 
-export const UNSUPPORTED = 'このホストは参加に対応していません';
+function unsupportedMessage() {
+    return recordingMessages.t('join.unsupported');
+}
 
 // 参加のボタンを押せないときの理由。押せるなら null
 export function joinUnavailable(join: JoinAvailability | undefined): string | null {
     if (join === undefined) {
-        return UNSUPPORTED;
+        return unsupportedMessage();
     }
     if (join.available) {
         return null;
     }
-    return join.reason === 'disabled' ? 'このホストでは参加できない設定です' : '参加できる音源の数に達しています';
+    return join.reason === 'disabled' ? recordingMessages.t('join.disabled') : recordingMessages.t('join.full');
 }
 
 // 参加している音源 ID と次の連番を、セッションごとにタブに覚える（読み込み直しても同じ音源としてつなぎ直す）
@@ -184,10 +187,10 @@ export class SourceJoin {
             const rejoining = this.source !== null;
             if (m.code === 'bad_message' && !rejoining) {
                 // 古いサーバーは join を知らない
-                this.finish(UNSUPPORTED);
+                this.finish(unsupportedMessage());
             } else if (m.code === 'cannot_join' || m.code === 'session_not_found' || m.code === 'bad_message') {
                 // つなぎ直せなかった（抜けたことになっていた・録音が終わっていた）ときは、参加し直してもらう
-                this.finish(rejoining ? '参加が切れました。もう一度参加してください' : m.message);
+                this.finish(rejoining ? recordingMessages.t('join.lost') : m.message);
             }
         } else if (
             (m.type === 'recordingState' && m.session === this.sessionId && m.state === 'stopped') ||

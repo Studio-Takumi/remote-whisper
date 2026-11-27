@@ -5,7 +5,6 @@ import type { ClientMessage, ServerMessage } from '@/api/protocol';
 import { Microphone } from '@/features/recording/audio/microphone';
 import {
     SourceJoin,
-    UNSUPPORTED,
     deviceName,
     forgetJoin,
     joinUnavailable,
@@ -95,7 +94,7 @@ describe('SourceJoin（#356）', () => {
         const old = harness();
         await old.join.start(processing, null);
         old.receive({ type: 'error', code: 'bad_message', message: 'x' });
-        expect(old.ended).toEqual([UNSUPPORTED]);
+        expect(old.ended).toEqual(['このホストは参加に対応していません']);
     });
 });
 
@@ -103,7 +102,7 @@ describe('録音中の参加（#356）', () => {
     afterEach(() => sessionStorage.clear());
 
     it('古いサーバー（join が来ない）では押せない', () => {
-        expect(joinUnavailable(undefined)).toBe(UNSUPPORTED);
+        expect(joinUnavailable(undefined)).toBe('このホストは参加に対応していません');
         expect(joinUnavailable({ available: true })).toBeNull();
         expect(joinUnavailable({ available: false, reason: 'limit' })).toBe('参加できる音源の数に達しています');
         expect(joinUnavailable({ available: false, reason: 'disabled' })).toBe('このホストでは参加できない設定です');

@@ -72,7 +72,7 @@ export function subscribeRecording(r: Recorder) {
             }
         } else if (m.type === 'transcriptionStalled') {
             if (m.stalled && !r.store.getState().transcriptionStalled) {
-                toast.warning(stalledMessage, { duration: 15000 });
+                toast.warning(stalledMessage(), { duration: 15000 });
             }
             r.store.setState({ transcriptionStalled: m.stalled });
         } else if (isLiveMessage(m) && isMyRecording(r, m)) {

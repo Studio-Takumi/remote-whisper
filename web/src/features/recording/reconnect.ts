@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 
 import { connection } from '@/api/connection';
 import { patchLocal } from '@/features/projects/localSessions';
+import { recordingMessages } from '@/features/recording/i18n';
 import { closeRecording } from '@/features/recording/recorder';
 import type { ErrorMessage, Recorder, StartedMessage } from '@/features/recording/recorderState';
 import { formatDateTime } from '@/lib/time';
@@ -101,8 +102,11 @@ function interruptRecording(r: Recorder, sessionId: string) {
         })),
     }));
     // 同じセッションのまま続きを録音できる（#101）。セッションの画面にも「続きから録音」を出す
-    toast.error('録音は途中で終わりました（接続が長く切れた・ホストが再起動したなど）。そこまでの録音は残っています', {
+    toast.error(recordingMessages.t('reconnect.interrupted'), {
         duration: 15000,
-        action: { label: '続きから録音', onClick: () => void get().continueRecording(sessionId) },
+        action: {
+            label: recordingMessages.t('common.continueRecording'),
+            onClick: () => void get().continueRecording(sessionId),
+        },
     });
 }

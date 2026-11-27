@@ -6,10 +6,13 @@ import { Button } from '@/components/ui/button';
 import { recordingLocks } from '@/features/recording/recording';
 import { describeWatched } from '@/features/recording/watch';
 import { JoinedSourceChips } from '@/features/session/SourceList';
+import { sessionMessages } from '@/features/session/i18n';
 import { canJoin } from '@/features/session/sessionContent';
+import { useT } from '@/i18n/messages';
 
 // 開いているセッションのタイトルと状態。途中で終わったものは続きから録音できる
 export function SessionHeader({ session }: { session: Session }) {
+    const t = useT(sessionMessages);
     const recordingState = useAppStore((s) => s.recordingState);
     const recordingSessionId = useAppStore((s) => s.recordingSessionId);
     // ほかの端末で録音中のセッションを見ている（#238）
@@ -22,22 +25,33 @@ export function SessionHeader({ session }: { session: Session }) {
             <h1 className='text-lg font-semibold'>
                 {session.title}
                 {session.provisionalTitle && (
-                    <span className='ml-2 text-xs font-normal text-muted-foreground'>（仮のタイトル）</span>
+                    <span className='ml-2 text-xs font-normal text-muted-foreground'>
+                        {t('sessionHeader.provisionalTitle')}
+                    </span>
                 )}
             </h1>
             <p className='text-xs text-muted-foreground'>
                 {session.startedAt}
                 {session.status === 'recording' &&
                     (session.id === recordingSessionId
-                        ? '・録音中'
-                        : `・${describeWatched(watching?.sessionId === session.id ? watching.state : undefined)}${joinedHere || canJoin(watching, session.id) ? '' : '（この端末では閲覧専用です）'}`)}
+                        ? t('sessionHeader.recording')
+                        : t(
+                              joinedHere || canJoin(watching, session.id)
+                                  ? 'sessionHeader.watched'
+                                  : 'sessionHeader.watchedViewOnly',
+                              {
+                                  state: describeWatched(
+                                      watching?.sessionId === session.id ? watching.state : undefined,
+                                  ),
+                              },
+                          ))}
                 {/* 録音している端末には、参加している音源を出す（#357） */}
                 {session.id === recordingSessionId && <JoinedSourceChips sessionId={session.id} />}
-                {session.status === 'interrupted' && '・途中で中断'}
+                {session.status === 'interrupted' && t('sessionHeader.interrupted')}
                 {session.uploaded && (
                     <span className='ml-2 inline-flex items-center gap-1 align-middle'>
                         <FileAudioIcon className='size-3' />
-                        音声ファイルから作成
+                        {t('sessionHeader.fromAudioFile')}
                     </span>
                 )}
             </p>
@@ -53,7 +67,7 @@ export function SessionHeader({ session }: { session: Session }) {
                         onClick={() => void continueRecording(session.id)}
                     >
                         <MicIcon />
-                        続きから録音
+                        {t('sessionHeader.continueRecording')}
                     </Button>
                     {recordingState !== 'idle' && (
                         <p className='text-xs text-muted-foreground'>{recordingLocks.continueRecording}</p>
