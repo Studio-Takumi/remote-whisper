@@ -56,7 +56,7 @@ def hf_token_source(home: Path) -> str | None:
 def save_hf_token(home: Path, token: str) -> None:
     token = token.strip()
     if not _HF_TOKEN.fullmatch(token):
-        raise SetupError(422, "トークンの形が違います（hf_ で始まる文字列です）")
+        raise SetupError(422, "hfToken.invalid", "トークンの形が違います（hf_ で始まる文字列です）")
     path = hf_token_path(home)
     # cloud.json と同じく、本人だけが読めるファイルとして書く（#252）。権限を付けられなければ
     # 書かない（前のファイルはそのまま。一時のものは残らない）
@@ -64,7 +64,11 @@ def save_hf_token(home: Path, token: str) -> None:
         write_owner_only(path, token + "\n")
     except OwnerOnlyError as e:
         log.warning("cannot save the HuggingFace token: %s", e)
-        raise SetupError(500, "トークンを本人だけが読める設定にできないため、保存できません") from e
+        raise SetupError(
+            500,
+            "hfToken.notOwnerOnly",
+            "トークンを本人だけが読める設定にできないため、保存できません",
+        ) from e
     log.info("saved the HuggingFace token")
 
 

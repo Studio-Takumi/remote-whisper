@@ -86,24 +86,35 @@ class Subscription:
 
     @staticmethod
     def from_json(data: Any) -> "Subscription":
-        """ブラウザの PushSubscription.toJSON() の形。形が違えば ValueError"""
+        """ブラウザの PushSubscription.toJSON() の形。形が違えば SubscriptionError"""
         try:
             endpoint = str(data["endpoint"])
             p256dh = str(data["keys"]["p256dh"])
             auth = str(data["keys"]["auth"])
         except (KeyError, TypeError) as e:
-            raise ValueError("購読の形が違います") from e
+            raise SubscriptionError("push.badShape", "購読の形が違います") from e
         if not is_push_endpoint(endpoint) or len(endpoint) > 2048:
-            raise ValueError("ブラウザの push サービスの URL ではありません")
+            raise SubscriptionError(
+                "push.badEndpoint", "ブラウザの push サービスの URL ではありません"
+            )
         try:
             key = b64url_decode(p256dh)
             secret = b64url_decode(auth)
             ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), key)
         except (ValueError, TypeError) as e:
-            raise ValueError("購読の鍵が読めません") from e
+            raise SubscriptionError("push.badKey", "購読の鍵が読めません") from e
         if len(secret) != 16:
-            raise ValueError("購読の鍵が読めません")
+            raise SubscriptionError("push.badKey", "購読の鍵が読めません")
         return Subscription(endpoint, p256dh, auth)
+
+
+class SubscriptionError(ValueError):
+    """購読の形が違う。code は web が文を引くコード（#494）"""
+
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+        self.message = message
 
 
 def encrypt(subscription: Subscription, payload: bytes, salt: bytes | None = None) -> bytes:

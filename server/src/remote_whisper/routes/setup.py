@@ -3,9 +3,10 @@ spec/api.md 7.1・spec/flows.md 6.15"""
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, Request
 from fastapi.responses import JSONResponse
 
+from remote_whisper.api_errors import ApiError
 from remote_whisper.context import AppContext, get_ctx
 from remote_whisper.desktop.hf_token import delete_hf_token, save_hf_token
 from remote_whisper.desktop.setup_error import SetupError
@@ -20,7 +21,7 @@ def via_tunnel(request: Request) -> bool:
 def host_only(request: Request) -> None:
     """トンネル（8001 番）から来たリクエストを断る"""
     if via_tunnel(request):
-        raise HTTPException(status_code=403, detail=TUNNEL_REFUSED)
+        raise ApiError(403, "cloud.hostOnly", TUNNEL_REFUSED)
 
 
 router = APIRouter(prefix="/api/setup")
@@ -28,8 +29,8 @@ router = APIRouter(prefix="/api/setup")
 host = APIRouter(prefix="/api/setup", dependencies=[Depends(host_only)])
 
 
-def _raise(e: SetupError) -> HTTPException:
-    return HTTPException(status_code=e.status, detail=e.message)
+def _raise(e: SetupError) -> ApiError:
+    return ApiError(e.status, e.code, e.message, e.params)
 
 
 @router.get("")
@@ -105,7 +106,7 @@ async def put_hf_token(
         body = None
     token = body.get("token") if isinstance(body, dict) else None
     if not isinstance(token, str):
-        raise HTTPException(status_code=422, detail="トークンを入れてください")
+        raise ApiError(422, "hfToken.missing", "トークンを入れてください")
     try:
         save_hf_token(ctx.home, token)
     except SetupError as e:

@@ -1,10 +1,11 @@
 // サーバーの REST API（docs/spec/api.md 7.1 節）を呼ぶ
 import { withAppAuth } from '@/api/appAuth';
 import { apiUrl } from '@/api/endpoint';
+import { httpErrorText } from '@/api/serverErrors/serverErrors';
 import type { Correction } from '@/features/session/corrections';
 import type { SessionSource } from '@/features/session/sources';
 
-// サーバーがエラー（4xx・5xx）を返したとき。message はサーバーの detail（日本語）
+// サーバーがエラー（4xx・5xx）を返したとき。message はサーバーのエラーのコードから引いた文（#494）
 export class ApiError extends Error {
     readonly status: number;
 
@@ -33,10 +34,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     if (!res.ok) {
         let message = `${method} ${path}: ${res.status}`;
         try {
-            const detail = (await res.json()).detail;
-            if (typeof detail === 'string') {
-                message = detail;
-            }
+            message = httpErrorText(await res.json()) ?? message;
         } catch {
             // 本文が JSON でなければ、ステータスだけ
         }

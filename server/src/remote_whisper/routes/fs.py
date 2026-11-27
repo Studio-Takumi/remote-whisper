@@ -4,8 +4,9 @@ import os
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 
+from remote_whisper.api_errors import ApiError
 from remote_whisper.context import AppContext, get_ctx
 from remote_whisper.storage.path_guard import is_within_roots, real_path
 
@@ -40,12 +41,12 @@ def list_dir(
         }
 
     if not Path(path).is_absolute():
-        raise HTTPException(status_code=400, detail="絶対パスを指定してください")
+        raise ApiError(400, "path.notAbsolute", "絶対パスを指定してください")
     real = real_path(path)
     if not is_within_roots(real, roots):
-        raise HTTPException(status_code=403, detail="許可されたルートの外は見られません")
+        raise ApiError(403, "fs.outsideRoots", "許可されたルートの外は見られません")
     if not real.is_dir():
-        raise HTTPException(status_code=404, detail="ディレクトリがありません")
+        raise ApiError(404, "directory.notFound", "ディレクトリがありません")
 
     extensions = {e.lower() for e in materials.extensions}
     # (表示する名前, 実際のパス)。リンクは、リンク自身の名前で出す
@@ -54,7 +55,9 @@ def list_dir(
     try:
         children = list(os.scandir(real))
     except OSError as e:
-        raise HTTPException(status_code=403, detail=f"読み込めません: {e.strerror}") from e
+        raise ApiError(
+            403, "fs.unreadable", f"読み込めません: {e.strerror}", {"reason": str(e.strerror)}
+        ) from e
     for child in children:
         # 隠しファイルは出さない
         if child.name.startswith("."):

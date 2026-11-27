@@ -4,8 +4,9 @@ import asyncio
 import logging
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 
+from remote_whisper.api_errors import ApiError
 from remote_whisper.context import Pid
 from remote_whisper.gpu.gpu_queue import Priority
 from remote_whisper.llm.llm import backend_of
@@ -15,6 +16,7 @@ from remote_whisper.routes.sessions.common import (
     load_project,
     load_session,
     still_finishing,
+    transcript_unreadable,
 )
 from remote_whisper.storage.documents import TranscriptMeta
 from remote_whisper.storage.session_reader import read_transcript
@@ -32,33 +34,40 @@ async def regenerate_final_transcript(pid: Pid, sid: str, ctx: Ctx) -> dict[str,
     entry, files = load_session(ctx, pid, sid)
     final = ctx.final_transcriber
     if final is None or not final.available():
-        raise HTTPException(
-            status_code=503,
-            detail="このホストには浄書済み文字起こしの機能（WhisperX）がありません",
+        raise ApiError(
+            503,
+            "polishedTranscript.unsupported",
+            "このホストには浄書済み文字起こしの機能（WhisperX）がありません",
         )
     if entry.status == "recording" or still_finishing(ctx, sid):
-        raise HTTPException(
-            status_code=409, detail="録音中のセッションの文字起こしは再生成できません"
+        raise ApiError(
+            409,
+            "polishedTranscript.recording",
+            "録音中のセッションの文字起こしは再生成できません",
         )
     if ctx.uploads is not None and ctx.uploads.waiting(pid, sid):
         # 複数のファイルから作るセッションで、残りのファイルを待っている（#241）。
         # そろったら作るので、主の音源だけで先に作らない
-        raise HTTPException(
-            status_code=409, detail="残りの音声ファイルを待っているセッションは再生成できません"
+        raise ApiError(
+            409,
+            "polishedTranscript.waitingFiles",
+            "残りの音声ファイルを待っているセッションは再生成できません",
         )
     if sid in ctx.hub.status.transcribing:
         # 連打やほかの端末から頼まれても、同じものを重ねて作らない（数分 GPU を使うため）
-        raise HTTPException(
-            status_code=409, detail="このセッションの文字起こしは作っている途中です"
+        raise ApiError(
+            409,
+            "polishedTranscript.inProgress",
+            "このセッションの文字起こしは作っている途中です",
         )
     wav = files.dir / ".tmp" / sid / "audio.wav"
     if files.recording() is None and not wav.is_file():
-        raise gone("録音ファイル")
+        raise gone("recordingFile")
     if files.transcript.is_file():
         try:
             meta, _ = read_transcript(files)
         except (OSError, ValueError) as e:
-            raise HTTPException(status_code=500, detail=f"文字起こしを読み込めません: {e}") from e
+            raise transcript_unreadable(e) from e
     else:
         # 録音中の文字起こしが保存期間を過ぎて消えていても、録音が残っていれば作れる
         meta = TranscriptMeta(
@@ -77,16 +86,16 @@ async def regenerate_summary(pid: Pid, sid: str, ctx: Ctx) -> dict[str, Any]:
     """
     entry, files = load_session(ctx, pid, sid)
     if ctx.summarizer is None:
-        raise HTTPException(status_code=503, detail="このホストでは要約を作れません")
+        raise ApiError(503, "summary.unsupported", "このホストでは要約を作れません")
     if entry.status == "recording" or still_finishing(ctx, sid):
         # 止めた直後（残りの文字起こし・変換・最終の要約の途中）も、最後の区間が抜けないように断る
-        raise HTTPException(status_code=409, detail="録音中のセッションの要約は再生成できません")
+        raise ApiError(409, "summary.recording", "録音中のセッションの要約は再生成できません")
     if not files.transcript.is_file():
-        raise gone("文字起こし")
+        raise gone("transcript")
     try:
         writer = SessionWriter.existing(ctx.projects, pid, sid)
     except (OSError, ValueError) as e:
-        raise HTTPException(status_code=500, detail=f"文字起こしを読み込めません: {e}") from e
+        raise transcript_unreadable(e) from e
 
     async def send(message: dict[str, Any]) -> None:
         await ctx.hub.broadcast({**message, "session": sid})

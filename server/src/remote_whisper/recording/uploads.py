@@ -47,10 +47,39 @@ MAX_ROUGH_OFFSET_SEC = 3600
 
 
 class UploadError(Exception):
-    def __init__(self, status: int, message: str):
+    """status は HTTP のステータス。code・params は web が文を引くコードと値（#494）"""
+
+    def __init__(self, status: int, code: str, message: str, params: dict | None = None):
         super().__init__(message)
         self.status = status
+        self.code = code
         self.message = message
+        self.params = params or {}
+
+
+async def _probe(path: Path, name: str) -> AudioInfo:
+    """音声ファイルとして読む。読めない・長さが 0 なら 415"""
+    try:
+        info = await asyncio.to_thread(probe, path)
+    except ValueError as e:
+        raise UploadError(
+            415, "upload.notAudio", f"音声ファイルとして読めません（{name}）", {"name": name}
+        ) from e
+    if info.duration_sec <= 0:
+        raise UploadError(
+            415, "upload.zeroLength", f"音声の長さが 0 です（{name}）", {"name": name}
+        )
+    return info
+
+
+def _not_placed(name: str) -> UploadError:
+    return UploadError(
+        500, "upload.notPlaced", f"録音ファイルを置けませんでした（{name}）", {"name": name}
+    )
+
+
+def _not_waiting() -> UploadError:
+    return UploadError(409, "upload.notWaiting", "ファイルを足せるセッションではありません")
 
 
 @dataclass
@@ -165,7 +194,10 @@ class UploadService:
             limit = self.settings.get().recording.max_sources
             if not 2 <= sources <= limit:
                 raise UploadError(
-                    422, f"1 つのセッションにまとめられるファイルは {limit} 個までです"
+                    422,
+                    "upload.tooManyFiles",
+                    f"1 つのセッションにまとめられるファイルは {limit} 個までです",
+                    {"limit": limit},
                 )
         self.projects.load(pid)
         project_dir = self.projects.dir(pid)
@@ -174,12 +206,7 @@ class UploadService:
         try:
             path = work / f"upload.{extension(name) or 'bin'}"
             await self._save(path, body)
-            try:
-                info = await asyncio.to_thread(probe, path)
-            except ValueError as e:
-                raise UploadError(415, f"音声ファイルとして読めません（{name}）") from e
-            if info.duration_sec <= 0:
-                raise UploadError(415, f"音声の長さが 0 です（{name}）")
+            info = await _probe(path, name)
             # 先に ID を取って録音ファイルを置き、置けてからセッションを作る
             # （変換に失敗したときに、録音のないセッションを残さないように）
             uploaded = now()
@@ -197,7 +224,7 @@ class UploadService:
                 if recording is not None:
                     recording.unlink(missing_ok=True)
                 (project_dir / transcript_name(sid)).unlink(missing_ok=True)
-                raise UploadError(500, f"録音ファイルを置けませんでした（{name}）") from e
+                raise _not_placed(name) from e
             finally:
                 self._reserved.discard(sid)
         finally:
@@ -265,7 +292,7 @@ class UploadService:
         spec/flows.md 6.16）。待っていなければ 409"""
         pending = self._pending.get((pid, sid))
         if pending is None:
-            raise UploadError(409, "ファイルを足せるセッションではありません")
+            raise _not_waiting()
         # 受け取っている間は時間切れにしない（大きいファイルは 30 分以上かかることがある）
         pending.receiving += 1
         try:
@@ -291,17 +318,12 @@ class UploadService:
         try:
             path = work / f"upload.{extension(name) or 'bin'}"
             await self._save(path, body)
-            try:
-                info = await asyncio.to_thread(probe, path)
-            except ValueError as e:
-                raise UploadError(415, f"音声ファイルとして読めません（{name}）") from e
-            if info.duration_sec <= 0:
-                raise UploadError(415, f"音声の長さが 0 です（{name}）")
+            info = await _probe(path, name)
             # 置く・数える・始めるは 1 つずつ（同時に送られても、置き終えたものだけを数える）
             async with pending.lock:
                 # 待っている間にほかのファイルが先にそろった・時間切れになった
                 if self._pending.get((pid, sid)) is not pending or pending.full():
-                    raise UploadError(409, "ファイルを足せるセッションではありません")
+                    raise _not_waiting()
                 source_id = len(pending.sources) + 1
                 try:
                     recording = await asyncio.to_thread(
@@ -309,7 +331,7 @@ class UploadService:
                     )
                 except Exception as e:
                     log.exception("failed to place the uploaded %s for %s", name, sid)
-                    raise UploadError(500, f"録音ファイルを置けませんでした（{name}）") from e
+                    raise _not_placed(name) from e
                 source = SourceInfo(
                     id=source_id,
                     name=Path(name).name,
@@ -354,11 +376,14 @@ class UploadService:
                 size += len(chunk)
                 if size > limit:
                     raise UploadError(
-                        413, f"ファイルが大きすぎます（上限 {limit // MB}MB。設定で変えられます）"
+                        413,
+                        "upload.tooLarge",
+                        f"ファイルが大きすぎます（上限 {limit // MB}MB。設定で変えられます）",
+                        {"limitMb": limit // MB},
                     )
                 await asyncio.to_thread(f.write, chunk)
         if size == 0:
-            raise UploadError(400, "ファイルが空です")
+            raise UploadError(400, "upload.empty", "ファイルが空です")
 
     async def _reserve(
         self, pid: str, last_modified_ms: float | None, info: AudioInfo, uploaded: datetime

@@ -4,8 +4,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import Depends, HTTPException, Request
+from fastapi import Depends, Request
 
+from remote_whisper.api_errors import ApiError, api_error
 from remote_whisper.gpu.gpu_queue import GpuQueue
 from remote_whisper.hub import Hub
 from remote_whisper.settings import SettingsStore
@@ -62,7 +63,7 @@ class AppContext:
     def ensure_not_recording(self) -> None:
         """録音中は参考資料の選択を変えられない（spec/files.md 5.3・5.4・spec/ui.md 8）"""
         if self.is_recording:
-            raise HTTPException(status_code=409, detail="録音中は変更できません")
+            raise ApiError(409, "recording.locked", "録音中は変更できません")
 
 
 def get_ctx(request: Request) -> AppContext:
@@ -74,7 +75,7 @@ def resolve_pid(pid: str, request: Request) -> str:
     try:
         return get_ctx(request).projects.resolve(pid)
     except ProjectError as e:
-        raise HTTPException(status_code=e.status, detail=e.message) from e
+        raise api_error(e) from e
 
 
 # ルートの引数に使う。プロジェクトの UUID ならプロジェクト ID に直して渡す

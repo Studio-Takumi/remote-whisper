@@ -2,6 +2,7 @@
 import { appAuthActive, appSocketUrl } from '@/api/appAuth';
 import { wsUrl } from '@/api/endpoint';
 import type { ClientMessage, ServerMessage } from '@/api/protocol';
+import { localizeServerMessage } from '@/api/serverErrors/serverErrors';
 
 type Listener = (message: ServerMessage) => void;
 
@@ -105,7 +106,8 @@ class Connection {
                 if (typeof e.data !== 'string') {
                     return;
                 }
-                const message = JSON.parse(e.data) as ServerMessage;
+                // error の message は、コードから表示言語の文にしておく（#494）
+                const message = localizeServerMessage(JSON.parse(e.data) as ServerMessage);
                 this.listeners.forEach((l) => l(message));
             };
         });

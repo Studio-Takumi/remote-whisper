@@ -59,10 +59,14 @@ WORD_MAX_CHARS = 30
 
 
 class ContextSetError(Exception):
-    def __init__(self, status: int, message: str):
+    """status は HTTP のステータス。code・params は web が文を引くコードと値（#494）"""
+
+    def __init__(self, status: int, code: str, message: str, params: dict | None = None):
         super().__init__(message)
         self.status = status
+        self.code = code
         self.message = message
+        self.params = params or {}
 
 
 async def direct(job: Callable[[], Awaitable[T]]) -> T:
@@ -292,23 +296,35 @@ class ContextSetService:
         try:
             return self.projects.load(pid)
         except ProjectError as e:
-            raise ContextSetError(e.status, e.message) from e
+            raise ContextSetError(e.status, e.code, e.message, e.params) from e
 
     def _check_materials(self, materials: list[str]) -> list[Path]:
         """資料のパスを確かめて、解決した絶対パスにする"""
         if not materials:
-            raise ContextSetError(400, "参考資料を選んでください")
+            raise ContextSetError(400, "referenceMaterials.notSelected", "参考資料を選んでください")
         conf = self.settings.get().materials
         extensions = {e.lower() for e in conf.extensions}
         paths: list[Path] = []
         for m in materials:
             path = real_path(m)
             if not is_within_roots(path, conf.roots):
-                raise ContextSetError(403, f"選べる場所の外にある資料です: {m}")
+                raise ContextSetError(
+                    403,
+                    "referenceFile.outsideRoots",
+                    f"選べる場所の外にある資料です: {m}",
+                    {"path": m},
+                )
             if not path.is_file():
-                raise ContextSetError(404, f"資料がありません: {m}")
+                raise ContextSetError(
+                    404, "referenceFile.notFound", f"資料がありません: {m}", {"path": m}
+                )
             if path.suffix.lower() not in extensions:
-                raise ContextSetError(400, f"この形式の資料は選べません: {m}")
+                raise ContextSetError(
+                    400,
+                    "referenceFile.unsupportedType",
+                    f"この形式の資料は選べません: {m}",
+                    {"path": m},
+                )
             if path not in paths:
                 paths.append(path)
         return paths
@@ -320,7 +336,9 @@ class ContextSetService:
         try:
             hashes = await asyncio.to_thread(lambda: [sha1_of(p) for p in paths])
         except OSError as e:
-            raise ContextSetError(404, f"資料を読み込めません: {e}") from e
+            raise ContextSetError(
+                404, "referenceFile.unreadable", f"資料を読み込めません: {e}", {"reason": str(e)}
+            ) from e
         refs = [MaterialRef(path=str(p), sha1=h) for p, h in zip(paths, hashes, strict=True)]
         project_dir = self.projects.dir(pid)
         want = sorted(r.sha1 for r in refs)
@@ -484,7 +502,9 @@ class ContextSetService:
         try:
             meta, body = read_doc(path, ContextMeta)
         except (OSError, ValueError) as e:
-            raise ContextSetError(404, f"コンテキストがありません: {set_id}") from e
+            raise ContextSetError(
+                404, "context.notFound", f"コンテキストがありません: {set_id}", {"id": set_id}
+            ) from e
         if meta.toc is not None:
             return meta.toc
         paths = [Path(m.path) for m in meta.materials]

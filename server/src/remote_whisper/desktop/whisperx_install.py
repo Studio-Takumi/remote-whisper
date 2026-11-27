@@ -174,9 +174,11 @@ class WhisperXInstaller:
 
     def start(self) -> None:
         if not self.installable:
-            raise SetupError(409, "開発の環境では、画面からは入れられません")
+            raise SetupError(
+                409, "whisperx.devEnvironment", "開発の環境では、画面からは入れられません"
+            )
         if self.running:
-            raise SetupError(409, "入れている途中です")
+            raise SetupError(409, "whisperx.installing", "入れている途中です")
         self.job = InstallJob()
         self._cancelled = False
         self._task = asyncio.create_task(self._install())

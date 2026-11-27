@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
+from remote_whisper.api_errors import ws_error
 from remote_whisper.gpu.gpu_queue import report_progress
 from remote_whisper.llm.llm import LlmClient, LlmUnavailable, backend_of
 from remote_whisper.llm.ollama import ollama_error
@@ -61,17 +62,26 @@ async def _transcript_lines(
         body = summary_body(writer.files, writer.meta.corrections)
     except (OSError, ValueError) as e:
         log.warning("could not read the transcript of %s: %s", writer.id, e)
-        await send(_skipped("文字起こしを読み込めないので、最終要約は作りませんでした"))
+        await send(
+            _skipped(
+                "finalSummary.transcriptUnreadable",
+                "文字起こしを読み込めないので、最終要約は作りませんでした",
+            )
+        )
         return None
     lines = [line for line in body.splitlines() if line.strip()]
     if not lines:
-        await send(_skipped("文字起こしが空なので、最終要約は作りませんでした"))
+        await send(
+            _skipped(
+                "finalSummary.transcriptEmpty", "文字起こしが空なので、最終要約は作りませんでした"
+            )
+        )
         return None
     return lines
 
 
-def _skipped(message: str) -> dict[str, Any]:
-    return {"type": "error", "code": "summary_skipped", "message": message}
+def _skipped(message_code: str, message: str) -> dict[str, Any]:
+    return ws_error("summary_skipped", message_code, message)
 
 
 class FinalSummarizer:
@@ -117,11 +127,11 @@ class FinalSummarizer:
             log.exception("final summary of %s failed", writer.id)
             _mark_failed(writer, True)
             await send(
-                {
-                    "type": "error",
-                    "code": "summary_failed",
-                    "message": "最終要約を作る途中でエラーになりました",
-                }
+                ws_error(
+                    "summary_failed",
+                    "finalSummary.failed",
+                    "最終要約を作る途中でエラーになりました",
+                )
             )
             return None
 
@@ -229,7 +239,7 @@ class FinalSummarizer:
             log.warning("final summary of %s failed: %s", writer.id, e)
             # 失敗したことを記録して、後で作り直せるようにする（spec/flows.md 6.7。UI は #17）
             _mark_failed(writer, True)
-            await send(ollama_error("最終要約"))
+            await send(ollama_error("finalSummary"))
             return None
         await send({"type": "summary.done", "kind": "final"})
         log.info(
@@ -288,10 +298,8 @@ class FinalSummarizer:
             log.exception("failed to save the final summary of %s", writer.id)
             _mark_failed(writer, True)
             await send(
-                {
-                    "type": "error",
-                    "code": "write_failed",
-                    "message": "最終要約を保存できませんでした",
-                }
+                ws_error(
+                    "write_failed", "finalSummary.writeFailed", "最終要約を保存できませんでした"
+                )
             )
             return None

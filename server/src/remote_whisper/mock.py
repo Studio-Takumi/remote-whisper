@@ -212,7 +212,7 @@ class MockSession:
                 continue
             done = len(self.finals)
             if self.recorder.hub.status.ollama != "ready":
-                await self.send(ollama_error("リアルタイム要約"))
+                await self.send(ollama_error("realtimeSummary"))
                 continue
             text = "## リアルタイム要約\n" + "".join(f"- {t}\n" for t in self.finals)
             await self._stream("live", text)
@@ -293,7 +293,7 @@ class MockSession:
         if self.recorder.hub.status.ollama != "ready":
             if self.writer:
                 self.writer.set_summary_failed(True)
-            await self._send_all(ollama_error("最終要約"))
+            await self._send_all(ollama_error("finalSummary"))
             return
         await self._stream("final", FINAL_SUMMARY)
         if self.writer:
@@ -427,7 +427,7 @@ class MockFinalSummarizer:
     ) -> str | None:
         if self.hub.status.ollama != "ready":
             writer.set_summary_failed(True)
-            await send(ollama_error("最終要約"))
+            await send(ollama_error("finalSummary"))
             return None
         models = models or self.settings.get().llm_models().final()
         for i in range(0, len(FINAL_SUMMARY), 6):
@@ -495,7 +495,9 @@ class MockRecorder:
         language: TranscriptionLanguage | None = None,
     ) -> MockSession:
         if len(self.active()) >= max_concurrent:
-            raise RecordingError("too_many_recordings", "同時に録音できる数を超えています")
+            raise RecordingError(
+                "too_many_recordings", "recording.tooMany", "同時に録音できる数を超えています"
+            )
         sid = make_id(now())
         # 同じ秒に2つ始めたときは、次の秒の ID にする
         while sid in self.sessions:
@@ -524,17 +526,23 @@ class MockRecorder:
         """録音を終えたセッションの続きを、同じセッションのまま録音する（#101・#174）。
         本物と同じ条件で続けられるか確かめ、経過時間と文字起こしの時刻は前の長さから続ける"""
         if len(self.active()) >= max_concurrent:
-            raise RecordingError("too_many_recordings", "同時に録音できる数を超えています")
+            raise RecordingError(
+                "too_many_recordings", "recording.tooMany", "同時に録音できる数を超えています"
+            )
         previous = self.sessions.get(sid)
         if previous is not None and not previous.ended:
-            raise RecordingError("already_recording", "このセッションは録音中です")
+            raise RecordingError(
+                "already_recording", "recording.sessionRecording", "このセッションは録音中です"
+            )
         if self.projects is None or self.settings is None:
-            raise RecordingError("session_not_found", "続きを録音できるセッションがありません")
+            raise RecordingError(
+                "session_not_found", "continue.noSession", "続きを録音できるセッションがありません"
+            )
         try:
             writer = SessionWriter.existing(self.projects, project, sid)
         except (ProjectError, OSError, ValueError) as e:
             raise RecordingError(
-                "session_not_found", "続きを録音できるセッションがありません"
+                "session_not_found", "continue.noSession", "続きを録音できるセッションがありません"
             ) from e
         check_continuable(writer.meta, self.settings.get().recording.continue_window_min * 60)
         # 作っている途中の最終の要約は、本物と同じく終わらせて前の版として残す
@@ -550,7 +558,9 @@ class MockRecorder:
     async def resume(self, ws: WebSocket, sid: str) -> MockSession:
         session = self.sessions.get(sid)
         if session is None or session.ended:
-            raise RecordingError("session_not_found", "再開できるセッションがありません")
+            raise RecordingError(
+                "session_not_found", "recording.noResumable", "再開できるセッションがありません"
+            )
         await session.attach(ws)
         await session.send({"type": "started", "resumed": True})
         await session.send({"type": "ack", "seq": session.last_seq})

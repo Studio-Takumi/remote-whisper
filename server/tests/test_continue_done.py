@@ -143,6 +143,11 @@ def test_after_the_window_it_is_converted_and_cannot_be_continued(client, projec
         error = receive_until(ws, of_type("error"))[-1]
     assert error["code"] == "cannot_continue"
     assert "過ぎた" in error["message"]
+    # web が文を引くコードと値（#494）
+    assert error["messageCode"] == "continue.expired"
+    assert error["message"] == (
+        f"録音を終えてから {error['params']['minutes']} 分を過ぎたので、続きを録音できません"
+    )
     # 断っても、前の録音の後始末はそのまま（最終の要約を作り直したりしない）
     time.sleep(0.3)
     assert summarized == [sid]

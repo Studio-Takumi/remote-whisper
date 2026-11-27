@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from remote_whisper import logs
+from remote_whisper.api_errors import ws_error
 from remote_whisper.gpu.gpu_queue import GpuQueue, Priority, report_progress
 from remote_whisper.hub import Hub
 from remote_whisper.settings import SettingsStore
@@ -112,10 +113,12 @@ class FinalTranscriber:
         if gid is None:
             await self.hub.broadcast(
                 {
-                    "type": "error",
-                    "code": "final_transcript_failed",
+                    **ws_error(
+                        "final_transcript_failed",
+                        "polishedTranscript.failed",
+                        "浄書できませんでした（ホストのログを見てください）",
+                    ),
                     "session": files.id,
-                    "message": "浄書できませんでした（ホストのログを見てください）",
                 }
             )
 

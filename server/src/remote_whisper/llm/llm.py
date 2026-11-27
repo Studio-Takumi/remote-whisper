@@ -2,11 +2,27 @@
 spec/notes.md 9.3"""
 
 from collections.abc import AsyncIterator, Callable
-from typing import Any, NotRequired, Protocol, TypedDict
+from typing import Any, Literal, NotRequired, Protocol, TypedDict
+
+from remote_whisper.api_errors import ws_error
+
+# つながらないために作れなかったもの（unavailable_error の what）と、日本語の文での呼び名
+LlmProduct = Literal["realtimeSummary", "finalSummary"]
+_PRODUCTS: dict[str, str] = {"realtimeSummary": "リアルタイム要約", "finalSummary": "最終要約"}
 
 
 class LlmUnavailable(Exception):
     """LLM につながらない・エラーを返した"""
+
+
+def unavailable_error(backend: str, app: str, what: LlmProduct) -> dict[str, Any]:
+    """要約などを作れなかったことをブラウザに伝える error メッセージ。backend は ollama か
+    lmstudio（code は <backend>_unavailable、messageCode は <backend>.<what>Unavailable）"""
+    return ws_error(
+        f"{backend}_unavailable",
+        f"{backend}.{what}Unavailable",
+        f"{app} に接続できないため、{_PRODUCTS[what]}を作れませんでした",
+    )
 
 
 class PullProgress(TypedDict):
