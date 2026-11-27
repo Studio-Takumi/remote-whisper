@@ -11,7 +11,8 @@ from remote_whisper.settings import TranscriptionLanguage
 
 log = logging.getLogger(__name__)
 
-# この長さ（秒）より短い区間の判定では決めない（短い「OK」「Yes」などで決めないように）
+# 話している長さ（秒）がこれより短い区間の判定では決めない（短い「OK」「Yes」などで
+# 決めないように）。区間の長さではなく声の長さで測る（区間の後ろには最大 2 秒の無音が付く）
 DECIDE_MIN_SEC = 2.0
 # 判定した言語の確率がこれより低ければ決めない（雑音は低い確率で別の言語になる）
 DECIDE_MIN_PROBABILITY = 0.8
@@ -30,6 +31,12 @@ class LiveLanguage:
         self.decided: str | None = "ja" if choice == "ja" else None
         # 自動判定で言語が決まったときに呼ぶ（フロントマターに書く）
         self.on_decided = on_decided
+        # 録音を終えたら、もう決めない（浄書が書いた言語を上書きしないように）
+        self.finished = False
+
+    def finish(self) -> None:
+        """録音中の文字起こしが全部終わった。これからは決めない・書かない"""
+        self.finished = True
 
     def option(self) -> str | None:
         """Whisper に渡す言語。None なら Whisper が区間ごとに判定する"""
@@ -44,8 +51,8 @@ class LiveLanguage:
 
     def observe(self, result: list[dict], seconds: float) -> None:
         """確定した区間（final）の結果を見て、自動判定の言語を決める。
-        result はハルシネーションを除いた後のもの、seconds は区間の長さ"""
-        if self.decided is not None or not result or seconds < DECIDE_MIN_SEC:
+        result はハルシネーションを除いた後のもの、seconds は話している長さ（spoken_sec）"""
+        if self.finished or self.decided is not None or not result or seconds < DECIDE_MIN_SEC:
             return
         language = result[0].get("language")
         probability = result[0].get("language_probability")
@@ -63,3 +70,11 @@ class LiveLanguage:
         )
         if self.on_decided is not None:
             self.on_decided(language)
+
+
+def spoken_sec(result: list[dict], voiced_sec: float | None = None) -> float:
+    """区間で話している長さ（秒）。VAD が話しているとみなした長さ（voiced_sec）があれば
+    それを、なければ Whisper が文を出した時間の合計を使う（区間の後ろの無音を数えない）"""
+    if voiced_sec is not None:
+        return voiced_sec
+    return sum(max(0.0, r.get("end", 0.0) - r.get("start", 0.0)) for r in result)

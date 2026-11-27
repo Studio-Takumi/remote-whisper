@@ -35,6 +35,8 @@ class LiveProcessing:
         self.numbering = itertools.count()
         # ほかの音源の文字起こしに使う（Whisper・GPU キュー・文字起こしの設定）
         self.whisper_gpu: tuple[WhisperWorker, GpuQueue, Any] | None = None
+        # 文字起こしの言語（#483）。主の音源とほかの音源で 1 つを使う
+        self.language: LiveLanguage | None = None
 
     def transcribers(self) -> list[LiveTranscriber]:
         out = [self.transcriber] if self.transcriber is not None else []
@@ -48,7 +50,7 @@ class LiveProcessing:
         )
         # 文字起こしの言語（#483）。自動判定で決まったら、フロントマターの language に書く。
         # 続きを録音するときも、自動判定なら判定し直す
-        language = LiveLanguage(meta.language_choice, session.writer.set_language)
+        language = self.language = LiveLanguage(meta.language_choice, session.writer.set_language)
         self.transcriber = LiveTranscriber(
             whisper,
             gpu,
@@ -66,6 +68,11 @@ class LiveProcessing:
         self.transcriber.tag_source = lambda: session.multi
         self.whisper_gpu = (whisper, gpu, settings.whisper)
 
+    def finish_language(self) -> None:
+        """録音中の文字起こしを終えた。これからは言語を決めない（#483）"""
+        if self.language is not None:
+            self.language.finish()
+
     def for_source(self, sid: int, start: float) -> LiveTranscriber:
         """参加した音源の文字起こし。主の音源と同じ用語・置き換えを使う"""
         assert self.transcriber is not None and self.whisper_gpu is not None
@@ -81,7 +88,7 @@ class LiveProcessing:
             offset=start,
             source=sid,
             numbering=self.numbering,
-            language=self.transcriber.language,
+            language=self.language,
         )
         live.correct = self.transcriber.correct
         live.tag_source = lambda: True

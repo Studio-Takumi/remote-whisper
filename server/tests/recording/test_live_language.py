@@ -1,4 +1,6 @@
-from remote_whisper.recording.live_language import LiveLanguage
+import pytest
+
+from remote_whisper.recording.live_language import LiveLanguage, spoken_sec
 
 
 def said(language, probability=0.99):
@@ -36,6 +38,23 @@ def test_auto_decides_on_a_long_and_sure_segment():
     assert language.option() == "en"
     assert language.for_text(said("ja")) == "en"
     assert decided == ["en"]
+
+
+def test_nothing_is_decided_after_finishing():
+    # 録音を終えた後に遅れて届いた final では決めない（浄書が書いた言語を上書きしないように）
+    decided = []
+    language = LiveLanguage("auto", decided.append)
+    language.finish()
+    language.observe(said("en"), 10.0)
+    assert language.option() is None and decided == []
+
+
+def test_spoken_sec():
+    # VAD の長さがあればそれ、なければ文を出した時間の合計（区間の後ろの無音を数えない）
+    result = [{"start": 0.0, "end": 0.6}, {"start": 1.0, "end": 1.5}]
+    assert spoken_sec(result) == pytest.approx(1.1)
+    assert spoken_sec(result, 2.4) == 2.4
+    assert spoken_sec([]) == 0.0
 
 
 def test_auto_decides_without_a_probability():

@@ -16,7 +16,7 @@ from remote_whisper.gpu.gpu_queue import GpuQueue, Priority
 from remote_whisper.hub import Hub
 from remote_whisper.recording.audio_convert import AudioInfo, convert_audio, decode_pcm, probe
 from remote_whisper.recording.hallucination import drop_reason
-from remote_whisper.recording.live_language import LiveLanguage
+from remote_whisper.recording.live_language import LiveLanguage, spoken_sec
 from remote_whisper.recording.live_transcriber import load_hotwords
 from remote_whisper.settings import SettingsStore, TranscriptionLanguage
 from remote_whisper.storage.documents import SourceInfo, parse, recording_name, transcript_name
@@ -491,9 +491,9 @@ class UploadService:
             for segment in kept:
                 writer.append_final(offset + segment["start"], segment["text"].strip())
                 lines += 1
-            seconds = len(chunk) / 2 / SAMPLE_RATE
-            language.observe(kept, seconds)
-            offset += seconds
+            # 区切りの長さではなく、文を出した時間で測る（無音の多い区切りで決めないように）
+            language.observe(kept, spoken_sec(kept))
+            offset += len(chunk) / 2 / SAMPLE_RATE
         log.info("transcribed the uploaded %s with whisper (%d lines)", writer.id, lines)
 
     async def _summarize(self, writer: SessionWriter) -> None:

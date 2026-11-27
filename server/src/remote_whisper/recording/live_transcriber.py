@@ -15,7 +15,7 @@ from typing import Any
 from remote_whisper.gpu.gpu_queue import GpuQueue, Priority
 from remote_whisper.gpu.whisper_worker import SAMPLE_RATE, WhisperUnavailable, WhisperWorker
 from remote_whisper.recording.hallucination import drop_reason
-from remote_whisper.recording.live_language import LiveLanguage
+from remote_whisper.recording.live_language import LiveLanguage, spoken_sec
 from remote_whisper.recording.segmenter import LocalAgreement, Segment, Segmenter
 from remote_whisper.recording.vad_segmenter import Probabilities, VadSegmenter
 from remote_whisper.settings import WhisperSettings
@@ -182,7 +182,7 @@ class LiveTranscriber:
             return
         kept = _drop_hallucinations(result, segment, "final")
         # 自動判定なら、確定した区間で言語を決める（#483）
-        self.language.observe(kept, segment.end - segment.start)
+        self.language.observe(kept, spoken_sec(kept, segment.voiced_sec))
         # 画面で足した置き換え（#176）を当ててから、書いて送る
         text = self.correct(_join(kept, self.language.for_text(kept)))
         # 区間ごとの実行時間（本文は書かない。文字起こしのファイルに残っている）
