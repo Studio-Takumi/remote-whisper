@@ -13,8 +13,10 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { recordingMessages } from '@/features/recording/i18n';
 import { AUDIO_ACCEPT } from '@/features/recording/upload';
 import { mergeUnavailable } from '@/features/session/sources';
+import { useT } from '@/i18n/messages';
 
 // 音声ファイルから新しいセッションを作る（#180）。ファイルを選ぶボタン。
 // 複数のファイルを選んだら、まとめるか別々にするかを選ぶ（#357。MultiUploadDialog）
@@ -23,7 +25,8 @@ export function AudioUploadButton({ projectId }: { projectId: string }) {
     const uploading = useAppStore((s) => s.uploading);
     const pickAudioFiles = useAppStore((s) => s.pickAudioFiles);
     const busy = uploading !== null;
-    const label = '音声ファイルから作る';
+    const t = useT(recordingMessages);
+    const label = t('audioUpload.label');
 
     const picker = (
         <input
@@ -54,6 +57,7 @@ export function AudioUploadButton({ projectId }: { projectId: string }) {
 
 // アップロードの進み具合（%）
 export function UploadProgress() {
+    const t = useT(recordingMessages);
     const uploading = useAppStore((s) => s.uploading);
     if (!uploading) {
         return null;
@@ -61,7 +65,7 @@ export function UploadProgress() {
     return (
         <div className='flex flex-col gap-1' role='status'>
             <p className='text-xs text-muted-foreground'>
-                {uploading.name} をアップロードしています… {uploading.percent}%
+                {t('audioUpload.uploading', { name: uploading.name, percent: uploading.percent })}
             </p>
             <div className='h-1.5 w-full overflow-hidden rounded-full bg-muted'>
                 <div className='h-full bg-primary transition-[width]' style={{ width: `${uploading.percent}%` }} />
@@ -103,6 +107,7 @@ export function AudioDropZone({ projectId, children }: { projectId: string; chil
 // 複数のファイルを選んだ（ドロップした）とき、1 つのセッションにまとめるか、別々のセッションにするかを選ぶ
 // （#241・#357。spec/ui.md 8 の「複数のファイルから作る」）。まとめるときは主の音源にするファイルを選ぶ（既定は 1 つ目）
 export function MultiUploadDialog() {
+    const t = useT(recordingMessages);
     const picked = useAppStore((s) => s.pickedAudio);
     const maxSources = useAppStore((s) => s.options.recording?.maxSources);
     const cancel = useAppStore((s) => s.cancelPickedAudio);
@@ -120,11 +125,11 @@ export function MultiUploadDialog() {
         <Dialog open={picked !== null} onOpenChange={(open) => !open && cancel()}>
             <DialogContent className='sm:max-w-md'>
                 <DialogHeader>
-                    <DialogTitle>{files.length} 個の音声ファイル</DialogTitle>
-                    <DialogDescription>セッションの作り方を選んでください</DialogDescription>
+                    <DialogTitle>{t('audioUpload.dialogTitle', { n: files.length })}</DialogTitle>
+                    <DialogDescription>{t('audioUpload.dialogDescription')}</DialogDescription>
                 </DialogHeader>
                 <fieldset className='flex flex-col gap-3'>
-                    <legend className='sr-only'>セッションの作り方</legend>
+                    <legend className='sr-only'>{t('audioUpload.way')}</legend>
                     <label className='flex items-start gap-2 text-sm has-disabled:opacity-50'>
                         <input
                             type='radio'
@@ -135,17 +140,21 @@ export function MultiUploadDialog() {
                             onChange={() => update({ merge: true })}
                         />
                         <span className='flex flex-col'>
-                            1 つのセッションにまとめる
+                            {t('audioUpload.merge')}
                             <span className='text-xs text-muted-foreground'>
-                                {unavailable ?? '同じ場を複数のマイクで録ったもの'}
+                                {unavailable ?? t('audioUpload.mergeHint')}
                             </span>
                         </span>
                     </label>
                     {merge && (
                         <label className='ml-6 flex flex-col gap-1 text-xs text-muted-foreground'>
-                            主の音源
+                            {t('audioUpload.primarySource')}
                             <Select value={String(current.main)} onValueChange={(v) => update({ main: Number(v) })}>
-                                <SelectTrigger size='sm' className='w-full text-xs' aria-label='主の音源'>
+                                <SelectTrigger
+                                    size='sm'
+                                    className='w-full text-xs'
+                                    aria-label={t('audioUpload.primarySource')}
+                                >
                                     <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -167,18 +176,18 @@ export function MultiUploadDialog() {
                             onChange={() => update({ merge: false })}
                         />
                         <span className='flex flex-col'>
-                            別々のセッションにする
-                            <span className='text-xs text-muted-foreground'>ファイルごとに 1 つずつ作ります</span>
+                            {t('audioUpload.separate')}
+                            <span className='text-xs text-muted-foreground'>{t('audioUpload.separateHint')}</span>
                         </span>
                     </label>
                 </fieldset>
                 <DialogFooter className='gap-2'>
                     <Button variant='outline' onClick={cancel}>
-                        キャンセル
+                        {t('audioUpload.cancel')}
                     </Button>
                     <Button onClick={() => void (merge ? uploadSources(current.main) : uploadSeparately())}>
                         <FileAudioIcon />
-                        作る
+                        {t('audioUpload.create')}
                     </Button>
                 </DialogFooter>
             </DialogContent>

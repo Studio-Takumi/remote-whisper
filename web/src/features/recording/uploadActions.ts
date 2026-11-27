@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 
 import { isDemo } from '@/api/demo';
 import type { ActionContext } from '@/app/actionContext';
+import { recordingMessages } from '@/features/recording/i18n';
 import { UploadError, uploadAudio as sendAudio, uploadSource } from '@/features/recording/upload';
 import { type TranscriptionLanguage, finalModelLabel, llmModels } from '@/features/settings/settings';
 
@@ -27,11 +28,11 @@ export async function uploadAudio(
 ) {
     const { getState: get, setState: set } = ctx.store;
     if (isDemo) {
-        toast.info('デモでは音声ファイルを使えません');
+        toast.info(recordingMessages.t('uploadActions.demo'));
         return;
     }
     if (get().uploading) {
-        toast.info('ほかのファイルをアップロード中です。終わってから選び直してください');
+        toast.info(recordingMessages.t('uploadActions.busy'));
         return;
     }
     set({ uploading: { projectId, name: file.name, percent: 0 } });
@@ -44,9 +45,9 @@ export async function uploadAudio(
             language,
         );
         await openUploaded(ctx, projectId, created.id);
-        toast.success(`${file.name} から作ります。要約まで少しかかります`);
+        toast.success(recordingMessages.t('uploadActions.created', { name: file.name }));
     } catch (e) {
-        toast.error(`${file.name} をアップロードできません: ${(e as Error).message}`);
+        toast.error(recordingMessages.t('uploadActions.failed', { name: file.name, message: (e as Error).message }));
     } finally {
         set({ uploading: null });
     }
@@ -58,7 +59,7 @@ export function pickAudioFiles(ctx: ActionContext, projectId: string, files: Fil
         void get().uploadAudio(projectId, files[0]);
     } else if (files.length > 1) {
         if (get().uploading) {
-            toast.info('ほかのファイルをアップロード中です。終わってから選び直してください');
+            toast.info(recordingMessages.t('uploadActions.busy'));
             return;
         }
         set({ pickedAudio: { projectId, files } });
@@ -85,17 +86,20 @@ function reportSources(files: File[], failed: string[], old: boolean) {
     const total = files.length;
     if (old) {
         // 1 つ目のファイルだけのセッションとして浄書が始まっている
-        toast.warning(`このホストは複数の音源に対応していないため、${files[0].name} だけのセッションにしました`, {
+        toast.warning(recordingMessages.t('uploadActions.oldHost', { name: files[0].name }), {
             duration: 15000,
         });
     } else if (failed.length > 0) {
         // ホストは残りのファイルを 30 分待ってから、届いた分だけで作る（spec/flows.md 6.16）
         toast.error(
-            `${failed.join('、')} を送れませんでした。届いた ${total - failed.length} 個のファイルで、30 分後に作ります`,
+            recordingMessages.t('uploadActions.partialFailed', {
+                failed: failed.join(recordingMessages.t('uploadActions.separator')),
+                n: total - failed.length,
+            }),
             { duration: 20000 },
         );
     } else {
-        toast.success(`${total} 個のファイルを 1 つのセッションにまとめて作ります。要約まで少しかかります`);
+        toast.success(recordingMessages.t('uploadActions.merged', { total }));
     }
 }
 
@@ -111,7 +115,13 @@ export async function uploadSources(ctx: ActionContext, main: number) {
     const files = [picked.files[main], ...picked.files.filter((_, i) => i !== main)];
     const total = files.length;
     const progress = (i: number, percent: number) =>
-        set({ uploading: { projectId, name: `${files[i].name}（${i + 1}/${total}）`, percent } });
+        set({
+            uploading: {
+                projectId,
+                name: recordingMessages.t('uploadActions.progressName', { name: files[i].name, i: i + 1, total }),
+                percent,
+            },
+        });
     progress(0, 0);
     try {
         const created = await sendAudio(projectId, files[0], (p) => progress(0, p), total, get().nextLanguage);
@@ -126,13 +136,20 @@ export async function uploadSources(ctx: ActionContext, main: number) {
                     old = true;
                     break;
                 }
-                failed.push(`${files[i].name}（${(e as Error).message}）`);
+                failed.push(
+                    recordingMessages.t('uploadActions.failedItem', {
+                        name: files[i].name,
+                        message: (e as Error).message,
+                    }),
+                );
             }
         }
         await openUploaded(ctx, projectId, created.id);
         reportSources(files, failed, old);
     } catch (e) {
-        toast.error(`${files[0].name} をアップロードできません: ${(e as Error).message}`);
+        toast.error(
+            recordingMessages.t('uploadActions.failed', { name: files[0].name, message: (e as Error).message }),
+        );
     } finally {
         set({ uploading: null });
     }
