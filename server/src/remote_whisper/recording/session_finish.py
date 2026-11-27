@@ -78,6 +78,8 @@ class SessionFinisher:
                 for transcriber in transcribers:
                     await transcriber.close()
                 session.sources.finish()
+                # これより後に遅れて言語が決まっても、浄書が書く language を上書きしない（#483）
+                session.live.finish_language()
         finally:
             # 最後の区間まで送ってから、見ているクライアントに終わりを知らせる（#238）。
             # 続きの録音に引き継いだ（同じ ID で録音中）なら知らせない

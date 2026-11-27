@@ -249,23 +249,26 @@ def transcribe(pipe: Any, audio: Any, options: dict) -> list[dict]:
     """録音中の文字起こし（whisper_worker）。VAD を使うなら話している範囲だけを渡す（#81）
 
     文ごとに voiced_sec を付ける（ハルシネーションの判定用。spec/flows.md 6.17）。
+    使った言語（言語を渡さなければ判定した言語）も付ける（録音中の自動判定。#483）
     """
     spans = speech_spans(audio)
     if not options.get("vad_filter", True):
-        segments = generate(pipe, audio, options)
-        if spans:
-            for s in segments:
+        segments, language = _generate(pipe, audio, options)
+        for s in segments:
+            s["language"] = language
+            if spans:
                 s["voiced_sec"] = voiced_sec(spans, s["start"], s["end"])
         return segments
     if not spans:
         return []
     offset, end = spans[0][0], spans[-1][1]
-    segments = generate(pipe, audio[offset:end], options)
+    segments, language = _generate(pipe, audio[offset:end], options)
     shift = offset / SAMPLE_RATE
     for s in segments:
         s["start"] += shift
         s["end"] += shift
         s["voiced_sec"] = voiced_sec(spans, s["start"], s["end"])
+        s["language"] = language
     return segments
 
 

@@ -1,4 +1,5 @@
 import asyncio
+from types import SimpleNamespace
 
 import pytest
 
@@ -46,11 +47,22 @@ def test_load_and_transcribe(worker):
         # 読み込み済みなら何もしない
         await worker.ensure_loaded()
         result = await worker.transcribe(b"\0\0" * 16000, beam_size=5)
+        # 言語を渡さなければ、英語と判定したことにする（#483）
+        detected = await worker.transcribe(b"\0\0" * 16000, language=None)
         await worker.close()
-        return result
+        return result, detected
 
-    result = run(main())
-    assert result == [{"start": 0.0, "end": 1.0, "text": "fake 1.0s"}]
+    result, detected = run(main())
+    assert result == [
+        {
+            "start": 0.0,
+            "end": 1.0,
+            "text": "fake 1.0s",
+            "language": "ja",
+            "language_probability": 1.0,
+        }
+    ]
+    assert detected[0]["language"] == "en"
     assert worker.hub.whisper_states == ["loading", "ready"]
 
 
@@ -208,7 +220,10 @@ class _Model:
 
     def transcribe(self, audio, **kwargs):
         self.kwargs = kwargs
-        return iter([_Segment()]), None
+        # 言語を渡さなければ判定した言語（ここでは英語）が入る
+        language = kwargs.get("language") or "en"
+        info = SimpleNamespace(language=language, language_probability=0.9)
+        return iter([_Segment()]), info
 
 
 def test_transcribe_uses_vad_and_returns_scores():
@@ -224,10 +239,21 @@ def test_transcribe_uses_vad_and_returns_scores():
             "no_speech_prob": 0.1,
             "avg_logprob": -0.2,
             "compression_ratio": 1.1,
+            "language": "ja",
+            "language_probability": 0.9,
         }
     ]
     _transcribe("faster-whisper", model, b"\0\0" * 1600, {"vad_filter": False})
     assert model.kwargs["vad_filter"] is False
+
+
+def test_transcribe_tells_the_detected_language():
+    # 録音中の自動判定（#483）: 言語を渡さなければ判定させ、判定した言語と確率を返す
+    model = _Model()
+    result = _transcribe("faster-whisper", model, b"\0\0" * 1600, {"language": None})
+    assert model.kwargs["language"] is None
+    assert result[0]["language"] == "en"
+    assert result[0]["language_probability"] == 0.9
 
 
 def test_device_falls_back_to_cpu_without_cuda():
@@ -291,7 +317,7 @@ def fake_mlx(monkeypatch):
             "compression_ratio": 1.1,
             "tokens": [1],
         }
-        return {"segments": [segment]}
+        return {"segments": [segment], "language": kwargs.get("language") or "en"}
 
     monkeypatch.setitem(sys.modules, "mlx_whisper", types.SimpleNamespace(transcribe=transcribe))
     return calls
@@ -317,8 +343,13 @@ def test_mlx_transcribes_only_the_speech_and_shifts_times(monkeypatch, fake_mlx)
             "no_speech_prob": 0.1,
             "avg_logprob": -0.2,
             "compression_ratio": 1.1,
+            "language": "ja",
         }
     ]
+    # 言語を渡さなければ、判定した言語を返す（#483）
+    detected = _transcribe("mlx", "repo", b"\0\0" * 48000, {"language": None})
+    assert fake_mlx[-1][1]["language"] is None
+    assert detected[0]["language"] == "en"
 
 
 def test_mlx_skips_audio_without_speech(monkeypatch, fake_mlx):

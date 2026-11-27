@@ -5,6 +5,7 @@ import numpy as np
 from remote_whisper.gpu.gpu_queue import GpuQueue
 from remote_whisper.gpu.whisper_worker import WhisperUnavailable
 from remote_whisper.recording import live_transcriber
+from remote_whisper.recording.live_language import LiveLanguage
 from remote_whisper.recording.live_transcriber import LiveTranscriber, load_hotwords
 from remote_whisper.recording.segmenter import Segmenter
 from remote_whisper.recording.vad_segmenter import CONTEXT, VadSegmenter
@@ -321,3 +322,164 @@ def test_join_keeps_japanese_as_it_was():
     )
     assert join([{"text": "使うのは GPU"}, {"text": "CUDA です"}]) == "使うのは GPU CUDA です"
     assert join([]) == ""
+
+
+def test_japanese_is_always_passed_by_default():
+    # 言語を渡さなければ日本語（今までと同じ）
+    async def main():
+        h = Harness()
+        h.live.feed(tone(1.0) + silence(0.5))
+        await h.live.wait()
+        await h.close()
+        return h
+
+    h = run(main())
+    assert h.whisper.calls and all(c["language"] == "ja" for c in h.whisper.calls)
+
+
+def english_said(seconds, **scores):
+    """英語と判定した、seconds 秒の文"""
+    return [
+        {"start": 0.0, "end": seconds, "text": "We visited", "language": "en", **scores},
+        {"start": seconds, "end": seconds, "text": "東京.", "language": "en", **scores},
+    ]
+
+
+def test_japanese_through_the_transcriber_ignores_the_detected_language():
+    # 日本語を選んだら、結果の言語が英語でも決め直さず、日本語のつなぎ方のまま
+    async def main():
+        decided = []
+        h = Harness()
+        h.live.language = LiveLanguage("ja", decided.append)
+
+        async def english(pcm, **options):
+            h.whisper.calls.append(options)
+            return english_said(5.0, language_probability=1.0)
+
+        h.whisper.transcribe = english
+        h.live.feed(tone(3.0) + silence(0.5))
+        await h.live.wait()
+        await h.close()
+        return h, decided
+
+    h, decided = run(main())
+    assert decided == []
+    assert all(c["language"] == "ja" for c in h.whisper.calls)
+    assert [m["text"] for m in h.of_type("final")] == ["We visited東京."]
+
+
+def test_auto_does_not_decide_on_a_dropped_hallucination():
+    # 定番の文として捨てた区間（文が残らない）では、長くても確かでも決めない
+    async def main():
+        language = LiveLanguage("auto")
+        h = Harness()
+        h.live.language = language
+
+        async def noise(pcm, **options):
+            return [
+                {
+                    "start": 0.0,
+                    "end": 5.0,
+                    "text": "Thank you.",
+                    "language": "en",
+                    "language_probability": 0.99,
+                    "no_speech_prob": 0.9,
+                    "avg_logprob": -1.5,
+                }
+            ]
+
+        h.whisper.transcribe = noise
+        h.live.feed(tone(3.0) + silence(0.5))
+        await h.live.wait()
+        await h.close()
+        return h, language
+
+    h, language = run(main())
+    assert language.option() is None
+    assert [m["text"] for m in h.of_type("final")] == [""]
+
+
+def test_auto_does_not_decide_on_trailing_silence():
+    # 区間が長くても、話している長さ（VAD の voiced_sec か文の時間）が 2 秒に満たなければ決めない
+    async def main():
+        language = LiveLanguage("auto")
+        h = Harness()
+        h.live.language = language
+
+        async def short(pcm, **options):
+            return english_said(0.5, language_probability=0.99)
+
+        h.whisper.transcribe = short
+        # 3 秒の区間で、文が出たのは 0.5 秒だけ
+        h.live.feed(tone(3.0) + silence(0.5))
+        await h.live.wait()
+        await h.close()
+        return language
+
+    assert run(main()).option() is None
+
+
+def test_partials_follow_the_decided_language():
+    # 決まる前の partial は言語を渡さず、決まった後の partial は決まった言語を渡す
+    async def main():
+        language = LiveLanguage("auto")
+        h = Harness()
+        h.live.language = language
+        for _ in range(3):
+            h.live.feed(tone(0.5))
+            await asyncio.sleep(0.15)
+        before = list(h.whisper.calls)
+        language.observe(english_said(3.0), 3.0)
+        h.whisper.calls.clear()
+        for _ in range(3):
+            h.live.feed(tone(0.5))
+            await asyncio.sleep(0.15)
+        after = list(h.whisper.calls)
+        await h.close()
+        return h, before, after
+
+    h, before, after = run(main())
+    assert h.of_type("partial")
+    assert before and all(c["language"] is None for c in before)
+    assert after and all(c["language"] == "en" for c in after)
+
+
+def test_auto_detects_until_a_language_is_decided():
+    # 自動判定（#483）: 決まるまでは言語を渡さず、2 秒以上の確かな final で決まった言語を
+    # ほかの音源とも分け合い、それからずっと渡す。文のつなぎ方もその言語にする
+    async def main():
+        decided = []
+        language = LiveLanguage("auto", decided.append)
+        h = Harness()
+        other = Harness()
+        h.live.language = other.live.language = language
+        calls = []
+
+        async def english(pcm, **options):
+            calls.append(options["language"])
+            half = len(pcm) / 32000 / 2
+            return [
+                {"start": 0.0, "end": half, "text": "We visited", "language": "en"},
+                {"start": half, "end": half * 2, "text": "東京.", "language": "en"},
+            ]
+
+        h.whisper.transcribe = other.whisper.transcribe = english
+        # 短い区間では決めない
+        h.live.feed(tone(1.0) + silence(0.5))
+        await h.live.wait()
+        h.live.feed(tone(2.5) + silence(0.5))
+        await h.live.wait()
+        before_other = list(calls)
+        other.live.feed(tone(1.0) + silence(0.5))
+        await other.live.wait()
+        await h.close()
+        await other.close()
+        return h, other, calls, before_other, decided
+
+    h, other, calls, before_other, decided = run(main())
+    assert set(before_other) == {None}
+    assert decided == ["en"]
+    # 決まった後は、ほかの音源でも英語を渡す
+    assert calls[len(before_other) :] and set(calls[len(before_other) :]) == {"en"}
+    assert [m["text"] for m in h.of_type("final")] == ["We visited 東京."] * 2
+    assert [m["text"] for m in other.of_type("final")] == ["We visited 東京."]
