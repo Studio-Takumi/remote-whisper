@@ -171,6 +171,8 @@ describe('SettingsDialog', () => {
         expect(screen.getByText('サイドバーの録音日時と長さ')).toBeTruthy();
         expect(screen.getByText('マイクボタンのショートカット')).toBeTruthy();
         expect(screen.getByText('この端末')).toBeTruthy();
+        // 表示言語（#487）は端末ごとで、テーマの下
+        expect(screen.getByText('表示言語')).toBeTruthy();
     });
 
     it('数の入力は単位を出し、変えた値を保存する', () => {
