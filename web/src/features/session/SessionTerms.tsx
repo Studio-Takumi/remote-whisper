@@ -6,11 +6,14 @@ import type { Session } from '@/api/types';
 import { useAppStore } from '@/app/store';
 import { Input } from '@/components/ui/input';
 import { describeCorrection } from '@/features/session/corrections';
+import { sessionMessages } from '@/features/session/i18n';
 import { addAll, describeInvalid, isSubmitKey, parseTermInput, remainingDraft } from '@/features/session/terms';
+import { useT } from '@/i18n/messages';
 
 // 用語リストの欄（#103・#175・#147。spec/flows.md 6.2・spec/ui.md 8）。手で足した語と拾った語を × で外せる。
 // 拾った語の一覧は showPicked がオンのときだけ出す
 export function SessionTerms({ session, showPicked }: { session: Session; showPicked: boolean }) {
+    const t = useT(sessionMessages);
     const reject = useAppStore((s) => s.rejectTerm);
     const removeCorrection = useAppStore((s) => s.removeCorrection);
     const addTerm = useAppStore((s) => s.addTerm);
@@ -36,7 +39,7 @@ export function SessionTerms({ session, showPicked }: { session: Session; showPi
             const left = [...invalid.map((x) => x.term), ...failed];
             const reasons = [
                 ...(invalid.length > 0 ? [describeInvalid(invalid)] : []),
-                ...(failed.length > 0 ? [`足せませんでした（${failed.length} 語）`] : []),
+                ...(failed.length > 0 ? [t('sessionTerms.failedCount', { n: failed.length })] : []),
             ];
             setProblem(reasons.join(' / '));
             if (left.length > 0) {
@@ -58,7 +61,7 @@ export function SessionTerms({ session, showPicked }: { session: Session; showPi
             <div className='flex flex-wrap items-center gap-1.5'>
                 <span className='flex items-center gap-1 text-muted-foreground'>
                     <TagsIcon className='size-3.5' />
-                    用語
+                    {t('sessionTerms.terms')}
                 </span>
                 {manual.map((term) => (
                     <TermChip
@@ -66,7 +69,7 @@ export function SessionTerms({ session, showPicked }: { session: Session; showPi
                         term={term}
                         manual
                         onRemove={() => void reject(session.id, term)}
-                        title='手で足した語を外す'
+                        title={t('sessionTerms.manualRemoveTitle')}
                     />
                 ))}
                 {picked.map((term) => (
@@ -74,15 +77,15 @@ export function SessionTerms({ session, showPicked }: { session: Session; showPi
                         key={`p-${term}`}
                         term={term}
                         onRemove={() => void reject(session.id, term)}
-                        title='誤った語なら外す（このセッションでは、以後足さない）'
+                        title={t('sessionTerms.pickedRemoveTitle')}
                     />
                 ))}
                 <label className='flex items-center gap-1'>
                     <PlusIcon className='size-3.5 text-muted-foreground' />
                     <Input
                         className='h-7 w-40 text-xs md:text-xs'
-                        placeholder='用語を足す'
-                        aria-label='用語を足す'
+                        placeholder={t('sessionTerms.termAdd')}
+                        aria-label={t('sessionTerms.termAdd')}
                         value={draft}
                         disabled={busy}
                         onChange={(e) => setDraft(e.target.value)}
@@ -109,7 +112,7 @@ export function SessionTerms({ session, showPicked }: { session: Session; showPi
                 <div className='flex flex-wrap items-center gap-1.5'>
                     <span className='flex items-center gap-1 text-muted-foreground'>
                         <ArrowRightLeftIcon className='size-3.5' />
-                        置き換え
+                        {t('sessionTerms.corrections')}
                     </span>
                     {corrections.map((c) => (
                         <span
@@ -119,8 +122,8 @@ export function SessionTerms({ session, showPicked }: { session: Session; showPi
                             {describeCorrection(c)}
                             <button
                                 className='rounded-full p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground'
-                                aria-label={`置き換え「${c.from} → ${c.to}」を外す`}
-                                title='外す（以後は当たらない。もう直した行は戻さない）'
+                                aria-label={t('sessionTerms.correctionRemove', { from: c.from, to: c.to })}
+                                title={t('sessionTerms.correctionRemoveTitle')}
                                 onClick={() => void removeCorrection(session.id, c)}
                             >
                                 <XIcon className='size-3' />
@@ -134,9 +137,7 @@ export function SessionTerms({ session, showPicked }: { session: Session; showPi
                     {problem}
                 </p>
             )}
-            {addedAfterRecording && (
-                <p className='text-muted-foreground'>浄書済み文字起こしを再生成すると反映されます</p>
-            )}
+            {addedAfterRecording && <p className='text-muted-foreground'>{t('sessionTerms.reflectAfterRegenerate')}</p>}
         </div>
     );
 }
@@ -152,6 +153,7 @@ function TermChip({
     onRemove: () => void;
     title: string;
 }) {
+    const t = useT(sessionMessages);
     // 手で足した語は枠を濃くして、拾った語と見分ける
     const border = manual ? 'border-foreground/60 bg-muted' : 'border-border bg-muted/40';
     return (
@@ -159,7 +161,7 @@ function TermChip({
             {term}
             <button
                 className='rounded-full p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground'
-                aria-label={`「${term}」を用語リストから外す`}
+                aria-label={t('sessionTerms.termRemove', { term })}
                 title={title}
                 onClick={onRemove}
             >

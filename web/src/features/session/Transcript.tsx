@@ -7,10 +7,12 @@ import type { LivePartial } from '@/app/store';
 import { Button } from '@/components/ui/button';
 import { PartialLine } from '@/features/session/PartialLine';
 import { TranscriptRow } from '@/features/session/TranscriptRow';
+import { sessionMessages } from '@/features/session/i18n';
 import type { Playback } from '@/features/session/playbackLine';
 import { useFollowPlayback } from '@/features/session/useFollowPlayback';
 import { useKeepHeight } from '@/features/session/useKeepHeight';
 import { useStickToBottom } from '@/features/session/useStickToBottom';
+import { useT } from '@/i18n/messages';
 
 const NO_NAMES: Record<number, string | null> = {};
 
@@ -40,6 +42,7 @@ export function Transcript({
     // 主の音源とみなす。spec/flows.md 6.16）。音源が 1 つのセッションでは渡さない（札を出さない）
     defaultSource?: number;
 }) {
+    const t = useT(sessionMessages);
     // 文字送りで伸びた分も追う（PartialLine が伸びるたびに知らせる）
     const [typed, setTyped] = useState(0);
     const onTyped = useCallback(() => setTyped((n) => n + 1), []);
@@ -86,7 +89,7 @@ export function Transcript({
                 <div className='pointer-events-none sticky bottom-44 z-20 flex justify-center'>
                     <Button size='sm' className='pointer-events-auto rounded-full shadow-md' onClick={followAgain}>
                         <LocateFixedIcon />
-                        再生位置に戻る
+                        {t('transcript.followAgain')}
                     </Button>
                 </div>
             )}

@@ -22,6 +22,7 @@ import { StatusIndicator } from '@/features/session/StatusIndicator';
 import { SummaryPanel } from '@/features/session/SummaryPanel';
 import { Transcript } from '@/features/session/Transcript';
 import { TranscriptCorrection } from '@/features/session/TranscriptCorrection';
+import { sessionMessages } from '@/features/session/i18n';
 import { type LivePartial, partialsOf } from '@/features/session/livePartials';
 import { type SessionPlayback, lineAt, nextPlayback } from '@/features/session/playbackLine';
 import { expired, shareSource } from '@/features/session/sessionContent';
@@ -32,6 +33,7 @@ import { useSessionSources } from '@/features/session/useSessionSources';
 import { useShortScreen } from '@/features/session/useShortScreen';
 import { useTabScroll } from '@/features/session/useTabScroll';
 import { llmBackend, llmModels } from '@/features/settings/settings';
+import { useT } from '@/i18n/messages';
 import { clockToSeconds } from '@/lib/time';
 
 const NO_PARTIALS: LivePartial[] = [];
@@ -40,6 +42,7 @@ const NO_PARTIALS: LivePartial[] = [];
 // stickySlot は、上のバー（TopBar）の中の置き場。タブと再生バーをそこに出す（#463）。
 // null の間（まだ置き場ができていない）は出さず、undefined（置き場のない使い方）はその場に出す
 export function SessionView({ stickySlot }: { stickySlot?: HTMLElement | null }) {
+    const t = useT(sessionMessages);
     const hasProjects = useProjects().length > 0;
     const notFound = useAppStore((s) => s.notFound);
     const project = useCurrentProject();
@@ -157,8 +160,8 @@ export function SessionView({ stickySlot }: { stickySlot?: HTMLElement | null })
             {/* TabsList の見た目（group-data-horizontal/tabs:*）は Tabs の中にあることが前提。ポータルで外に出るので、同じ属性を持つ箱で包む */}
             <div data-horizontal className='group/tabs'>
                 <TabsList>
-                    <TabsTrigger value='transcript'>文字起こし</TabsTrigger>
-                    <TabsTrigger value='summary'>要約</TabsTrigger>
+                    <TabsTrigger value='transcript'>{t('sessionView.tabTranscript')}</TabsTrigger>
+                    <TabsTrigger value='summary'>{t('sessionView.tabSummary')}</TabsTrigger>
                 </TabsList>
             </div>
             {/* マイクの警告は録音の失敗に関わるので、高さの足りない画面でも上のバーに残す */}
@@ -184,9 +187,11 @@ export function SessionView({ stickySlot }: { stickySlot?: HTMLElement | null })
                     {session?.materialRange && session.materialRange.length > 0 && (
                         <p className='text-xs text-muted-foreground'>{describeMaterialRange(session.materialRange)}</p>
                     )}
-                    {session && !session.loaded && <p className='text-sm text-muted-foreground'>読み込んでいます…</p>}
+                    {session && !session.loaded && (
+                        <p className='text-sm text-muted-foreground'>{t('sessionView.loading')}</p>
+                    )}
                     {session && expired(session, 'transcript') && (
-                        <p className='text-sm text-muted-foreground'>文字起こしは期限切れのため消えています</p>
+                        <p className='text-sm text-muted-foreground'>{t('sessionView.expiredTranscript')}</p>
                     )}
                     {session && ((session.loaded && lines && lines.length > 0) || sources.length >= 2) && (
                         <div className='flex flex-wrap gap-2'>
@@ -237,12 +242,10 @@ export function SessionView({ stickySlot }: { stickySlot?: HTMLElement | null })
                         </div>
                     )}
                     {!session && recordingState === 'idle' && (
-                        <p className='text-sm text-muted-foreground'>マイクボタンを押すと録音が始まります</p>
+                        <p className='text-sm text-muted-foreground'>{t('sessionView.startHint')}</p>
                     )}
                     {!session && recordingElsewhere && (
-                        <p className='text-sm text-muted-foreground'>
-                            ほかのセッションで録音中です。終えると、ここから録音できます
-                        </p>
+                        <p className='text-sm text-muted-foreground'>{t('sessionView.recordingElsewhere')}</p>
                     )}
                     {/* ほかの端末で録音中のセッションを見ている間は、この端末の状態（待機中）を出さない（#238） */}
                     {!recordedElsewhere(session, recordingSessionId) && (
@@ -263,7 +266,7 @@ export function SessionView({ stickySlot }: { stickySlot?: HTMLElement | null })
                     ) : (
                         recordingState === 'idle' && (
                             <p className='text-sm text-muted-foreground'>
-                                録音が始まると、{liveIntervalMin} 分おきにリアルタイム要約がここに出ます
+                                {t('sessionView.emptyLiveSummary', { n: liveIntervalMin })}
                             </p>
                         )
                     )}
