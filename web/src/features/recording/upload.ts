@@ -3,6 +3,7 @@
 import type { SessionJson } from '@/api/api';
 import { appAccessToken, appAuthActive, isRelayUrl } from '@/api/appAuth';
 import { apiUrl } from '@/api/endpoint';
+import { recordingMessages } from '@/features/recording/i18n';
 import type { TranscriptionLanguage } from '@/features/settings/settings';
 
 // 選べるファイル。動画は音声だけを使う
@@ -53,7 +54,7 @@ export function uploadError(status: number, body: string) {
     } catch {
         // JSON でなければ下へ
     }
-    return status === 0 ? 'アップロードが途中で切れました' : `ホストが受け付けませんでした（${status}）`;
+    return status === 0 ? recordingMessages.t('upload.cutOff') : recordingMessages.t('upload.rejected', { status });
 }
 
 // percent は 0〜100。作ったセッションを返す

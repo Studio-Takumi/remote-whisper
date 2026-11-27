@@ -11,6 +11,7 @@ import { patchLocal, putLocal } from '@/features/projects/localSessions';
 import { openChosenMicrophone } from '@/features/recording/audio/micDevice';
 import { MicrophoneError, SAMPLE_RATE } from '@/features/recording/audio/microphone';
 import { clearSession, deleteUpTo, saveChunk } from '@/features/recording/audio/unsentStore';
+import { recordingMessages } from '@/features/recording/i18n';
 import { micFallbackMessage, micStateMessage, withMicLabel } from '@/features/recording/micMessages';
 import { MicRecovery } from '@/features/recording/micRecovery';
 import type { ErrorMessage, Recorder, StartedMessage } from '@/features/recording/recorderState';
@@ -20,7 +21,7 @@ import { finalModelLabel, llmModels } from '@/features/settings/settings';
 import { formatDateTime } from '@/lib/time';
 
 // 前の録音の残りをまだ送っていないときの知らせ（始めると、その残りが捨てられてしまう）
-const WAITING_LEFTOVER = '前の録音の残りを送るのを待っています。つながってから、もう一度押してください';
+const waitingLeftover = () => recordingMessages.t('recorder.waitingLeftover');
 
 // 送る音声を数えて、経過時間を進める。接続が切れて手元に溜めている分も、録音した長さとして数える
 export function countRecorded(r: Recorder, pcm: Int16Array) {
@@ -40,7 +41,7 @@ function micRecoveryOf(r: Recorder) {
             await r.mic?.restart();
         },
         reopen: () => swapMicrophone(r),
-        recovered: () => toast.success(withMicLabel('録音に戻りました', r.mic?.label())),
+        recovered: () => toast.success(withMicLabel(recordingMessages.t('recorder.recovered'), r.mic?.label())),
     });
     return r.micRecovery;
 }
@@ -85,9 +86,7 @@ export function persistUnsent(target: AudioSender, sessionId: string, projectId:
         void saveChunk(sessionId, projectId, getHostId(), seq, frame).then((saved) => {
             if (!saved && !warned) {
                 warned = true;
-                toast.warning(
-                    '届いていない音声が多いため、ここから先はページを読み込み直すと消えます。閉じずに、つながるのを待ってください',
-                );
+                toast.warning(recordingMessages.t('recorder.unsentOverflow'));
             }
         });
     };
@@ -169,7 +168,7 @@ function beginNew(r: Recorder, projectId: string, reply: StartedMessage) {
     const created: Session = {
         id: reply.session,
         uuid: reply.sessionUuid ?? undefined,
-        title: '新しいセッション',
+        title: recordingMessages.t('common.newSession'),
         startedAt: formatDateTime(),
         status: 'recording',
         loaded: true,
@@ -220,7 +219,7 @@ export async function startOrContinue(r: Recorder, projectId: string, continueSe
         closeRecording(r);
         if (e instanceof MicrophoneError && e.reason === 'denied') {
             r.store.setState((s) => ({ server: { ...s.server, microphone: 'denied' } }));
-            toast.error('マイクが使えません。ブラウザの設定でマイクを許可してください');
+            toast.error(recordingMessages.t('recorder.micDenied'));
         } else {
             toast.error((e as Error).message);
         }
@@ -234,7 +233,7 @@ export async function startRecording(r: Recorder) {
     const s = r.store.getState();
     const project = currentProject(s);
     if (!project) {
-        toast.info('録音するプロジェクトをメニューから選んでください');
+        toast.info(recordingMessages.t('common.chooseProject'));
         return;
     }
     // 既存のセッションを開いていたら、同じプロジェクトの新しいセッションの画面に切り替えるだけにする
@@ -247,7 +246,7 @@ export async function startRecording(r: Recorder) {
         return;
     }
     if (r.stoppedWhileOffline) {
-        toast.warning(WAITING_LEFTOVER);
+        toast.warning(waitingLeftover());
         return;
     }
     await startOrContinue(r, project.id);
@@ -261,7 +260,7 @@ export async function continueRecording(r: Recorder, sessionId: string) {
         return;
     }
     if (r.stoppedWhileOffline) {
-        toast.warning(WAITING_LEFTOVER);
+        toast.warning(waitingLeftover());
         return;
     }
     await startOrContinue(r, projectId, sessionId);
@@ -343,9 +342,9 @@ export async function reopenMicrophone(r: Recorder) {
             return;
         }
         await swapMicrophone(r);
-        toast.success(withMicLabel('マイクを開き直しました。録音を続けています', r.mic?.label()));
+        toast.success(withMicLabel(recordingMessages.t('recorder.reopened'), r.mic?.label()));
     } catch (e) {
-        toast.error(`マイクを開き直せません: ${(e as Error).message}`);
+        toast.error(recordingMessages.t('recorder.reopenFailed', { message: (e as Error).message }));
     }
 }
 
@@ -358,9 +357,9 @@ export async function switchMicrophone(r: Recorder) {
     }
     try {
         await swapMicrophone(r);
-        toast.success(withMicLabel('マイクを切り替えました。録音を続けています', r.mic?.label()));
+        toast.success(withMicLabel(recordingMessages.t('recorder.switched'), r.mic?.label()));
     } catch (e) {
-        toast.error(`マイクを切り替えられません: ${(e as Error).message}`);
+        toast.error(recordingMessages.t('recorder.switchFailed', { message: (e as Error).message }));
     }
 }
 
