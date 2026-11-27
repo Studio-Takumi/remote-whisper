@@ -6,17 +6,20 @@ import { apiUrl } from '@/api/endpoint';
 import { httpErrorText } from '@/api/serverErrors/serverErrors';
 import { recordingMessages } from '@/features/recording/i18n';
 import type { TranscriptionLanguage } from '@/features/settings/settings';
+import { type Language, getLanguage } from '@/i18n/language';
 
 // 選べるファイル。動画は音声だけを使う
 export const AUDIO_ACCEPT = 'audio/*,video/*,.m4a,.mp3,.wav,.flac,.ogg,.opus,.webm,.aac';
 
 // sources は複数のファイルを 1 つのセッションにまとめるときのファイルの数（#241・#357。1 つ目のファイルに付ける）。
-// language は今回だけ変えた文字起こしの言語（#482）。省くと全体設定
+// language は今回だけ変えた文字起こしの言語（#482）。省くと全体設定。
+// displayLanguage はこの端末の表示言語（#498。未設定の文字起こしの言語と「表示言語に合わせる」要約の言語に使う）
 export function uploadUrl(
     projectId: string,
     file: { name: string; lastModified: number },
     sources?: number,
     language?: TranscriptionLanguage | null,
+    displayLanguage: Language = getLanguage(),
 ) {
     const params = new URLSearchParams({ name: file.name, lastModified: String(file.lastModified) });
     if (sources !== undefined) {
@@ -25,6 +28,7 @@ export function uploadUrl(
     if (language) {
         params.set('language', language);
     }
+    params.set('displayLanguage', displayLanguage);
     return apiUrl(`/api/projects/${encodeURIComponent(projectId)}/sessions/upload?${params}`);
 }
 

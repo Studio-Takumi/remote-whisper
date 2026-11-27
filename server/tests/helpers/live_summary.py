@@ -10,11 +10,11 @@ from remote_whisper.summary.live_summary import LiveSummarizer
 class StubWriter:
     id = "20261010-100000"
 
-    def __init__(self, language="ja"):
+    def __init__(self, language="ja", display_language="ja"):
         self.live_summary = None
         self.title = None
-        # 文字起こしの決まった言語（#482）だけを持つ
-        self.meta = type("Meta", (), {"language": language})()
+        # 文字起こしの決まった言語（#482）と表示言語（#498）だけを持つ
+        self.meta = type("Meta", (), {"language": language, "display_language": display_language})()
 
     def save_live_summary(self, text):
         self.live_summary = text

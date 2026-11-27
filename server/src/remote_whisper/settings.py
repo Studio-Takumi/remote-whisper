@@ -79,15 +79,17 @@ class _Model(BaseModel):
 
 
 TranscriptionLanguage = Literal["ja", "auto"]
-SummaryLanguage = Literal["ja", "en", "transcript"]
+SummaryLanguage = Literal["ja", "en", "transcript", "display"]
 
 
 class WhisperSettings(_Model):
     model: str = "large-v3-turbo"
     compute_type: str = "float16"
     # 文字起こしの言語（#482）。auto は最終の文字起こしで Whisper に判定させる。
-    # 録音を始めるときに、そのセッションだけ変えられる
-    language: TranscriptionLanguage = "ja"
+    # 録音を始めるときに、そのセッションだけ変えられる。
+    # None は未設定で、録音を始めた端末の表示言語が日本語なら ja、それ以外は auto（#498）。
+    # 選んだ値（ja も）はそのまま残す。項目のない古い設定は未設定
+    language: TranscriptionLanguage | None = None
     beam_size: int = Field(5, ge=1)
     partial_interval_sec: float = Field(1.0, gt=0)
     silence_ms: int = Field(600, gt=0)
@@ -264,8 +266,9 @@ class OllamaSettings(_Model):
     # オンにしたあとで作った要約と、作り直した要約に付く
     detail_material_pages: bool = False
     # 要約とタイトルを書く言語（#485）。transcript は文字起こしの言語（決まった言語）に合わせる。
-    # 要約を作り始めるときに読む
-    summary_language: SummaryLanguage = "ja"
+    # 要約を作り始めるときに読む。display は録音を始めた端末の表示言語に合わせる（#498）。
+    # 初期値は display。選んだ値（ja も）はそのまま残す
+    summary_language: SummaryLanguage = "display"
 
 
 LlmBackend = Literal["ollama", "lmstudio"]

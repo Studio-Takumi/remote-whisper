@@ -76,14 +76,15 @@ describe('録音（自分の端末）', () => {
         store.getState().setNextLanguage('auto');
         const starting = store.getState().startRecording();
         await vi.waitFor(() => expect(ws.log()).toContain('start'));
-        expect(ws.wire[0]).toEqual({ type: 'start', project: 'p1', language: 'auto' });
+        expect(ws.wire[0]).toEqual({ type: 'start', project: 'p1', language: 'auto', displayLanguage: 'ja' });
         receive({ type: 'started', session: SESSION, sessionUuid: 'uuid-1' });
         await starting;
     });
 
     it('開始 → partial・final → 一時停止 → 再開 → 停止', async () => {
         await startRecording();
-        expect(ws.wire[0]).toEqual({ type: 'start', project: 'p1' });
+        // 表示言語は毎回送る（#498）
+        expect(ws.wire[0]).toEqual({ type: 'start', project: 'p1', displayLanguage: 'ja' });
         const s = store.getState();
         expect(s.recordingState).toBe('recording');
         expect(s.recordingSessionId).toBe(SESSION);

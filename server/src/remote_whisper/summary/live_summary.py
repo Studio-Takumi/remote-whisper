@@ -144,9 +144,11 @@ class LiveSummarizer:
         model = models.live_summary
         # 要約度は区間ごとの要約に効かせる（概要は短いまま。#100）
         density = self.settings.get().ollama.live_summary_density
-        # 書く言語（#485）。回ごとに、そのときの設定と文字起こしの言語で決める
+        # 書く言語（#485）。回ごとに、そのときの設定と文字起こしの言語・表示言語で決める
         language = summary_language(
-            self.settings.get().ollama.summary_language, self.writer.meta.language
+            self.settings.get().ollama.summary_language,
+            self.writer.meta.language,
+            self.writer.meta.display_language,
         )
         started = time.monotonic()
         log.info(

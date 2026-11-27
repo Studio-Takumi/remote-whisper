@@ -11,6 +11,7 @@ import { useAppStore } from '@/app/store';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { SessionView } from '@/features/session/SessionView';
 import { defaultSettings } from '@/features/settings/settings';
+import { setLanguage } from '@/i18n/language';
 
 const PROJECT: ProjectInfo = { id: 'p1', name: '講義', path: '/data/lecture' };
 
@@ -185,8 +186,26 @@ describe('SessionView の新しいセッション', () => {
             fireEvent.click(screen.getByRole('option', { name: '自動判定' }));
         });
         expect(useAppStore.getState().nextLanguage).toBe('auto');
-        expect(useAppStore.getState().settings.whisper.language).toBe('ja');
+        // 全体設定は未設定（#498）のまま
+        expect(useAppStore.getState().settings.whisper.language).toBeNull();
         expect(screen.getByLabelText('文字起こしの言語').textContent).toContain('自動判定');
+    });
+
+    it('文字起こしの言語が未設定なら、表示言語が日本語以外では自動判定から始める（#498）', () => {
+        setLanguage('en');
+        try {
+            draw();
+            expect(screen.getByLabelText('文字起こしの言語').textContent).toContain('自動判定');
+            cleanup();
+            // 設定で選んだ値は表示言語にかかわらずそのまま
+            useAppStore.setState({
+                settings: { ...defaultSettings, whisper: { ...defaultSettings.whisper, language: 'ja' } },
+            });
+            draw();
+            expect(screen.getByLabelText('文字起こしの言語').textContent).toContain('日本語');
+        } finally {
+            setLanguage('ja');
+        }
     });
 
     it('新規セッション画面を離れると、今回だけの言語を消す', () => {

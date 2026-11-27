@@ -1,7 +1,8 @@
 """要約とタイトルを書く言語（#485）。spec/flows.md 6.4・6.5
 
-設定の `ollama.summaryLanguage`（ja / en / transcript）と、セッションの文字起こしの言語
-（`TranscriptMeta.language`）から、実際に書く言語のコードを決める。
+設定の `ollama.summaryLanguage`（ja / en / transcript / display）と、セッションの文字起こしの
+言語（`TranscriptMeta.language`）・表示言語（`TranscriptMeta.display_language`。#498）から、
+実際に書く言語のコードを決める。
 """
 
 # プロンプトで言語名を指示できる言語（Whisper の言語コード → 英語の名前）。
@@ -32,13 +33,16 @@ LANGUAGE_NAMES = {
 _DENSE = {"ja", "zh", "yue"}
 
 
-def summary_language(choice: str | None, transcript_language: str | None) -> str:
-    """要約を書く言語のコード。choice は設定（ja / en / transcript）。
-    transcript は文字起こしの言語に合わせ、日本語でも LANGUAGE_NAMES にもない言語なら英語。
-    choice が None（渡されなかった）なら日本語。項目のない古い設定は読み込むときに ja で埋まり、
-    ほかの値の setting.json は読み込めない（SettingsError）ので、ここには来ない"""
-    if choice == "transcript":
-        code = transcript_language or "ja"
+def summary_language(
+    choice: str | None, transcript_language: str | None, display_language: str | None = None
+) -> str:
+    """要約を書く言語のコード。choice は設定（ja / en / transcript / display）。
+    transcript は文字起こしの言語に、display は録音を始めた端末の表示言語（#498。
+    セッションの displayLanguage）に合わせ、日本語でも LANGUAGE_NAMES にもない言語なら英語。
+    choice が None（渡されなかった）なら日本語。ほかの値の setting.json は読み込めない
+    （SettingsError）ので、ここには来ない"""
+    if choice in ("transcript", "display"):
+        code = (transcript_language if choice == "transcript" else display_language) or "ja"
         return code if code == "ja" or code in LANGUAGE_NAMES else "en"
     return "en" if choice == "en" else "ja"
 

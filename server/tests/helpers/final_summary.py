@@ -22,11 +22,11 @@ def project(client, tmp_path):
     return created["id"], client.app.state.ctx.projects.dir(created["id"])
 
 
-def record(client, pid, speech=True):
-    """1 秒話して 1 秒黙り、止める。届いたメッセージを返す"""
+def record(client, pid, speech=True, **extra):
+    """1 秒話して 1 秒黙り、止める。届いたメッセージを返す。extra は start に足す項目"""
     with client.websocket_connect("/ws") as ws:
         ws.receive_json()
-        sid = start(ws, pid)
+        sid = start(ws, pid, **extra)
         for seq in range(4):
             ws.send_bytes(chunk(seq, value=3000 if speech and seq < 2 else 0))
             receive_until(ws, of_type("ack", seq=seq))
@@ -56,7 +56,13 @@ class StubWriter:
         self.meta = type(
             "Meta",
             (),
-            {"context_set": None, "title": None, "corrections": [], "language": "ja"},
+            {
+                "context_set": None,
+                "title": None,
+                "corrections": [],
+                "language": "ja",
+                "display_language": "ja",
+            },
         )()
         self.saved = None
 

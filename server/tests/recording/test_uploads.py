@@ -97,6 +97,21 @@ def test_the_transcription_language_can_be_changed_for_the_upload(client, projec
     assert res.status_code == 422
 
 
+def test_the_upload_records_the_display_language(client, project, tmp_path):
+    # アップロードした端末の表示言語（#498）。未設定の文字起こしの言語は、英語なら auto
+    pid, d = project
+    wav = write_audio(tmp_path / "talk.wav", "pcm_s16le", fmt="wav")
+    url = f"/api/projects/{pid}/sessions/upload"
+    params = {"name": "a.wav", "displayLanguage": "en"}
+    res = client.post(url, params=params, content=wav.read_bytes())
+    assert res.status_code == 202
+    wait_done(client)
+    meta = read_doc(d / f"transcript-{res.json()['id']}.md", TranscriptMeta)[0]
+    assert (meta.language_choice, meta.display_language) == ("auto", "en")
+    params = {"name": "b.wav", "displayLanguage": "x1"}
+    assert client.post(url, params=params, content=wav.read_bytes()).status_code == 422
+
+
 def test_start_time_comes_from_the_last_modified_time(client, project, tmp_path):
     pid, d = project
     wav = write_audio(tmp_path / "a.wav", "pcm_s16le", seconds=60, fmt="wav")

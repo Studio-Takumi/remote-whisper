@@ -438,6 +438,26 @@ def test_regenerate_follows_the_language_in_the_front_matter(client, project, fa
     assert title["format"]["properties"]["title"]["maxLength"] == 50
 
 
+def test_regenerate_follows_the_display_language_of_the_recording_device(
+    client, project, fake_ollama
+):
+    # 「表示言語に合わせる」（既定。#498）は、録音を始めた端末の表示言語で決める。
+    # 表示言語を送らない別の接続から再生成しても、録音したときの displayLanguage のまま
+    pid, d = project
+    sid, _ = record(client, pid, displayLanguage="en")
+    assert read_doc(d / f"transcript-{sid}.md", TranscriptMeta)[0].display_language == "en"
+    before = len(fake_ollama.bodies("/api/chat"))
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        assert client.post(f"/api/projects/{pid}/sessions/{sid}/summaries").status_code == 202
+        receive_until(ws, lambda m: m["type"] == "title" and not m["provisional"])
+    chats = fake_ollama.bodies("/api/chat")[before:]
+    [summary] = [b for b in chats if not b.get("format")]
+    [title] = [b for b in chats if b.get("format")]
+    assert "Write a concise summary in English" in summary["messages"][0]["content"]
+    assert "in English" in title["messages"][0]["content"]
+
+
 def test_regenerate_errors(client, project):
     pid, d = project
     url = f"/api/projects/{pid}/sessions/{{}}/summaries"

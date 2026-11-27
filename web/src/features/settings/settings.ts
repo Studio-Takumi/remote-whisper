@@ -1,4 +1,5 @@
 import { DEFAULT_MIC_SHORTCUT } from '@/features/settings/shortcut';
+import type { Language } from '@/i18n/language';
 
 // Ollama を使う処理ごとのモデル（#178。spec/files.md 5.3）
 export type OllamaModels = {
@@ -42,7 +43,8 @@ export function finalModelLabel(models: OllamaModels) {
 
 // 言語の選択肢。言語の名前（日本語・English）はどの表示言語でも同じなので label、それ以外は辞書のキー（labelKey）
 export type LanguageOption<V> =
-    { value: V; label: string } | { value: V; labelKey: 'settings.autoDetect' | 'settings.sameAsTranscript' };
+    | { value: V; label: string }
+    | { value: V; labelKey: 'settings.autoDetect' | 'settings.matchDisplayLanguage' | 'settings.sameAsTranscript' };
 
 export type TranscriptionLanguage = 'ja' | 'auto';
 
@@ -52,10 +54,21 @@ export const transcriptionLanguages: LanguageOption<TranscriptionLanguage>[] = [
     { value: 'auto', labelKey: 'settings.autoDetect' },
 ];
 
-export type SummaryLanguage = 'ja' | 'en' | 'transcript';
+// 文字起こしの言語の設定が未設定（null。#498）なら、この端末の表示言語が日本語なら ja、ほかは auto。
+// 録音を始めたときにサーバーが同じ決め方をする（start・アップロードで表示言語を送る）
+export function transcriptionLanguageFor(
+    saved: TranscriptionLanguage | null,
+    display: Language,
+): TranscriptionLanguage {
+    return saved ?? (display === 'ja' ? 'ja' : 'auto');
+}
 
-// 要約の言語の選択肢（#485）。transcript は文字起こしの決まった言語に合わせる
+export type SummaryLanguage = 'display' | 'ja' | 'en' | 'transcript';
+
+// 要約の言語の選択肢（#485）。transcript は文字起こしの決まった言語に、display（初期値。#498）は
+// 録音を始めた端末の表示言語に合わせる
 export const summaryLanguages: LanguageOption<SummaryLanguage>[] = [
+    { value: 'display', labelKey: 'settings.matchDisplayLanguage' },
     { value: 'ja', label: '日本語' },
     { value: 'en', label: 'English' },
     { value: 'transcript', labelKey: 'settings.sameAsTranscript' },
@@ -67,8 +80,9 @@ export type Settings = {
     whisper: {
         model: string;
         computeType: string;
-        // 文字起こしの言語（#482）。auto は浄書のときに判定する。古いサーバーにはない（そのときは画面に出さない）
-        language?: TranscriptionLanguage;
+        // 文字起こしの言語（#482）。auto は浄書のときに判定する。null は未設定で、表示言語から決める（#498）。
+        // 古いサーバーにはない（そのときは画面に出さない）
+        language?: TranscriptionLanguage | null;
         beamSize: number;
         partialIntervalSec: number;
         silenceMs: number;
@@ -171,7 +185,7 @@ export const defaultSettings: Settings = {
     whisper: {
         model: 'large-v3-turbo',
         computeType: 'float16',
-        language: 'ja',
+        language: null,
         beamSize: 5,
         partialIntervalSec: 1.0,
         silenceMs: 600,
@@ -203,7 +217,7 @@ export const defaultSettings: Settings = {
         detailDensity: 3,
         pickTerms: false,
         detailMaterialPages: false,
-        summaryLanguage: 'ja',
+        summaryLanguage: 'display',
     },
     llm: {
         backend: 'ollama',

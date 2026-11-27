@@ -7,8 +7,9 @@ import { OptionSelect, Row, Section } from '@/features/settings/SettingsParts';
 import { TranscriptionLanguageSelect } from '@/features/settings/TranscriptionLanguageSelect';
 import { settingsMessages } from '@/features/settings/i18n';
 import { withCurrent } from '@/features/settings/options';
-import type { Settings } from '@/features/settings/settings';
+import { type Settings, transcriptionLanguageFor } from '@/features/settings/settings';
 import type { UpdateSection } from '@/features/settings/settingsDraft';
+import { useLanguage } from '@/i18n/language';
 import { useT } from '@/i18n/messages';
 
 // 設定の「文字起こし」ページ
@@ -26,6 +27,7 @@ export function WhisperPage({
 }) {
     const t = useT(settingsMessages);
     const language = draft.whisper.language;
+    const displayLanguage = useLanguage();
     return (
         <Section>
             {/* 古いサーバー（言語を持たない）では出さない */}
@@ -35,9 +37,11 @@ export function WhisperPage({
                     label={t('whisperPage.language')}
                     description={t('whisperPage.languageDescription')}
                 >
+                    {/* 未設定（#498）なら、この端末で録音を始めたときに使う値を出す。どちらを選んでも保存する */}
                     <TranscriptionLanguageSelect
                         id='transcription-language'
                         value={language}
+                        fallback={transcriptionLanguageFor(language, displayLanguage)}
                         onChange={(next) => update('whisper', { language: next })}
                     />
                 </Row>
