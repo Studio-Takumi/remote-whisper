@@ -235,7 +235,11 @@ def test_duplicate_headers_are_refused(caplog, scope_type, headers, reason):
         assert sent == [{"type": "websocket.close", "code": 1008}]
     else:
         assert sent[0]["status"] == 403
-        assert "重なって" in json.loads(sent[1]["body"])["detail"]
+        body = json.loads(sent[1]["body"])
+        assert "重なって" in body["detail"]
+        # web が文を引くコード（#494）
+        assert body["code"] == "host.duplicateHeader"
+        assert body["params"] == {}
     messages = [r.getMessage() for r in caplog.records if r.name == "remote_whisper.host_check"]
     assert len(messages) == 1
     assert f": {reason} (" in messages[0]

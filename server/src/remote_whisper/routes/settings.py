@@ -6,6 +6,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from pydantic import ValidationError
 
+from remote_whisper.api_errors import ApiError
 from remote_whisper.context import AppContext, get_ctx
 from remote_whisper.settings import RECORDING_LOCKED, TUNNEL_LOCKED, SettingsLockedError
 
@@ -49,9 +50,10 @@ async def patch_settings(
             and model != current["whisper"]["model"]
             and _PATH_LIKE.search(model)
         ):
-            raise HTTPException(
-                status_code=403,
-                detail="クラウド版からは、Whisper のモデルにファイルのパスを指定できません",
+            raise ApiError(
+                403,
+                "settings.cloudModelPath",
+                "クラウド版からは、Whisper のモデルにファイルのパスを指定できません",
             )
     # 録音中は、文字起こしのモデル・区切り・マイクの処理だけ変えられない（spec/files.md 5.3）。
     # トンネル（クラウド）からは、接続先やフォルダの設定を変えられない（#166。TUNNEL_LOCKED）
@@ -63,14 +65,20 @@ async def patch_settings(
     except SettingsLockedError as e:
         tunnel_fields = {f"{section}.{key}" for section, key in tunnel_locked}
         if tunnel_fields.intersection(e.fields):
-            raise HTTPException(
-                status_code=403,
-                detail="クラウド版からは変えられない項目です"
-                + "（ホストで直接開いた画面から変えてください）: "
-                + ", ".join(f for f in e.fields if f in tunnel_fields),
+            fields = ", ".join(f for f in e.fields if f in tunnel_fields)
+            raise ApiError(
+                403,
+                "settings.cloudLocked",
+                "クラウド版からは変えられない項目です"
+                f"（ホストで直接開いた画面から変えてください）: {fields}",
+                {"fields": fields},
             ) from e
-        raise HTTPException(
-            status_code=409, detail=f"録音中は変えられない項目です: {', '.join(e.fields)}"
+        fields = ", ".join(e.fields)
+        raise ApiError(
+            409,
+            "settings.recordingLocked",
+            f"録音中は変えられない項目です: {fields}",
+            {"fields": fields},
         ) from e
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=_validation_errors(e)) from None

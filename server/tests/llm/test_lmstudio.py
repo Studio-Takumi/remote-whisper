@@ -672,10 +672,12 @@ def test_pull_keeps_watching_while_it_moves(home, fake):
 
 
 def test_error_message():
-    assert lmstudio_error("要約") == {
+    assert lmstudio_error("finalSummary") == {
         "type": "error",
         "code": "lmstudio_unavailable",
-        "message": "LM Studio に接続できないため、要約を作れませんでした",
+        "message": "LM Studio に接続できないため、最終要約を作れませんでした",
+        "messageCode": "lmstudio.finalSummaryUnavailable",
+        "params": {},
     }
 
 

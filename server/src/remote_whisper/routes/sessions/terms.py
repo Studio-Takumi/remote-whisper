@@ -2,9 +2,10 @@
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Query
 from pydantic import BaseModel, ConfigDict, Field
 
+from remote_whisper.api_errors import ApiError
 from remote_whisper.context import AppContext, Pid
 from remote_whisper.routes.sessions.common import Ctx, gone, load_session
 from remote_whisper.storage.session_writer import SessionWriter
@@ -35,7 +36,7 @@ def _terms_writer(ctx: AppContext, pid: str, sid: str) -> tuple[Any, SessionWrit
     try:
         return None, SessionWriter.existing(ctx.projects, pid, sid)
     except (OSError, ValueError) as e:
-        raise gone("文字起こし") from e
+        raise gone("transcript") from e
 
 
 @router.post("/{sid}/terms")
@@ -48,9 +49,11 @@ async def add_term(pid: Pid, sid: str, body: TermBody, ctx: Ctx) -> dict[str, An
 def _check_term(term: str) -> str:
     term = term.strip()
     if not term or len(term) > MANUAL_MAX_CHARS or any(c in term for c in "、/\n\r"):
-        raise HTTPException(
-            status_code=400,
-            detail=f"用語は 1〜{MANUAL_MAX_CHARS} 文字で、「、」「/」と改行は使えません",
+        raise ApiError(
+            400,
+            "termList.invalidTerm",
+            f"用語は 1〜{MANUAL_MAX_CHARS} 文字で、「、」「/」と改行は使えません",
+            {"max": MANUAL_MAX_CHARS},
         )
     return term
 
@@ -63,9 +66,10 @@ async def _add_manual_term(ctx: AppContext, pid: str, sid: str, term: str) -> di
     if term not in manual:
         manual.append(term)
     if not manual_terms_fit(manual):
-        raise HTTPException(
-            status_code=409,
-            detail="手で足した語が多すぎて、Whisper に渡せる長さの上限を超えます。"
+        raise ApiError(
+            409,
+            "termList.tooLong",
+            "手で足した語が多すぎて、Whisper に渡せる長さの上限を超えます。"
             "いらない語を外してから足してください",
         )
     picker = getattr(session, "picker", None)
@@ -153,15 +157,17 @@ async def add_correction(pid: Pid, sid: str, body: CorrectionBody, ctx: Ctx) -> 
     """
     wrong = body.wrong.strip()
     if not wrong or any(c in wrong for c in "\n\r") or len(wrong) > CORRECTION_MAX_CHARS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"直す文字列は 1〜{CORRECTION_MAX_CHARS} 文字で、改行は使えません",
+        raise ApiError(
+            400,
+            "replacement.invalidText",
+            f"直す文字列は 1〜{CORRECTION_MAX_CHARS} 文字で、改行は使えません",
+            {"max": CORRECTION_MAX_CHARS},
         )
     right = _check_term(body.right)
     if wrong == right:
-        raise HTTPException(status_code=400, detail="直す文字列と正しい語が同じです")
+        raise ApiError(400, "replacement.same", "直す文字列と正しい語が同じです")
     if body.line is not None and body.line.transcript == "final" and not body.line.generation:
-        raise HTTPException(status_code=400, detail="浄書済み文字起こしの版を指定してください")
+        raise ApiError(400, "replacement.noRevision", "浄書済み文字起こしの版を指定してください")
     terms = await _add_manual_term(ctx, pid, sid, right)
     session, writer = _terms_writer(ctx, pid, sid)
     correction = Correction(wrong=wrong, right=right, line=body.line)

@@ -1,6 +1,7 @@
 import { DownloadIcon } from 'lucide-react';
 
 import { api } from '@/api/api';
+import { serverErrorText } from '@/api/serverErrors/serverErrors';
 import { Button } from '@/components/ui/button';
 import { LLM_NAMES, recommendedLmStudioModels } from '@/features/settings/settings';
 import { setupMessages } from '@/features/setup/i18n';
@@ -78,7 +79,13 @@ export function ModelsStep({
                 </div>
             ) : (
                 <>
-                    {pull?.state === 'failed' && <Note warn>{pull.error ?? t('modelsStep.downloadFailed')}</Note>}
+                    {pull?.state === 'failed' && (
+                        <Note warn>
+                            {pull.error == null
+                                ? t('modelsStep.downloadFailed')
+                                : serverErrorText(pull.errorCode, pull.errorParams, pull.error)}
+                        </Note>
+                    )}
                     {pull?.state === 'cancelled' && <Note>{t('modelsStep.downloadCancelled')}</Note>}
                     {missing.length > 0 && (
                         <div className='flex flex-wrap items-center gap-2'>

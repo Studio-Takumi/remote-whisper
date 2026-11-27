@@ -114,7 +114,14 @@ class PullJob:
     # 取っているモデルの、層（digest）ごとの大きさと取った量
     totals: dict[str, int] = field(default_factory=dict)
     done: dict[str, int] = field(default_factory=dict)
+    # 失敗した理由（日本語の文）と、web が文を引くコード・値（#494。spec/api.md 7.6）
     error: str | None = None
+    error_code: str | None = None
+    error_params: dict[str, Any] = field(default_factory=dict)
+
+    def fail(self, code: str | None, message: str, params: dict[str, Any] | None = None) -> None:
+        self.state = "failed"
+        self.error, self.error_code, self.error_params = message, code, params or {}
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -126,6 +133,8 @@ class PullJob:
             "completed": sum(self.done.values()),
             "total": sum(self.totals.values()),
             "error": self.error,
+            "errorCode": self.error_code,
+            "errorParams": self.error_params,
         }
 
 
@@ -253,9 +262,13 @@ class SetupService:
 
     def _ensure_idle(self) -> None:
         if self.mock:
-            raise SetupError(409, "モックでは使えません")
+            raise SetupError(409, "setup.mock", "モックでは使えません")
         if self.recording():
-            raise SetupError(409, "録音中は始められません。録音が終わってから始めてください")
+            raise SetupError(
+                409,
+                "setup.recording",
+                "録音中は始められません。録音が終わってから始めてください",
+            )
 
     # --- LLM のモデル ---
 
@@ -269,11 +282,11 @@ class SetupService:
         self._ensure_idle()
         backend = self.backend()
         if self.ollama is None:
-            raise SetupError(503, "要約のアプリを使えないサーバーです")
+            raise SetupError(503, "llm.unsupported", "要約のアプリを使えないサーバーです")
         if not models or any(m not in self.pullable(backend) for m in models):
-            raise SetupError(400, "取得できないモデルです")
+            raise SetupError(400, "model.notDownloadable", "取得できないモデルです")
         if self._pull_task is not None and not self._pull_task.done():
-            raise SetupError(409, "取得している途中です")
+            raise SetupError(409, "model.downloading", "取得している途中です")
         self.pull_job = PullJob(list(dict.fromkeys(models)), backend=backend)
         self._pull_task = asyncio.create_task(self._pull(self.pull_job))
 
@@ -298,13 +311,17 @@ class SetupService:
             job.state = "cancelled"
         except LlmUnavailable as e:
             log.warning("pulling %s model %s failed: %s", job.backend, job.models[job.index], e)
-            job.state = "failed"
             # LM Studio で一時停止された・進まないなど、画面に出す理由があればそれを出す
-            job.error = getattr(e, "detail", None) or f"{name} から取得できませんでした"
+            detail = getattr(e, "detail", None)
+            if detail:
+                job.fail(getattr(e, "detail_code", None), detail)
+            else:
+                job.fail(
+                    "model.downloadFailedFrom", f"{name} から取得できませんでした", {"app": name}
+                )
         except Exception:  # noqa: BLE001 思わぬ返事など。取っている途中のまま残さない
             log.exception("pulling %s model %s failed", job.backend, job.models[job.index])
-            job.state = "failed"
-            job.error = "取得できませんでした"
+            job.fail("model.downloadFailed", "取得できませんでした")
 
     async def cancel_pull(self) -> None:
         task = self._pull_task
@@ -318,7 +335,7 @@ class SetupService:
     def start_install(self) -> None:
         self._ensure_idle()
         if self.whisperx_installed():
-            raise SetupError(409, "WhisperX はもう入っています")
+            raise SetupError(409, "whisperx.installed", "WhisperX はもう入っています")
         self.installer.start()
 
     # --- 片付け ---

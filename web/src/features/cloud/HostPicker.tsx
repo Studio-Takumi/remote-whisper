@@ -18,8 +18,11 @@ import {
     selectable,
     useHostsStore,
 } from '@/features/cloud/hosts';
+import { cloudMessages } from '@/features/cloud/i18n';
+import { useT } from '@/i18n/messages';
 
 export function HostPicker() {
+    const t = useT(cloudMessages);
     const dispatch = useCloudStore((s) => s.dispatch);
     const { hosts, error, load } = useHostsStore();
     const [choosing, setChoosing] = useState(false);
@@ -62,12 +65,12 @@ export function HostPicker() {
     if (error) {
         return (
             <div className='flex flex-col gap-2' data-hosts='error'>
-                <h1 className='text-xl font-semibold'>ホストの選択</h1>
+                <h1 className='text-xl font-semibold'>{t('hostPicker.selectHost')}</h1>
                 <p role='alert' className='text-sm text-destructive'>
-                    ホストの一覧を読めませんでした: {error}
+                    {t('hostPicker.loadFailed', { error })}
                 </p>
                 <Button variant='outline' onClick={() => void start()}>
-                    もう一度
+                    {t('hostPicker.retry')}
                 </Button>
             </div>
         );
@@ -75,30 +78,30 @@ export function HostPicker() {
     if (hosts === null || (!choosing && hosts.length > 0)) {
         return (
             <p role='status' className='text-sm text-muted-foreground'>
-                ホストを確かめています…
+                {t('hostPicker.checking')}
             </p>
         );
     }
     if (hosts.length === 0) {
         return (
             <div className='flex flex-col gap-3' data-hosts='none'>
-                <h1 className='text-xl font-semibold'>PC を登録してください</h1>
-                <p className='text-sm'>文字起こしをする PC（ホスト）が、まだ登録されていません</p>
+                <h1 className='text-xl font-semibold'>{t('hostPicker.noneTitle')}</h1>
+                <p className='text-sm'>{t('hostPicker.noneDescription')}</p>
                 <ol className='list-decimal space-y-1 pl-5 text-sm'>
-                    <li>PC で Remote Whisper を起動する</li>
-                    <li>タスクトレイ（Mac はメニューバー）のアイコンから「クラウド版にログイン」を選ぶ</li>
-                    <li>開いた画面で、トレイと同じコードが出ているのを確かめて承認する</li>
+                    <li>{t('hostPicker.noneStart')}</li>
+                    <li>{t('hostPicker.noneLogin')}</li>
+                    <li>{t('hostPicker.noneApprove')}</li>
                 </ol>
                 <Button variant='outline' onClick={() => void load()}>
                     <RefreshCwIcon />
-                    登録したので確かめる
+                    {t('hostPicker.checkRegistered')}
                 </Button>
             </div>
         );
     }
     return (
         <div className='flex flex-col gap-3' data-hosts='choose'>
-            <h1 className='text-xl font-semibold'>ホストを選ぶ</h1>
+            <h1 className='text-xl font-semibold'>{t('hostPicker.choose')}</h1>
             <ul className='flex flex-col gap-2'>
                 {hosts.map((h) => (
                     <li key={h.id}>
@@ -113,20 +116,18 @@ export function HostPicker() {
                                 {h.name}
                             </span>
                             <span className='text-xs text-muted-foreground'>
-                                {h.online === true ? 'オンライン' : h.online === false ? 'オフライン' : ''}
+                                {h.online === true ? t('common.online') : h.online === false ? t('common.offline') : ''}
                             </span>
                         </Button>
                     </li>
                 ))}
             </ul>
             {hosts.every((h) => !selectable(h)) && (
-                <p className='text-xs text-muted-foreground'>
-                    どの PC もオフラインです。PC で Remote Whisper が動いているか確かめてください
-                </p>
+                <p className='text-xs text-muted-foreground'>{t('hostPicker.allOffline')}</p>
             )}
             <Button variant='ghost' size='sm' onClick={() => void load()}>
                 <RefreshCwIcon />
-                一覧を読み直す
+                {t('hostPicker.reload')}
             </Button>
         </div>
     );

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 from fastapi import WebSocket
 
 from remote_whisper.hub import send
-from remote_whisper.recording.errors import RecordingError
+from remote_whisper.recording.errors import RecordingError, audio_write_failed
 from remote_whisper.recording.live_sources import LiveMixer, measure
 from remote_whisper.recording.live_transcriber import LiveTranscriber
 from remote_whisper.recording.source_records import SourceRecords
@@ -107,17 +107,18 @@ class SessionSources:
         """ほかの端末が音源として参加する。新しい音源 ID を振る"""
         session = self.session
         if session.ended:
-            raise RecordingError("cannot_join", "録音中ではありません")
+            raise RecordingError("cannot_join", "join.notRecording", "録音中ではありません")
         if ws is session.ws:
-            raise RecordingError("cannot_join", "自分で録音しているセッションには参加できません")
+            raise RecordingError(
+                "cannot_join", "join.ownSession", "自分で録音しているセッションには参加できません"
+            )
         status = self.join_status()
         if not status["available"]:
-            message = (
-                "このホストでは参加できません"
-                if status.get("reason") == "disabled"
-                else "参加できる音源の数を超えています"
-            )
-            raise RecordingError("cannot_join", message)
+            if status.get("reason") == "disabled":
+                raise RecordingError(
+                    "cannot_join", "join.unsupported", "このホストでは参加できません"
+                )
+            raise RecordingError("cannot_join", "join.tooMany", "参加できる音源の数を超えています")
         sid = max(self._all_ids()) + 1
         wav = WavAppender(session.writer.files.dir / ".tmp" / session.id / f"audio-{sid}.wav")
         self.records.begin_lines()
@@ -142,10 +143,12 @@ class SessionSources:
         """切れた端末が、同じ音源としてつなぎ直す（next_seq から受け取る）。
         lost なら届かなかった間を無音で埋める"""
         if self.session.ended:
-            raise RecordingError("cannot_join", "録音中ではありません")
+            raise RecordingError("cannot_join", "join.notRecording", "録音中ではありません")
         source = self.joined.get(sid) if isinstance(sid, int) else None
         if source is None or source.state == "left" or not isinstance(next_seq, int):
-            raise RecordingError("session_not_found", "つなぎ直せる音源がありません")
+            raise RecordingError(
+                "session_not_found", "join.noSource", "つなぎ直せる音源がありません"
+            )
         if source.expire is not None:
             source.expire.cancel()
             source.expire = None
@@ -188,12 +191,7 @@ class SessionSources:
                 log.error("failed to write audio of source %d of %s: %s", source.id, sid, e)
                 await send(
                     source.ws,
-                    {
-                        "type": "error",
-                        "session": sid,
-                        "code": "write_failed",
-                        "message": f"音声を保存できません: {e}",
-                    },
+                    {**audio_write_failed(e), "session": sid},
                 )
                 await send(source.ws, {"type": "ack", "session": sid, "seq": source.last_seq})
                 return

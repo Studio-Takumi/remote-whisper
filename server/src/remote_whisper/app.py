@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from remote_whisper import api_errors
 from remote_whisper.desktop.ports import INSTANCE_ID
 from remote_whisper.host_check import APP_ORIGINS, HostCheckMiddleware
 from remote_whisper.lifecycle import make_lifespan
@@ -47,6 +48,8 @@ def create_app(
     ctx = parts.ctx
     app = FastAPI(title="remote-whisper", lifespan=make_lifespan(parts, home, mock))
     app.state.ctx = ctx
+    # エラーをコードつきで返す（#494）
+    api_errors.install(app)
     # トンネル専用のポート（tunnel.TunnelPort。__main__ が入れる）
     app.state.tunnel = None
     # cloudflared の子プロセス（cloudflared.CloudflaredRunner。__main__ が入れる。#159）

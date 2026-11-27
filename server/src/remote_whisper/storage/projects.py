@@ -71,27 +71,58 @@ _WINDOWS_RESERVED = re.compile(r"(CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9])(\..*)?", re
 SUMMARY_DIR_MAX = 200
 
 
+class SummaryDirError(ValueError):
+    """最終要約のコピーの置き場所が不正。code・params は web が文を引くコードと値（#494）"""
+
+    def __init__(self, code: str, message: str, params: dict | None = None):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.params = params or {}
+
+
 def normalize_summary_dir(value: str) -> str:
     """最終要約のコピーの置き場所（相対パス。#341）を確かめてそろえる。
-    不正なら ValueError（リンクはコピーのときに確かめる）"""
+    不正なら SummaryDirError（リンクはコピーのときに確かめる）"""
     raw = value.strip()
     if len(raw) > SUMMARY_DIR_MAX:
-        raise ValueError(f"長すぎます（{SUMMARY_DIR_MAX} 文字まで）")
+        raise SummaryDirError(
+            "summaryDir.tooLong",
+            f"長すぎます（{SUMMARY_DIR_MAX} 文字まで）",
+            {"max": SUMMARY_DIR_MAX},
+        )
     slashed = raw.replace("\\", "/")
     if slashed.startswith("/"):
-        raise ValueError("絶対パスは使えません（選んだディレクトリからの相対パスで書きます）")
+        raise SummaryDirError(
+            "summaryDir.absolute",
+            "絶対パスは使えません（選んだディレクトリからの相対パスで書きます）",
+        )
     if re.match(r"[A-Za-z]:", slashed):
-        raise ValueError("ドライブ文字は使えません（選んだディレクトリからの相対パスで書きます）")
+        raise SummaryDirError(
+            "summaryDir.drive",
+            "ドライブ文字は使えません（選んだディレクトリからの相対パスで書きます）",
+        )
     if m := _SUMMARY_DIR_UNSAFE.search(slashed):
-        raise ValueError(f"使えない文字が入っています: {m.group(0)!r}")
+        char = repr(m.group(0))
+        raise SummaryDirError(
+            "summaryDir.unsafeChar", f"使えない文字が入っています: {char}", {"char": char}
+        )
     parts = [p for p in slashed.split("/") if p not in ("", ".")]
     for part in parts:
         if part == "..":
-            raise ValueError("`..` は使えません（選んだディレクトリの外には置けません）")
+            raise SummaryDirError(
+                "summaryDir.parent", "`..` は使えません（選んだディレクトリの外には置けません）"
+            )
         if part != part.strip(" ") or part.endswith("."):
-            raise ValueError(f"先頭・末尾が空白の名前と、末尾が `.` の名前は使えません: {part}")
+            raise SummaryDirError(
+                "summaryDir.badEdge",
+                f"先頭・末尾が空白の名前と、末尾が `.` の名前は使えません: {part}",
+                {"name": part},
+            )
         if _WINDOWS_RESERVED.fullmatch(part):
-            raise ValueError(f"Windows で使えない名前です: {part}")
+            raise SummaryDirError(
+                "summaryDir.reserved", f"Windows で使えない名前です: {part}", {"name": part}
+            )
     return "/".join(parts)
 
 
@@ -252,14 +283,27 @@ def rebuild_project_file(project_dir: Path) -> ProjectFile | None:
 
 
 class ProjectError(Exception):
-    def __init__(self, status: int, message: str):
+    """status は HTTP のステータス。code・params は web が文を引くコードと値（#494）"""
+
+    def __init__(self, status: int, code: str, message: str, params: dict | None = None):
         super().__init__(message)
         self.status = status
+        self.code = code
         self.message = message
+        self.params = params or {}
 
 
 class _Unreadable(ProjectError):
     """project.json がない・壊れている（作り直せば読めるかもしれない）"""
+
+
+def _unreadable_file(path: Path, e: Exception) -> _Unreadable:
+    return _Unreadable(
+        500,
+        "file.unreadable",
+        f"{path} を読み込めません: {e}",
+        {"path": str(path), "reason": str(e)},
+    )
 
 
 class ProjectStore:
@@ -277,7 +321,9 @@ class ProjectStore:
     def dir(self, pid: str) -> Path:
         # pid は URL から来るので、パスとして外に出られないものだけ受け付ける
         if not _PID_RE.fullmatch(pid):
-            raise ProjectError(404, f"プロジェクト {pid} はありません")
+            raise ProjectError(
+                404, "project.notFound", f"プロジェクト {pid} はありません", {"id": pid}
+            )
         return self.root / pid
 
     def _file(self, pid: str) -> Path:
@@ -296,22 +342,27 @@ class ProjectStore:
         2 つ目は UUID を振った（#177 より前のもの）かどうか"""
         path = self._file(pid)
         if not path.is_file():
-            raise _Unreadable(404, f"プロジェクト {pid} はありません")
+            raise _Unreadable(
+                404, "project.notFound", f"プロジェクト {pid} はありません", {"id": pid}
+            )
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
         # ValueError は JSON の構文エラーと UTF-8 として読めないもの、OSError は権限やロック
         except (OSError, ValueError) as e:
-            raise _Unreadable(500, f"{path} を読み込めません: {e}") from e
+            raise _unreadable_file(path, e) from e
         # 新しい version は中身を検証する前に弾く。作り直すと古い形式で上書きしてしまうため
         version = data.get("version") if isinstance(data, dict) else None
         if isinstance(version, int) and version > PROJECT_VERSION:
             raise ProjectError(
-                500, f"{path} の version {version} はこのホストより新しいため読み込めません"
+                500,
+                "file.tooNew",
+                f"{path} の version {version} はこのホストより新しいため読み込めません",
+                {"path": str(path), "version": version},
             )
         try:
             project = ProjectFile.model_validate(data)
         except ValidationError as e:
-            raise _Unreadable(500, f"{path} を読み込めません: {e}") from e
+            raise _unreadable_file(path, e) from e
         lacks_uuid = not data.get("uuid") or any(
             isinstance(s, dict) and not s.get("uuid") for s in data.get("sessions") or []
         )
@@ -345,7 +396,7 @@ class ProjectStore:
     def _rebuild(self, pid: str, reason: "_Unreadable") -> ProjectFile:
         project = rebuild_project_file(self.dir(pid))
         if project is None:
-            raise ProjectError(reason.status, reason.message)
+            raise ProjectError(reason.status, reason.code, reason.message, reason.params)
         log.warning("%s。フロントマターから project.json を作り直します", reason.message)
         path = self._file(pid)
         if path.is_file():
@@ -387,7 +438,9 @@ class ProjectStore:
             for pid, project in self.all():
                 if project.uuid == key:
                     return pid
-            raise ProjectError(404, f"プロジェクト {key} はありません")
+            raise ProjectError(
+                404, "project.notFound", f"プロジェクト {key} はありません", {"id": key}
+            )
         self.dir(key)
         return key
 
@@ -398,19 +451,25 @@ class ProjectStore:
                 for s in project.sessions:
                     if s.uuid == session_uuid:
                         return pid, project, s
-        raise ProjectError(404, f"セッション {session_uuid} はありません")
+        raise ProjectError(
+            404, "session.notFound", f"セッション {session_uuid} はありません", {"id": session_uuid}
+        )
 
     def register(self, path: str, roots: list[str]) -> tuple[str, ProjectFile]:
         """ディレクトリをプロジェクトとして登録する。すでにあればそれを返す"""
         if not path or not Path(path).is_absolute():
-            raise ProjectError(400, "絶対パスを指定してください")
+            raise ProjectError(400, "path.notAbsolute", "絶対パスを指定してください")
         real = real_path(path)
         if not is_within_roots(real, roots):
-            raise ProjectError(403, "許可されたルートの外のディレクトリは登録できません")
+            raise ProjectError(
+                403,
+                "project.outsideRoots",
+                "許可されたルートの外のディレクトリは登録できません",
+            )
         if not real.exists():
-            raise ProjectError(404, "ディレクトリがありません")
+            raise ProjectError(404, "directory.notFound", "ディレクトリがありません")
         if not real.is_dir():
-            raise ProjectError(400, "ディレクトリではありません")
+            raise ProjectError(400, "directory.notDirectory", "ディレクトリではありません")
         pid = project_id(str(real))
         with self._lock:
             # project.json が消えていても、残っているファイルから作り直せればそれを使う

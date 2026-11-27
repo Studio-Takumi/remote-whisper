@@ -4,10 +4,13 @@ import sys
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
+from helpers.error_dictionary import load_dictionary, render
 from helpers.fake_ollama import FakeOllama
 
+from remote_whisper.api_errors import ApiError
 from remote_whisper.app import create_app
 from remote_whisper.llm.ollama import OllamaClient
+from remote_whisper.recording.errors import RecordingError
 from remote_whisper.recording.vad_segmenter import CONTEXT
 
 
@@ -45,6 +48,39 @@ def _no_update_check(request, monkeypatch):
     if request.module.__name__ == "test_update_check":
         return
     monkeypatch.setattr("remote_whisper.update_check.UpdateChecker.start", lambda self: None)
+
+
+_ERROR_DICTIONARY = load_dictionary()
+
+
+@pytest.fixture(autouse=True)
+def _errors_match_the_dictionary(monkeypatch):
+    """テストの中で作った ApiError・RecordingError の日本語の文が、web の辞書の文に params を
+    埋めたものと同じか（#494。日本語の表示を変えないため）。違えばそのテストを落とす"""
+    if _ERROR_DICTIONARY is None:
+        yield
+        return
+    mismatches: list[str] = []
+
+    def check(code: str, text: str, params: dict | None) -> None:
+        template = _ERROR_DICTIONARY.get(code)
+        expected = None if template is None else render(template, params or {})
+        if expected != text:
+            mismatches.append(f"{code}: {text!r} != {expected!r}")
+
+    def wrap(cls, code_of, text_of):
+        original = cls.__init__
+
+        def init(self, *args, **kwargs):
+            original(self, *args, **kwargs)
+            check(code_of(self), text_of(self), self.params)
+
+        monkeypatch.setattr(cls, "__init__", init)
+
+    wrap(ApiError, lambda e: e.code, lambda e: e.detail)
+    wrap(RecordingError, lambda e: e.message_code, lambda e: e.message)
+    yield
+    assert mismatches == []
 
 
 @pytest.fixture(autouse=True)

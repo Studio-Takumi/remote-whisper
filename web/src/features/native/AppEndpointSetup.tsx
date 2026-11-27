@@ -8,10 +8,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { normalizeEndpointUrl, saveAppEndpoint } from '@/features/native/appEndpoint';
+import { nativeMessages } from '@/features/native/i18n';
+import { useT } from '@/i18n/messages';
 
 const reload = () => location.reload();
 
 export function AppEndpointSetup({ onSaved = reload }: { onSaved?: () => void }) {
+    const t = useT(nativeMessages);
     const [value, setValue] = useState('');
     const [error, setError] = useState<string | null>(null);
 
@@ -19,11 +22,11 @@ export function AppEndpointSetup({ onSaved = reload }: { onSaved?: () => void })
         e.preventDefault();
         const url = normalizeEndpointUrl(value);
         if (!url) {
-            setError('ホストの URL（例: https://pc.example.ts.net）を入れてください。パスは付けません');
+            setError(t('appEndpointSetup.urlInvalid'));
             return;
         }
         if (!saveAppEndpoint({ url })) {
-            setError('保存できませんでした');
+            setError(t('appEndpointSetup.saveFailed'));
             return;
         }
         onSaved();
@@ -32,12 +35,10 @@ export function AppEndpointSetup({ onSaved = reload }: { onSaved?: () => void })
     return (
         <main className='mx-auto flex min-h-svh max-w-md flex-col justify-center gap-4 p-6' data-app-endpoint>
             <p className='text-xs text-muted-foreground'>Remote Whisper</p>
-            <h1 className='text-xl font-semibold'>接続先</h1>
-            <p className='text-sm'>
-                文字起こしをするホストの URL を入れてください。この端末に保存し、次からはそのまま開きます。
-            </p>
+            <h1 className='text-xl font-semibold'>{t('appEndpointSetup.hostAddress')}</h1>
+            <p className='text-sm'>{t('appEndpointSetup.intro')}</p>
             <form className='flex flex-col gap-3' onSubmit={submit} noValidate>
-                <Label htmlFor='app-endpoint-url'>ホストの URL</Label>
+                <Label htmlFor='app-endpoint-url'>{t('appEndpointSetup.urlLabel')}</Label>
                 <Input
                     id='app-endpoint-url'
                     type='url'
@@ -59,7 +60,7 @@ export function AppEndpointSetup({ onSaved = reload }: { onSaved?: () => void })
                     </p>
                 )}
                 <Button type='submit' className='self-start'>
-                    つなぐ
+                    {t('appEndpointSetup.connect')}
                 </Button>
             </form>
         </main>
@@ -68,12 +69,13 @@ export function AppEndpointSetup({ onSaved = reload }: { onSaved?: () => void })
 
 // 設定のモーダルの左下に出す、今の接続先と「変える」。同梱したときだけ（ブラウザ版では何も出さない）
 export function AppEndpointInfo({ onCleared = reload }: { onCleared?: () => void }) {
+    const t = useT(nativeMessages);
     if (!bundled || !endpoint.base) {
         return null;
     }
     return (
         <p className='text-xs text-muted-foreground'>
-            接続先 <span className='font-mono'>{endpoint.base}</span>
+            {t('appEndpointSetup.hostAddress')} <span className='font-mono'>{endpoint.base}</span>
             <button
                 className='ml-1 underline underline-offset-2'
                 onClick={() => {
@@ -81,7 +83,7 @@ export function AppEndpointInfo({ onCleared = reload }: { onCleared?: () => void
                     onCleared();
                 }}
             >
-                変える
+                {t('appEndpointSetup.change')}
             </button>
         </p>
     );

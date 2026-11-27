@@ -8,8 +8,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useCloudStore } from '@/features/cloud/cloud';
 import { type Host, removeHost, renameHost, useHostsStore } from '@/features/cloud/hosts';
+import { cloudMessages } from '@/features/cloud/i18n';
+import { useT } from '@/i18n/messages';
 
 function HostRow({ host }: { host: Host }) {
+    const t = useT(cloudMessages);
     const setHosts = useHostsStore((s) => s.set);
     const currentHostId = useCloudStore((s) => s.cloud.hostId);
     const dispatch = useCloudStore((s) => s.dispatch);
@@ -25,20 +28,20 @@ function HostRow({ host }: { host: Host }) {
             setHosts(await renameHost(host.id, name));
             setEditing(false);
         } catch (e) {
-            toast.error(`名前を変えられません: ${(e as Error).message}`);
+            toast.error(t('hostsSection.renameFailed', { message: (e as Error).message }));
         }
     };
 
     const remove = async () => {
         try {
             setHosts(await removeHost(host.id));
-            toast.success(`${host.name} を外しました`);
+            toast.success(t('common.removed', { name: host.name }));
             // つないでいたホストなら、選び直す
             if (host.id === currentHostId) {
                 dispatch({ type: 'changeHost' });
             }
         } catch (e) {
-            toast.error(`外せません: ${(e as Error).message}`);
+            toast.error(t('common.removeFailed', { message: (e as Error).message }));
         }
     };
 
@@ -53,17 +56,17 @@ function HostRow({ host }: { host: Host }) {
                     }}
                 >
                     <Input
-                        aria-label='ホストの名前'
+                        aria-label={t('hostsSection.hostName')}
                         value={name}
                         maxLength={64}
                         onChange={(e) => setName(e.target.value)}
                         autoFocus
                     />
                     <Button size='sm' type='submit' disabled={name.trim().length === 0}>
-                        保存
+                        {t('hostsSection.save')}
                     </Button>
                     <Button size='sm' variant='ghost' type='button' onClick={() => setEditing(false)}>
-                        やめる
+                        {t('common.cancel')}
                     </Button>
                 </form>
             ) : (
@@ -71,44 +74,46 @@ function HostRow({ host }: { host: Host }) {
                     <span className='truncate'>
                         {host.name}
                         <span className='ml-2 text-xs text-muted-foreground'>
-                            {host.online === true ? 'オンライン' : host.online === false ? 'オフライン' : ''}
+                            {host.online === true
+                                ? t('common.online')
+                                : host.online === false
+                                  ? t('common.offline')
+                                  : ''}
                         </span>
                     </span>
                     <span className='flex shrink-0 gap-1'>
                         <Button
                             size='sm'
                             variant='ghost'
-                            aria-label={`${host.name} の名前を変える`}
+                            aria-label={t('hostsSection.renameLabel', { name: host.name })}
                             onClick={() => {
                                 setName(host.name);
                                 setEditing(true);
                             }}
                         >
-                            名前
+                            {t('hostsSection.rename')}
                         </Button>
                         <Button
                             size='sm'
                             variant='ghost'
-                            aria-label={`${host.name} を外す`}
+                            aria-label={t('hostsSection.removeLabel', { name: host.name })}
                             disabled={locked}
-                            title={locked ? '録音中は、つないでいるホストを外せません' : undefined}
+                            title={locked ? t('hostsSection.removeLockedRecording') : undefined}
                             onClick={() => setConfirming(true)}
                         >
-                            外す
+                            {t('common.remove')}
                         </Button>
                     </span>
                 </div>
             )}
             {confirming && (
                 <div className='flex items-center justify-end gap-2'>
-                    <span className='text-xs text-destructive'>
-                        外すと、このホストはクラウド版からつながらなくなります
-                    </span>
+                    <span className='text-xs text-destructive'>{t('hostsSection.removeConfirm')}</span>
                     <Button size='sm' variant='destructive' onClick={() => void remove()}>
-                        外す
+                        {t('common.remove')}
                     </Button>
                     <Button size='sm' variant='ghost' onClick={() => setConfirming(false)}>
-                        やめる
+                        {t('common.cancel')}
                     </Button>
                 </div>
             )}
@@ -117,6 +122,7 @@ function HostRow({ host }: { host: Host }) {
 }
 
 export function HostsSection({ open }: { open: boolean }) {
+    const t = useT(cloudMessages);
     const { hosts, load } = useHostsStore();
     // 開いたときに取り直す（オンラインかどうかが変わるため）
     useEffect(() => {
@@ -127,13 +133,11 @@ export function HostsSection({ open }: { open: boolean }) {
 
     return (
         <section className='flex flex-col gap-2 border-t pt-3' data-hosts-section>
-            <h3 className='font-medium'>ホスト（文字起こしをする PC）</h3>
+            <h3 className='font-medium'>{t('hostsSection.title')}</h3>
             {hosts === null ? (
-                <p className='text-xs text-muted-foreground'>読み込んでいます…</p>
+                <p className='text-xs text-muted-foreground'>{t('common.loading')}</p>
             ) : hosts.length === 0 ? (
-                <p className='text-xs text-muted-foreground'>
-                    まだありません。PC のトレイの「クラウド版にログイン」から登録します
-                </p>
+                <p className='text-xs text-muted-foreground'>{t('hostsSection.empty')}</p>
             ) : (
                 <ul className='flex flex-col gap-2'>
                     {hosts.map((h) => (

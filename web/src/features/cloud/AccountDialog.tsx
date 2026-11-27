@@ -21,9 +21,12 @@ import {
     useAccountStore,
 } from '@/features/cloud/account';
 import { useCloudStore } from '@/features/cloud/cloud';
+import { cloudMessages } from '@/features/cloud/i18n';
 import { stopPushOnSignOut } from '@/features/settings/push';
+import { useT } from '@/i18n/messages';
 
 export function AccountDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+    const t = useT(cloudMessages);
     const { me, setMe } = useAccountStore();
     const dispatch = useCloudStore((s) => s.dispatch);
     const [confirmDelete, setConfirmDelete] = useState(false);
@@ -54,7 +57,7 @@ export function AccountDialog({ open, onOpenChange }: { open: boolean; onOpenCha
         try {
             await logoutEverywhere();
         } catch (e) {
-            toast.error(`ログアウトできません: ${(e as Error).message}`);
+            toast.error(t('accountDialog.logoutEverywhereFailed', { message: (e as Error).message }));
             return;
         }
         setConfirmAll(false);
@@ -67,7 +70,7 @@ export function AccountDialog({ open, onOpenChange }: { open: boolean; onOpenCha
         try {
             setMe(await removeIdentity(id));
         } catch (e) {
-            toast.error(`外せません: ${(e as Error).message}`);
+            toast.error(t('common.removeFailed', { message: (e as Error).message }));
         }
     };
 
@@ -76,13 +79,13 @@ export function AccountDialog({ open, onOpenChange }: { open: boolean; onOpenCha
         try {
             await deleteAccount();
         } catch (e) {
-            toast.error(`退会できません: ${(e as Error).message}`);
+            toast.error(t('accountDialog.deleteAccountFailed', { message: (e as Error).message }));
             return;
         }
         setMe(null);
         dispatch({ type: 'loggedOut' });
         onOpenChange(false);
-        toast.success('退会しました');
+        toast.success(t('accountDialog.deleted'));
     };
 
     return (
@@ -96,13 +99,13 @@ export function AccountDialog({ open, onOpenChange }: { open: boolean; onOpenCha
         >
             <DialogContent>
                 <DialogHeader>
-                    <DialogTitle>アカウント</DialogTitle>
-                    <DialogDescription>{me ? `${me.displayName} でログインしています` : ''}</DialogDescription>
+                    <DialogTitle>{t('accountDialog.title')}</DialogTitle>
+                    <DialogDescription>{me ? t('common.loggedInAs', { name: me.displayName }) : ''}</DialogDescription>
                 </DialogHeader>
                 {me && (
                     <div className='flex flex-col gap-4 text-sm'>
                         <section className='flex flex-col gap-2'>
-                            <h3 className='font-medium'>ログインの手段</h3>
+                            <h3 className='font-medium'>{t('accountDialog.providers')}</h3>
                             <ul className='flex flex-col gap-1.5'>
                                 {me.identities.map((i) => (
                                     <li key={i.id} className='flex items-center justify-between gap-2'>
@@ -114,10 +117,12 @@ export function AccountDialog({ open, onOpenChange }: { open: boolean; onOpenCha
                                             size='sm'
                                             variant='ghost'
                                             disabled={!canRemove(me)}
-                                            title={canRemove(me) ? undefined : '最後のログインの手段は外せません'}
+                                            title={
+                                                canRemove(me) ? undefined : t('accountDialog.lastProviderCannotRemove')
+                                            }
                                             onClick={() => void remove(i.id)}
                                         >
-                                            外す
+                                            {t('common.remove')}
                                         </Button>
                                     </li>
                                 ))}
@@ -125,16 +130,14 @@ export function AccountDialog({ open, onOpenChange }: { open: boolean; onOpenCha
                             {appAuthActive ? (
                                 // 手段を足すのは Cookie のログインセッションが要るので、アプリではできない（#441）
                                 addableProviders(me).length > 0 && (
-                                    <p className='text-xs text-muted-foreground'>
-                                        ログインの手段を足すのは、ブラウザで開いたときにできます
-                                    </p>
+                                    <p className='text-xs text-muted-foreground'>{t('accountDialog.cannotAddInApp')}</p>
                                 )
                             ) : (
                                 <div className='flex flex-wrap gap-2'>
                                     {addableProviders(me).map((p) => (
                                         <Button key={p} size='sm' variant='outline' asChild>
                                             <a href={loginHref(p, { link: true, returnTo: location.pathname })}>
-                                                {PROVIDER_LABELS[p]} を足す
+                                                {t('accountDialog.addProvider', { provider: PROVIDER_LABELS[p] })}
                                             </a>
                                         </Button>
                                     ))}
@@ -146,7 +149,7 @@ export function AccountDialog({ open, onOpenChange }: { open: boolean; onOpenCha
                         <section className='flex flex-col gap-2 border-t pt-3'>
                             <div className='flex flex-wrap items-center gap-2'>
                                 <Button size='sm' variant='outline' onClick={() => void signOut()}>
-                                    ログアウト
+                                    {t('common.logout')}
                                 </Button>
                                 {!confirmAll && (
                                     <Button
@@ -157,20 +160,20 @@ export function AccountDialog({ open, onOpenChange }: { open: boolean; onOpenCha
                                             setConfirmAll(true);
                                         }}
                                     >
-                                        すべての端末からログアウト
+                                        {t('accountDialog.logoutEverywhere')}
                                     </Button>
                                 )}
                             </div>
                             {confirmAll && (
                                 <div className='flex flex-wrap items-center gap-2'>
                                     <span className='text-xs text-destructive'>
-                                        この端末を含め、すべての端末でログアウトします
+                                        {t('accountDialog.logoutEverywhereConfirm')}
                                     </span>
                                     <Button size='sm' variant='destructive' onClick={() => void signOutEverywhere()}>
-                                        ログアウトする
+                                        {t('accountDialog.logoutEverywhereDo')}
                                     </Button>
                                     <Button size='sm' variant='ghost' onClick={() => setConfirmAll(false)}>
-                                        やめる
+                                        {t('common.cancel')}
                                     </Button>
                                 </div>
                             )}
@@ -179,10 +182,10 @@ export function AccountDialog({ open, onOpenChange }: { open: boolean; onOpenCha
                             {confirmDelete ? (
                                 <span className='flex items-center gap-2'>
                                     <span className='text-xs text-destructive'>
-                                        アカウントとホストの登録を消します。元に戻せません
+                                        {t('accountDialog.deleteAccountConfirm')}
                                     </span>
                                     <Button size='sm' variant='destructive' onClick={() => void leave()}>
-                                        退会する
+                                        {t('accountDialog.deleteAccount')}
                                     </Button>
                                 </span>
                             ) : (
@@ -194,7 +197,7 @@ export function AccountDialog({ open, onOpenChange }: { open: boolean; onOpenCha
                                         setConfirmDelete(true);
                                     }}
                                 >
-                                    退会…
+                                    {t('accountDialog.deleteAccountStart')}
                                 </Button>
                             )}
                         </section>

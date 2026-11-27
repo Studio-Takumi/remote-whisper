@@ -11,6 +11,8 @@ from collections.abc import Callable, Iterable
 from typing import Any
 from urllib.parse import urlsplit
 
+from remote_whisper.api_errors import error_body
+
 log = logging.getLogger(__name__)
 
 # 名前として受け付ける形（ラベルは英数字と - _。IDN は xn-- の形で書く）
@@ -248,15 +250,16 @@ class HostCheckMiddleware:
             await send({"type": "websocket.close", "code": 1008})
             return
         if reason == "origin":
-            detail = "ほかのサイトの画面からは使えません"
+            code, detail = "host.originNotAllowed", "ほかのサイトの画面からは使えません"
         elif reason.startswith("duplicate"):
-            detail = "Host か Origin のヘッダーが重なっています"
+            code, detail = "host.duplicateHeader", "Host か Origin のヘッダーが重なっています"
         else:
-            detail = (
+            code, detail = (
+                "host.nameNotAllowed",
                 "この名前では開けません。ホストの PC で localhost から開き、"
-                "設定の「許可するホスト名」に足してください"
+                "設定の「許可するホスト名」に足してください",
             )
-        body = json.dumps({"detail": detail}, ensure_ascii=False).encode()
+        body = json.dumps(error_body(code, detail), ensure_ascii=False).encode()
         await send(
             {
                 "type": "http.response.start",

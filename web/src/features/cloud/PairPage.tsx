@@ -7,7 +7,9 @@ import { TriangleAlertIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { LoginButtons } from '@/features/cloud/LoginButtons';
 import { fetchMe, useAccountStore } from '@/features/cloud/account';
+import { cloudMessages } from '@/features/cloud/i18n';
 import { type PairRequest, approvePairing, fetchPairRequest, rejectPairing } from '@/features/cloud/pairing';
+import { useT } from '@/i18n/messages';
 
 type View =
     | { kind: 'loading' }
@@ -22,17 +24,18 @@ export function settled(request: PairRequest): View | null {
         return request.answeredByMe === false
             ? {
                   kind: 'error',
-                  message: `${request.hostName} は、ほかのアカウントで承認されています。心当たりがなければ、PC のトレイから「クラウド版から外す」を選んでください`,
+                  message: cloudMessages.t('pairPage.errorApprovedByOther', { host: request.hostName }),
               }
-            : { kind: 'done', message: `${request.hostName} は登録済みです` };
+            : { kind: 'done', message: cloudMessages.t('pairPage.doneAlreadyRegistered', { host: request.hostName }) };
     }
     if (request.status === 'rejected') {
-        return { kind: 'done', message: 'この登録は拒否されたか、取り消されました' };
+        return { kind: 'done', message: cloudMessages.t('pairPage.doneRejectedOrCanceled') };
     }
     return null;
 }
 
 export function PairPage({ code }: { code: string }) {
+    const t = useT(cloudMessages);
     const { me, checked, setMe } = useAccountStore();
     const [view, setView] = useState<View>({ kind: 'loading' });
     const [busy, setBusy] = useState(false);
@@ -61,11 +64,11 @@ export function PairPage({ code }: { code: string }) {
                 await approvePairing(request.code);
                 setView({
                     kind: 'done',
-                    message: `${request.hostName} を登録しました。PC のトレイにも通知が出ます`,
+                    message: cloudMessages.t('pairPage.doneRegistered', { host: request.hostName }),
                 });
             } else {
                 await rejectPairing(request.code);
-                setView({ kind: 'done', message: '登録を拒否しました' });
+                setView({ kind: 'done', message: cloudMessages.t('pairPage.doneRejected') });
             }
         } catch (e) {
             setView({ kind: 'error', message: (e as Error).message });
@@ -76,39 +79,39 @@ export function PairPage({ code }: { code: string }) {
 
     return (
         <main className='mx-auto flex min-h-svh max-w-md flex-col justify-center gap-4 p-6' data-pair-view={view.kind}>
-            <p className='text-xs text-muted-foreground'>Remote Whisper（クラウド版）</p>
-            <h1 className='text-xl font-semibold'>ホストの登録</h1>
+            <p className='text-xs text-muted-foreground'>{t('common.appNameCloudEdition')}</p>
+            <h1 className='text-xl font-semibold'>{t('pairPage.registerHost')}</h1>
             {!checked ? (
-                <p className='text-sm text-muted-foreground'>確かめています…</p>
+                <p className='text-sm text-muted-foreground'>{t('common.checking')}</p>
             ) : !me ? (
                 <>
-                    <p className='text-sm'>ログインしてから、登録する PC を確かめます</p>
+                    <p className='text-sm'>{t('pairPage.loginFirst')}</p>
                     <LoginButtons />
                 </>
             ) : view.kind === 'loading' ? (
-                <p className='text-sm text-muted-foreground'>読み込んでいます…</p>
+                <p className='text-sm text-muted-foreground'>{t('common.loading')}</p>
             ) : view.kind === 'error' ? (
                 <p className='text-sm text-destructive'>{view.message}</p>
             ) : view.kind === 'done' ? (
                 <>
                     <p className='text-sm'>{view.message}</p>
                     <Button variant='outline' asChild>
-                        <a href='/'>Remote Whisper を開く</a>
+                        <a href='/'>{t('pairPage.openApp')}</a>
                     </Button>
                 </>
             ) : (
                 <>
                     <p className='text-sm'>
-                        <span className='font-medium'>{view.request.hostName}</span> を {me.displayName}{' '}
-                        のアカウントに登録しますか？
+                        <span className='font-medium'>{view.request.hostName}</span>{' '}
+                        {t('pairPage.askAfterHost', { name: me.displayName })}
                     </p>
                     <PairChecks request={view.request} />
                     <div className='flex gap-2'>
                         <Button disabled={busy} onClick={() => void answer(true, view.request)}>
-                            承認する
+                            {t('pairPage.approve')}
                         </Button>
                         <Button variant='outline' disabled={busy} onClick={() => void answer(false, view.request)}>
-                            拒否する
+                            {t('pairPage.reject')}
                         </Button>
                     </div>
                 </>
@@ -119,6 +122,7 @@ export function PairPage({ code }: { code: string }) {
 
 // 承認の前に見てもらうもの: 接続元の国が違うときの警告（#251）・コード・確かめること
 export function PairChecks({ request }: { request: PairRequest }) {
+    const t = useT(cloudMessages);
     return (
         <>
             {request.countryMismatch && (
@@ -131,20 +135,17 @@ export function PairChecks({ request }: { request: PairRequest }) {
                     <div className='flex min-w-0 flex-col gap-1'>
                         <p className='font-semibold'>
                             {/* 狭い幅でも、文節の途中で折り返さない */}
-                            <span className='inline-block'>この PC が手元にないなら</span>
-                            <span className='inline-block'>承認しないでください</span>
+                            <span className='inline-block'>{t('pairPage.noPcWarningFirst')}</span>
+                            <span className='inline-block'>{t('pairPage.noPcWarningSecond')}</span>
                         </p>
-                        <p className='text-xs'>申請した PC と、この端末の接続元の国が違います</p>
+                        <p className='text-xs'>{t('pairPage.countryMismatch')}</p>
                     </div>
                 </div>
             )}
             <p className='rounded-md border py-3 text-center font-mono text-2xl tracking-widest'>{request.code}</p>
             <ul className='list-disc space-y-1 pl-4 text-xs text-muted-foreground'>
-                <li>
-                    PC
-                    のトレイの通知に出ているコードと同じか確かめてください。違うときや、心当たりがないときは拒否してください
-                </li>
-                <li>人から送られてきたコードは承認しないでください</li>
+                <li>{t('pairPage.checkCode')}</li>
+                <li>{t('pairPage.doNotApproveCode')}</li>
             </ul>
         </>
     );
