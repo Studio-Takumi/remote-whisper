@@ -8,7 +8,7 @@ from functools import cache
 from typing import Any
 
 from remote_whisper.storage.session_writer import fmt_clock
-from remote_whisper.transcript.spacing import spaced
+from remote_whisper.transcript.spacing import UNSPACED_LANGUAGES, spaced
 
 log = logging.getLogger(__name__)
 
@@ -24,15 +24,94 @@ HELD_SEC = 0.9
 FINAL_GAP_SEC = 0.3
 FINAL_HELD_SEC = 0.6
 # 行がこれより長くなったら、これだけの間でも区切る（秒）
-LONG_CHARS = 80
 SHORT_GAP_SEC = 0.25
 SHORT_HELD_SEC = 0.5
-# それでも区切れずに長くなったら、そこで区切る（語の境目で）
-MAX_CHARS = 160
 # 文の中の話者の断片のうち、これだけの語以下で、これだけの秒以下のずれは隣にまとめる（_smooth）
 SMOOTH_WORDS = 2
 SMOOTH_SEC = 1.0
 SPEAKER_LABEL = "話者"
+
+
+@dataclass(frozen=True)
+class LineLimits:
+    """行の長さの上限（文字数。#484）"""
+
+    # これより長くなったら、短い間でも区切る
+    long_chars: int
+    # それでも区切れずに長くなったら、そこで区切る（語の境目で）
+    max_chars: int
+
+
+# 日本語など単語をスペースで区切らない言語。英語は同じ内容が 3 倍ほどの文字数になるので、
+# スペースで区切る言語は長めにする
+UNSPACED_LIMITS = LineLimits(long_chars=80, max_chars=160)
+SPACED_LIMITS = LineLimits(long_chars=240, max_chars=480)
+
+
+def limits_for(language: str) -> LineLimits:
+    return UNSPACED_LIMITS if language in UNSPACED_LANGUAGES else SPACED_LIMITS
+
+
+# 語尾の `.` で文を終えない略語（小文字。`.` を除いた形）
+_TITLES = frozenset(
+    "mr mrs ms dr prof sr jr st mt vs fig approx dept est "
+    "jan feb mar apr jun jul aug sep sept oct nov dec".split()
+)
+# 文末にも来る略語。次の単語が大文字で始まる（または最後の単語）ときだけ文末にする
+_TRAILING = frozenset("etc inc ltd co corp".split())
+_TRAILING_DOTTED = frozenset({"a.m.", "p.m."})
+# 閉じ引用符・閉じ括弧（文末の記号の後ろに付く）と、開き引用符・開き括弧（単語の頭に付く）
+_CLOSERS = "\"')]}”’»"
+_OPENERS = "\"'([{“‘«"
+# `e.g.` `U.S.` のように、1 文字ずつ `.` で区切った略語
+_DOTTED = re.compile(r"^(?:[^\W\d_]\.)+[^\W\d_]?$")
+
+
+_PRONOUN_I = re.compile(r"I(?:['’]|$)")
+
+
+def _next_starts(next_word: str | None, test: str) -> bool:
+    """次の単語が、大文字で始まる（test="upper"）か、数字で始まる（"digit"）か。
+    次の単語がない（最後の単語）ときは大文字の方だけ True"""
+    if next_word is None:
+        return test == "upper"
+    head = next_word.strip().lstrip(_OPENERS)[:1]
+    return head.isupper() if test == "upper" else head.isdigit()
+
+
+def ends_sentence(word: str, language: str, next_word: str | None = None) -> bool:
+    """単語が文の終わりか。日本語は「。」「？」など。スペースで区切る言語は、それに加えて `.`
+    （`3.14`・`Mr.`・`e.g.`・`J.` では区切らない）。`...`・`…`・`etc.`・`a.m.` は、
+    次の単語が大文字で始まるときだけ。`No.` は次が数字のとき（`No. 5`）だけ区切らない（#484）"""
+    w = word.strip()
+    if not w:
+        return False
+    if w[-1] in SENTENCE_END:
+        return True
+    if language in UNSPACED_LANGUAGES:
+        return False
+    w = w.rstrip(_CLOSERS)
+    if w.endswith(("?", "!")):
+        return True
+    # 言いよどみ（`So... I think`）では区切らない。後ろが `I`（文中でも大文字）なら区切らない
+    if w.endswith(("...", "…")):
+        if next_word is not None and _PRONOUN_I.match(next_word.strip().lstrip(_OPENERS)):
+            return False
+        return _next_starts(next_word, "upper")
+    if not w.endswith("."):
+        return False
+    body = w.rstrip(".")
+    lower = w.lower()
+    if lower in _TRAILING_DOTTED or body.lower() in _TRAILING:
+        return _next_starts(next_word, "upper")
+    if not body or _DOTTED.match(w):
+        return False
+    if body.lower() == "no":
+        return not _next_starts(next_word, "digit")
+    # 頭文字（`J.`）・敬称。文頭の大文字 1 文字（`I.`）は文末にもなりうるが、区切らない方に倒す
+    if len(body) == 1 and body.isalpha() and body.isupper():
+        return False
+    return body.lower() not in _TITLES
 
 
 @dataclass
@@ -213,18 +292,21 @@ def _pause(words: list[dict[str, Any]], i: int) -> tuple[float, float]:
 
 
 def _split_sentences(
-    words: list[dict[str, Any]], ends: list[int], morph: tuple[set[int], set[int]] | None
+    words: list[dict[str, Any]],
+    ends: list[int],
+    morph: tuple[set[int], set[int]] | None,
+    language: str = "ja",
 ) -> list[tuple[int, int]]:
     """文に分ける。words の範囲 [i, j) の一覧"""
+    limits = limits_for(language)
     out: list[tuple[int, int]] = []
     first = 0
     for i, w in enumerate(words):
         if i + 1 < len(words) and _is_punctuation(words[i + 1]["word"]):
             # 句読点の前では区切らない（伸びた文字の後に来る「。」などを前の文に付ける）
             continue
-        word = w["word"].strip()
         length = ends[i] - (ends[first - 1] if first > 0 else 0)
-        if word and word[-1] in SENTENCE_END:
+        if ends_sentence(w["word"], language, words[i + 1]["word"] if i + 1 < len(words) else None):
             cut = True
         elif morph is not None and ends[i] not in morph[0]:
             cut = False
@@ -235,8 +317,10 @@ def _split_sentences(
                 gap >= GAP_SEC
                 or held >= HELD_SEC
                 or (final and (gap >= FINAL_GAP_SEC or held >= FINAL_HELD_SEC))
-                or (length >= LONG_CHARS and (gap >= SHORT_GAP_SEC or held >= SHORT_HELD_SEC))
-                or length >= MAX_CHARS
+                or (
+                    length >= limits.long_chars and (gap >= SHORT_GAP_SEC or held >= SHORT_HELD_SEC)
+                )
+                or length >= limits.max_chars
             )
         if cut:
             out.append((first, i + 1))
@@ -394,7 +478,7 @@ def sentences(
 
     out: list[Sentence] = []
     last_end: float | None = None
-    for i, j in _split_sentences(words, ends, morph):
+    for i, j in _split_sentences(words, ends, morph, language):
         # 文の中でも、話者が替わる語の境目で分ける
         parts: list[tuple[int, int]] = []
         first = i

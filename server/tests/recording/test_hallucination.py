@@ -143,3 +143,48 @@ def test_keeps_a_sentence_that_only_mentions_a_phrase():
     assert (
         drop_reason(seg("次の動画でお会いしましょうと締めるのが定番です", ns=0.4, lp=-0.7)) is None
     )
+
+
+def test_drops_english_youtube_closings_with_low_confidence():
+    # 英語の定番の文（#484）。言語は見ず、全体が一致したときだけ
+    for text in (
+        "Thanks for watching!",
+        "Thank you for watching.",
+        " Please subscribe.",
+        "Like and subscribe",
+        "Thanks for watching. Please subscribe!",
+        "Subtitles by the Amara.org community",
+        "don't forget to subscribe",
+    ):
+        assert drop_reason(seg(text, ns=0.0, lp=-0.7)) == "phrase", text
+        assert drop_reason(seg(text, ns=0.4, lp=-0.3)) == "phrase", text
+    assert drop_reason(ov("Thanks for watching!", voiced=0.5)) == "short_phrase"
+
+
+def test_keeps_english_phrases_when_confident_or_only_mentioned():
+    assert drop_reason(seg("Thanks for watching!", ns=0.0, lp=-0.2), voiced_sec=2.0) is None
+    # 本当に言う短い言葉・話の一部に入っているだけの文は消さない
+    for text in (
+        "Thank you.",
+        "Thank you very much.",
+        "Please subscribe to the newsletter before Friday.",
+        "I want to thank you for watching over the kids.",
+        "Okay. Like and subscribe is what they always say at the end.",
+    ):
+        assert drop_reason(seg(text, ns=0.4, lp=-0.7)) is None, text
+
+
+def test_does_not_drop_japanese_speech_that_has_english_phrases():
+    for text in (
+        "チャンネルの Please subscribe ボタンについて話します",
+        "今日はThanks for watchingの訳し方を考えます",
+        "Thanks for watching は動画の最後によく出る言葉です",
+    ):
+        assert drop_reason(seg(text, ns=0.4, lp=-0.7)) is None, text
+
+
+def test_without_scores_drops_an_english_phrase_from_a_short_voice():
+    assert drop_reason(ov("Thanks for watching!", voiced=0.5)) == "short_phrase"
+    assert drop_reason(ov("Thanks for watching!"), voiced_sec=0.7) == "short_phrase"
+    assert drop_reason(ov("Thanks for watching!", voiced=1.5)) is None
+    assert drop_reason(ov("Thank you.", voiced=0.5)) is None

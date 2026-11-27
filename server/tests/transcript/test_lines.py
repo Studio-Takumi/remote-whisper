@@ -376,3 +376,137 @@ def test_render_without_diarization():
     assert body == "[01:02:05] 一時間後の文\n"
     assert speakers == 0
     assert render([], diarized=False) == ("", 0)
+
+
+def en_sentences(text, step=0.3, gap=0.0, **kw):
+    """スペースで区切る言語の単語（前後の空白を外した形）を、間なしに並べて文に分ける"""
+    words = []
+    t = 0.0
+    for w in text.split():
+        words.append({"word": w, "start": round(t, 3), "end": round(t + step, 3)})
+        t += step + gap
+    return [s.text for s in sentences([seg(words, text)], language="en", **kw)]
+
+
+@pytest.mark.parametrize(
+    ("word", "expected"),
+    [
+        ("world.", True),
+        ("really?", True),
+        ("Stop!", True),
+        ('said."', True),
+        ("(done.)", True),
+        ("wait...", True),
+        ("2020.", True),
+        ("3.14", False),
+        ("Mr.", False),
+        ("Dr.", False),
+        ("e.g.", False),
+        ("i.e.", False),
+        ("U.S.", False),
+        ("J.", False),
+        ("No.", True),
+        ("wait…", True),
+        ("etc.", True),
+        ("p.m.", True),
+        ("“Yes.”", True),
+        ("end.)", True),
+        ("hello", False),
+        ("hello,", False),
+        ("", False),
+    ],
+)
+def test_ends_sentence_for_spaced_languages(word, expected):
+    assert lines.ends_sentence(word, "en") is expected
+
+
+def test_a_period_ends_a_sentence_only_for_spaced_languages():
+    # 日本語（など単語をスペースで区切らない言語）では、今までどおり「。」だけ
+    assert lines.ends_sentence("です.", "ja") is False
+    assert lines.ends_sentence("です。", "ja") is True
+    assert lines.ends_sentence("です.", "zh") is False
+    assert lines.ends_sentence("Really?", "ja") is True
+
+
+def test_english_splits_at_periods_but_not_inside_abbreviations_and_numbers():
+    text = "Mr. Smith paid 3.14 dollars, e.g. for tea. Then he left. Was it fun? Yes!"
+    assert en_sentences(text) == [
+        "Mr. Smith paid 3.14 dollars, e.g. for tea.",
+        "Then he left.",
+        "Was it fun?",
+        "Yes!",
+    ]
+
+
+def test_limits_are_longer_for_spaced_languages():
+    assert lines.limits_for("ja") == lines.UNSPACED_LIMITS
+    assert lines.limits_for("zh") == lines.UNSPACED_LIMITS
+    for language in ("en", "fr", "de", "ru"):
+        spaced_limits = lines.limits_for(language)
+        assert spaced_limits.long_chars > lines.UNSPACED_LIMITS.long_chars
+        assert spaced_limits.max_chars > lines.UNSPACED_LIMITS.max_chars
+
+
+def test_english_is_not_cut_at_the_japanese_length():
+    # 句読点のない 150 文字ほどの英語は、日本語の上限（160 文字）の手前でも切らない
+    text = " ".join(["word"] * 28)  # 139 文字
+    assert len(text) > lines.UNSPACED_LIMITS.long_chars
+    assert en_sentences(text, step=0.3, gap=0.3) == [text]
+    # 日本語（language="ja"）は同じ長さで、短い間（0.3 秒）なら切る
+    words = [{"word": c, "start": i * 0.4, "end": i * 0.4 + 0.1} for i, c in enumerate("あ" * 100)]
+    assert len(sentences([seg(words)], language="ja")) > 1
+
+
+def test_english_is_cut_at_the_max_length():
+    text = " ".join(["word"] * 120)  # 599 文字
+    out = en_sentences(text)
+    assert len(out) > 1
+    assert all(len(s) <= lines.SPACED_LIMITS.max_chars + len("word ") for s in out)
+
+
+@pytest.mark.parametrize(
+    ("word", "next_word", "expected"),
+    [
+        ("No.", "5", False),
+        ("No.", "I", True),
+        ("no.", None, True),
+        ("So...", "I", False),
+        ("So...", "I'm", False),
+        ("So...", "i", False),
+        ("So…", "I", False),
+        ("So...", "Then", True),
+        ("So…", "Then", True),
+        ("So…", "It", True),
+        ("p.m.", "I", True),
+        ("So…", None, True),
+        ("wait…", "“Then", True),
+        ("etc.", "then", False),
+        ("etc.", "Then", True),
+        ("Inc.", "We", True),
+        ("Inc.", "and", False),
+        ("p.m.", "Then", True),
+        ("a.m.", "then", False),
+        ("Mr.", "Smith", False),
+        ("e.g.", "Smith", False),
+    ],
+)
+def test_ends_sentence_looks_at_the_next_word(word, next_word, expected):
+    assert lines.ends_sentence(word, "en", next_word) is expected
+
+
+def test_english_pauses_split_only_after_the_long_limit():
+    # 240 文字を超えたあとは、短い間（0.25 秒）でも区切る。超える前は区切らない
+    text = " ".join(["word"] * 60)  # 299 文字
+    out = en_sentences(text, step=0.3, gap=0.3)
+    assert len(out) == 2
+    assert len(out[0]) >= lines.SPACED_LIMITS.long_chars
+    assert len(out[0]) - len(" word") < lines.SPACED_LIMITS.long_chars
+    assert en_sentences(" ".join(["word"] * 40), step=0.3, gap=0.3) == [" ".join(["word"] * 40)]
+
+
+def test_english_hesitation_and_trailing_abbreviation():
+    assert en_sentences("So... I think we met at 5 p.m. Then we left. No. 5 is mine.") == [
+        "So... I think we met at 5 p.m.",
+        "Then we left.",
+        "No. 5 is mine.",
+    ]

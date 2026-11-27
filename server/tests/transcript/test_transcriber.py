@@ -657,3 +657,9 @@ def test_a_single_source_has_no_source_fields(home, session_files, fake_worker):
     assert "sources" not in job
     text = files.final_transcript(gid).read_text(encoding="utf-8")
     assert "sources" not in text and "lineSources" not in text
+
+
+def test_initial_prompt_is_only_for_japanese():
+    # 例文（#141）は ja のときだけ。ほかの言語を直接指定したときは渡さない（#484）
+    assert set(worker_job.INITIAL_PROMPT) == {"ja"}
+    assert worker_job.INITIAL_PROMPT.get("en") is None
