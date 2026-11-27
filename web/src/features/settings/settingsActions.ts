@@ -31,7 +31,7 @@ export async function loadSettings(ctx: ActionContext) {
     try {
         set({ settings: await api.get<Settings>('/api/settings'), settingsLoaded: true });
     } catch (e) {
-        toast.error(`設定を読み込めません: ${(e as Error).message}`);
+        toast.error(settingsMessages.t('settingsActions.loadFailed', { message: (e as Error).message }));
     }
 }
 
@@ -77,7 +77,7 @@ export async function changeSettings(ctx: ActionContext, next: Settings) {
         if (e instanceof ApiError && e.status === 409) {
             toast.error(settingsMessages.t('settingsActions.lockedWhileRecording'));
         } else {
-            toast.error(`設定を保存できません: ${(e as Error).message}`);
+            toast.error(settingsMessages.t('settingsActions.saveFailed', { message: (e as Error).message }));
         }
         return false;
     }

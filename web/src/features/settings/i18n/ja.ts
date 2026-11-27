@@ -112,8 +112,10 @@ export const ja = defineDictionary({
     'settings.sameAsTranscript': '文字起こしと同じ',
 
     // settingsActions.ts
+    'settingsActions.loadFailed': '設定を読み込めません: {message}',
     'settingsActions.lockedWhileRecording': '録音中は、文字起こしのモデル・区切り・マイクの処理は変えられません',
     'settingsActions.notLoaded': '設定を読み込めていないため、保存できません',
+    'settingsActions.saveFailed': '設定を保存できません: {message}',
 
     // SettingsDialog.tsx
     'settingsDialog.description': '全体設定（どの端末でも共通）',
@@ -138,6 +140,7 @@ export const ja = defineDictionary({
 
     // ShortcutInput.tsx
     'shortcutInput.escToCancel': 'Esc で取り消します',
+    'shortcutInput.modifierSeparator': '・',
     'shortcutInput.needsModifier': '{modifiers} のどれかと一緒に押してください',
     'shortcutInput.none': '使わない',
     'shortcutInput.pressKey': 'キーを押してください…',

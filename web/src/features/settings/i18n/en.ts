@@ -113,9 +113,11 @@ export const en = defineTranslation<typeof ja>()({
     'settings.sameAsTranscript': 'Same as transcript',
 
     // settingsActions.ts
+    'settingsActions.loadFailed': "Can't load the settings: {message}",
     'settingsActions.lockedWhileRecording':
         "The transcription model, segmentation, and microphone processing can't be changed while recording",
     'settingsActions.notLoaded': "Can't save because the settings haven't loaded",
+    'settingsActions.saveFailed': "Can't save the settings: {message}",
 
     // SettingsDialog.tsx
     'settingsDialog.description': 'Global settings (shared by all devices)',
@@ -140,6 +142,7 @@ export const en = defineTranslation<typeof ja>()({
 
     // ShortcutInput.tsx
     'shortcutInput.escToCancel': 'Press Esc to cancel',
+    'shortcutInput.modifierSeparator': ', ',
     'shortcutInput.needsModifier': 'Press it together with one of {modifiers}',
     'shortcutInput.none': 'None',
     'shortcutInput.pressKey': 'Press a key…',
