@@ -24,6 +24,8 @@ DESCRIPTION_MAX = 120
 
 _OVERVIEW = re.compile(r"^#{1,6}\s*全体概要\s*$")
 _HEADING = re.compile(r"^#{1,6}\s")
+_LATIN_END = re.compile(r"[.!?](?=\s|$)")
+_KANA_KANJI = re.compile(r"[぀-ヿ㐀-鿿]")
 
 
 def first_sentence(body: str) -> str | None:
@@ -44,6 +46,10 @@ def first_sentence(body: str) -> str | None:
         end = text.find("。")
         if end >= 0:
             text = text[: end + 1]
+        elif not _KANA_KANJI.search(text) and (m := _LATIN_END.search(text)):
+            # 英語などの要約（#485）。かな・漢字のない行だけ、空白か行末の前の . ! ? で切る
+            # （日本語の要約の切り方は変えない）
+            text = text[: m.end()]
         return " ".join(text.split())[:DESCRIPTION_MAX] or None
     return None
 

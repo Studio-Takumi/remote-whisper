@@ -53,7 +53,11 @@ class StubWriter:
         # 最終の文字起こし（#121）はない
         self.files.final_transcripts = lambda: []
         self.files.transcript.write_text("---\nid: x\n---\n[00:00:00] 話した\n", encoding="utf-8")
-        self.meta = type("Meta", (), {"context_set": None, "title": None, "corrections": []})()
+        self.meta = type(
+            "Meta",
+            (),
+            {"context_set": None, "title": None, "corrections": [], "language": "ja"},
+        )()
         self.saved = None
 
     def set_title(self, title):

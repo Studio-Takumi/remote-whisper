@@ -48,6 +48,15 @@ export const transcriptionLanguages: { value: TranscriptionLanguage; label: stri
     { value: 'auto', label: '自動判定' },
 ];
 
+export type SummaryLanguage = 'ja' | 'en' | 'transcript';
+
+// 要約の言語の選択肢（#485）。transcript は文字起こしの決まった言語に合わせる
+export const summaryLanguages: { value: SummaryLanguage; label: string }[] = [
+    { value: 'ja', label: '日本語' },
+    { value: 'en', label: 'English' },
+    { value: 'transcript', label: '文字起こしと同じ' },
+];
+
 // setting.json の中身（docs/spec/files.md 5.3 節）。後で GET /api/settings から取り、PATCH /api/settings で保存する
 export type Settings = {
     version: 1;
@@ -84,6 +93,8 @@ export type Settings = {
         pickTerms: boolean;
         // 最終要約の詳細の項目に、参考資料の場所（PDF のページ）を付けるか（#237。既定はオフ）。古いサーバーにはない
         detailMaterialPages?: boolean;
+        // 要約とタイトルを書く言語（#485）。古いサーバーにはない（そのときは画面に出さない）
+        summaryLanguage?: SummaryLanguage;
     };
     // 使う LLM（#325）。要約の間隔・要約度などは、どちらでも ollama の下のものを使う。古いサーバーにはない
     llm?: {
@@ -188,6 +199,7 @@ export const defaultSettings: Settings = {
         detailDensity: 3,
         pickTerms: false,
         detailMaterialPages: false,
+        summaryLanguage: 'ja',
     },
     llm: {
         backend: 'ollama',
