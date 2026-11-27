@@ -37,6 +37,25 @@ def test_records_the_manual_speech_level(project):
     assert (meta.whisper.speech_threshold, meta.whisper.speech_dbfs) == ("manual", -48)
 
 
+def test_set_language_writes_only_a_change_and_the_final_can_overwrite_it(project):
+    # 録音中に決まった言語（#483）。同じ値なら書かず、浄書の判定（#482）で書き直せる
+    from remote_whisper.transcript.result_save import _record_language
+
+    store, pid, settings = project
+    w = SessionWriter(store, pid, SID, STARTED, settings.get(), "auto")
+    w.start()
+    w.append_final(1.0, "Hello.")
+    before = w.files.transcript.stat().st_mtime_ns
+    w.set_language("ja")
+    assert w.files.transcript.stat().st_mtime_ns == before
+    w.set_language("en")
+    meta, body = read_doc(w.files.transcript, TranscriptMeta)
+    assert (meta.language_choice, meta.language) == ("auto", "en")
+    assert body == "[00:00:01] Hello.\n"
+    _record_language(w.files, w.meta, "de")
+    assert read_doc(w.files.transcript, TranscriptMeta)[0].language == "de"
+
+
 def test_fmt_clock():
     assert fmt_clock(3.9) == "00:00:03"
     assert fmt_clock(3725) == "01:02:05"
