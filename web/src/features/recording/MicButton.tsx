@@ -4,12 +4,14 @@ import { toast } from 'sonner';
 import { useCurrentProject, useCurrentSession, useSessionTitle } from '@/app/sessionHooks';
 import { useAppStore } from '@/app/store';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { recordingMessages } from '@/features/recording/i18n';
 import { joinUnavailable } from '@/features/recording/join';
 import { type MicDo, type MicIcon as MicIconKind, describeJoined, micAction } from '@/features/recording/micAction';
 import { useContinueLeft } from '@/features/recording/useContinueLeft';
 import { useMicShortcut } from '@/features/recording/useMicShortcut';
 import { recordedElsewhere } from '@/features/recording/watch';
 import { DEFAULT_MIC_SHORTCUT, ariaShortcut, formatShortcut } from '@/features/settings/shortcut';
+import { useT } from '@/i18n/messages';
 import { formatElapsed } from '@/lib/time';
 
 // アイコンの大きさ。スマホの幅ではボタンが小さいので、アイコンも小さくする（録音中の操作は小さく、待機中は大きく）
@@ -30,6 +32,8 @@ const ICONS: Record<MicIconKind, React.ReactNode> = {
 // sticky + mx-auto で、サイドバーの開閉に関係なくメイン領域の中央下に置く（spec/ui.md 8）。
 // 小さいボタンと経過時間は、マイクボタンが中央からずれないよう絶対配置にする
 export function MicButton() {
+    // micAction などの文も表示言語で引くので、切り替えたら描き直す
+    const t = useT(recordingMessages);
     const state = useAppStore((s) => s.recordingState);
     const elapsed = useAppStore((s) => s.elapsed);
     const projectName = useCurrentProject()?.name;
@@ -71,7 +75,7 @@ export function MicButton() {
     const joinReason = !watchedHere
         ? undefined
         : joined
-          ? 'ほかのセッションに参加しています'
+          ? t('micButton.joinedOther')
           : joinUnavailable(joinAvailability);
 
     const main = micAction({
@@ -171,15 +175,15 @@ export function MicButton() {
                         <button
                             className='absolute top-1/2 left-full ml-6 flex size-12 -translate-y-1/2 items-center justify-center rounded-full border bg-background text-foreground shadow-sm transition-colors hover:bg-muted'
                             onClick={onStop}
-                            aria-label='クリックして録音終了'
+                            aria-label={t('micButton.stop')}
                         >
                             <SquareIcon className='size-4' fill='currentColor' />
                             <span className='absolute top-full mt-1 hidden text-xs text-muted-foreground pointer-coarse:block'>
-                                終了
+                                {t('micButton.stopShort')}
                             </span>
                         </button>
                     </TooltipTrigger>
-                    <TooltipContent side='right'>クリックして録音終了</TooltipContent>
+                    <TooltipContent side='right'>{t('micButton.stop')}</TooltipContent>
                 </Tooltip>
             )}
         </div>

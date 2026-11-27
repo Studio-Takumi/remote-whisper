@@ -1,4 +1,5 @@
 // マイクの音声を AudioWorklet で 16kHz・モノラル・Int16 の PCM にする（spec/api.md 7.2）
+import { recordingMessages } from '@/features/recording/i18n';
 
 // AudioWorklet の本体は public/ に置き、ビルドでもそのままの名前で配信する（data URL に埋め込まれないように）
 const workletUrl = `${import.meta.env.BASE_URL}pcm-worklet.js`;
@@ -81,7 +82,7 @@ export class Microphone {
     ): Promise<Microphone> {
         if (!navigator.mediaDevices?.getUserMedia) {
             // getUserMedia は安全なコンテキスト（HTTPS か localhost）でしか使えない
-            throw new MicrophoneError('unavailable', 'このページではマイクを使えません（HTTPS で開いてください）');
+            throw new MicrophoneError('unavailable', recordingMessages.t('microphone.insecure'));
         }
         let stream: MediaStream;
         try {
@@ -90,14 +91,17 @@ export class Microphone {
             });
         } catch (e) {
             if (e instanceof DOMException && (e.name === 'NotAllowedError' || e.name === 'SecurityError')) {
-                throw new MicrophoneError('denied', 'マイクの使用が許可されていません');
+                throw new MicrophoneError('denied', recordingMessages.t('microphone.denied'));
             }
             // 指定したマイクがない（外した・ID が変わった）とき。OverconstrainedError は DOMException でないブラウザがある
             const name = (e as { name?: string } | null)?.name;
             if (deviceId && (name === 'OverconstrainedError' || name === 'NotFoundError')) {
-                throw new MicrophoneError('missing', '選んだマイクが見つかりません');
+                throw new MicrophoneError('missing', recordingMessages.t('microphone.missing'));
             }
-            throw new MicrophoneError('unavailable', `マイクを開けません: ${(e as Error).message}`);
+            throw new MicrophoneError(
+                'unavailable',
+                recordingMessages.t('microphone.openFailed', { message: (e as Error).message }),
+            );
         }
         const context = new AudioContext();
         try {
@@ -113,7 +117,10 @@ export class Microphone {
         } catch (e) {
             stream.getTracks().forEach((t) => t.stop());
             await context.close();
-            throw new MicrophoneError('unavailable', `音声の処理を始められません: ${(e as Error).message}`);
+            throw new MicrophoneError(
+                'unavailable',
+                recordingMessages.t('microphone.processingFailed', { message: (e as Error).message }),
+            );
         }
     }
 
