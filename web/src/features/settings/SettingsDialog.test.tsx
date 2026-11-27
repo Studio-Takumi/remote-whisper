@@ -120,10 +120,25 @@ describe('SettingsDialog', () => {
         expect(screen.queryByText('文字起こしの言語')).toBeNull();
     });
 
+    it('要約の言語は、古いサーバー（ollama.summaryLanguage がない）では出さない（#485）', () => {
+        draw('ollama');
+        expect(screen.getByLabelText('要約の言語').textContent).toContain('日本語');
+        cleanup();
+        draw('ollama', {
+            settings: { ...defaultSettings, ollama: { ...defaultSettings.ollama, summaryLanguage: 'transcript' } },
+        });
+        expect(screen.getByLabelText('要約の言語').textContent).toContain('文字起こしと同じ');
+        cleanup();
+        const { summaryLanguage: _summaryLanguage, ...ollama } = defaultSettings.ollama;
+        draw('ollama', { settings: { ...defaultSettings, ollama } });
+        expect(screen.queryByText('要約の言語')).toBeNull();
+    });
+
     it('要約のページの項目', () => {
         draw('ollama');
         for (const label of [
             '要約に使うアプリ',
+            '要約の言語',
             'Ollama の URL',
             'リアルタイム要約',
             '全体概要',
