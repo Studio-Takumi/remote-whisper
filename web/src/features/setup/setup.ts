@@ -1,6 +1,7 @@
 // 初回のセットアップの案内（#291。docs/spec/flows.md 6.15・ui.md 8・api.md 7.1）
 import type { LlmBackend } from '@/features/settings/settings';
 import { setupMessages } from '@/features/setup/i18n';
+import { formatDecimal } from '@/lib/format';
 
 // 全体設定のうち、案内が見るもの（浄書と話者分けのオン・オフ）
 export type WhisperFlags = { whisper: { finalTranscript?: boolean; diarize?: boolean } };
@@ -172,7 +173,7 @@ export function dismissGuide(): void {
 }
 
 export function formatGb(bytes: number): string {
-    return `${(bytes / 1e9).toFixed(1)} GB`;
+    return `${formatDecimal(bytes / 1e9, 1)} GB`;
 }
 
 export function pullPercent(job: PullJob): number {

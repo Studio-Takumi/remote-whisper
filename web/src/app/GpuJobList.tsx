@@ -4,6 +4,7 @@ import { GpuJobRow } from '@/app/GpuJobRow';
 import type { JobSession } from '@/app/gpuJobs';
 import { appMessages } from '@/app/i18n';
 import { useT } from '@/i18n/messages';
+import { formatDecimal } from '@/lib/format';
 import { formatElapsed } from '@/lib/time';
 
 // GPU の使用率と、実行中・待っているジョブの一覧（GpuIndicator を押すと開く）
@@ -29,8 +30,8 @@ export function GpuJobList({
                     <p className='text-xs text-muted-foreground tabular-nums'>
                         {t('gpuJobList.usage', {
                             util: gpu.util,
-                            used: (gpu.memUsedMb / 1024).toFixed(1),
-                            total: (gpu.memTotalMb / 1024).toFixed(1),
+                            used: formatDecimal(gpu.memUsedMb / 1024, 1),
+                            total: formatDecimal(gpu.memTotalMb / 1024, 1),
                         })}
                     </p>
                 ) : (
