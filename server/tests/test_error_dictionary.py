@@ -2,18 +2,22 @@
 
 辞書は web/src/api/serverErrors/i18n/ja.ts。web はコードから辞書の文を引くので、
 日本語の文がサーバーの detail・message と違うと、表示が変わってしまう。
+テストの中で作られた ApiError・RecordingError の文と params は、conftest の
+_errors_match_the_dictionary が辞書と突き合わせる。
 """
 
 import re
 from pathlib import Path
 
 import pytest
+from helpers.error_dictionary import load_dictionary, render
 
-ROOT = Path(__file__).resolve().parents[2]
-SRC = ROOT / "server" / "src" / "remote_whisper"
-JA = ROOT / "web" / "src" / "api" / "serverErrors" / "i18n" / "ja.ts"
+from remote_whisper.llm.llm import unavailable_error
+from remote_whisper.routes.sessions.common import gone
 
-# 組み立てて作るコード（gone・unavailable_error）。文もそこで組み立てる
+SRC = Path(__file__).resolve().parents[1] / "src" / "remote_whisper"
+
+# 組み立てて作るコード（gone・unavailable_error）。下の test_built_texts で呼んで確かめる
 BUILT = {
     "recordingFile.expired",
     "transcript.expired",
@@ -23,15 +27,20 @@ BUILT = {
     "lmstudio.realtimeSummaryUnavailable",
     "lmstudio.finalSummaryUnavailable",
 }
-# コードと同じ形をしているが、エラーのコードではないもの（WebSocket のメッセージの種類）
-NOT_CODES = {"summary.delta", "summary.done", "message.delta"}
+# コードと同じ形（"<英字>.<英字>"）をしているが、エラーのコードではないもの。
+# 新しく足したらここに書く（書かなければ、辞書にないコードとして落ちる）
+NOT_CODES = {
+    "summary.delta",
+    "summary.done",
+    "message.delta",
+    "chat.start",
+    "chat.end",
+    "lifespan.startup",
+    "websocket.close",
+    "websocket.disconnect",
+}
 # ファイル名（project.json など）もコードと同じ形なので、拡張子で外す
 FILE_EXTENSIONS = {"json", "wav", "exe", "md", "log", "lock", "html"}
-
-
-def _dictionary() -> dict[str, str]:
-    text = JA.read_text(encoding="utf-8")
-    return dict(re.findall(r"'([a-zA-Z]+\.[a-zA-Z]+)':\s*'([^']*)'", text))
 
 
 def _source() -> str:
@@ -42,17 +51,16 @@ def _source() -> str:
 
 @pytest.fixture(scope="module")
 def dictionary() -> dict[str, str]:
-    if not JA.is_file():
+    loaded = load_dictionary()
+    if loaded is None:
         pytest.skip("web の辞書がない（server だけを取り出したとき）")
-    return _dictionary()
+    return loaded
 
 
 def test_every_code_is_in_the_dictionary(dictionary):
-    namespaces = {key.split(".")[0] for key in dictionary}
+    """サーバーのソースにあるコードの形の文字列は、すべて辞書にある（新しい対象も）"""
     found = set(re.findall(r'"([a-z][a-zA-Z]*\.[a-z][a-zA-Z]*)"', _source()))
-    codes = {
-        c for c in found if c.split(".")[0] in namespaces and c.split(".")[1] not in FILE_EXTENSIONS
-    } - NOT_CODES
+    codes = {c for c in found if c.split(".")[1] not in FILE_EXTENSIONS} - NOT_CODES
     assert codes - dictionary.keys() == set()
 
 
@@ -73,3 +81,38 @@ def test_texts_are_the_same_as_the_server(dictionary):
         if not re.search(f'"{pattern}"', source):
             different.append(key)
     assert different == []
+
+
+def test_built_texts(dictionary):
+    """組み立てて作るコードの文も、辞書の文と同じ"""
+    made = {}
+    for what in ("recordingFile", "transcript", "polishedTranscript"):
+        e = gone(what)
+        made[e.code] = (e.detail, e.params)
+    for backend, app in (("ollama", "Ollama"), ("lmstudio", "LM Studio")):
+        for what in ("realtimeSummary", "finalSummary"):
+            m = unavailable_error(backend, app, what)
+            made[m["messageCode"]] = (m["message"], m["params"])
+    assert made.keys() == BUILT
+    for code, (text, params) in made.items():
+        assert render(dictionary[code], params) == text, code
+
+
+def test_reading_the_dictionary_counts_every_key(tmp_path, monkeypatch):
+    """' を含む文（prettier が "..." にする）も読める。読めないキーがあれば止まる"""
+    import helpers.error_dictionary as module
+
+    ja = tmp_path / "ja.ts"
+    ja.write_text(
+        "export const ja = defineDictionary({\n"
+        "    'a.b': '文',\n"
+        '    "a.c": "it\'s",\n'
+        "    'a.d':\n        '長い文',\n"
+        "});\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(module, "JA", ja)
+    assert module.load_dictionary() == {"a.b": "文", "a.c": "it's", "a.d": "長い文"}
+    ja.write_text("    'a.b': '文',\n    'a.c': `テンプレート`,\n", encoding="utf-8")
+    with pytest.raises(AssertionError):
+        module.load_dictionary()
