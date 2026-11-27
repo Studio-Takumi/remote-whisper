@@ -8,7 +8,9 @@ import { useAppStore } from '@/app/store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { type CorrectionLine, countInLines, rightProblem, selectionProblem } from '@/features/session/corrections';
+import { sessionMessages } from '@/features/session/i18n';
 import { isSubmitKey } from '@/features/session/terms';
+import { useT } from '@/i18n/messages';
 
 // 入力欄の幅（px）。画面の端からはみ出さないように寄せるのに使う
 const WIDTH = 288;
@@ -32,6 +34,7 @@ export function TranscriptCorrection({
     // いま出している文字起こし（リアルタイムか、浄書済みのどの版か）
     target: Omit<CorrectionLine, 'index'>;
 }) {
+    const t = useT(sessionMessages);
     const addCorrection = useAppStore((s) => s.addCorrection);
     const [picked, setPicked] = useState<Picked | null>(null);
     const [right, setRight] = useState('');
@@ -121,7 +124,7 @@ export function TranscriptCorrection({
                 line: onlyThisLine ? { ...target, index: picked.index } : null,
             });
             if (ok) {
-                toast.success(`「${picked.wrong}」を「${value}」に置き換え、用語に足しました`);
+                toast.success(t('transcriptCorrection.done', { wrong: picked.wrong, value }));
                 document.getSelection()?.removeAllRanges();
                 close();
             }
@@ -137,7 +140,7 @@ export function TranscriptCorrection({
         <div
             ref={box}
             role='dialog'
-            aria-label='選んだ文字を置き換える'
+            aria-label={t('transcriptCorrection.dialog')}
             className='absolute z-50 flex flex-col gap-2 rounded-lg border bg-popover p-2 text-sm text-popover-foreground shadow-md'
             style={{
                 top: picked.top,
@@ -155,34 +158,32 @@ export function TranscriptCorrection({
             {confirming && n === 0 ? (
                 // 選んだところがすでに正しい語の一部だったとき（置き換えると正しい語を壊すので当てない）
                 <>
-                    <p>置き換わる箇所はありません（すでに『{value}』になっています）</p>
+                    <p>{t('transcriptCorrection.noneToReplace', { value })}</p>
                     <div className='flex justify-end'>
                         <Button size='sm' variant='ghost' onClick={close}>
-                            閉じる
+                            {t('transcriptCorrection.close')}
                         </Button>
                     </div>
                 </>
             ) : confirming ? (
                 <>
-                    <p>
-                        このセッションの {n} 箇所を『{value}』に置き換えます
-                    </p>
+                    <p>{t('transcriptCorrection.confirm', { n, value })}</p>
                     <div className='flex flex-wrap justify-end gap-1.5'>
                         <Button size='sm' disabled={busy} onClick={() => void apply(false)}>
-                            全部
+                            {t('transcriptCorrection.all')}
                         </Button>
                         <Button size='sm' variant='outline' disabled={busy} onClick={() => void apply(true)}>
-                            この行だけ
+                            {t('transcriptCorrection.thisLine')}
                         </Button>
                         <Button size='sm' variant='ghost' disabled={busy} onClick={close}>
-                            やめる
+                            {t('transcriptCorrection.cancel')}
                         </Button>
                     </div>
                 </>
             ) : (
                 <>
                     <label className='text-xs text-muted-foreground' htmlFor='correction-right'>
-                        「{picked.wrong}」を正しい語に直して Enter
+                        {t('transcriptCorrection.enterRight', { wrong: picked.wrong })}
                     </label>
                     <Input
                         id='correction-right'

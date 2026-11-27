@@ -1,5 +1,6 @@
 import type { TranscriptLine } from '@/api/types';
 import { copyText } from '@/components/copyMarkdown';
+import { sessionMessages } from '@/features/session/i18n';
 
 // 文字起こし・要約を OS の共有機能（Web Share API）で他のアプリに渡す（#335）
 
@@ -15,11 +16,15 @@ export type ShareSource = {
 // 受け取るアプリ（ChatGPT など）によっては、長いテキストが途中で切れたり、貼り付け欄に入りきらなかったりするため
 export const SHARE_TEXT_LIMIT = 8000;
 
-export const SHARE_LABELS: Record<ShareWhat, string> = {
-    summary: '要約',
-    transcript: '文字起こしの全文',
-    both: '要約と全文',
-};
+const SHARE_LABEL_KEYS = {
+    summary: 'share.summary',
+    transcript: 'share.transcript',
+    both: 'share.both',
+} as const;
+
+export function shareLabel(what: ShareWhat): string {
+    return sessionMessages.t(SHARE_LABEL_KEYS[what]);
+}
 
 // 渡せる内容があるか（要約がまだない・文字起こしが空のときは選べない）
 export function canShareWhat(source: ShareSource, what: ShareWhat) {
@@ -37,8 +42,10 @@ export function buildShareText(source: ShareSource, what: ShareWhat, instruction
     const parts: string[] = [];
     if (instruction.trim()) parts.push(instruction.trim());
     parts.push(`# ${source.title}`);
-    if (what !== 'transcript') parts.push(`## 要約\n\n${(source.summary ?? '').trim()}`);
-    if (what !== 'summary') parts.push(`## 文字起こし\n\n${transcriptText(source.transcript)}`);
+    if (what !== 'transcript')
+        parts.push(`## ${sessionMessages.t('share.summaryHeading')}\n\n${(source.summary ?? '').trim()}`);
+    if (what !== 'summary')
+        parts.push(`## ${sessionMessages.t('share.transcriptHeading')}\n\n${transcriptText(source.transcript)}`);
     return `${parts.join('\n\n')}\n`;
 }
 

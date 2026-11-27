@@ -13,8 +13,8 @@ import {
     DialogTitle,
     DialogTrigger,
 } from '@/components/ui/dialog';
+import { sessionMessages } from '@/features/session/i18n';
 import {
-    SHARE_LABELS,
     type ShareSource,
     type ShareWhat,
     canShareWhat,
@@ -22,13 +22,16 @@ import {
     copyShareText,
     downloadShareText,
     shareContent,
+    shareLabel,
 } from '@/features/session/share';
+import { useT } from '@/i18n/messages';
 
 const ORDER: ShareWhat[] = ['summary', 'transcript', 'both'];
 
 // 文字起こし・要約を OS の共有機能で他のアプリ（ChatGPT など）に渡す（#335）。
 // 共有機能が使えない（LAN の http など）ときは、コピーと .md のダウンロードだけ出す
 export function ShareButton({ source, initial }: { source: ShareSource; initial: ShareWhat }) {
+    const t = useT(sessionMessages);
     const [open, setOpen] = useState(false);
     const [picked, setPicked] = useState<ShareWhat>(initial);
     const [instruction, setInstruction] = useState('');
@@ -41,7 +44,7 @@ export function ShareButton({ source, initial }: { source: ShareSource; initial:
         try {
             if ((await shareContent(source, what, instruction)) === 'shared') setOpen(false);
         } catch {
-            toast.error('共有できませんでした。コピーかダウンロードを使ってください');
+            toast.error(t('shareButton.failed'));
         }
     };
 
@@ -54,22 +57,20 @@ export function ShareButton({ source, initial }: { source: ShareSource; initial:
             }}
         >
             <DialogTrigger asChild>
-                <Button variant='outline' size='sm' title='ChatGPT などほかのアプリに渡します'>
+                <Button variant='outline' size='sm' title={t('shareButton.description')}>
                     <Share2Icon />
-                    共有
+                    {t('shareButton.share')}
                 </Button>
             </DialogTrigger>
             <DialogContent className='sm:max-w-md'>
                 <DialogHeader>
-                    <DialogTitle>共有</DialogTitle>
+                    <DialogTitle>{t('shareButton.share')}</DialogTitle>
                     <DialogDescription>
-                        {shareable
-                            ? 'ChatGPT などほかのアプリに渡します'
-                            : 'この画面では共有機能を使えないので、コピーかダウンロードで渡してください'}
+                        {shareable ? t('shareButton.description') : t('shareButton.descriptionNoShare')}
                     </DialogDescription>
                 </DialogHeader>
                 <fieldset className='flex flex-col gap-2'>
-                    <legend className='sr-only'>共有するもの</legend>
+                    <legend className='sr-only'>{t('shareButton.what')}</legend>
                     {ORDER.map((w) => (
                         <label key={w} className='flex items-center gap-2 text-sm has-disabled:opacity-50'>
                             <input
@@ -80,15 +81,15 @@ export function ShareButton({ source, initial }: { source: ShareSource; initial:
                                 disabled={!canShareWhat(source, w)}
                                 onChange={() => setPicked(w)}
                             />
-                            {SHARE_LABELS[w]}
+                            {shareLabel(w)}
                         </label>
                     ))}
                 </fieldset>
                 <label className='flex flex-col gap-1 text-sm'>
-                    追加の指示（任意）
+                    {t('shareButton.instruction')}
                     <textarea
                         className='min-h-20 rounded-md border bg-transparent px-3 py-2 text-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/50'
-                        placeholder='例: この講義をもとに試験に出そうなところを整理して'
+                        placeholder={t('shareButton.instructionPlaceholder')}
                         value={instruction}
                         onChange={(e) => setInstruction(e.target.value)}
                     />
@@ -99,13 +100,13 @@ export function ShareButton({ source, initial }: { source: ShareSource; initial:
                         disabled={!ready}
                         onClick={() =>
                             copyShareText(source, what, instruction).then(
-                                () => toast.success('コピーしました'),
-                                () => toast.error('コピーできませんでした'),
+                                () => toast.success(t('shareButton.copied')),
+                                () => toast.error(t('shareButton.copyFailed')),
                             )
                         }
                     >
                         <CopyIcon />
-                        コピー
+                        {t('common.copy')}
                     </Button>
                     <Button
                         variant='outline'
@@ -113,12 +114,12 @@ export function ShareButton({ source, initial }: { source: ShareSource; initial:
                         onClick={() => downloadShareText(source, what, instruction)}
                     >
                         <DownloadIcon />
-                        .md をダウンロード
+                        {t('shareButton.download')}
                     </Button>
                     {shareable && (
                         <Button disabled={!ready} onClick={share}>
                             <Share2Icon />
-                            共有
+                            {t('shareButton.share')}
                         </Button>
                     )}
                 </DialogFooter>
