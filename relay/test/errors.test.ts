@@ -32,18 +32,44 @@ describe.skipIf(env.TEST_WEB_ERRORS_JA === '')('web の辞書', () => {
     });
 });
 
+// errors.ts（文の置き場所）を除いた src
+const source = Object.entries(env.TEST_RELAY_SOURCE).filter(([name]) => name !== 'errors.ts');
+
+// コメントを外す（/* */ と、行の頭か空白のあとの //。'https://…' の // は外さない）
+const withoutComments = (text: string) => text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|\s)\/\/.*$/gm, '$1');
+
+// 日本語を書いてよい文字列（エラーの文ではないもの）。足すときは理由も書く
+const JAPANESE_ALLOWED = new Set([
+    // アプリの端末の名前の初期値（appAuth.ts）。D1 に保存するデータで、画面の文ではない
+    'iOS アプリ',
+]);
+
 describe('relay の文', () => {
     it('どのコードも src で使っている', () => {
-        const unused = codes.filter((code) => !env.TEST_RELAY_SOURCE.includes(`'${code}'`));
+        const unused = codes.filter((code) => !source.some(([, text]) => text.includes(`'${code}'`)));
         expect(unused).toEqual([]);
     });
 
-    it('日本語の文を error() や detail に直に書いていない（コードで返す）', () => {
+    it('コメント以外の文字列に日本語を書いていない（エラーは errors.ts のコードで返す）', () => {
         const japanese = /[぀-ヿ一-鿿]/;
-        const direct = [...env.TEST_RELAY_SOURCE.matchAll(/(?:error\(\s*\d{3}\s*,|detail:)\s*(['"`])((?:(?!\1).)*)\1/g)]
-            .map((m) => m[2])
-            .filter((text) => japanese.test(text));
-        expect(direct).toEqual([]);
+        const found = source.flatMap(([name, text]) =>
+            [...withoutComments(text).matchAll(/(['"`])((?:\\.|(?!\1)[^\\])*)\1/g)]
+                .map((m) => m[2])
+                .filter((literal) => japanese.test(literal) && !JAPANESE_ALLOWED.has(literal))
+                .map((literal) => `${name}: ${literal}`),
+        );
+        expect(found).toEqual([]);
+    });
+
+    it('日本語を書いていないかの確かめは、書いてあれば見つける', () => {
+        const sample = [
+            "return error(status, 'ログインしてください');",
+            "return new Response('見つかりません', { status: 404 });",
+            '// コメントの日本語は見ない',
+            "const url = 'https://rw.example/'; // ここも見ない",
+        ].join('\n');
+        const literals = [...withoutComments(sample).matchAll(/(['"`])((?:\\.|(?!\1)[^\\])*)\1/g)].map((m) => m[2]);
+        expect(literals).toEqual(['ログインしてください', '見つかりません', 'https://rw.example/']);
     });
 
     it('日本語と英語で {} の名前が同じ', () => {
@@ -104,6 +130,7 @@ describe('返す形', () => {
             );
         const en = await open('en-US,en;q=0.9');
         expect(en.status).toBe(404);
+        expect(en.headers.get('Vary')).toBe('Accept-Language');
         expect(await en.json()).toEqual({ detail: 'No such login method', code: 'loginMethod.unknown', params: {} });
         // 日本語のときと、ヘッダーがないときは今まで通りの文
         for (const language of ['ja', undefined]) {

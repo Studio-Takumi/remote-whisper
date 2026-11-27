@@ -135,7 +135,9 @@ export function preferredLanguage(request: Request): Language {
 }
 
 // ブラウザが直に開くページ（/auth/login・/auth/callback・/auth/app/login）のエラー。web が文を引けないので、
-// detail を Accept-Language の言語にする（日本語のときの文は apiError と同じ）
+// detail を Accept-Language の言語にする（日本語のときの文は apiError と同じ）。言語で中身が変わるので Vary を付ける
 export function pageError(request: Request, status: number, code: ErrorCode, params: Params = {}): Response {
-    return apiError(status, code, params, preferredLanguage(request));
+    const response = apiError(status, code, params, preferredLanguage(request));
+    response.headers.set('Vary', 'Accept-Language');
+    return response;
 }
