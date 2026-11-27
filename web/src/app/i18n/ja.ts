@@ -58,8 +58,8 @@ export const ja = defineDictionary({
     'pwaUpdater.updateReloads': '更新すると、読み込み直します',
 
     // serverMessages.ts
-    'serverMessages.contextSetCreated': '参考資料ができました',
-    'serverMessages.contextSetFailed': '参考資料を作れませんでした（資料を読めないか、{llm} に接続できません）',
+    'serverMessages.referenceMaterialsCreated': '参考資料ができました',
+    'serverMessages.referenceMaterialsFailed': '参考資料を作れませんでした（資料を読めないか、{llm} に接続できません）',
 
     // sessionSync.ts
     'sessionSync.loadFailed': 'セッションを読み込めません: {error}',

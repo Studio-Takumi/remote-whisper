@@ -29,10 +29,6 @@ export const ja = defineDictionary({
     'projectActions.moved': '「{title}」を{project}へ移しました',
     'projectActions.reorderFailed': 'プロジェクトの並びを保存できません: {error}',
 
-    // projectDrag.ts
-    'projectDrag.instructions':
-        'プロジェクトの並び順は、Space で持ち上げ、上下の矢印で動かし、Space で置きます。Esc でやめます',
-
     // ProjectGroup.tsx
     'projectGroup.newSession': '{name}で新しく録音',
     'projectGroup.reorder': '{name}の並び順を変える',
@@ -44,6 +40,8 @@ export const ja = defineDictionary({
     'projectList.dragOver': '「{name}」を「{over}」の位置に動かしています',
     'projectList.dragStart': '「{name}」を持ち上げました',
     'projectList.empty': 'プロジェクトはまだありません',
+    'projectList.screenReaderInstructions':
+        'プロジェクトの並び順は、Space で持ち上げ、上下の矢印で動かし、Space で置きます。Esc でやめます',
 
     // SessionItem.tsx
     'sessionItem.fromAudioFile': '音声ファイルから作成',

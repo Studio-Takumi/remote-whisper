@@ -137,7 +137,10 @@ export function ProjectList({
             onDragStart={onDragStart}
             onDragEnd={onDragEnd}
             onDragCancel={onDragCancel}
-            accessibility={{ announcements, screenReaderInstructions: { draggable: t('projectDrag.instructions') } }}
+            accessibility={{
+                announcements,
+                screenReaderInstructions: { draggable: t('projectList.screenReaderInstructions') },
+            }}
         >
             <SortableContext items={projects.map((p) => sortableId(p.id))} strategy={verticalListSortingStrategy}>
                 <Accordion

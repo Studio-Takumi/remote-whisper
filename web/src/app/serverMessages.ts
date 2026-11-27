@@ -126,10 +126,10 @@ function receiveContextSet({ store }: MessageContext, m: Message<'contextSet'>, 
     }
     updateCachedContextSets(pid, (sets) => sets.map((x) => (x.id === m.id ? { ...x, status: m.status } : x)));
     if (known.status === 'generating' && m.status === 'ready') {
-        toast.success(appMessages.t('serverMessages.contextSetCreated'));
+        toast.success(appMessages.t('serverMessages.referenceMaterialsCreated'));
     } else if (known.status === 'generating' && m.status === 'failed') {
         const llm = LLM_NAMES[llmBackend(store.getState().settings)];
-        toast.error(appMessages.t('serverMessages.contextSetFailed', { llm }));
+        toast.error(appMessages.t('serverMessages.referenceMaterialsFailed', { llm }));
     }
 }
 

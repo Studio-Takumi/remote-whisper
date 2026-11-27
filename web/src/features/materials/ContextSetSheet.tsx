@@ -96,7 +96,7 @@ export function ContextSetSheet() {
                             {t('contextSetSheet.createNew')}
                         </Button>
                         <label className='flex items-center justify-between text-sm'>
-                            {t('contextSetSheet.useHotwords')}
+                            {t('contextSetSheet.useTermList')}
                             <Switch
                                 checked={selection.useHotwords}
                                 disabled={!current}

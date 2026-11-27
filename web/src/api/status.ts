@@ -37,10 +37,10 @@ export const initialServerStatus: ServerStatus = {
 // GPU キューのジョブの種類の名前
 const jobKindKeys = {
     transcribe: 'status.jobKindTranscribe',
-    whisperLoad: 'status.jobKindWhisperLoad',
+    whisperLoad: 'status.jobKindTranscriptModelLoad',
     liveSummary: 'status.jobKindLiveSummary',
     finalSummary: 'status.jobKindFinalSummary',
-    contextSet: 'status.jobKindContextSet',
+    contextSet: 'status.jobKindReferenceMaterials',
     terms: 'status.jobKindTerms',
     finalTranscript: 'status.jobKindPolish',
     materialRange: 'status.jobKindMaterialRange',
@@ -117,7 +117,7 @@ export function jobProgress(
 type BlockingKey =
     | 'status.blockedByLiveSummary'
     | 'status.blockedByFinalSummary'
-    | 'status.blockedByContextSet'
+    | 'status.blockedByReferenceMaterials'
     | 'status.blockedByTerms'
     | 'status.blockedByPolish'
     | 'status.blockedByMaterialRange';
@@ -125,7 +125,7 @@ type BlockingKey =
 const blockingReasonKeys: Partial<Record<GpuJobKind, BlockingKey>> = {
     liveSummary: 'status.blockedByLiveSummary',
     finalSummary: 'status.blockedByFinalSummary',
-    contextSet: 'status.blockedByContextSet',
+    contextSet: 'status.blockedByReferenceMaterials',
     terms: 'status.blockedByTerms',
     finalTranscript: 'status.blockedByPolish',
     materialRange: 'status.blockedByMaterialRange',

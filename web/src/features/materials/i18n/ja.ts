@@ -25,7 +25,7 @@ export const ja = defineDictionary({
     'contextSetSheet.title': '参考資料',
     'contextSetSheet.unused': '使わない',
     'contextSetSheet.useContext': 'コンテキストを使う',
-    'contextSetSheet.useHotwords': '用語リストを使う',
+    'contextSetSheet.useTermList': '用語リストを使う',
 
     // MaterialPickerDialog.tsx
     'materialPickerDialog.cancel': 'キャンセル',
