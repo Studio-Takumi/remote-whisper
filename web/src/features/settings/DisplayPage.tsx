@@ -1,5 +1,6 @@
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
+import { LanguageRow } from '@/features/settings/LanguageRow';
 import { PushToggle } from '@/features/settings/PushToggle';
 import { Row, Section } from '@/features/settings/SettingsParts';
 import { ShortcutInput } from '@/features/settings/ShortcutInput';
@@ -84,9 +85,10 @@ export function DisplayPage({
                     )}
                 </Section>
             )}
-            {/* 端末ごとの設定（テーマ・通知。#239・#245）。全体設定の保存とは別に、切り替えたときに効く */}
+            {/* 端末ごとの設定（テーマ・表示言語・通知。#239・#487・#245）。全体設定の保存とは別に、切り替えたときに効く */}
             <Section title='この端末' description='保存を押さなくても、切り替えた時点で効きます'>
                 <ThemeRow />
+                <LanguageRow />
                 <PushToggle />
             </Section>
         </>
