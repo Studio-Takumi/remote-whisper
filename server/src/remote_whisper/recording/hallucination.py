@@ -47,6 +47,24 @@ PHRASES = (
     "字幕",
 )
 
+# 英語の定番の文（#484）。日本語の音声で誤って消さないよう、文の全体がこれだけでできているときだけ
+# 一致とみなす（文の一部に入っているだけでは一致にしない）。「Thank you.」は本当に言うので外す。
+# 言語は見ず、どの言語の指定でも同じ一覧で見る（自動判定で言語が決まる前のチャンクにも効かせるため）
+ENGLISH_PHRASES = (
+    "Thanks for watching",
+    "Thank you for watching",
+    "Thanks for watching and see you next time",
+    "Thank you for watching and see you next time",
+    "Thanks for watching, and I'll see you in the next video",
+    "Please subscribe",
+    "Please subscribe to my channel",
+    "Please like and subscribe",
+    "Like and subscribe",
+    "Don't forget to subscribe",
+    "See you in the next video",
+    "Subtitles by the Amara.org community",
+)
+
 _PUNCT = re.compile(r"[\s、。，．,.!！?？・「」『』（）()\-ー〜~…]+")
 
 
@@ -54,8 +72,33 @@ def normalize(text: str) -> str:
     return _PUNCT.sub("", text)
 
 
+_NOT_LETTERS = re.compile(r"[\W_]+")
+
+
+def _english_key(text: str) -> str:
+    """英語の文を、小文字にして記号・空白を外した形にする"""
+    return _NOT_LETTERS.sub("", text).lower()
+
+
+_ENGLISH_KEYS = sorted({_english_key(p) for p in ENGLISH_PHRASES}, key=len, reverse=True)
+
+
+def _is_english_phrase(text: str) -> bool:
+    """文の全体が英語の定番の文（いくつか続けてもよい）でできている"""
+    rest = _english_key(text)
+    if not rest or not rest.isascii():
+        return False
+    for p in _ENGLISH_KEYS:
+        rest = rest.replace(p, "")
+    return rest == "" and _english_key(text) != ""
+
+
 def _is_phrase(text: str) -> bool:
     """文のほとんどが定番の文でできている"""
+    return _is_japanese_phrase(text) or _is_english_phrase(text)
+
+
+def _is_japanese_phrase(text: str) -> bool:
     t = normalize(text)
     if not t:
         return False
