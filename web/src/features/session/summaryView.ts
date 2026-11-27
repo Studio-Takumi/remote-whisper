@@ -2,6 +2,7 @@
 import type { Generating, Session, Summary } from '@/api/types';
 import { sessionMessages } from '@/features/session/i18n';
 import { type OllamaModels, finalModelLabel } from '@/features/settings/settings';
+import { formatDisplayDateTime } from '@/lib/time';
 
 // 世代の見出し。全体概要のモデルが要約詳細と違えば、両方出す（#178）
 export function summaryLabel(summary: Summary, models: OllamaModels): string {
@@ -10,7 +11,7 @@ export function summaryLabel(summary: Summary, models: OllamaModels): string {
         overview: summary.overviewModel ?? summary.model,
         detail: summary.model,
     });
-    return sessionMessages.t('summaryView.label', { model: label, date: summary.generatedAt });
+    return sessionMessages.t('summaryView.label', { model: label, date: formatDisplayDateTime(summary.generatedAt) });
 }
 
 // 作っている途中で本文がまだ届いていない間に出しておくもの（#80）。作り直しなら今の要約を、

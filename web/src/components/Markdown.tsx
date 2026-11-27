@@ -1,4 +1,4 @@
-import type { ClipboardEvent } from 'react';
+import { type ClipboardEvent, useMemo } from 'react';
 
 import { cjk } from '@streamdown/cjk';
 import { code } from '@streamdown/code';
@@ -6,7 +6,9 @@ import { createMathPlugin } from '@streamdown/math';
 import { Streamdown } from 'streamdown';
 
 import { copySelection } from '@/components/copyMarkdown';
-import { rehypePlugins } from '@/components/markdownImages';
+import { componentsMessages } from '@/components/i18n';
+import { createRehypePlugins } from '@/components/markdownImages';
+import { useT } from '@/i18n/messages';
 
 // 講義の要約では $x$ のようなインライン数式が出てくるので、$ 1つでも数式として扱う
 const math = createMathPlugin({ singleDollarTextMath: true });
@@ -22,6 +24,9 @@ function onCopy(e: ClipboardEvent<HTMLDivElement>) {
 
 // 要約の表示。要約は summary.delta で少しずつ届くので、書きかけの Markdown でも崩れにくい Streamdown を使う
 export function Markdown({ children, streaming = false }: { children: string; streaming?: boolean }) {
+    const t = useT(componentsMessages);
+    // 画像のリンクの文字（「画像: <URL>」）は表示言語で変わるので、言語ごとに作る
+    const rehypePlugins = useMemo(() => createRehypePlugins((href) => t('markdownImages.image', { href })), [t]);
     return (
         <div onCopy={onCopy}>
             <Streamdown plugins={{ code, math, cjk }} rehypePlugins={rehypePlugins} isAnimating={streaming}>

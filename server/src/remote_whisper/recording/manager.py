@@ -174,7 +174,9 @@ class RecordingManager:
         """language は、今回だけ変えた文字起こしの言語（#482）。None なら全体設定。
         display_language は録音を始めた端末の表示言語（#498）"""
         if len(self.active()) >= max_concurrent:
-            raise RecordingError("too_many_recordings", "同時に録音できる数を超えています")
+            raise RecordingError(
+                "too_many_recordings", "recording.tooMany", "同時に録音できる数を超えています"
+            )
         started = now()
         sid = make_id(started)
         # 同じ秒に2つ始めたときは、次の秒の ID にする
@@ -193,7 +195,9 @@ class RecordingManager:
                 display_language,
             )
         except ProjectError as e:
-            raise RecordingError("project_not_found", "プロジェクトがありません") from e
+            raise RecordingError(
+                "project_not_found", "project.missing", "プロジェクトがありません"
+            ) from e
         # WAV を先に開いてから、文字起こしと project.json を作る（WAV を開けなければ何も残さない）
         session = RecordingSession(self, writer, ws)
         writer.start()
@@ -212,10 +216,14 @@ class RecordingManager:
         """
         # 前の録音を戻している途中のものも、録音中として数える（同じセッションを同時に続けない）
         if len(self.active()) + len(self._restoring) >= max_concurrent:
-            raise RecordingError("too_many_recordings", "同時に録音できる数を超えています")
+            raise RecordingError(
+                "too_many_recordings", "recording.tooMany", "同時に録音できる数を超えています"
+            )
         previous = self.sessions.get(sid)
         if (previous is not None and not previous.ended) or sid in self._restoring:
-            raise RecordingError("already_recording", "このセッションは録音中です")
+            raise RecordingError(
+                "already_recording", "recording.sessionRecording", "このセッションは録音中です"
+            )
         self._restoring.add(sid)
         try:
             return await self._continue(ws, project, sid, previous)
@@ -231,7 +239,9 @@ class RecordingManager:
                 self._check_continuable(SessionWriter.existing(self.projects, project, sid).meta)
             except (ProjectError, OSError, ValueError) as e:
                 raise RecordingError(
-                    "session_not_found", "続きを録音できるセッションがありません"
+                    "session_not_found",
+                    "continue.noSession",
+                    "続きを録音できるセッションがありません",
                 ) from e
             if previous.converting:
                 # mp3 に変換している途中なら、終わるのを待つ（CPU で数秒。WAV を読んでいるため）
@@ -271,21 +281,28 @@ class RecordingManager:
             writer = SessionWriter.existing(self.projects, project, sid)
         except (ProjectError, OSError, ValueError) as e:
             raise RecordingError(
-                "session_not_found", "続きを録音できるセッションがありません"
+                "session_not_found", "continue.noSession", "続きを録音できるセッションがありません"
             ) from e
         self._check_continuable(writer.meta)
         wav = writer.files.dir / ".tmp" / sid / "audio.wav"
         restore = wav if wav.is_file() else writer.files.recording()
         if restore is None:
             raise RecordingError(
-                "cannot_continue", "録音ファイルが残っていないので、続きを録音できません"
+                "cannot_continue",
+                "continue.noRecordingFile",
+                "録音ファイルが残っていないので、続きを録音できません",
             )
         try:
             # mp3 のデコードは長い録音だと時間がかかるので、ほかの録音を止めないよう別のスレッドで
             return await asyncio.to_thread(RecordingSession, self, writer, ws, restore)
         except Exception as e:  # noqa: BLE001 前の録音を読めない（壊れているなど）
             log.exception("failed to restore the recording of %s", sid)
-            raise RecordingError("cannot_continue", f"前の録音を読み込めません: {e}") from e
+            raise RecordingError(
+                "cannot_continue",
+                "continue.unreadable",
+                f"前の録音を読み込めません: {e}",
+                {"reason": str(e)},
+            ) from e
 
     def _begin(self, session: RecordingSession) -> None:
         """途中の要約と文字起こしを始める"""
@@ -310,7 +327,9 @@ class RecordingManager:
     async def resume(self, ws: WebSocket, sid: str) -> RecordingSession:
         session = self.sessions.get(sid)
         if session is None or session.ended:
-            raise RecordingError("session_not_found", "再開できるセッションがありません")
+            raise RecordingError(
+                "session_not_found", "recording.noResumable", "再開できるセッションがありません"
+            )
         await session.attach(ws)
         # offsetSec は受け取り済みの録音の長さ（読み込み直したブラウザが経過時間を戻すため。#102）
         await session.send({"type": "started", "resumed": True, "offsetSec": session.elapsed})

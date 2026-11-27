@@ -11,19 +11,21 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTr
 import { Switch } from '@/components/ui/switch';
 import { MaterialPickerDialog } from '@/features/materials/MaterialPickerDialog';
 import { SummaryDirField } from '@/features/materials/SummaryDirField';
+import { materialsMessages } from '@/features/materials/i18n';
 import { useCurrentContextSelection, useCurrentContextSets } from '@/features/materials/useContextSets';
+import { useT } from '@/i18n/messages';
 
 const NONE = 'none';
-
-const statusLabel: Record<ContextSet['status'], string> = {
-    generating: '（作成中…）',
-    ready: '',
-    failed: '（失敗）',
-};
 
 // 参考資料セットを選ぶ。右上では モデルのボタンと同じ見た目で、押すと右から Sheet が開く
 // セットと選択はプロジェクトごとに持つ
 export function ContextSetSheet() {
+    const t = useT(materialsMessages);
+    const statusLabel: Record<ContextSet['status'], string> = {
+        generating: t('contextSetSheet.statusGenerating'),
+        ready: '',
+        failed: t('contextSetSheet.statusFailed'),
+    };
     const project = useCurrentProject();
     const sets = useCurrentContextSets();
     const selection = useCurrentContextSelection(sets);
@@ -41,28 +43,32 @@ export function ContextSetSheet() {
             <div className='flex flex-col'>
                 <p className='flex items-center gap-1 px-2 text-xs whitespace-nowrap'>
                     <FileTextIcon className='hidden size-3 sm:block' />
-                    参考資料
+                    {t('contextSetSheet.title')}
                 </p>
                 <SheetTrigger
-                    title={current ? `${contextSetName(current)}${statusLabel[current.status]}` : 'なし'}
+                    title={
+                        current ? `${contextSetName(current)}${statusLabel[current.status]}` : t('contextSetSheet.none')
+                    }
                     className='flex h-8 w-fit max-w-24 items-center justify-between gap-1.5 rounded-lg py-2 pr-2 pl-2.5 text-sm whitespace-nowrap outline-none focus-visible:ring-3 focus-visible:ring-ring/50 sm:max-w-40 md:max-w-48 dark:bg-input/30 dark:hover:bg-input/50'
                 >
                     <span className='truncate'>
-                        {current ? `${contextSetName(current)}${statusLabel[current.status]}` : 'なし'}
+                        {current
+                            ? `${contextSetName(current)}${statusLabel[current.status]}`
+                            : t('contextSetSheet.none')}
                     </span>
                     <ChevronDownIcon className='pointer-events-none size-4 shrink-0 text-muted-foreground' />
                 </SheetTrigger>
             </div>
             <SheetContent>
                 <SheetHeader>
-                    <SheetTitle>参考資料</SheetTitle>
-                    <SheetDescription>
-                        選んだ資料から用語リストとコンテキストを作り、文字起こしと要約に使います（プロジェクトごと）
-                    </SheetDescription>
+                    <SheetTitle>{t('contextSetSheet.title')}</SheetTitle>
+                    <SheetDescription>{t('contextSetSheet.description')}</SheetDescription>
                 </SheetHeader>
                 {project ? (
                     <div className='flex flex-col gap-4 px-4'>
-                        <p className='text-xs text-muted-foreground'>プロジェクト：{project.name}</p>
+                        <p className='text-xs text-muted-foreground'>
+                            {t('contextSetSheet.project', { name: project.name })}
+                        </p>
                         <Select
                             value={selection.setId ?? NONE}
                             onValueChange={(v) => onChangeSelection({ ...selection, setId: v === NONE ? null : v })}
@@ -72,7 +78,7 @@ export function ContextSetSheet() {
                             </SelectTrigger>
                             <SelectContent>
                                 <SelectGroup>
-                                    <SelectItem value={NONE}>使わない</SelectItem>
+                                    <SelectItem value={NONE}>{t('contextSetSheet.unused')}</SelectItem>
                                     {sets.map((set) => (
                                         <SelectItem key={set.id} value={set.id} disabled={set.status === 'failed'}>
                                             {contextSetName(set)}
@@ -83,16 +89,14 @@ export function ContextSetSheet() {
                             </SelectContent>
                         </Select>
                         {current?.status === 'generating' && (
-                            <p className='text-xs text-muted-foreground'>
-                                作成中です。録音を始めても、できた時点から使います
-                            </p>
+                            <p className='text-xs text-muted-foreground'>{t('contextSetSheet.generating')}</p>
                         )}
                         <Button variant='outline' onClick={() => setPickerOpen(true)}>
                             <PlusIcon />
-                            資料を選んで新しく作る
+                            {t('contextSetSheet.createNew')}
                         </Button>
                         <label className='flex items-center justify-between text-sm'>
-                            用語リストを使う
+                            {t('contextSetSheet.useTermList')}
                             <Switch
                                 checked={selection.useHotwords}
                                 disabled={!current}
@@ -100,7 +104,7 @@ export function ContextSetSheet() {
                             />
                         </label>
                         <label className='flex items-center justify-between text-sm'>
-                            コンテキストを使う
+                            {t('contextSetSheet.useContext')}
                             <Switch
                                 checked={selection.useContext}
                                 disabled={!current}
@@ -110,11 +114,11 @@ export function ContextSetSheet() {
                         {/* 参考資料セットがなくても使える（#103）。全体設定でオフなら切り替えられない（#116） */}
                         <label className='flex items-center justify-between gap-2 text-sm'>
                             <span>
-                                録音中に用語を拾う
+                                {t('contextSetSheet.pickTerms')}
                                 <span className='block text-xs text-muted-foreground'>
                                     {pickTermsEnabled
-                                        ? '文字起こしに何度も出てくる固有名詞・専門用語を、用語リストに足す'
-                                        : '設定（要約）でオフになっています'}
+                                        ? t('contextSetSheet.pickTermsDescription')
+                                        : t('contextSetSheet.pickTermsOff')}
                                 </span>
                             </span>
                             <Switch
@@ -131,7 +135,7 @@ export function ContextSetSheet() {
                         )}
                     </div>
                 ) : (
-                    <p className='px-4 text-sm text-muted-foreground'>先にメニューからプロジェクトを選んでください</p>
+                    <p className='px-4 text-sm text-muted-foreground'>{t('contextSetSheet.selectProject')}</p>
                 )}
                 <MaterialPickerDialog
                     open={pickerOpen}

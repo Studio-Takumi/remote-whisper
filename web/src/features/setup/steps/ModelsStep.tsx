@@ -1,6 +1,7 @@
 import { DownloadIcon } from 'lucide-react';
 
 import { api } from '@/api/api';
+import { serverErrorText } from '@/api/serverErrors/serverErrors';
 import { Button } from '@/components/ui/button';
 import { LLM_NAMES, recommendedLmStudioModels } from '@/features/settings/settings';
 import { setupMessages } from '@/features/setup/i18n';
@@ -8,6 +9,7 @@ import { pullBlockedReason, pullButtonLabel, pullProgressText } from '@/features
 import { type SetupStatus, missingModels, pullPercent } from '@/features/setup/setup';
 import { Note, ProgressBar, Step } from '@/features/setup/steps/StepParts';
 import { useT } from '@/i18n/messages';
+import { formatDecimal } from '@/lib/format';
 
 export function ModelsStep({
     status,
@@ -38,7 +40,7 @@ export function ModelsStep({
                     <li key={m.name} className='flex items-center justify-between gap-2 text-xs'>
                         <span className='font-mono'>{m.name}</span>
                         <span className='flex shrink-0 items-center gap-3 whitespace-nowrap text-muted-foreground'>
-                            {m.sizeGb !== null && <span>{m.sizeGb.toFixed(1)} GB</span>}
+                            {m.sizeGb !== null && <span>{formatDecimal(m.sizeGb, 1)} GB</span>}
                             <span
                                 className={
                                     m.installed
@@ -78,7 +80,13 @@ export function ModelsStep({
                 </div>
             ) : (
                 <>
-                    {pull?.state === 'failed' && <Note warn>{pull.error ?? t('modelsStep.downloadFailed')}</Note>}
+                    {pull?.state === 'failed' && (
+                        <Note warn>
+                            {pull.error == null
+                                ? t('modelsStep.downloadFailed')
+                                : serverErrorText(pull.errorCode, pull.errorParams, pull.error)}
+                        </Note>
+                    )}
                     {pull?.state === 'cancelled' && <Note>{t('modelsStep.downloadCancelled')}</Note>}
                     {missing.length > 0 && (
                         <div className='flex flex-wrap items-center gap-2'>

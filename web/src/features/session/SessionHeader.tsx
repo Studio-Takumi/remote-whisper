@@ -9,6 +9,7 @@ import { JoinedSourceChips } from '@/features/session/SourceList';
 import { sessionMessages } from '@/features/session/i18n';
 import { canJoin } from '@/features/session/sessionContent';
 import { useT } from '@/i18n/messages';
+import { formatDisplayDateTime } from '@/lib/time';
 
 // 開いているセッションのタイトルと状態。途中で終わったものは続きから録音できる
 export function SessionHeader({ session }: { session: Session }) {
@@ -31,7 +32,7 @@ export function SessionHeader({ session }: { session: Session }) {
                 )}
             </h1>
             <p className='text-xs text-muted-foreground'>
-                {session.startedAt}
+                {formatDisplayDateTime(session.startedAt)}
                 {session.status === 'recording' &&
                     (session.id === recordingSessionId
                         ? t('sessionHeader.recording')

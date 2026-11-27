@@ -2,16 +2,18 @@
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
+from remote_whisper.api_errors import ApiError, api_error
 from remote_whisper.context import AppContext, Pid, get_ctx
 from remote_whisper.materials.context_sets import ContextSetError, ContextSetService
 from remote_whisper.storage.projects import (
     SUMMARY_DIR_MAX,
     ProjectError,
     ProjectFile,
+    SummaryDirError,
     display_name,
     normalize_summary_dir,
     order_projects,
@@ -55,8 +57,8 @@ def change_project(
     if "summary_dir" in changes:
         try:
             summary_dir = normalize_summary_dir(changes["summary_dir"])
-        except ValueError as e:
-            raise HTTPException(status_code=422, detail=str(e)) from e
+        except SummaryDirError as e:
+            raise ApiError(422, e.code, e.message, e.params) from e
 
     def change(project: ProjectFile) -> None:
         if summary_dir is not None:
@@ -65,7 +67,7 @@ def change_project(
     try:
         project = ctx.projects.update(pid, change)
     except ProjectError as e:
-        raise HTTPException(status_code=e.status, detail=e.message) from e
+        raise api_error(e) from e
     return project_json(pid, project)
 
 
@@ -93,7 +95,7 @@ class SelectionBody(BaseModel):
 
 def _service(ctx: AppContext) -> ContextSetService:
     if ctx.context_sets is None:
-        raise HTTPException(status_code=503, detail="このホストでは参考資料を作れません")
+        raise ApiError(503, "referenceMaterials.unsupported", "このホストでは参考資料を作れません")
     return ctx.context_sets
 
 
@@ -104,7 +106,7 @@ def list_context_sets(
     try:
         return _service(ctx).entries(pid)
     except ContextSetError as e:
-        raise HTTPException(status_code=e.status, detail=e.message) from e
+        raise api_error(e) from e
 
 
 @router.post("/{pid}/context-sets", status_code=202)
@@ -115,7 +117,7 @@ async def create_context_set(
     try:
         return await _service(ctx).create(pid, body.materials)
     except ContextSetError as e:
-        raise HTTPException(status_code=e.status, detail=e.message) from e
+        raise api_error(e) from e
 
 
 @router.patch("/{pid}/selection")
@@ -133,7 +135,12 @@ def change_selection(
             set_id = changes["context_set"]
             entry = next((s for s in project.context_sets if s.id == set_id), None)
             if set_id is not None and (entry is None or entry.status == "failed"):
-                raise HTTPException(status_code=400, detail=f"使えない参考資料です: {set_id}")
+                raise ApiError(
+                    400,
+                    "referenceMaterials.unusable",
+                    f"使えない参考資料です: {set_id}",
+                    {"id": set_id},
+                )
             selection.context_set = set_id
         if changes.get("use_hotwords") is not None:
             selection.use_hotwords = changes["use_hotwords"]
@@ -146,7 +153,7 @@ def change_selection(
     try:
         project = ctx.projects.update(pid, change)
     except ProjectError as e:
-        raise HTTPException(status_code=e.status, detail=e.message) from e
+        raise api_error(e) from e
     return project.effective_selection().model_dump(by_alias=True)
 
 
@@ -157,5 +164,5 @@ def register_project(
     try:
         pid, project = ctx.projects.register(body.path, ctx.settings.get().materials.roots)
     except ProjectError as e:
-        raise HTTPException(status_code=e.status, detail=e.message) from e
+        raise api_error(e) from e
     return project_json(pid, project)

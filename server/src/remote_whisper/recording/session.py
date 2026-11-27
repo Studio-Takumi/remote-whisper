@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from fastapi import WebSocket
 
+from remote_whisper.recording.errors import audio_write_failed
 from remote_whisper.recording.live_transcriber import LiveTranscriber
 from remote_whisper.recording.session_finish import SessionFinisher
 from remote_whisper.recording.session_live import LiveProcessing
@@ -111,13 +112,7 @@ class RecordingSession:
             except OSError as e:
                 # ディスクが一杯などで書けない。受け取らずにエラーを返す（接続は落とさない）
                 log.error("failed to write audio of %s: %s", self.id, e)
-                await self.send(
-                    {
-                        "type": "error",
-                        "code": "write_failed",
-                        "message": f"音声を保存できません: {e}",
-                    }
-                )
+                await self.send(audio_write_failed(e))
                 await self.send({"type": "ack", "seq": self.last_seq})
                 return
             self.last_seq = seq

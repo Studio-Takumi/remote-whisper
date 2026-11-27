@@ -8,9 +8,10 @@ import { Button } from '@/components/ui/button';
 import { type Device, fetchDevices, removeDevice } from '@/features/cloud/account';
 import { cloudMessages } from '@/features/cloud/i18n';
 import { useT } from '@/i18n/messages';
+import { formatMonthDay } from '@/lib/format';
 
 function lastSeenLabel(ms: number) {
-    return new Date(ms).toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric' });
+    return formatMonthDay(ms);
 }
 
 export function DevicesSection({ open }: { open: boolean }) {

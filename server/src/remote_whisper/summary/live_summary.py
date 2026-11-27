@@ -167,7 +167,7 @@ class LiveSummarizer:
             current, overview = await self._current_summary(model, chunks[-1], density, language)
         except LlmUnavailable as e:
             log.warning("live summary of %s failed: %s", self.writer.id, e)
-            await self.send(ollama_error("リアルタイム要約"))
+            await self.send(ollama_error("realtimeSummary"))
             return
         text = self._compose(overview, line_time(chunks[-1][0]), current)
         await self._publish(text, overview, upto)

@@ -1,7 +1,9 @@
 // WebSocket /ws の接続（spec/api.md 7.2）。接続は1本で、録音とサーバーの状態の通知の両方に使う
 import { appAuthActive, appSocketUrl } from '@/api/appAuth';
 import { wsUrl } from '@/api/endpoint';
+import { apiMessages } from '@/api/i18n';
 import type { ClientMessage, ServerMessage } from '@/api/protocol';
+import { localizeServerMessage } from '@/api/serverErrors/serverErrors';
 
 type Listener = (message: ServerMessage) => void;
 
@@ -81,7 +83,7 @@ class Connection {
             ws.binaryType = 'arraybuffer';
             const timer = setTimeout(() => {
                 ws.close();
-                reject(new Error('ホストにつながりません'));
+                reject(new Error(apiMessages.t('common.hostUnreachable')));
             }, timeoutMs);
             ws.onopen = () => {
                 clearTimeout(timer);
@@ -92,7 +94,7 @@ class Connection {
             };
             ws.onerror = () => {
                 clearTimeout(timer);
-                reject(new Error('ホストにつながりません'));
+                reject(new Error(apiMessages.t('common.hostUnreachable')));
             };
             ws.onclose = () => {
                 if (this.ws === ws) {
@@ -105,7 +107,8 @@ class Connection {
                 if (typeof e.data !== 'string') {
                     return;
                 }
-                const message = JSON.parse(e.data) as ServerMessage;
+                // error の message は、コードから表示言語の文にしておく（#494）
+                const message = localizeServerMessage(JSON.parse(e.data) as ServerMessage);
                 this.listeners.forEach((l) => l(message));
             };
         });
@@ -141,7 +144,7 @@ class Connection {
         return new Promise((resolve, reject) => {
             const timer = setTimeout(() => {
                 unsubscribe();
-                reject(new Error('ホストから応答がありません'));
+                reject(new Error(apiMessages.t('connection.noResponse')));
             }, timeoutMs);
             const unsubscribe = this.subscribe((m) => {
                 if (pred(m)) {

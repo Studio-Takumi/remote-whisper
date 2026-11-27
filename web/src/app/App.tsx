@@ -9,6 +9,7 @@ import { DevPanel } from '@/app/DevPanel';
 import { HostUpdateNotice } from '@/app/HostUpdateNotice';
 import { PwaUpdater } from '@/app/PwaUpdater';
 import { TopBar } from '@/app/TopBar';
+import { appMessages } from '@/app/i18n';
 import { startRouter } from '@/app/router';
 import { routerStore } from '@/app/routerStore';
 import { useAppStore } from '@/app/store';
@@ -102,7 +103,7 @@ function AppMain() {
                 recording={recording}
                 onSave={async (s) => {
                     if (await changeSettings(s)) {
-                        toast.success('設定を保存しました');
+                        toast.success(appMessages.t('app.settingsSaved'));
                     }
                 }}
             />

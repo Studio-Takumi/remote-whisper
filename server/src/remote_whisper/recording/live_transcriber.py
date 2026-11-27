@@ -12,6 +12,7 @@ from collections.abc import Awaitable, Callable, Iterator
 from pathlib import Path
 from typing import Any
 
+from remote_whisper.api_errors import ws_error
 from remote_whisper.gpu.gpu_queue import GpuQueue, Priority
 from remote_whisper.gpu.whisper_worker import SAMPLE_RATE, WhisperUnavailable, WhisperWorker
 from remote_whisper.recording.hallucination import drop_reason
@@ -210,11 +211,12 @@ class LiveTranscriber:
             # 画面には出し、書けなかったことも伝える
             log.error("failed to append segment %d: %s", segment.index, e)
             await self.send(
-                {
-                    "type": "error",
-                    "code": "write_failed",
-                    "message": f"文字起こしを保存できません: {e}",
-                }
+                ws_error(
+                    "write_failed",
+                    "transcript.writeFailed",
+                    f"文字起こしを保存できません: {e}",
+                    {"reason": str(e)},
+                )
             )
         await self._send_final(segment, text)
 

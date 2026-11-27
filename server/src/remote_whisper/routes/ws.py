@@ -49,7 +49,9 @@ async def websocket(ws: WebSocket) -> None:
                     else:
                         if kind in ("start", "continue", "resume") and _joined_here(ws, joined):
                             raise RecordingError(
-                                "already_recording", "音源として参加しています。先に抜けてください"
+                                "already_recording",
+                                "recording.joinedAsSource",
+                                "音源として参加しています。先に抜けてください",
                             )
                         session = await _control(ctx, ws, session, msg["text"], peer)
             except RecordingError as e:
@@ -101,7 +103,7 @@ def _kind(text: str) -> Any:
 
 async def _source_audio(joined: Joined, data: bytes) -> None:
     if len(data) < 4:
-        raise RecordingError("bad_message", "音声のチャンクが短すぎます")
+        raise RecordingError("bad_message", "message.shortChunk", "音声のチャンクが短すぎます")
     traffic.audio(len(data) - 4)
     await joined.session.source_audio(joined.source, int.from_bytes(data[:4], "little"), data[4:])
 
@@ -119,24 +121,24 @@ async def _join_control(
         return None
     key = message.get("session")
     if not isinstance(key, str) or not key:
-        raise RecordingError("bad_message", "session を指定してください")
+        raise RecordingError("bad_message", "message.noSession", "session を指定してください")
     if _owns(ws, session):
-        raise RecordingError("cannot_join", "録音しているので参加できません")
+        raise RecordingError("cannot_join", "join.recordingHere", "録音しているので参加できません")
     sid = _session_id(ctx, key)
     recorder = ctx.recorder
     active = recorder.active() if recorder is not None else []
     target = next((s for s in active if s.id == sid), None)
     if target is None:
         if recorder is not None and sid in getattr(recorder, "sessions", {}):
-            raise RecordingError("cannot_join", "録音中ではありません")
-        raise RecordingError("session_not_found", "セッションがありません")
+            raise RecordingError("cannot_join", "join.notRecording", "録音中ではありません")
+        raise RecordingError("session_not_found", "session.missing", "セッションがありません")
     if not hasattr(target, "join"):
-        raise RecordingError("cannot_join", "このホストでは参加できません")
+        raise RecordingError("cannot_join", "join.unsupported", "このホストでは参加できません")
     rejoin = message.get("source")
     if _joined_here(ws, joined) and not (
         rejoin is not None and joined is not None and joined.source.id == rejoin
     ):
-        raise RecordingError("cannot_join", "ほかのセッションに参加しています")
+        raise RecordingError("cannot_join", "join.otherSession", "ほかのセッションに参加しています")
     if rejoin is not None:
         source = await target.rejoin(
             ws, rejoin, message.get("nextSeq"), lost=message.get("lost") is True
@@ -177,7 +179,9 @@ def _project_id(ctx: AppContext, key: str) -> str:
     try:
         return ctx.projects.resolve(key)
     except ProjectError as e:
-        raise RecordingError("project_not_found", "プロジェクトがありません") from e
+        raise RecordingError(
+            "project_not_found", "project.missing", "プロジェクトがありません"
+        ) from e
 
 
 def _session_id(ctx: AppContext, key: str) -> str:
@@ -187,7 +191,9 @@ def _session_id(ctx: AppContext, key: str) -> str:
     try:
         return ctx.projects.find_session(key)[2].id
     except ProjectError as e:
-        raise RecordingError("session_not_found", "セッションがありません") from e
+        raise RecordingError(
+            "session_not_found", "session.missing", "セッションがありません"
+        ) from e
 
 
 def _owns(ws: WebSocket, session: Any) -> bool:
@@ -198,9 +204,9 @@ def _owns(ws: WebSocket, session: Any) -> bool:
 async def _audio(ws: WebSocket, session: Any, data: bytes) -> None:
     """先頭4バイトが連番（uint32、リトルエンディアン）、続きが 16kHz・モノラル・Int16 の PCM"""
     if not _owns(ws, session):
-        raise RecordingError("not_recording", "録音していません")
+        raise RecordingError("not_recording", "recording.notRecording", "録音していません")
     if len(data) < 4:
-        raise RecordingError("bad_message", "音声のチャンクが短すぎます")
+        raise RecordingError("bad_message", "message.shortChunk", "音声のチャンクが短すぎます")
     # 受け取った量は 1 分ごとにまとめてログに書く（#134）
     traffic.audio(len(data) - 4)
     await session.audio(int.from_bytes(data[:4], "little"), data[4:])
@@ -280,7 +286,7 @@ async def _watch(ctx: AppContext, ws: WebSocket, key: Any) -> None:
     """録音中のセッションを、録音していないクライアントで見る（#238。spec/api.md 7.2）。
     録音中でなければ state: idle"""
     if not isinstance(key, str) or not key:
-        raise RecordingError("bad_message", "session を指定してください")
+        raise RecordingError("bad_message", "message.noSession", "session を指定してください")
     sid = _session_id(ctx, key)
     recorder = ctx.recorder
     active = recorder.active() if recorder is not None else []
@@ -301,7 +307,7 @@ async def _interrupt(ctx: AppContext, ws: WebSocket, session: Any, key: Any) -> 
     spec/flows.md 6.7）。ほかの接続が録音しているセッションは終わらせない（電波が切れただけのときは
     今までどおり待つ。#101）"""
     if not isinstance(key, str) or not key:
-        raise RecordingError("bad_message", "session を指定してください")
+        raise RecordingError("bad_message", "message.noSession", "session を指定してください")
     sid = _session_id(ctx, key)
     target = next((s for s in ctx.recorder.active() if s.id == sid), None)
     if target is None:
@@ -320,7 +326,7 @@ async def _handle_control(ctx: AppContext, ws: WebSocket, session: Any, text: st
         message = json.loads(text)
         kind = message["type"]
     except (ValueError, KeyError, TypeError) as e:
-        raise RecordingError("bad_message", "メッセージを読めません") from e
+        raise RecordingError("bad_message", "message.unreadable", "メッセージを読めません") from e
     if kind == "watch":
         await _watch(ctx, ws, message.get("session"))
         return session
@@ -329,24 +335,32 @@ async def _handle_control(ctx: AppContext, ws: WebSocket, session: Any, text: st
         return session
     recorder = ctx.recorder
     if recorder is None:
-        raise RecordingError("not_available", "このホストではまだ録音できません")
+        raise RecordingError(
+            "not_available", "recording.unavailable", "このホストではまだ録音できません"
+        )
 
     active = _owns(ws, session)
     if kind == "start":
         if active:
-            raise RecordingError("already_recording", "すでに録音しています")
+            raise RecordingError("already_recording", "recording.already", "すでに録音しています")
         project = message.get("project")
         if not isinstance(project, str) or not project:
-            raise RecordingError("bad_message", "project を指定してください")
+            raise RecordingError("bad_message", "message.noProject", "project を指定してください")
         # 今回だけ変えた文字起こしの言語（#482）。省いたら全体設定
         language = message.get("language")
         if language not in (None, "ja", "auto"):
-            raise RecordingError("bad_message", "language は ja か auto にしてください")
+            raise RecordingError(
+                "bad_message", "message.badLanguage", "language は ja か auto にしてください"
+            )
         # 録音を始めた端末の表示言語（#498）。省いたら（古い画面）ja
         try:
             display_language = parse_display_language(message.get("displayLanguage"))
         except ValueError as e:
-            raise RecordingError("bad_message", "displayLanguage は言語コードにしてください") from e
+            raise RecordingError(
+                "bad_message",
+                "message.badDisplayLanguage",
+                "displayLanguage は言語コードにしてください",
+            ) from e
         max_concurrent = ctx.settings.get().recording.max_concurrent
         return await recorder.start(
             ws,
@@ -358,12 +372,16 @@ async def _handle_control(ctx: AppContext, ws: WebSocket, session: Any, text: st
     if kind == "continue":
         # 途中で終わったセッションの続きを録音する（#101）
         if active:
-            raise RecordingError("already_recording", "すでに録音しています")
+            raise RecordingError("already_recording", "recording.already", "すでに録音しています")
         project, sid = message.get("project"), message.get("session")
         if not isinstance(project, str) or not isinstance(sid, str):
-            raise RecordingError("bad_message", "project と session を指定してください")
+            raise RecordingError(
+                "bad_message", "message.noProjectSession", "project と session を指定してください"
+            )
         if not hasattr(recorder, "continue_session"):
-            raise RecordingError("not_available", "このホストでは続きを録音できません")
+            raise RecordingError(
+                "not_available", "continue.unsupported", "このホストでは続きを録音できません"
+            )
         max_concurrent = ctx.settings.get().recording.max_concurrent
         return await recorder.continue_session(
             ws, _project_id(ctx, project), _session_id(ctx, sid), max_concurrent
@@ -371,15 +389,17 @@ async def _handle_control(ctx: AppContext, ws: WebSocket, session: Any, text: st
     if kind == "resume":
         sid, next_seq = message.get("session"), message.get("nextSeq")
         if not isinstance(sid, str) or not isinstance(next_seq, int):
-            raise RecordingError("bad_message", "session と nextSeq を指定してください")
+            raise RecordingError(
+                "bad_message", "message.noSessionSeq", "session と nextSeq を指定してください"
+            )
         if active:
-            raise RecordingError("already_recording", "すでに録音しています")
+            raise RecordingError("already_recording", "recording.already", "すでに録音しています")
         return await recorder.resume(ws, _session_id(ctx, sid))
     if kind == "interrupt":
         return await _interrupt(ctx, ws, session, message.get("session"))
     if kind in ("stop", "pause", "unpause"):
         if not active:
-            raise RecordingError("not_recording", "録音していません")
+            raise RecordingError("not_recording", "recording.notRecording", "録音していません")
         if kind == "stop":
             await session.stop()
             return None
@@ -388,4 +408,9 @@ async def _handle_control(ctx: AppContext, ws: WebSocket, session: Any, text: st
         else:
             session.unpause()
         return session
-    raise RecordingError("bad_message", f"知らない種類のメッセージです: {kind}")
+    raise RecordingError(
+        "bad_message",
+        "message.unknownKind",
+        f"知らない種類のメッセージです: {kind}",
+        {"kind": str(kind)},
+    )

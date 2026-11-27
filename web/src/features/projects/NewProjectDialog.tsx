@@ -14,6 +14,8 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog';
 import { useDirListing } from '@/features/materials/useDirListing';
+import { projectsMessages } from '@/features/projects/i18n';
+import { useT } from '@/i18n/messages';
 
 // プロジェクトにするフォルダを選ぶ。選べるのは設定の「読み込めるフォルダ」の中だけ（spec/api.md 7.3 節）
 export function NewProjectDialog({
@@ -25,14 +27,13 @@ export function NewProjectDialog({
     onOpenChange: (open: boolean) => void;
     onCreate: (path: string) => void;
 }) {
+    const t = useT(projectsMessages);
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className='sm:max-w-lg'>
                 <DialogHeader>
-                    <DialogTitle>新規プロジェクト作成</DialogTitle>
-                    <DialogDescription>
-                        プロジェクトにするフォルダを選んでください。最終要約のコピーはこのフォルダに置かれます
-                    </DialogDescription>
+                    <DialogTitle>{t('newProjectDialog.title')}</DialogTitle>
+                    <DialogDescription>{t('newProjectDialog.description')}</DialogDescription>
                 </DialogHeader>
                 {/* DialogContent は閉じると消えるので、開くたびに選び直せる */}
                 <FolderPicker
@@ -47,6 +48,7 @@ export function NewProjectDialog({
 }
 
 function FolderPicker({ onCreate }: { onCreate: (path: string) => void }) {
+    const t = useT(projectsMessages);
     const [selected, setSelected] = useState<string | null>(null);
     // 一番上は、読み込めるフォルダ（materials.roots）の一覧
     const { listing, error } = useDirListing(null);
@@ -56,11 +58,11 @@ function FolderPicker({ onCreate }: { onCreate: (path: string) => void }) {
         <>
             <div className='h-72 overflow-y-auto rounded-lg border p-1'>
                 {error ? (
-                    <Message>フォルダの一覧を取れません: {error}</Message>
+                    <Message>{t('newProjectDialog.listFailed', { error })}</Message>
                 ) : !listing ? (
-                    <Message>読み込んでいます…</Message>
+                    <Message>{t('newProjectDialog.loading')}</Message>
                 ) : roots.length === 0 ? (
-                    <Message>読み込めるフォルダがありません。設定の「参考資料」で追加してください</Message>
+                    <Message>{t('newProjectDialog.noFolders')}</Message>
                 ) : (
                     roots.map((root) => (
                         <FolderNode
@@ -78,13 +80,13 @@ function FolderPicker({ onCreate }: { onCreate: (path: string) => void }) {
 
             <DialogFooter className='sm:items-center'>
                 <p className='mr-auto min-w-0 truncate text-xs text-muted-foreground'>
-                    {selected ?? 'フォルダを選んでください'}
+                    {selected ?? t('newProjectDialog.chooseFolder')}
                 </p>
                 <DialogClose asChild>
-                    <Button variant='outline'>キャンセル</Button>
+                    <Button variant='outline'>{t('newProjectDialog.cancel')}</Button>
                 </DialogClose>
                 <Button disabled={selected === null} onClick={() => selected && onCreate(selected)}>
-                    このフォルダで作成
+                    {t('newProjectDialog.create')}
                 </Button>
             </DialogFooter>
         </>

@@ -4,8 +4,10 @@ import { FileAudioIcon } from 'lucide-react';
 import type { Project, Session } from '@/api/types';
 import { SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { projectsMessages } from '@/features/projects/i18n';
 import { type Dragging, pointerOnly } from '@/features/projects/projectDrag';
 import { sessionMeta } from '@/features/projects/sessionMeta';
+import { useT } from '@/i18n/messages';
 
 // サイドバーのセッションの 1 行。ほかのプロジェクトへドラッグして移せる（#172）
 export function SessionItem({
@@ -25,6 +27,7 @@ export function SessionItem({
     dragging: boolean;
     onSelect: () => void;
 }) {
+    const t = useT(projectsMessages);
     const data: Dragging = { type: 'session', sessionId: session.id, projectId: project.id, title: session.title };
     const { setNodeRef, attributes, listeners } = useDraggable({
         // セッションの ID はプロジェクトをまたぐと重なることがあるので、プロジェクトの ID を付ける
@@ -59,12 +62,15 @@ export function SessionItem({
             {session.uploaded && (
                 <FileAudioIcon
                     className='ml-auto size-3.5 shrink-0 text-muted-foreground'
-                    aria-label='音声ファイルから作成'
+                    aria-label={t('sessionItem.fromAudioFile')}
                 />
             )}
             {/* 録音中（ほかの端末のものも含む）のセッションには赤い点を付ける */}
             {session.status === 'recording' && (
-                <span className='ml-auto size-2 shrink-0 rounded-full bg-red-500' aria-label='録音中' />
+                <span
+                    className='ml-auto size-2 shrink-0 rounded-full bg-red-500'
+                    aria-label={t('sessionItem.recording')}
+                />
             )}
         </SidebarMenuButton>
     );

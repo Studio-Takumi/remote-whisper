@@ -1,3 +1,4 @@
+import { apiMessages } from '@/api/i18n';
 import type { GpuJobKind, GpuJobProgress, GpuJobs, GpuStats } from '@/api/protocol';
 import type { RecordingState } from '@/features/recording/recording';
 import { LLM_NAMES, type LlmBackend } from '@/features/settings/settings';
@@ -34,35 +35,57 @@ export const initialServerStatus: ServerStatus = {
 };
 
 // GPU キューのジョブの種類の名前
-export const jobKindLabel: Record<GpuJobKind, string> = {
-    transcribe: '文字起こし',
-    whisperLoad: '文字起こしのモデル読み込み',
-    liveSummary: 'リアルタイム要約',
-    finalSummary: '最終要約',
-    contextSet: '参考資料の作成',
-    terms: '文字起こしからの用語抽出',
-    finalTranscript: '文字起こしの浄書',
-    materialRange: '扱った範囲での参考資料の再生成',
-    other: 'その他',
-};
+const jobKindKeys = {
+    transcribe: 'status.jobKindTranscribe',
+    whisperLoad: 'status.jobKindTranscriptModelLoad',
+    liveSummary: 'status.jobKindLiveSummary',
+    finalSummary: 'status.jobKindFinalSummary',
+    contextSet: 'status.jobKindReferenceMaterials',
+    terms: 'status.jobKindTerms',
+    finalTranscript: 'status.jobKindPolish',
+    materialRange: 'status.jobKindMaterialRange',
+    other: 'status.jobKindOther',
+} as const satisfies Record<GpuJobKind, string>;
+
+export function jobKindLabel(kind: GpuJobKind): string {
+    return apiMessages.t(jobKindKeys[kind]);
+}
 
 // 実行中のジョブの段階の名前（#340。spec/api.md 7.2）
-const jobStepLabel: Partial<Record<GpuJobKind, Record<string, string>>> = {
+type StepKey =
+    | 'status.stepSummary'
+    | 'status.stepDetailedSummary'
+    | 'status.stepCondense'
+    | 'status.stepOverview'
+    | 'status.stepPages'
+    | 'status.stepTitle'
+    | 'status.stepLoad'
+    | 'status.stepTranscribe'
+    | 'status.stepAlign'
+    | 'status.stepSpeakerLabeling';
+
+const jobStepKeys: Partial<Record<GpuJobKind, Record<string, StepKey>>> = {
     finalSummary: {
-        summary: '要約',
-        parts: '要約詳細',
-        condense: '要約詳細のまとめ',
-        overview: '全体概要',
-        pages: '参考資料のページ付け',
-        title: 'タイトル',
+        summary: 'status.stepSummary',
+        parts: 'status.stepDetailedSummary',
+        condense: 'status.stepCondense',
+        overview: 'status.stepOverview',
+        pages: 'status.stepPages',
+        title: 'status.stepTitle',
     },
     finalTranscript: {
-        load: 'モデルの読み込み',
-        transcribe: '文字起こし',
-        align: '位置合わせ',
-        diarize: '話者分け',
+        load: 'status.stepLoad',
+        transcribe: 'status.stepTranscribe',
+        align: 'status.stepAlign',
+        diarize: 'status.stepSpeakerLabeling',
     },
 };
+
+// 知らない段階は null
+function jobStepLabel(kind: GpuJobKind, step: string): string | null {
+    const key = jobStepKeys[kind]?.[step];
+    return key === undefined ? null : apiMessages.t(key);
+}
 
 // 実行中のジョブの進み具合の文（「要約詳細 3/6」「位置合わせ 2/4 37%」）と、バーの割合（0〜1。分からなければ null）
 // 進み具合がない（古いサーバー・ほかのジョブ）・知らない段階なら null（今までどおりの表示にする）
@@ -70,7 +93,7 @@ export function jobProgress(
     kind: GpuJobKind,
     progress: GpuJobProgress | undefined,
 ): { text: string; ratio: number | null } | null {
-    const label = progress && jobStepLabel[kind]?.[progress.step];
+    const label = progress && jobStepLabel(kind, progress.step);
     if (!progress || !label) {
         return null;
     }
@@ -91,14 +114,26 @@ export function jobProgress(
 }
 
 // 文字起こしを待たせている理由
-const blockingReason: Partial<Record<GpuJobKind, string>> = {
-    liveSummary: 'リアルタイム要約の生成中',
-    finalSummary: '最終要約の生成中',
-    contextSet: '参考資料の作成中',
-    terms: '用語抽出中',
-    finalTranscript: '浄書中',
-    materialRange: '参考資料の再生成中',
+type BlockingKey =
+    | 'status.blockedByLiveSummary'
+    | 'status.blockedByFinalSummary'
+    | 'status.blockedByReferenceMaterials'
+    | 'status.blockedByTerms'
+    | 'status.blockedByPolish'
+    | 'status.blockedByMaterialRange';
+
+const blockingReasonKeys: Partial<Record<GpuJobKind, BlockingKey>> = {
+    liveSummary: 'status.blockedByLiveSummary',
+    finalSummary: 'status.blockedByFinalSummary',
+    contextSet: 'status.blockedByReferenceMaterials',
+    terms: 'status.blockedByTerms',
+    finalTranscript: 'status.blockedByPolish',
+    materialRange: 'status.blockedByMaterialRange',
 };
+
+function blockingReason(kind: GpuJobKind): string {
+    return apiMessages.t(blockingReasonKeys[kind] ?? 'status.blockedByOther');
+}
 
 // このセッションの最終の文字起こし（#121）を作っている・作るのを待っているか
 export function makingFinalTranscript(jobs: GpuJobs, sessionId: string) {
@@ -128,21 +163,21 @@ export type Status = { tone: Tone; text: string };
 export function transcriptStatus(state: RecordingState, server: ServerStatus, sessionId: string | null = null): Status {
     if (state === 'idle') {
         return server.connection === 'reconnecting'
-            ? { tone: 'warning', text: 'ホストにつながっていません。つなぎ直しています…' }
-            : { tone: 'idle', text: '待機中' };
+            ? { tone: 'warning', text: apiMessages.t('status.transcriptIdleReconnecting') }
+            : { tone: 'idle', text: apiMessages.t('status.transcriptIdle') };
     }
     if (server.connection === 'reconnecting') {
         // つながり直せば、そのまま続く。待つ時間を過ぎても、あとで同じセッションの続きを録音できる（#101）
         return {
             tone: 'warning',
-            text: 'ホストに再接続しています…（録音は手元で続けています）',
+            text: apiMessages.t('status.transcriptReconnecting'),
         };
     }
     if (state === 'paused') {
-        return { tone: 'paused', text: '一時停止中' };
+        return { tone: 'paused', text: apiMessages.t('status.transcriptPaused') };
     }
     if (server.whisper === 'error') {
-        return { tone: 'error', text: '文字起こしが止まっています。音声は保存しているので、後から再生成できます' };
+        return { tone: 'error', text: apiMessages.t('status.transcriptStopped') };
     }
     // GPU は1つずつしか使えず、実行中の要約は途中で止めないので、終わるまで文字起こしが待たされる（spec/flows.md 6.3）
     // モデルの読み込みもその後ろで待つので、読み込み中の表示より先に見る
@@ -150,13 +185,13 @@ export function transcriptStatus(state: RecordingState, server: ServerStatus, se
     if (blocking) {
         return {
             tone: 'warning',
-            text: `${blockingReason[blocking] ?? 'ほかの処理'}のため、文字起こしを待っています…（音声は保存しています）`,
+            text: apiMessages.t('status.transcriptWaiting', { reason: blockingReason(blocking) }),
         };
     }
     if (server.whisper !== 'ready') {
-        return { tone: 'warning', text: '文字起こしのモデルを読み込んでいます…（音声は保存しています）' };
+        return { tone: 'warning', text: apiMessages.t('status.transcriptLoadingModel') };
     }
-    return { tone: 'active', text: '文字起こし中…' };
+    return { tone: 'active', text: apiMessages.t('status.transcriptRunning') };
 }
 
 // 選んでいる LLM（llm.backend）につながらないか。使っていないほうの状態は見ない（#327）
@@ -175,16 +210,16 @@ export function summaryStatus(
         return null;
     }
     if (server.connection === 'reconnecting') {
-        return { tone: 'warning', text: 'ホストに再接続しています…（録音は続けています）' };
+        return { tone: 'warning', text: apiMessages.t('status.summaryReconnecting') };
     }
     if (llmUnavailable(server, backend)) {
         return {
             tone: 'error',
-            text: `${LLM_NAMES[backend]} に接続できず、要約を作れません。録音を終えてから再生成できます`,
+            text: apiMessages.t('status.summaryLlmUnavailable', { llm: LLM_NAMES[backend] }),
         };
     }
     if (state === 'paused') {
-        return { tone: 'paused', text: '一時停止中。再開すると要約の更新も再開します' };
+        return { tone: 'paused', text: apiMessages.t('status.summaryPaused') };
     }
-    return { tone: 'active', text: `録音中。${intervalMin} 分おきにリアルタイム要約を更新します…` };
+    return { tone: 'active', text: apiMessages.t('status.summaryRecording', { minutes: intervalMin }) };
 }

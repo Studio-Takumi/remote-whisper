@@ -105,7 +105,7 @@
 | `sources` | セッションの音源の一覧が変わった（#241）。`session`・`sources`（`[{id, name, kind, state}]`。`state` は `active` / `disconnected` / `left`）と `join`（`watching` と同じ。上限に達した・空いたときに変わる）。録音しているクライアント・見ているクライアント・参加しているクライアントに送る |
 | `finalTranscript` | `generationId`。浄書済み文字起こしができた（6.9 節）。全員に送る |
 | `status` | `whisper`（`unloaded` / `loading` / `ready` / `error`）、`ollama`（`ready` / `error`）、`lmstudio`（`ready` / `error`。LM Studio を一度も呼んでいなければ項目ごと出さない。#324）、`recordings`（録音中のセッションの数）、`queue`（待っている・実行中のジョブの数）、`jobs`、`gpu`、`summarizing`、`transcribing` |
-| `error` | `code`、`message` |
+| `error` | `code`、`message`、`messageCode`、`params`（7.6 節。`messageCode`・`params` は #494 から） |
 
 - `start`・`continue` の `project` と、`continue`・`resume` の `session` には、ID の代わりに UUID（5.2 節）も使える（#177）。
 - `resume` を受け付けたら、`started`（`resumed: true`、`offsetSec` は受け取り済みの録音の長さ）と、受け取り済みの最後の連番の `ack` を返す。クライアントはその次から送り直す。再開できるセッションがなければ `error`（`session_not_found`）。
@@ -175,7 +175,21 @@
   - `network.allowedHosts` の名前のオリジン（`Host` を書き換える中継の後ろに置いたとき。nginx の既定は `Host` を転送先の `127.0.0.1:8000` にする）。**このときはポートを見ない**ので、IP アドレスを足すと、その IP のどのポートの画面からでも通る（足すのは中継の名前だけにする）
   - `null`・`http`/`https` 以外（拡張機能など）は断る
 - **Vite の開発サーバー**: `/api`・`/ws` の転送は `Host` を書き換えない（`changeOrigin` を付けない）。`Host` も `Origin` も開発サーバーのもの（`localhost:5190` など）になり、同じオリジンとして通る
-- **断るとき**: HTTP は `403`（`{"detail": "..."}`）。WebSocket はつなぐ前に閉じる（ブラウザには HTTP の `403` が返る）。何もしないで断るので、設定の書き換えなどは起きない。`Host` か `Origin` が 2 つ以上あるときも、どちらを読むかで食い違わないように断る。`X-Forwarded-Host` などの転送のヘッダーは見ない。ログ（`server.log`）に、メソッド・パス・断った理由（`host not allowed`・`origin not allowed`・`duplicate host`・`duplicate origin`）と `Host`・`Origin` の値を警告で書く。接続元の IP は書かない。同じ組は 60 秒に 1 回だけ書く
+- **断るとき**: HTTP は `403`（`{"detail": "...", "code": "host.nameNotAllowed", "params": {}}`。コードは `host.nameNotAllowed`・`host.originNotAllowed`・`host.duplicateHeader`。7.6 節）。WebSocket はつなぐ前に閉じる（ブラウザには HTTP の `403` が返る）。何もしないで断るので、設定の書き換えなどは起きない。`Host` か `Origin` が 2 つ以上あるときも、どちらを読むかで食い違わないように断る。`X-Forwarded-Host` などの転送のヘッダーは見ない。ログ（`server.log`）に、メソッド・パス・断った理由（`host not allowed`・`origin not allowed`・`duplicate host`・`duplicate origin`）と `Host`・`Origin` の値を警告で書く。接続元の IP は書かない。同じ組は 60 秒に 1 回だけ書く
 - **トンネル（8001 番）は見ない**: Worker の署名で守っていて（10.5 節）、`Origin` は Worker が確かめる。`RelayAuthApp` が付けた印（`via_tunnel`）があるリクエストは、そのまま通す
 - **iOS アプリに同梱した画面（#440。mobile.md 11.9 節）**: `Origin: capacitor://localhost`（`host_check.APP_ORIGINS`。完全一致）は、`Origin` が `Host` と違っても通す。**`Host` の確認はそのまま**で、許していない `Host`（DNS rebinding の名前）にこの `Origin` を付けても `403` で断る。ブラウザの画面はこのオリジンにならないので、上の攻撃には使えない。このオリジンにだけ CORS（Starlette の `CORSMiddleware`。Host・Origin の確認の内側）を返す。メソッドは GET・POST・PUT・PATCH・DELETE、ヘッダーは `Content-Type`、**資格情報は許さない**（8000 番は Cookie を使わない）。ほかのオリジンには CORS を付けない（その前に 403 で断る）。`ionic://localhost` は許さない
 - **アプリのトークン（#441）は 8000 番では使わない**: セルフホスト版は今まで通り、ログインもトークンもない（LAN・Tailscale の中だけで使う前提で、守りは Host・Origin の確認。`Authorization` は読まない）。アプリに同梱した画面から 8000 番につなぐときも同じ。クラウド版のトークンは中間サーバーの中で確かめて終わり、トンネル（8001 番）に届くのは署名（10.5 節）だけ（cloud.md 10.7 節の「アプリのログイン」）。8000 番をインターネットに出す使い方は今も想定していないので、トークンは足さない
+
+## 7.6 エラーのコード（#494）
+
+サーバーは、web の画面に届くエラーを、文ではなくコードと文に埋める値で返す。web はコードから表示言語の辞書（`web/src/api/serverErrors/`。辞書のキーはコードそのもの）を引いて文を出す。表示言語を切り替えられるようにするため（#487）。
+
+- **HTTP**: 本文は `{"detail": "<日本語の文>", "code": "<コード>", "params": {<値>}}`。`server/src/remote_whisper/api_errors.py` の `ApiError` で返す。FastAPI の検証のエラー（`422` で `detail` が配列）は今まで通りで、コードは付けない
+- **WebSocket の `error`**: `{"type": "error", "code": "<種類>", "message": "<日本語の文>", "messageCode": "<コード>", "params": {<値>}}`。`code` は前からある種類（`bad_message`・`cannot_continue` など。7.2 節。web の処理の分かれ目に使う）で、変えない。文を引くコードは別の `messageCode`（同じ `code` でも理由で文が違うため）
+- **`GET /api/setup` の `llm.pull`**: 取れなかったとき、`error`（日本語の文）に加えて `errorCode`・`errorParams` を返す
+- **コードの形**: `<対象>.<理由>`（`session.notFound`・`lmstudio.paused`・`upload.tooLarge` など）。対象と理由は英語の lowerCamelCase で、対象の名前は用語集（12 章）の英語に合わせる（浄書済み文字起こしは `polishedTranscript`、リアルタイム要約は `realtimeSummary`、参考資料は `referenceMaterials`、用語リストは `termList`、置き換えは `replacement`）
+- **値（`params`）**: 文に埋めるもの（セッション ID・上限の数・ファイル名など）。文字列か数。ホストの OS が返した理由（`reason`）など、訳せないものはそのまま埋める
+- **web の扱い**: 辞書にあるコードで、文の `{名前}` の値がすべてそろっていれば辞書の文を出す。知らないコード（web より新しいサーバー）・コードがない（古いサーバー）・値が足りないときは、`detail`（WebSocket は `message`）をそのまま出す。HTTP は `src/api/api.ts` と音声ファイルのアップロード（`features/recording/upload.ts`）、WebSocket は届いたところ（`src/api/connection.ts`）で文にするので、画面の側はコードを気にしない
+- **日本語の文はそろえる**: 辞書の日本語は、サーバーが `detail`・`message` に入れる文と 1 文字も違わないようにする（日本語のときの見た目を変えないため）。`server/tests/test_error_dictionary.py` が、サーバーのコードがすべて辞書にあること・辞書の文がサーバーの文と同じことを確かめる
+- **日本語の `detail`・`message` を返す期間**: 古い web（コードを知らない。iOS アプリに同梱した画面や、更新を受け入れていない PWA）が新しいサーバーにつないでも困らないように、当面は今の日本語の文を返し続ける。新しい web が知らないコードに出会ったときの代わりの文でもあるので、**少なくとも #494 が入ったリリースの次のリリースまでは消さない**。そのあと、英訳（#497）が入ってから、`detail` を残すか（英語の文にするかなど）を見直す
+- **対象外**: トレイ・CLI だけに出るもの（`__main__.py`・`tray_serve.py` など）と、中間サーバー（`relay/`。#495）

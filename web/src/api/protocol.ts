@@ -161,7 +161,16 @@ export type ServerMessage =
           // 最終の文字起こしを作っているセッション（録音が終わるのを待っている間も含む）。#124
           transcribing?: string[];
       }
-    | { type: 'error'; session?: string; code: ErrorCode; message: string };
+    // message は表示する文（届いたときに messageCode・params から表示言語で引き直す。#494）。
+    // messageCode・params は古いサーバーにはない
+    | {
+          type: 'error';
+          session?: string;
+          code: ErrorCode;
+          message: string;
+          messageCode?: string;
+          params?: Record<string, string | number>;
+      };
 
 export type ErrorCode =
     | 'bad_message'

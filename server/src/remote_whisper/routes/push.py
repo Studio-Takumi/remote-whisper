@@ -2,10 +2,11 @@
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 
+from remote_whisper.api_errors import ApiError
 from remote_whisper.context import AppContext, get_ctx
-from remote_whisper.push import Subscription
+from remote_whisper.push import Subscription, SubscriptionError
 
 router = APIRouter(prefix="/api/push")
 
@@ -14,7 +15,7 @@ Ctx = Annotated[AppContext, Depends(get_ctx)]
 
 def _push(ctx: AppContext):
     if ctx.push is None:
-        raise HTTPException(status_code=404, detail="このホストでは通知を使えません")
+        raise ApiError(404, "push.unsupported", "このホストでは通知を使えません")
     return ctx.push
 
 
@@ -30,8 +31,8 @@ def add_subscription(body: dict[str, Any], ctx: Ctx) -> dict[str, Any]:
     push = _push(ctx)
     try:
         subscription = Subscription.from_json(body)
-    except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e)) from e
+    except SubscriptionError as e:
+        raise ApiError(422, e.code, e.message) from e
     push.add(subscription)
     return {"ok": True}
 

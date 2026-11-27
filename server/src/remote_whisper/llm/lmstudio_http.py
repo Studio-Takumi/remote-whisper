@@ -31,11 +31,19 @@ class LMStudioUnavailable(LlmUnavailable):
     """LM Studio につながらない・エラーを返した。status は HTTP のステータス（なければ None）。
     401・403 はトークン違い（#327）"""
 
-    def __init__(self, message: str, status: int | None = None, detail: str | None = None):
+    def __init__(
+        self,
+        message: str,
+        status: int | None = None,
+        detail: str | None = None,
+        detail_code: str | None = None,
+    ):
         super().__init__(message)
         self.status = status
-        # 画面に出す理由（取得が LM Studio 側で止まったときなど）。なければ None
+        # 画面に出す理由（取得が LM Studio 側で止まったときなど）。なければ None。
+        # detail_code は web が文を引くコード（#494）
         self.detail = detail
+        self.detail_code = detail_code
 
 
 class LMStudioHttp:

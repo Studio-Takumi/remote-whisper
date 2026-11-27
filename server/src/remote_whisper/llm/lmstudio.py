@@ -12,7 +12,7 @@ from typing import Any
 import httpx
 
 from remote_whisper.hub import Hub
-from remote_whisper.llm.llm import PullProgress
+from remote_whisper.llm.llm import LlmProduct, PullProgress, unavailable_error
 from remote_whisper.llm.lmstudio_chat import Chat
 from remote_whisper.llm.lmstudio_http import LMStudioHttp, LMStudioUnavailable, log
 from remote_whisper.llm.lmstudio_models import ModelList
@@ -29,13 +29,9 @@ DOWNLOAD_STALL_SEC = 600.0
 DOWNLOAD_RUNNING = "downloading"
 
 
-def lmstudio_error(what: str) -> dict[str, Any]:
+def lmstudio_error(what: LlmProduct) -> dict[str, Any]:
     """要約などを作れなかったことをブラウザに伝えるメッセージ"""
-    return {
-        "type": "error",
-        "code": "lmstudio_unavailable",
-        "message": f"LM Studio に接続できないため、{what}を作れませんでした",
-    }
+    return unavailable_error("lmstudio", "LM Studio", what)
 
 
 class LMStudioClient:
@@ -161,12 +157,14 @@ class LMStudioClient:
                         f"lmstudio paused downloading {model}",
                         detail="LM Studio で一時停止されています。"
                         "LM Studio の画面で再開してください",
+                        detail_code="lmstudio.paused",
                     )
                 if state != DOWNLOAD_RUNNING:
                     # 知らない status（版によって増えうる。取り消したなど）
                     raise LMStudioUnavailable(
                         f"lmstudio stopped downloading {model} ({state or 'no status'})",
                         detail="LM Studio で取得が止まりました。LM Studio の画面で確かめてください",
+                        detail_code="lmstudio.downloadStopped",
                     )
                 if done != last_done:
                     last_done, moved_at = done, self._clock()
@@ -176,6 +174,7 @@ class LMStudioClient:
                         f"for {DOWNLOAD_STALL_SEC:.0f} seconds",
                         detail="LM Studio の取得が進まないため、見るのをやめました。"
                         "LM Studio の画面で確かめてください",
+                        detail_code="lmstudio.downloadStalled",
                     )
                 if total:
                     yield {"status": state, "digest": job_id, "total": total, "completed": done}

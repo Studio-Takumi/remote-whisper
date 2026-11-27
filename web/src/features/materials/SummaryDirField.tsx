@@ -5,11 +5,14 @@ import { toast } from 'sonner';
 import type { Project } from '@/api/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { materialsMessages } from '@/features/materials/i18n';
 import { saveSummaryDir } from '@/features/materials/summaryDir';
+import { useT } from '@/i18n/messages';
 
 // 最終要約のコピーの置き場所（project.json の summaryDir。spec/files.md 5.4 節、#341）。
 // 選んだディレクトリからの相対パス。検証はサーバーがする（不正なら 422 の理由を出す）
 export function SummaryDirField({ project }: { project: Project }) {
+    const t = useT(materialsMessages);
     const saved = project.summaryDir ?? '';
     // プロジェクトを切り替えたら、書きかけの値は捨てる
     const [draft, setDraft] = useState({ pid: project.id, value: saved });
@@ -25,10 +28,10 @@ export function SummaryDirField({ project }: { project: Project }) {
             // サーバーがそろえた値（./summary/ → summary）を出す
             const summaryDir = await saveSummaryDir(project.id, value);
             setDraft({ pid: project.id, value: summaryDir });
-            toast.success('最終要約のコピーの置き場所を保存しました');
+            toast.success(t('summaryDirField.saved'));
         } catch (e) {
             // 欄は書いたまま残す
-            toast.error(`最終要約のコピーの置き場所を保存できません: ${(e as Error).message}`);
+            toast.error(t('summaryDirField.saveFailed', { error: (e as Error).message }));
         } finally {
             setSaving(false);
         }
@@ -37,14 +40,14 @@ export function SummaryDirField({ project }: { project: Project }) {
     return (
         <div className='flex flex-col gap-1.5'>
             <label htmlFor='summary-dir' className='text-sm'>
-                最終要約のコピーの置き場所
-                <span className='block text-xs text-muted-foreground'>選んだディレクトリからの相対パス</span>
+                {t('summaryDirField.label')}
+                <span className='block text-xs text-muted-foreground'>{t('summaryDirField.hint')}</span>
             </label>
             <div className='flex gap-2'>
                 <Input
                     id='summary-dir'
                     value={value}
-                    placeholder='空なら直下（例: summary）'
+                    placeholder={t('summaryDirField.placeholder')}
                     onChange={(e) => setDraft({ pid: project.id, value: e.target.value })}
                     onKeyDown={(e) => {
                         if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
@@ -53,7 +56,7 @@ export function SummaryDirField({ project }: { project: Project }) {
                     }}
                 />
                 <Button variant='outline' disabled={value === saved || saving} onClick={() => void save()}>
-                    保存
+                    {t('summaryDirField.save')}
                 </Button>
             </div>
         </div>
