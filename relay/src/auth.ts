@@ -16,6 +16,7 @@ import {
     parseAppLogin,
 } from './appAuth';
 import { isAppOrigin } from './appOrigin';
+import { type ErrorCode, pageError } from './errors';
 import {
     type SessionUser,
     base64url,
@@ -99,7 +100,7 @@ export async function handleAuth(request: Request, env: Env, path: string): Prom
         return handleApp(request, env, path);
     }
     if (!provider || !isProvider(provider)) {
-        return error(404, 'ログインの手段がありません');
+        return pageError(request, 404, 'loginMethod.unknown');
     }
     if (action === 'login' && request.method === 'GET') {
         return login(request, env, provider);
@@ -118,7 +119,7 @@ async function handleApp(request: Request, env: Env, path: string): Promise<Resp
         const app = parseAppLogin(new URL(request.url));
         // ログイン手段を足す（?link=1）のは Cookie のログインセッションが要るので、アプリのログインではしない
         if (!app || new URL(request.url).searchParams.has('link')) {
-            return error(400, 'ログインをやり直してください（アプリから始めたログインの形が違います）');
+            return pageError(request, 400, 'login.badAppRequest');
         }
         return login(request, env, provider, app);
     }
@@ -136,7 +137,7 @@ async function login(request: Request, env: Env, provider: Provider, app: AppLog
     const config = CONFIGS[provider];
     const clientId = config.clientId(env);
     if (!clientId) {
-        return error(503, 'このログインの手段は、まだ使えません');
+        return pageError(request, 503, 'loginMethod.unavailable');
     }
     const url = new URL(request.url);
     let linkUserId: string | null = null;
@@ -144,7 +145,7 @@ async function login(request: Request, env: Env, provider: Provider, app: AppLog
         // ログイン手段を足す（Cookie でログインしている人だけ。トップレベルの遷移なので Authorization は付かない）
         const user = await cookieUser(request, env);
         if (!user) {
-            return error(401, 'ログインしてください');
+            return pageError(request, 401, 'login.required');
         }
         linkUserId = user.userId;
     }
@@ -199,12 +200,12 @@ async function callback(request: Request, env: Env, provider: Provider): Promise
     const state = url.searchParams.get('state');
     const code = url.searchParams.get('code');
     if (!state) {
-        return error(400, 'ログインをやり直してください（state がありません）');
+        return pageError(request, 400, 'login.noState');
     }
     // ログインを始めたのと同じブラウザか
     const browserState = getCookie(request, STATE_COOKIE);
     if (!browserState || !sameString(browserState, state)) {
-        return error(400, 'ログインをやり直してください（このブラウザで始めたログインではありません）');
+        return pageError(request, 400, 'login.otherBrowser');
     }
     // state は 1 回だけ使える（読んだら消す）
     const row = await env.DB.prepare('DELETE FROM oauth_states WHERE state_hash = ? RETURNING *')
@@ -219,7 +220,7 @@ async function callback(request: Request, env: Env, provider: Provider): Promise
             expires_at: number;
         }>();
     if (!row || row.provider !== provider || row.expires_at <= Date.now()) {
-        return error(400, 'ログインをやり直してください（期限が切れたか、使い終わった state です）');
+        return pageError(request, 400, 'login.stateExpired');
     }
     const clearState = { 'Set-Cookie': stateCookie('', 0) };
     // アプリから始めたログイン（#441）。戻る先はアプリ（固定の URL）で、Cookie のログインセッションは作らない
@@ -233,7 +234,7 @@ async function callback(request: Request, env: Env, provider: Provider): Promise
         // 手段を足すのは、始めた人がまだ同じユーザーでログインしているときだけ
         const user = await cookieUser(request, env);
         if (user?.userId !== row.link_user_id) {
-            return error(400, 'ログインをやり直してください（ログインしているユーザーが変わりました）');
+            return pageError(request, 400, 'login.userChanged');
         }
     }
     let profile: Profile;
@@ -249,11 +250,11 @@ async function callback(request: Request, env: Env, provider: Provider): Promise
             throw new Error('no subject');
         }
     } catch {
-        return error(502, 'ログインできませんでした。もう一度試してください');
+        return pageError(request, 502, 'login.failed');
     }
     const result = await resolveUser(env, provider, profile, row.link_user_id);
     if ('error' in result) {
-        return error(409, result.error);
+        return pageError(request, 409, result.error);
     }
     if (row.link_user_id) {
         // 足しただけ。今のログインセッションのまま
@@ -281,7 +282,7 @@ async function resolveUser(
     provider: Provider,
     profile: Profile,
     linkUserId: string | null,
-): Promise<{ userId: string } | { error: string }> {
+): Promise<{ userId: string } | { error: ErrorCode }> {
     const now = Date.now();
     const existing = await env.DB.prepare(
         'SELECT user_id FROM auth_identities WHERE provider = ? AND provider_subject = ?',
@@ -290,7 +291,7 @@ async function resolveUser(
         .first<{ user_id: string }>();
     if (existing) {
         if (linkUserId && existing.user_id !== linkUserId) {
-            return { error: 'このアカウントは、ほかのユーザーのログイン手段になっています' };
+            return { error: 'loginMethod.usedByOtherUser' };
         }
         // 表示用の名前とメールは新しいものにする
         await env.DB.prepare(
