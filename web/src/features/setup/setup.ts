@@ -18,6 +18,9 @@ export type PullJob = {
     completed: number;
     total: number;
     error: string | null;
+    // error のコードと値（#494。古いサーバーにはない）
+    errorCode?: string | null;
+    errorParams?: Record<string, string | number>;
 };
 
 export type InstallJob = {

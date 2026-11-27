@@ -1,6 +1,7 @@
 import { DownloadIcon } from 'lucide-react';
 
 import { api } from '@/api/api';
+import { serverErrorText } from '@/api/serverErrors/serverErrors';
 import { Button } from '@/components/ui/button';
 import { LLM_NAMES, recommendedLmStudioModels } from '@/features/settings/settings';
 import { pullBlockedReason, pullButtonLabel, pullProgressText } from '@/features/setup/pullModels';
@@ -76,7 +77,13 @@ export function ModelsStep({
                 </div>
             ) : (
                 <>
-                    {pull?.state === 'failed' && <Note warn>{pull.error ?? '取得できませんでした'}</Note>}
+                    {pull?.state === 'failed' && (
+                        <Note warn>
+                            {pull.error === null
+                                ? '取得できませんでした'
+                                : serverErrorText(pull.errorCode, pull.errorParams, pull.error)}
+                        </Note>
+                    )}
                     {pull?.state === 'cancelled' && <Note>取得をやめました</Note>}
                     {missing.length > 0 && (
                         <div className='flex flex-wrap items-center gap-2'>

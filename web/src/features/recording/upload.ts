@@ -3,6 +3,7 @@
 import type { SessionJson } from '@/api/api';
 import { appAccessToken, appAuthActive, isRelayUrl } from '@/api/appAuth';
 import { apiUrl } from '@/api/endpoint';
+import { httpErrorText } from '@/api/serverErrors/serverErrors';
 import type { TranscriptionLanguage } from '@/features/settings/settings';
 
 // 選べるファイル。動画は音声だけを使う
@@ -43,12 +44,12 @@ export class UploadError extends Error {
     }
 }
 
-// サーバーの断った理由（detail）。読めなければ状態コード
+// サーバーの断った理由（エラーのコードから引いた文。#494）。読めなければ状態コード
 export function uploadError(status: number, body: string) {
     try {
-        const detail = (JSON.parse(body) as { detail?: unknown }).detail;
-        if (typeof detail === 'string') {
-            return detail;
+        const text = httpErrorText(JSON.parse(body));
+        if (text !== undefined) {
+            return text;
         }
     } catch {
         // JSON でなければ下へ
