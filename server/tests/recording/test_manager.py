@@ -151,6 +151,54 @@ def test_continuing_keeps_the_transcription_language(client, project):
     assert read_doc(d / f"transcript-{sid}.md", TranscriptMeta)[0].language_choice == "auto"
 
 
+def test_auto_writes_the_language_decided_while_recording(client, project):
+    # 自動判定（#483）: 録音中の文字起こしで決まった言語をフロントマターの language に書く。
+    # 偽の Whisper は、言語を渡さなければ英語と判定したことにする
+    pid, d = project
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        ws.send_json({"type": "start", "project": pid, "language": "auto"})
+        sid = receive_until(ws, of_type("started"))[-1]["session"]
+        # 2.5 秒話して、2.5 秒黙る（3 秒より短い区間は 2 秒黙るまで区切らない）
+        for seq in range(10):
+            ws.send_bytes(chunk(seq, value=3000 if seq < 5 else 0))
+            receive_until(ws, of_type("ack", seq=seq))
+        receive_until(ws, of_type("final"))
+        ws.send_json({"type": "stop"})
+        receive_until(ws, of_type("status", recordings=0))
+    finished(client, sid)
+    meta = read_doc(d / f"transcript-{sid}.md", TranscriptMeta)[0]
+    assert (meta.language_choice, meta.language) == ("auto", "en")
+    # 録音中の文字起こしを終えたら、もう決めない（浄書が書く language を上書きしない）
+    assert client.app.state.ctx.recorder.sessions[sid].live.language.finished
+
+
+def test_continuing_decides_the_language_again(client, project):
+    # 続きを録音するときは、前に決まった言語（en）があっても、自動判定なら決め直す
+    pid, d = project
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        ws.send_json({"type": "start", "project": pid, "language": "auto"})
+        sid = receive_until(ws, of_type("started"))[-1]["session"]
+        for seq in range(10):
+            ws.send_bytes(chunk(seq, value=3000 if seq < 5 else 0))
+            receive_until(ws, of_type("ack", seq=seq))
+        receive_until(ws, of_type("final"))
+    # 接続が切れて interrupted になる
+    wait_for(lambda: client.app.state.ctx.recorder.sessions[sid].ended)
+    finished(client, sid)
+    assert read_doc(d / f"transcript-{sid}.md", TranscriptMeta)[0].language == "en"
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        ws.send_json({"type": "continue", "project": pid, "session": sid})
+        receive_until(ws, of_type("started"))
+        language = client.app.state.ctx.recorder.sessions[sid].live.language
+        assert (language.choice, language.option()) == ("auto", None)
+        ws.send_json({"type": "stop"})
+        receive_until(ws, of_type("status", recordings=0))
+    finished(client, sid)
+
+
 def test_paused_audio_is_not_written(client, project, keep_wav):
     pid, d = project
     with client.websocket_connect("/ws") as ws:

@@ -180,6 +180,21 @@ def test_transcribe_uses_vad_and_measures_voiced_time(monkeypatch):
     assert result[0]["voiced_sec"] == pytest.approx(1.0)
 
 
+def test_transcribe_tells_the_language(monkeypatch):
+    # 録音中の自動判定（#483）: 言語を渡さなければ判定した言語、渡せばその言語を付ける
+    monkeypatch.setattr(
+        openvino_whisper, "speech_spans", lambda audio, max_speech_sec=None: [(0, SR)]
+    )
+    pipe = FakePipe(chunks=[SimpleNamespace(start_ts=0.0, end_ts=1.0, text="Hello.")])
+    audio = np.zeros(SR, dtype=np.float32)
+    detected = openvino_whisper.transcribe(pipe, audio, {"language": None})
+    assert "language" not in pipe.calls[0][1]
+    assert detected[0]["language"] == "en"
+    assert openvino_whisper.transcribe(pipe, audio, {"language": "ja"})[0]["language"] == "ja"
+    unfiltered = openvino_whisper.transcribe(pipe, audio, {"language": None, "vad_filter": False})
+    assert unfiltered[0]["language"] == "en"
+
+
 def test_vad_cut_segments_also_get_voiced_time_per_sentence(monkeypatch):
     # 録音中の既定（VadSegmenter → vad_filter False）: 切り詰めずに全部渡し、文ごとに
     # 話している長さを付ける。話した後ろに付いた定番の文は、その文の範囲で判定される

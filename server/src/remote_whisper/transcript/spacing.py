@@ -33,12 +33,30 @@ def spaced(left: str, right: str) -> bool:
     return b not in _NO_SPACE_BEFORE and a not in _NO_SPACE_AFTER
 
 
-def join_texts(texts: list[str]) -> str:
-    """区間の文字列をつなぐ。それぞれの前後の空白は外し、英字どうしの境目にだけスペースを入れる"""
+# 単語をスペースで区切らない言語（Whisper の言語コード）
+UNSPACED_LANGUAGES = frozenset({"ja", "zh", "yue", "th", "lo", "my", "km", "bo"})
+
+
+def _spaced_language(left: str, right: str) -> bool:
+    """単語をスペースで区切る言語で、区間の境目にスペースを入れるか。
+    文字の種類は見ず、記号の前後だけを除く"""
+    if not left or not right:
+        return False
+    a, b = left[-1], right[0]
+    if a.isspace() or b.isspace():
+        return False
+    return b not in _NO_SPACE_BEFORE and a not in _NO_SPACE_AFTER
+
+
+def join_texts(texts: list[str], language: str = "ja") -> str:
+    """区間の文字列をつなぐ。それぞれの前後の空白は外す。
+    日本語など単語をスペースで区切らない言語は、英字どうしの境目にだけスペースを入れる。
+    英語など区切る言語は、記号の前後を除いて境目にスペースを入れる（#483）"""
+    rule = spaced if language in UNSPACED_LANGUAGES else _spaced_language
     out = ""
     for t in texts:
         t = t.strip()
         if not t:
             continue
-        out += (" " if spaced(out, t) else "") + t
+        out += (" " if rule(out, t) else "") + t
     return out

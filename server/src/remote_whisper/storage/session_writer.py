@@ -258,6 +258,15 @@ class SessionWriter:
                 body = _correct_body(body, applied)
             write_doc(self.files.transcript, self.meta, body)
 
+    def set_language(self, language: str) -> None:
+        """録音中の文字起こしで決まった言語（#483）を、フロントマターの language に書く。
+        浄書を作れば、浄書で判定した言語に書き直される（#482）"""
+        if self.meta.language == language:
+            return
+        with self._lock:
+            self.meta.language = language
+            self._rewrite_meta()
+
     def set_recording(self, name: str) -> None:
         """録音ファイル（mp3）ができた。フロントマターに記録する"""
         with self._lock:

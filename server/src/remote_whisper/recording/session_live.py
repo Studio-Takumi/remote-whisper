@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 from remote_whisper.gpu.gpu_queue import GpuQueue
 from remote_whisper.gpu.whisper_worker import WhisperWorker
 from remote_whisper.llm.llm import LlmClient
+from remote_whisper.recording.live_language import LiveLanguage
 from remote_whisper.recording.live_transcriber import LiveTranscriber, load_hotwords
 from remote_whisper.settings import Settings, SettingsStore
 from remote_whisper.summary.live_summary import LiveSummarizer, load_context
@@ -34,6 +35,8 @@ class LiveProcessing:
         self.numbering = itertools.count()
         # ほかの音源の文字起こしに使う（Whisper・GPU キュー・文字起こしの設定）
         self.whisper_gpu: tuple[WhisperWorker, GpuQueue, Any] | None = None
+        # 文字起こしの言語（#483）。主の音源とほかの音源で 1 つを使う
+        self.language: LiveLanguage | None = None
 
     def transcribers(self) -> list[LiveTranscriber]:
         out = [self.transcriber] if self.transcriber is not None else []
@@ -45,6 +48,9 @@ class LiveProcessing:
         self.base_hotwords = (
             load_hotwords(session.writer.files.dir, meta.context_set) if meta.use_hotwords else None
         )
+        # 文字起こしの言語（#483）。自動判定で決まったら、フロントマターの language に書く。
+        # 続きを録音するときも、自動判定なら判定し直す
+        language = self.language = LiveLanguage(meta.language_choice, session.writer.set_language)
         self.transcriber = LiveTranscriber(
             whisper,
             gpu,
@@ -55,11 +61,17 @@ class LiveProcessing:
             session=session.id,
             offset=session.offset,
             numbering=self.numbering,
+            language=language,
         )
         # 画面で足した置き換え（#176）を、以後に確定する文に当てる
         self.transcriber.correct = lambda text: apply_all(text, session.writer.meta.corrections)
         self.transcriber.tag_source = lambda: session.multi
         self.whisper_gpu = (whisper, gpu, settings.whisper)
+
+    def finish_language(self) -> None:
+        """録音中の文字起こしを終えた。これからは言語を決めない（#483）"""
+        if self.language is not None:
+            self.language.finish()
 
     def for_source(self, sid: int, start: float) -> LiveTranscriber:
         """参加した音源の文字起こし。主の音源と同じ用語・置き換えを使う"""
@@ -76,6 +88,7 @@ class LiveProcessing:
             offset=start,
             source=sid,
             numbering=self.numbering,
+            language=self.language,
         )
         live.correct = self.transcriber.correct
         live.tag_source = lambda: True
