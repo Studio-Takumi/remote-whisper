@@ -1,7 +1,7 @@
 import { defineDictionary } from '@/i18n/messages';
 
 // サーバーのエラー（#494。spec/api.md 7.6）の文（日本語）。キーはエラーのコードそのもの。
-// 文はサーバーが detail・message に入れている日本語と同じにする（server/tests/test_api_errors.py が突き合わせる）
+// 文はサーバーが detail・message に入れている日本語と同じにする（server/tests/test_error_dictionary.py が突き合わせる）
 export const ja = defineDictionary({
     'audio.writeFailed': '音声を保存できません: {reason}',
     'cloud.hostOnly': 'クラウド版からはできません（ホストで直接開いた画面から操作してください）',
