@@ -26,6 +26,7 @@ export const en = defineTranslation<typeof ja>()({
     'continueWindow.minutes': '{n} min left',
 
     // join.ts
+    'join.browser': 'Browser',
     'join.disabled': 'Joining is turned off on this host',
     'join.full': 'The maximum number of audio sources has joined',
     'join.lost': 'You were disconnected. Join again',

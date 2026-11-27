@@ -25,6 +25,7 @@ export const ja = defineDictionary({
     'continueWindow.minutes': 'あと {n} 分',
 
     // join.ts
+    'join.browser': 'ブラウザ',
     'join.disabled': 'このホストでは参加できない設定です',
     'join.full': '参加できる音源の数に達しています',
     'join.lost': '参加が切れました。もう一度参加してください',
