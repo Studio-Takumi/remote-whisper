@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { isDemo } from '@/api/demo';
 import type { ServerMessage } from '@/api/protocol';
 import type { AppStore } from '@/app/appState';
+import { appMessages } from '@/app/i18n';
 import { readProjectInfos } from '@/app/sessionData';
 import type { SessionSync } from '@/app/sessionSync';
 import { cachedContextSets, refreshContextSets, updateCachedContextSets } from '@/features/materials/contextSetCache';
@@ -125,10 +126,10 @@ function receiveContextSet({ store }: MessageContext, m: Message<'contextSet'>, 
     }
     updateCachedContextSets(pid, (sets) => sets.map((x) => (x.id === m.id ? { ...x, status: m.status } : x)));
     if (known.status === 'generating' && m.status === 'ready') {
-        toast.success('参考資料ができました');
+        toast.success(appMessages.t('serverMessages.referenceMaterialsCreated'));
     } else if (known.status === 'generating' && m.status === 'failed') {
         const llm = LLM_NAMES[llmBackend(store.getState().settings)];
-        toast.error(`参考資料を作れませんでした（資料を読めないか、${llm} に接続できません）`);
+        toast.error(appMessages.t('serverMessages.referenceMaterialsFailed', { llm }));
     }
 }
 

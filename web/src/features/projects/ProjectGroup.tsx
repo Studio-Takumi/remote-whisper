@@ -7,8 +7,10 @@ import { GripVerticalIcon, PlusIcon } from 'lucide-react';
 
 import type { Project } from '@/api/types';
 import { AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import { projectsMessages } from '@/features/projects/i18n';
 import { type ProjectDrag, pointerOnly } from '@/features/projects/projectDrag';
 import { sortableId } from '@/features/projects/projectOrder';
+import { useT } from '@/i18n/messages';
 
 // 1 つのプロジェクト（見出しとセッションの一覧）。
 // ここにセッションを離すと、このプロジェクトへ移す（#172）。見出しをドラッグすると、プロジェクトを並び替える（#173）
@@ -33,6 +35,7 @@ export function ProjectGroup({
     onNewSession: () => void;
     children: ReactNode;
 }) {
+    const t = useT(projectsMessages);
     // セッションを離す枠。プロジェクトを並び替えている間は、並び替えの枠と重ならないよう無効にする
     const drop = useDroppable({ id: project.id, disabled: reordering });
     // 並び替えの枠。セッションをドラッグしている間は無効にする（セッションは並び替えない）
@@ -66,7 +69,7 @@ export function ProjectGroup({
                     type='button'
                     ref={sort.setActivatorNodeRef}
                     className='-ml-0.5 flex size-4 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/50 opacity-0 group-hover/head:opacity-100 hover:text-sidebar-accent-foreground focus-visible:opacity-100'
-                    aria-label={`${project.name}の並び順を変える`}
+                    aria-label={t('projectGroup.reorder', { name: project.name })}
                     onKeyDown={sort.listeners?.onKeyDown as React.KeyboardEventHandler | undefined}
                     {...sort.attributes}
                     role={undefined}
@@ -79,7 +82,7 @@ export function ProjectGroup({
                 </AccordionTrigger>
                 <button
                     className={`ml-auto flex size-6 items-center justify-center rounded-md text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground ${active ? 'bg-sidebar-accent text-sidebar-accent-foreground' : ''}`}
-                    aria-label={`${project.name}で新しく録音`}
+                    aria-label={t('projectGroup.newSession', { name: project.name })}
                     onClick={onNewSession}
                 >
                     <PlusIcon size={16} />

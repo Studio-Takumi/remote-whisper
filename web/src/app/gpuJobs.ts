@@ -1,6 +1,7 @@
 // 上のバーの GPU の状態（GpuIndicator）に出す文と、ジョブのセッションの引き当て（spec/ui.md 8）
 import type { GpuJobs, GpuStats } from '@/api/protocol';
 import type { Project } from '@/api/types';
+import { appMessages } from '@/app/i18n';
 import { routePath } from '@/app/router';
 
 // ジョブの行に出すセッション。href が null なら見つからない（リンクにしない）
@@ -13,8 +14,14 @@ export function waitingCount(jobs: GpuJobs): number {
 
 // ボタンの読み上げと title。画面に出ない使用率とキュー数も分かるようにする
 export function gpuTriggerLabel(gpu: GpuStats | null, waiting: number): string {
-    const details = [gpu ? `使用率 ${gpu.util}%` : null, waiting > 0 ? `待ち ${waiting} 件` : null].filter(Boolean);
-    return `GPU の状態とジョブの一覧${details.length > 0 ? `（${details.join('、')}）` : ''}`;
+    const t = appMessages.t;
+    const details = [
+        gpu ? t('gpuJobs.usage', { util: gpu.util }) : null,
+        waiting > 0 ? t('gpuJobs.waiting', { count: waiting }) : null,
+    ].filter(Boolean);
+    return details.length > 0
+        ? t('gpuJobs.triggerWithDetails', { details: details.join(t('gpuJobs.detailSeparator')) })
+        : t('gpuJobs.trigger');
 }
 
 // ジョブのセッション（ID）から、タイトルと飛び先を引く。見つからなければ（消えた・まだ読み込んでいない）リンクにしない

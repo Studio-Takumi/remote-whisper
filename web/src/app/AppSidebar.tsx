@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { PlusIcon, SettingsIcon, UserIcon } from 'lucide-react';
 
 import { isCloud } from '@/api/endpoint';
+import { appMessages } from '@/app/i18n';
 import { useProjects } from '@/app/sessionHooks';
 import { useAppStore } from '@/app/store';
 import {
@@ -21,10 +22,12 @@ import { AccountDialog } from '@/features/cloud/AccountDialog';
 import { ProjectList } from '@/features/projects/ProjectList';
 import { moveBlocker } from '@/features/projects/move';
 import { ThemeToggle } from '@/features/settings/ThemeToggle';
+import { useT } from '@/i18n/messages';
 
 // 録音中でも、新規プロジェクトの作成・ほかのセッションを開く・設定を開くことはできる（#133）。
 // 録音中のセッションには、マイクのボタン（「録音中のセッションに戻る」）か左メニューの赤い点から戻れる
 export function AppSidebar() {
+    const t = useT(appMessages);
     const projects = useProjects();
     const selection = useAppStore((s) => s.selection);
     const showMeta = useAppStore((s) => s.settings.display.sessionMeta);
@@ -53,14 +56,14 @@ export function AppSidebar() {
                         <SidebarMenu>
                             <SidebarMenuItem>
                                 <SidebarMenuButton
-                                    tooltip='新規プロジェクト作成'
+                                    tooltip={t('appSidebar.newProject')}
                                     onClick={() => {
                                         setOpenMobile(false);
                                         setNewProjectOpen(true);
                                     }}
                                 >
                                     <PlusIcon />
-                                    <span>新規プロジェクト作成</span>
+                                    <span>{t('appSidebar.newProject')}</span>
                                 </SidebarMenuButton>
                             </SidebarMenuItem>
                         </SidebarMenu>
@@ -103,28 +106,28 @@ export function AppSidebar() {
                     <SidebarMenu>
                         <SidebarMenuItem>
                             <SidebarMenuButton
-                                tooltip='設定'
+                                tooltip={t('appSidebar.settings')}
                                 onClick={() => {
                                     setOpenMobile(false);
                                     setSettingsOpen(true);
                                 }}
                             >
                                 <SettingsIcon />
-                                <span>設定</span>
+                                <span>{t('appSidebar.settings')}</span>
                             </SidebarMenuButton>
                         </SidebarMenuItem>
                         {/* クラウド版のときだけ、アカウント（#155） */}
                         {isCloud && (
                             <SidebarMenuItem>
                                 <SidebarMenuButton
-                                    tooltip='アカウント'
+                                    tooltip={t('appSidebar.account')}
                                     onClick={() => {
                                         setOpenMobile(false);
                                         setAccountOpen(true);
                                     }}
                                 >
                                     <UserIcon />
-                                    <span>アカウント</span>
+                                    <span>{t('appSidebar.account')}</span>
                                 </SidebarMenuButton>
                             </SidebarMenuItem>
                         )}

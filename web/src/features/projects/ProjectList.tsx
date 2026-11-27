@@ -20,16 +20,12 @@ import { SidebarMenu } from '@/components/ui/sidebar';
 import { connectedHostId } from '@/features/cloud/hosts';
 import { ProjectGroup } from '@/features/projects/ProjectGroup';
 import { SessionItem } from '@/features/projects/SessionItem';
+import { projectsMessages } from '@/features/projects/i18n';
 import { moveTarget } from '@/features/projects/move';
-import {
-    type Dragging,
-    type ProjectDrag,
-    collisionDetection,
-    dragName,
-    screenReaderInstructions,
-} from '@/features/projects/projectDrag';
+import { type Dragging, type ProjectDrag, collisionDetection, dragName } from '@/features/projects/projectDrag';
 import { closedIds, loadClosed, openIds, saveClosed } from '@/features/projects/projectFold';
 import { projectIdOf, reorderedIds, sortableId } from '@/features/projects/projectOrder';
+import { useT } from '@/i18n/messages';
 
 // サイドバーのプロジェクト一覧。開閉の記憶（#318）、セッションの移動（#172）、プロジェクトの並び替え（#173）は
 // spec/ui.md 8。マウスは少し動かして、指は長押しでドラッグが始まる
@@ -58,6 +54,7 @@ export function ProjectList({
     // プロジェクトを並び替えた（新しい並びのプロジェクト ID）
     onReorder: (projectIds: string[]) => void;
 }) {
+    const t = useT(projectsMessages);
     const [dragging, setDragging] = useState<Dragging | null>(null);
     // 並び替えのためにドラッグしているプロジェクトがあるか
     const [reordering, setReordering] = useState(false);
@@ -85,7 +82,7 @@ export function ProjectList({
     );
 
     if (projects.length === 0) {
-        return <p className='px-2 text-xs text-muted-foreground'>プロジェクトはまだありません</p>;
+        return <p className='px-2 text-xs text-muted-foreground'>{t('projectList.empty')}</p>;
     }
 
     const onDragStart = (e: DragStartEvent) => {
@@ -119,14 +116,14 @@ export function ProjectList({
     // 読み上げの案内。既定の英語の案内はドラッグの ID（プロジェクト ID にはパスが入る）を読むので、名前で案内する
     const nameOf = (id: string | number | undefined | null) => dragName(projects, id);
     const announcements: Announcements = {
-        onDragStart: ({ active }) => `「${nameOf(active.id)}」を持ち上げました`,
+        onDragStart: ({ active }) => t('projectList.dragStart', { name: nameOf(active.id) }),
         onDragOver: ({ active, over }) =>
-            over ? `「${nameOf(active.id)}」を「${nameOf(over.id)}」の位置に動かしています` : undefined,
+            over ? t('projectList.dragOver', { name: nameOf(active.id), over: nameOf(over.id) }) : undefined,
         onDragEnd: ({ active, over }) =>
             over
-                ? `「${nameOf(active.id)}」を「${nameOf(over.id)}」の位置に置きました`
-                : `「${nameOf(active.id)}」を戻しました`,
-        onDragCancel: ({ active }) => `「${nameOf(active.id)}」の移動をやめました`,
+                ? t('projectList.dragEndDropped', { name: nameOf(active.id), over: nameOf(over.id) })
+                : t('projectList.dragEndReturned', { name: nameOf(active.id) }),
+        onDragCancel: ({ active }) => t('projectList.dragCancel', { name: nameOf(active.id) }),
     };
     const onDragCancel = () => {
         setDragging(null);
@@ -140,7 +137,10 @@ export function ProjectList({
             onDragStart={onDragStart}
             onDragEnd={onDragEnd}
             onDragCancel={onDragCancel}
-            accessibility={{ announcements, screenReaderInstructions }}
+            accessibility={{
+                announcements,
+                screenReaderInstructions: { draggable: t('projectList.screenReaderInstructions') },
+            }}
         >
             <SortableContext items={projects.map((p) => sortableId(p.id))} strategy={verticalListSortingStrategy}>
                 <Accordion

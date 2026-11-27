@@ -16,6 +16,7 @@ import {
 } from '@/api/transcripts';
 import type { Session } from '@/api/types';
 import type { AppState, AppStore } from '@/app/appState';
+import { appMessages } from '@/app/i18n';
 import { queryClient, queryKeys } from '@/app/query';
 import { cachedParts, moveSessionCache } from '@/app/sessionCache';
 import { patchSessionData, projectIdOf, readSession, setLoaded } from '@/app/sessionData';
@@ -211,10 +212,10 @@ export class SessionSync {
         }
         if (requested) {
             // 要約は勝手に作り直さず、聞くだけにする（#124）
-            toast.success('浄書済み文字起こしを再生成しました', {
+            toast.success(appMessages.t('sessionSync.polishRegenerated'), {
                 duration: 15000,
                 action: {
-                    label: '要約も再生成する',
+                    label: appMessages.t('sessionSync.regenerateSummary'),
                     onClick: () => void this.store.getState().regenerateSummary(sessionId),
                 },
             });
@@ -295,7 +296,7 @@ export class SessionSync {
             const { files, finalTranscript } = await loadSessionDetail(projectId, session, whisper);
             this.markLoaded(projectId, session.id, files, { finalTranscript });
         } catch (e) {
-            toast.error(`セッションを読み込めません: ${(e as Error).message}`);
+            toast.error(appMessages.t('sessionSync.loadFailed', { error: (e as Error).message }));
             // 「読み込んでいます…」のままにしない
             this.markLoaded(projectId, session.id, undefined, { failed: true });
         }

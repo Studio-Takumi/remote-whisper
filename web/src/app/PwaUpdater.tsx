@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 
+import { appMessages } from '@/app/i18n';
 import { useAppStore } from '@/app/store';
 import { webVersion } from '@/app/version';
 
@@ -38,10 +39,10 @@ export function PwaUpdater() {
         const onPreloadError = (e: Event) => {
             e.preventDefault();
             void registration.current?.update();
-            toast.warning('画面の一部を読み込めません（ホストが新しいバージョンになりました）', {
-                description: '読み込み直すと直ります',
+            toast.warning(appMessages.t('pwaUpdater.preloadError'), {
+                description: appMessages.t('pwaUpdater.preloadErrorHint'),
                 duration: Infinity,
-                action: { label: '読み込み直す', onClick: () => location.reload() },
+                action: { label: appMessages.t('pwaUpdater.reload'), onClick: () => location.reload() },
             });
         };
         window.addEventListener('vite:preloadError', onPreloadError);
@@ -58,10 +59,14 @@ export function PwaUpdater() {
         if (!needRefresh) {
             return;
         }
-        const id = toast.info('新しいバージョンの画面があります', {
-            description: recording ? '録音を終えてから更新してください' : '更新すると、読み込み直します',
+        const id = toast.info(appMessages.t('pwaUpdater.updateAvailable'), {
+            description: recording
+                ? appMessages.t('pwaUpdater.updateAfterRecording')
+                : appMessages.t('pwaUpdater.updateReloads'),
             duration: Infinity,
-            action: recording ? undefined : { label: '更新', onClick: () => void updateServiceWorker(true) },
+            action: recording
+                ? undefined
+                : { label: appMessages.t('pwaUpdater.update'), onClick: () => void updateServiceWorker(true) },
         });
         return () => {
             toast.dismiss(id);

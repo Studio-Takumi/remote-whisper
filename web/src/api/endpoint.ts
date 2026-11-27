@@ -2,6 +2,7 @@
 // ほかの場所では /api や /ws を自分で組み立てず、ここを通す。
 // ブラウザ版（iOS アプリの server.url も）は、画面と同じオリジンの相対 URL。画面をアプリに同梱したとき
 // （#440。spec/mobile.md 11.9）だけ、保存した接続先（appEndpoint.ts）の絶対 URL にする
+import { apiMessages } from '@/api/i18n';
 import { type AppEndpoint, loadAppEndpoint } from '@/features/native/appEndpoint';
 import { isNativeApp } from '@/features/native/nativePlatform';
 
@@ -72,7 +73,7 @@ function hostPrefix(m: Mode, hostId: string | null) {
         return '';
     }
     if (!hostId) {
-        throw new Error('ホストが選ばれていません');
+        throw new Error(apiMessages.t('endpoint.noHost'));
     }
     return `/h/${encodeURIComponent(hostId)}`;
 }
