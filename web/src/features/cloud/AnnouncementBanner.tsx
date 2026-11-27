@@ -7,8 +7,11 @@ import { isCloud } from '@/api/endpoint';
 import { Button } from '@/components/ui/button';
 import { fetchAnnouncements, loadSeen, pickVisible, safeHttpsUrl, saveSeen } from '@/features/cloud/announcements';
 import type { Announcement } from '@/features/cloud/announcements';
+import { cloudMessages } from '@/features/cloud/i18n';
+import { useT } from '@/i18n/messages';
 
 export function AnnouncementBanner() {
+    const t = useT(cloudMessages);
     const [list, setList] = useState<Announcement[]>([]);
 
     useEffect(() => {
@@ -55,14 +58,14 @@ export function AnnouncementBanner() {
                                 rel='noopener noreferrer'
                                 className='shrink-0 text-primary underline underline-offset-2'
                             >
-                                詳しく見る
+                                {t('announcementBanner.learnMore')}
                             </a>
                         )}
                         <Button
                             variant='ghost'
                             size='icon'
                             className='size-6 shrink-0'
-                            aria-label='閉じる'
+                            aria-label={t('announcementBanner.close')}
                             onClick={() => close(a.id)}
                         >
                             <XIcon className='size-4' />

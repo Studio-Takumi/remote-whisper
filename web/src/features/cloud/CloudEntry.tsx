@@ -6,9 +6,12 @@ import { HostPicker } from '@/features/cloud/HostPicker';
 import { LoginButtons } from '@/features/cloud/LoginButtons';
 import { fetchMe, logout, useAccountStore } from '@/features/cloud/account';
 import { useCloudStore } from '@/features/cloud/cloud';
+import { cloudMessages } from '@/features/cloud/i18n';
 import { stopPushOnSignOut } from '@/features/settings/push';
+import { useT } from '@/i18n/messages';
 
 export function CloudEntry() {
+    const t = useT(cloudMessages);
     const stage = useCloudStore((s) => s.cloud.stage);
     const dispatch = useCloudStore((s) => s.dispatch);
     const { me, checked, setMe } = useAccountStore();
@@ -38,17 +41,21 @@ export function CloudEntry() {
 
     return (
         <main className='mx-auto flex min-h-svh max-w-md flex-col justify-center gap-4 p-6' data-cloud-stage={stage}>
-            <p className='text-xs text-muted-foreground'>Remote Whisper（クラウド版）</p>
+            <p className='text-xs text-muted-foreground'>{t('common.appNameCloudEdition')}</p>
             {stage === 'login' ? (
                 <>
-                    <h1 className='text-xl font-semibold'>ログイン</h1>
-                    {checked ? <LoginButtons /> : <p className='text-sm text-muted-foreground'>確かめています…</p>}
+                    <h1 className='text-xl font-semibold'>{t('cloudEntry.login')}</h1>
+                    {checked ? (
+                        <LoginButtons />
+                    ) : (
+                        <p className='text-sm text-muted-foreground'>{t('common.checking')}</p>
+                    )}
                 </>
             ) : stage === 'consent' ? (
                 me ? (
                     <ConsentForm me={me} onSignOut={() => void signOut()} />
                 ) : (
-                    <p className='text-sm text-muted-foreground'>確かめています…</p>
+                    <p className='text-sm text-muted-foreground'>{t('common.checking')}</p>
                 )
             ) : (
                 // ホストを選んだら（ready）App がアプリの画面に切り替えるので、ここに来るのは hosts だけ
