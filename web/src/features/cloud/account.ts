@@ -3,6 +3,7 @@ import { create } from 'zustand';
 
 import { appForget, appLogout, withAppAuth } from '@/api/appAuth';
 import { authLoginUrl, authLogoutUrl, meUrl } from '@/api/endpoint';
+import { httpErrorText } from '@/api/serverErrors/serverErrors';
 
 export type Provider = 'google' | 'discord' | 'github';
 
@@ -70,15 +71,15 @@ export function canRemove(me: Me) {
 }
 
 // 中間サーバーの API を呼ぶ（Cookie つき。アプリの中ではアプリのトークンも。#441）。
-// 失敗したら、返事の detail を文にした Error（status つき）
+// 失敗したら、返事のエラーのコードから引いた文（#495。コードがない・知らないコードなら detail）の Error（status つき）
 export async function request<T>(url: string, init: RequestInit = {}): Promise<T> {
     const res = await fetch(url, await withAppAuth(url, { credentials: 'same-origin', ...init }));
     if (!res.ok) {
-        const detail = await res
+        const message = await res
             .json()
-            .then((b: { detail?: string }) => b.detail)
+            .then((b: unknown) => httpErrorText(b))
             .catch(() => undefined);
-        throw Object.assign(new Error(detail ?? `${res.status}`), { status: res.status });
+        throw Object.assign(new Error(message ?? `${res.status}`), { status: res.status });
     }
     return (await res.json()) as T;
 }

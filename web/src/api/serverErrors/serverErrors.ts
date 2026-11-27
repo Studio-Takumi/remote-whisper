@@ -1,13 +1,21 @@
 // サーバーのエラーの文を、コードから表示言語で引く（#494。spec/api.md 7.6）。
 // サーバーはコード（HTTP は code、WebSocket の error は messageCode）と文に埋める値（params）に、
 // 移行期間のための日本語の文（HTTP は detail、WebSocket は message）を添えて返す。
-// 知らないコード（新しいサーバー）・コードがない（古いサーバー）・値が足りないときは、日本語の文をそのまま出す
+// 知らないコード（新しいサーバー）・コードがない（古いサーバー）・値が足りないときは、日本語の文をそのまま出す。
+// 中間サーバー（relay）のエラーも同じ形なので、ここで引く（#495。辞書は api/relayErrors/。/h/ の中継では、
+// ホストのエラーと中間サーバーのエラーのどちらも届くため、2 つの辞書を続けて引く。コードは重ならない）
+import { relayErrorMessages } from '@/api/relayErrors/i18n';
+import { ja as relayJa } from '@/api/relayErrors/i18n/ja';
 import { serverErrorMessages } from '@/api/serverErrors/i18n';
-import { ja } from '@/api/serverErrors/i18n/ja';
+import { ja as serverJa } from '@/api/serverErrors/i18n/ja';
 
 type Params = Record<string, string | number>;
+type Lookup = { ja: Record<string, string>; t: (key: string, params?: Params) => string };
 
-const translate = serverErrorMessages.t as (key: string, params?: Params) => string;
+const DICTIONARIES: Lookup[] = [
+    { ja: serverJa, t: serverErrorMessages.t as Lookup['t'] },
+    { ja: relayJa, t: relayErrorMessages.t as Lookup['t'] },
+];
 
 function isParams(value: unknown): value is Params {
     return (
@@ -20,19 +28,20 @@ function isParams(value: unknown): value is Params {
 
 // code の文に params を埋める。引けなければ fallback
 export function serverErrorText(code: unknown, params: unknown, fallback: string): string {
-    if (typeof code !== 'string' || !Object.hasOwn(ja, code)) {
+    const dictionary = typeof code === 'string' ? DICTIONARIES.find((d) => Object.hasOwn(d.ja, code)) : undefined;
+    if (dictionary === undefined) {
         return fallback;
     }
     const values = params === undefined ? {} : params;
     if (!isParams(values)) {
         return fallback;
     }
-    const template: string = ja[code as keyof typeof ja];
+    const template = dictionary.ja[code as string];
     const names = [...template.matchAll(/\{(\w+)\}/g)].map((m) => m[1]);
     if (!names.every((name) => Object.hasOwn(values, name))) {
         return fallback;
     }
-    return translate(code, values);
+    return dictionary.t(code as string, values);
 }
 
 // HTTP のエラーの本文（JSON を読んだもの）から、出す文。detail が文字列でなければ undefined

@@ -1,0 +1,42 @@
+import type { ja } from '@/api/relayErrors/i18n/ja';
+import { defineTranslation } from '@/i18n/messages';
+
+// 中間サーバー（relay）のエラーの文（英語）。relay/src/errors.ts の en と同じにする（relay/test/errors.test.ts が突き合わせる）。
+// relay はブラウザが直に開くページ（ログイン）でこの文を出すので、ここもそろえておく
+export const en = defineTranslation<typeof ja>()({
+    'appTicket.appOnly': 'Only available from the iOS app',
+    'appTicket.invalid': 'Invalid ticket',
+    'appToken.badGrantType': 'Invalid grantType',
+    'consent.alreadyAgreed': 'You have already agreed',
+    'consent.badRequest': 'tosVersion (string) and dataCollection (boolean) are required',
+    'consent.required': 'Please agree to the terms of service first',
+    'consent.termsChanged': 'The terms of service have changed. Please reopen the page',
+    'dataCollection.badRequest': 'granted (boolean) is required',
+    'device.notFound': 'Device not found',
+    'host.badName': 'The name must be 1 to {max} characters',
+    'host.forbidden': "You can't connect to this host",
+    'host.notFound': 'Host not found',
+    'host.tooMany': "You can register up to {max} hosts. Remove hosts you don't use",
+    'host.unreachable': "Can't reach the host (check that the PC is on)",
+    'login.badAppRequest': 'Please log in again (the login started from the app is malformed)',
+    'login.failed': "Couldn't log in. Please try again",
+    'login.noState': 'Please log in again (the state is missing)',
+    'login.otherBrowser': 'Please log in again (the login was not started in this browser)',
+    'login.required': 'Please log in',
+    'login.retry': 'Please log in again',
+    'login.stateExpired': 'Please log in again (the state has expired or was already used)',
+    'login.userChanged': 'Please log in again (the logged-in user has changed)',
+    'loginMethod.lastOne': "You can't remove your last login method",
+    'loginMethod.notFound': 'Login method not found',
+    'loginMethod.unavailable': "This login method isn't available yet",
+    'loginMethod.unknown': 'No such login method',
+    'loginMethod.usedByOtherUser': 'This account is already a login method of another user',
+    'pairing.badCode': 'Invalid registration code',
+    'pairing.notFound': 'Registration request not found',
+    'pairing.notFoundMaybeExpired': 'Registration request not found (it may have expired)',
+    'release.notFound': 'No release',
+    'request.tooLarge': 'Too large',
+    'request.tooMany': 'Too many requests. Please try again later',
+    'tunnel.keyUnreadable': "Can't read the host's relay key. Register the host again",
+    'tunnel.notReady': "The host's tunnel isn't ready yet",
+});

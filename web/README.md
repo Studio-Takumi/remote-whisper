@@ -16,20 +16,21 @@ This template provides a minimal setup to get React working in Vite with HMR and
 
 辞書は、文を使うファイルがあるフォルダの直下の `i18n/` に置く。フォルダは `src/` の一段目（`app`・`api`・`components`）と、`src/features/` の一段目（`recording`・`session`・`settings` など）を単位にする。`src/features/recording/audio/` のような下のフォルダの文も、`src/features/recording/i18n/` に入れる。
 
-| 文を使うファイル                           | 辞書                               | 辞書の名前                          |
-| ------------------------------------------ | ---------------------------------- | ----------------------------------- |
-| `src/features/recording/**`                | `src/features/recording/i18n/`     | `recordingMessages`                 |
-| `src/features/session/**`                  | `src/features/session/i18n/`       | `sessionMessages`                   |
-| `src/features/settings/**`                 | `src/features/settings/i18n/`      | `settingsMessages`（#487 で作った） |
-| `src/features/setup/**`                    | `src/features/setup/i18n/`         | `setupMessages`                     |
-| `src/features/<名前>/**`                   | `src/features/<名前>/i18n/`        | `<名前>Messages`                    |
-| `src/app/**`                               | `src/app/i18n/`                    | `appMessages`                       |
-| `src/components/**`                        | `src/components/i18n/`             | `componentsMessages`                |
-| `src/api/**`                               | `src/api/i18n/`                    | `apiMessages`                       |
-| `src/lib/**`・`src/hooks/**`               | `src/lib/i18n/`・`src/hooks/i18n/` | `libMessages`・`hooksMessages`      |
-| サーバーのエラーのコード（#494）から引く文 | `src/api/serverErrors/i18n/`       | `serverErrorMessages`               |
+| 文を使うファイル                               | 辞書                               | 辞書の名前                          |
+| ---------------------------------------------- | ---------------------------------- | ----------------------------------- |
+| `src/features/recording/**`                    | `src/features/recording/i18n/`     | `recordingMessages`                 |
+| `src/features/session/**`                      | `src/features/session/i18n/`       | `sessionMessages`                   |
+| `src/features/settings/**`                     | `src/features/settings/i18n/`      | `settingsMessages`（#487 で作った） |
+| `src/features/setup/**`                        | `src/features/setup/i18n/`         | `setupMessages`                     |
+| `src/features/<名前>/**`                       | `src/features/<名前>/i18n/`        | `<名前>Messages`                    |
+| `src/app/**`                                   | `src/app/i18n/`                    | `appMessages`                       |
+| `src/components/**`                            | `src/components/i18n/`             | `componentsMessages`                |
+| `src/api/**`                                   | `src/api/i18n/`                    | `apiMessages`                       |
+| `src/lib/**`・`src/hooks/**`                   | `src/lib/i18n/`・`src/hooks/i18n/` | `libMessages`・`hooksMessages`      |
+| サーバーのエラーのコード（#494）から引く文     | `src/api/serverErrors/i18n/`       | `serverErrorMessages`               |
+| 中間サーバーのエラーのコード（#495）から引く文 | `src/api/relayErrors/i18n/`        | `relayErrorMessages`                |
 
-サーバーのエラーの文だけは例外で、コードから文を引く仕組みごと `src/api/serverErrors/` に置く（`src/api/` のほかの文と別の作業で進めるため）。キーはエラーのコードそのもの（`'lmstudio.paused'`）。
+サーバーのエラーの文だけは例外で、コードから文を引く仕組みごと `src/api/serverErrors/` に置く（`src/api/` のほかの文と別の作業で進めるため）。キーはエラーのコードそのもの（`'lmstudio.paused'`）。中間サーバー（relay）のエラーの文は、辞書だけを `src/api/relayErrors/i18n/` に分け、引く仕組みはサーバーのエラーと同じもの（`serverErrors.ts`）を使う（辞書を突き合わせるテストが、サーバーは `server/tests/test_error_dictionary.py`、relay は `relay/test/errors.test.ts` と別々のため。コードは 2 つの辞書で重ねない）。
 
 ほかのフォルダの辞書は使わない（同じ文でも、自分のフォルダの辞書に置く）。こうすると、画面ごとの作業が同時に進んでも、ほかの作業のファイルにさわらない。`src/i18n/` と `vitest.config.ts` は変えなくてよい。
 

@@ -8,7 +8,9 @@ import {
     consentPayload,
     loginHref,
     logoutEverywhere,
+    request,
 } from '@/features/cloud/account';
+import { setLanguage } from '@/i18n/language';
 
 const me: Me = {
     id: 'u1',
@@ -50,6 +52,31 @@ describe('account', () => {
         vi.stubGlobal('fetch', fetchMock);
         await logoutEverywhere();
         expect(fetchMock).toHaveBeenCalledWith('/me/sessions', expect.objectContaining({ method: 'DELETE' }));
+        vi.unstubAllGlobals();
+    });
+
+    it('中間サーバーのエラーは、コードから引いた文と status の Error にする（#495）', async () => {
+        setLanguage('en');
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(async () =>
+                Response.json(
+                    { detail: '最後のログイン手段は外せません', code: 'loginMethod.lastOne', params: {} },
+                    { status: 409 },
+                ),
+            ),
+        );
+        await expect(request('/me/identities/i1')).rejects.toMatchObject({
+            message: "You can't remove your last login method",
+            status: 409,
+        });
+        setLanguage('ja');
+        await expect(request('/me/identities/i1')).rejects.toThrow('最後のログイン手段は外せません');
+        vi.stubGlobal(
+            'fetch',
+            vi.fn(async () => Response.json({ detail: '古い中間サーバーの文' }, { status: 404 })),
+        );
+        await expect(request('/me/hosts/h1')).rejects.toThrow('古い中間サーバーの文');
         vi.unstubAllGlobals();
     });
 
