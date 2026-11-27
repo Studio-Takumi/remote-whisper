@@ -8,7 +8,7 @@ import { recordingMessages } from '@/features/recording/i18n';
 // joining は返事（joined）待ち、reconnecting はホストとの接続が切れてつなぎ直すのを待っている間
 export type Joined = { sessionId: string; source: number | null; state: 'joining' | 'joined' | 'reconnecting' };
 
-export function unsupportedMessage() {
+function unsupportedMessage() {
     return recordingMessages.t('join.unsupported');
 }
 

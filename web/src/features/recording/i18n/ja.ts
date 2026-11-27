@@ -95,9 +95,9 @@ export const ja = defineDictionary({
     'recorder.waitingLeftover': '前の録音の残りを送るのを待っています。つながってから、もう一度押してください',
 
     // recording.ts
-    'recording.contextSet': '録音中は参考資料を変えられません',
-    'recording.continueRecording': '録音中は、ほかのセッションの続きを録音できません',
+    'recording.continueOther': '録音中は、ほかのセッションの続きを録音できません',
     'recording.locked': '録音中は変えられません',
+    'recording.referenceMaterials': '録音中は参考資料を変えられません',
     'recording.regenerate': '録音中は再生成できません',
 
     // RecordingLock.tsx

@@ -20,7 +20,7 @@ export const recordingLocks = {
     },
     // 参考資料（使うセットは録音を始めたときに決まり、セットの作成は GPU を長く使う）
     get contextSet() {
-        return recordingMessages.t('recording.contextSet');
+        return recordingMessages.t('recording.referenceMaterials');
     },
     // ほかのセッションの最終の文字起こし・要約の作り直し（GPU キューは実行中のジョブを止めない）
     get regenerate() {
@@ -28,6 +28,6 @@ export const recordingLocks = {
     },
     // ほかのセッションの続きを録音する
     get continueRecording() {
-        return recordingMessages.t('recording.continueRecording');
+        return recordingMessages.t('recording.continueOther');
     },
 };
