@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from remote_whisper.context import AppContext
+from remote_whisper.display_language import parse_display_language
 from remote_whisper.hub import send
 from remote_whisper.logs import traffic
 from remote_whisper.recording.errors import RecordingError
@@ -341,9 +342,18 @@ async def _handle_control(ctx: AppContext, ws: WebSocket, session: Any, text: st
         language = message.get("language")
         if language not in (None, "ja", "auto"):
             raise RecordingError("bad_message", "language は ja か auto にしてください")
+        # 録音を始めた端末の表示言語（#498）。省いたら（古い画面）ja
+        try:
+            display_language = parse_display_language(message.get("displayLanguage"))
+        except ValueError as e:
+            raise RecordingError("bad_message", "displayLanguage は言語コードにしてください") from e
         max_concurrent = ctx.settings.get().recording.max_concurrent
         return await recorder.start(
-            ws, _project_id(ctx, project), max_concurrent, language=language
+            ws,
+            _project_id(ctx, project),
+            max_concurrent,
+            language=language,
+            display_language=display_language,
         )
     if kind == "continue":
         # 途中で終わったセッションの続きを録音する（#101）

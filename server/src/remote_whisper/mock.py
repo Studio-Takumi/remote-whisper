@@ -470,14 +470,24 @@ class MockRecorder:
         return (self.settings.get().llm_models() if self.settings else OllamaModels()).final()
 
     def _writer(
-        self, project: str, sid: str, language: TranscriptionLanguage | None = None
+        self,
+        project: str,
+        sid: str,
+        language: TranscriptionLanguage | None = None,
+        display_language: str = "ja",
     ) -> SessionWriter | None:
         """登録されたプロジェクトなら、ファイルを書く SessionWriter を作る。知らなければ None"""
         if self.projects is None or self.settings is None:
             return None
         try:
             writer = SessionWriter(
-                self.projects, project, sid, now(), self.settings.get(), language
+                self.projects,
+                project,
+                sid,
+                now(),
+                self.settings.get(),
+                language,
+                display_language,
             )
         except ProjectError:
             return None
@@ -493,6 +503,7 @@ class MockRecorder:
         project: str,
         max_concurrent: int,
         language: TranscriptionLanguage | None = None,
+        display_language: str = "ja",
     ) -> MockSession:
         if len(self.active()) >= max_concurrent:
             raise RecordingError("too_many_recordings", "同時に録音できる数を超えています")
@@ -501,7 +512,7 @@ class MockRecorder:
         while sid in self.sessions:
             await asyncio.sleep(0.2)
             sid = make_id(now())
-        writer = self._writer(project, sid, language)
+        writer = self._writer(project, sid, language, display_language)
         session = MockSession(self, sid, project, ws, writer)
         self.sessions[sid] = session
         await self._count_changed()

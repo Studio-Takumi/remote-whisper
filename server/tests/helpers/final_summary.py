@@ -56,7 +56,13 @@ class StubWriter:
         self.meta = type(
             "Meta",
             (),
-            {"context_set": None, "title": None, "corrections": [], "language": "ja"},
+            {
+                "context_set": None,
+                "title": None,
+                "corrections": [],
+                "language": "ja",
+                "display_language": "ja",
+            },
         )()
         self.saved = None
 

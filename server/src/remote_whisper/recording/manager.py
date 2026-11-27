@@ -169,8 +169,10 @@ class RecordingManager:
         project: str,
         max_concurrent: int,
         language: TranscriptionLanguage | None = None,
+        display_language: str = "ja",
     ) -> RecordingSession:
-        """language は、今回だけ変えた文字起こしの言語（#482）。None なら全体設定"""
+        """language は、今回だけ変えた文字起こしの言語（#482）。None なら全体設定。
+        display_language は録音を始めた端末の表示言語（#498）"""
         if len(self.active()) >= max_concurrent:
             raise RecordingError("too_many_recordings", "同時に録音できる数を超えています")
         started = now()
@@ -182,7 +184,13 @@ class RecordingManager:
             sid = make_id(started)
         try:
             writer = SessionWriter(
-                self.projects, project, sid, started, self.settings.get(), language
+                self.projects,
+                project,
+                sid,
+                started,
+                self.settings.get(),
+                language,
+                display_language,
             )
         except ProjectError as e:
             raise RecordingError("project_not_found", "プロジェクトがありません") from e
