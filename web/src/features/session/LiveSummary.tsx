@@ -4,7 +4,9 @@ import { ChevronRightIcon } from 'lucide-react';
 
 import { Markdown } from '@/components/Markdown';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { sessionMessages } from '@/features/session/i18n';
 import { findAnchor } from '@/features/session/liveAnchor';
+import { useT } from '@/i18n/messages';
 
 // 途中の要約の表示（spec/flows.md 6.4・spec/ui.md 8）。時刻の範囲を見出しにした区間ごとの要約を並べる（#93）。
 // 確定した区間は畳み、続いている区間は開く。見出しのない要約はそのまま出す（spec/flows.md 6.4）
@@ -15,6 +17,7 @@ const CLOSED = /^\d{2}:\d{2}:\d{2}〜\d{2}:\d{2}:\d{2}$/;
 type Block = { heading: string; key: string; closed: boolean; body: string };
 
 export function LiveSummary({ text, streaming = false }: { text: string; streaming?: boolean }) {
+    const t = useT(sessionMessages);
     const blocks = splitSections(text);
     // 開け閉めした区間（key → 開いているか）。更新が届いても覚えておく
     const [toggled, setToggled] = useState<Record<string, boolean>>({});
@@ -62,7 +65,7 @@ export function LiveSummary({ text, streaming = false }: { text: string; streami
                             {block.heading}
                             {!block.closed && (
                                 <span className='text-xs font-normal text-muted-foreground'>
-                                    （続いている要約区間）
+                                    {t('liveSummary.ongoing')}
                                 </span>
                             )}
                         </CollapsibleTrigger>

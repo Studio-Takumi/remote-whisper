@@ -1,4 +1,5 @@
 // 文字起こしの置き換え（#176）。数え方・置き換え方は、サーバー（corrections.py）と合わせる
+import { sessionMessages } from '@/features/session/i18n';
 import { termProblem } from '@/features/session/terms';
 
 // 「この行だけ」の行。index は画面に出す行の番号（0 から）。generation は最終の文字起こしの版
@@ -67,13 +68,13 @@ export function countInLines(lines: { text: string }[], wrong: string, right: st
 // 選んだ文字列を、間違った文字列として使えるか。使えないなら理由
 export function selectionProblem(text: string): string | null {
     if (text.trim() === '') {
-        return '文字を選んでください';
+        return sessionMessages.t('corrections.selectText');
     }
     if (/[\r\n]/.test(text)) {
-        return '1 行の中で選んでください';
+        return sessionMessages.t('corrections.selectOneLine');
     }
     if (text.length > CORRECTION_MAX_CHARS) {
-        return `${CORRECTION_MAX_CHARS} 文字までにしてください`;
+        return sessionMessages.t('corrections.maxChars', { n: CORRECTION_MAX_CHARS });
     }
     return null;
 }
@@ -81,10 +82,10 @@ export function selectionProblem(text: string): string | null {
 // 正しい語として使えるか。使えないなら理由
 export function rightProblem(wrong: string, right: string): string | null {
     if (right === '') {
-        return '正しい語を入れてください';
+        return sessionMessages.t('corrections.rightEmpty');
     }
     if (right === wrong) {
-        return '選んだ文字列と同じです';
+        return sessionMessages.t('corrections.rightSame');
     }
     return termProblem(right);
 }
@@ -159,7 +160,9 @@ export function revertCorrection<T extends CorrectableSession>(now: T, before: T
 // 用語の欄に出す説明（「この行だけ」のときは、どの行か）
 export function describeCorrection(c: Correction): string {
     const where = c.line
-        ? `（${c.line.transcript === 'final' ? '浄書' : 'リアルタイム'}の ${c.line.index + 1} 行目だけ）`
+        ? sessionMessages.t(c.line.transcript === 'final' ? 'corrections.lineOnlyFinal' : 'corrections.lineOnlyLive', {
+              n: c.line.index + 1,
+          })
         : '';
     return `${c.from} → ${c.to}${where}`;
 }

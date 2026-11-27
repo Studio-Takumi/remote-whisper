@@ -12,6 +12,7 @@ import { recordingLocks } from '@/features/recording/recording';
 import { LiveSummary } from '@/features/session/LiveSummary';
 import { ShareButton } from '@/features/session/ShareButton';
 import { StatusIndicator } from '@/features/session/StatusIndicator';
+import { sessionMessages } from '@/features/session/i18n';
 import { expired, shareSource } from '@/features/session/sessionContent';
 import { type PickedSummary, shownSummary } from '@/features/session/summaryPick';
 import {
@@ -27,6 +28,7 @@ import {
     isCurrentFinalSummary,
     llmBackend,
 } from '@/features/settings/settings';
+import { useT } from '@/i18n/messages';
 
 // 最終の要約。既定は、今選んでいるモデルの要約のうちいちばん新しいもの。なければモデルを問わずいちばん新しいもの。
 // 世代が複数あれば切り替えられる（spec/flows.md 6.5）
@@ -46,6 +48,7 @@ export function SummaryPanel({
     picked: PickedSummary | null;
     onPick: (picked: PickedSummary) => void;
 }) {
+    const t = useT(sessionMessages);
     const regenerate = useAppStore((s) => s.regenerateSummary);
     // 選んでいる LLM につながっているか（#327）
     const backend = useAppStore((s) => llmBackend(s.settings));
@@ -58,7 +61,11 @@ export function SummaryPanel({
     const summary = shownSummary(session, models, picked);
 
     if (generating?.sessionId === session.id) {
-        const status = <StatusIndicator status={{ tone: 'active', text: `${generating.model} で要約を作成中…` }} />;
+        const status = (
+            <StatusIndicator
+                status={{ tone: 'active', text: t('summaryPanel.creating', { model: generating.model }) }}
+            />
+        );
         if (generating.text.trim()) {
             return (
                 <>
@@ -96,7 +103,7 @@ export function SummaryPanel({
                 onClick={() => void regenerate(session.id)}
             >
                 <RefreshCwIcon />
-                {finalModel} で{summary ? '再生成する' : '要約を作る'}
+                {t(summary ? 'common.regenerate' : 'summaryPanel.create', { model: finalModel })}
             </Button>
             {recording && <p className='text-xs text-muted-foreground'>{recordingLocks.regenerate}</p>}
         </div>
@@ -110,7 +117,7 @@ export function SummaryPanel({
         >
             <p className='flex items-center gap-1.5 font-medium text-destructive'>
                 <TriangleAlertIcon className='size-4' />
-                {summary ? '直近の要約の再生成に失敗しました' : '最終要約を作れませんでした'}
+                {summary ? t('summaryPanel.failedRegenerate') : t('summaryPanel.failedFinal')}
             </p>
             <p className='text-xs text-muted-foreground'>
                 {summaryFailureHint(session, canRegenerate, llmDown, llmName)}
@@ -129,7 +136,11 @@ export function SummaryPanel({
                 <>
                     {failure}
                     <p className='text-xs text-muted-foreground'>
-                        リアルタイム要約{session.status === 'recording' ? '（録音中に数分おきに更新します）' : ''}
+                        {t(
+                            session.status === 'recording'
+                                ? 'summaryPanel.liveLabelRecording'
+                                : 'summaryPanel.liveLabel',
+                        )}
                     </p>
                     <LiveSummary text={live} streaming={draft !== null} />
                 </>
@@ -145,7 +156,7 @@ export function SummaryPanel({
         return (
             <div className='flex flex-col items-start gap-2'>
                 <p className='text-sm text-muted-foreground'>
-                    {expired(session, 'summary') ? '要約は期限切れのためありません' : 'まだ要約がありません'}
+                    {expired(session, 'summary') ? t('summaryPanel.expired') : t('summaryPanel.empty')}
                 </p>
                 {regenerateButton}
             </div>
@@ -164,7 +175,7 @@ export function SummaryPanel({
                             onPick({ sessionId: session.id, count: session.summaries.length, generationId })
                         }
                     >
-                        <SelectTrigger size='sm' className='text-xs' aria-label='表示する要約'>
+                        <SelectTrigger size='sm' className='text-xs' aria-label={t('summaryPanel.picker')}>
                             <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -182,23 +193,25 @@ export function SummaryPanel({
                     <Button
                         variant='outline'
                         size='sm'
-                        title='要約を Markdown のままコピーします'
+                        title={t('summaryPanel.copyTitle')}
                         onClick={() =>
                             copyText(summary.text ?? '').then(
-                                () => toast.success('要約をコピーしました'),
-                                () => toast.error('要約をコピーできませんでした'),
+                                () => toast.success(t('summaryPanel.copied')),
+                                () => toast.error(t('summaryPanel.copyFailed')),
                             )
                         }
                     >
                         <CopyIcon />
-                        コピー
+                        {t('common.copy')}
                     </Button>
                 )}
                 {summary.text && <ShareButton source={shareSource(session, summary.text)} initial='summary' />}
                 {regenerateButton}
             </div>
             {!isCurrentFinalSummary(summary, models) && (
-                <p className='text-xs text-muted-foreground'>{finalModel} の要約はまだありません</p>
+                <p className='text-xs text-muted-foreground'>
+                    {t('summaryPanel.notYetForModel', { model: finalModel })}
+                </p>
             )}
             <Markdown>{summary.text ?? ''}</Markdown>
         </>

@@ -1,5 +1,6 @@
 // 要約パネル（SummaryPanel）に出す文と、作り直せるかの判定（spec/flows.md 6.5・6.7）
 import type { Generating, Session, Summary } from '@/api/types';
+import { sessionMessages } from '@/features/session/i18n';
 import { type OllamaModels, finalModelLabel } from '@/features/settings/settings';
 
 // 世代の見出し。全体概要のモデルが要約詳細と違えば、両方出す（#178）
@@ -9,7 +10,7 @@ export function summaryLabel(summary: Summary, models: OllamaModels): string {
         overview: summary.overviewModel ?? summary.model,
         detail: summary.model,
     });
-    return `${label} で生成・${summary.generatedAt}`;
+    return sessionMessages.t('summaryView.label', { model: label, date: summary.generatedAt });
 }
 
 // 作っている途中で本文がまだ届いていない間に出しておくもの（#80）。作り直しなら今の要約を、
@@ -21,9 +22,9 @@ export function generatingPlaceholder(
 ): { label: string; text: string; live: boolean } | null {
     const live = liveDraft?.sessionId === session.id ? liveDraft.text : session.liveSummary;
     if (summary?.text) {
-        return { label: '今の要約（再生成した要約が届き次第差し替えます）', text: summary.text, live: false };
+        return { label: sessionMessages.t('summaryView.placeholderCurrent'), text: summary.text, live: false };
     }
-    return live ? { label: 'リアルタイム要約（最終要約が届き次第差し替えます）', text: live, live: true } : null;
+    return live ? { label: sessionMessages.t('summaryView.placeholderLive'), text: live, live: true } : null;
 }
 
 // 作り直せるのは、録音を終えていて文字起こしが残っているセッション。
@@ -47,10 +48,10 @@ export function summaryFailureHint(
 ): string {
     if (!canRegenerate) {
         return session.files?.transcript === false || session.transcript.length === 0
-            ? '文字起こしが残っていないため、再生成できません'
-            : 'ほかの要約を作り終えてから、再生成してください';
+            ? sessionMessages.t('summaryView.hintNoTranscript')
+            : sessionMessages.t('summaryView.hintBusy');
     }
     return llmDown
-        ? `${llmName} に接続できません。動いているか確かめてから再生成してください`
-        : `${llmName} には今つながっています。再生成してください（保存に失敗した場合は、ディスクの空きも確かめてください）`;
+        ? sessionMessages.t('summaryView.hintLlmDown', { llm: llmName })
+        : sessionMessages.t('summaryView.hintLlmUp', { llm: llmName });
 }

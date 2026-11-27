@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { sessionMessages } from '@/features/session/i18n';
 import {
     MAX_RATE,
     MIN_RATE,
@@ -17,6 +18,7 @@ import {
     saveRate,
 } from '@/features/session/playbackRate';
 import { type SessionSource, sourceKindLabel, sourceLabel, sourceTitle } from '@/features/session/sources';
+import { useT } from '@/i18n/messages';
 
 // <audio> はヘッダーを付けられないので、アプリの中のクラウド版では、チケットを付けた URL にしてから読む（#441）。
 // ほかは src のまま（チケットを待つ間だけ null）
@@ -62,6 +64,7 @@ export function RecordingPlayer({
     onUnmount?: () => void;
     children?: ReactNode;
 }) {
+    const t = useT(sessionMessages);
     const [rate, setRate] = useState(loadRate);
     const playable = usePlayableSrc(src);
     const unmount = useRef(onUnmount);
@@ -93,7 +96,7 @@ export function RecordingPlayer({
                 preload='metadata'
                 // ダークテーマでは、ブラウザが描く再生バーも暗い色にする
                 className={`h-9 flex-1 dark:scheme-dark ${children ? 'min-w-44 sm:min-w-64' : 'min-w-0'}`}
-                aria-label='録音を再生'
+                aria-label={t('recordingPlayer.audio')}
                 onError={onError}
                 onLoadedMetadata={(e) => {
                     applyRate(e.currentTarget);
@@ -133,13 +136,14 @@ export function PlaybackSourceSelect({
     onChange: (id: number) => void;
     uploaded: boolean;
 }) {
+    const t = useT(sessionMessages);
     const current = sources.find((s) => s.id === value);
     return (
         <Select value={String(value)} onValueChange={(v) => onChange(Number(v))}>
             <SelectTrigger
                 size='sm'
                 className='shrink-0 tabular-nums'
-                aria-label='再生する音源'
+                aria-label={t('recordingPlayer.source')}
                 title={current ? sourceTitle(current.id, current.name) : undefined}
             >
                 <SelectValue>{sourceLabel(value)}</SelectValue>
@@ -163,6 +167,7 @@ function applyPlaybackRate(el: HTMLAudioElement, rate: number) {
 
 // 再生速度のボタン。押すと、基本の速度と数値の入力欄を出す
 function RateMenu({ rate, onChoose }: { rate: number; onChoose: (rate: number) => void }) {
+    const t = useT(sessionMessages);
     const [open, setOpen] = useState(false);
     const [text, setText] = useState(String(rate));
     const commit = () => {
@@ -188,7 +193,7 @@ function RateMenu({ rate, onChoose }: { rate: number; onChoose: (rate: number) =
                     variant='outline'
                     size='sm'
                     className='shrink-0 tabular-nums'
-                    aria-label={`再生速度（${formatRate(rate)}）`}
+                    aria-label={t('recordingPlayer.rate', { rate: formatRate(rate) })}
                 >
                     {formatRate(rate)}
                 </Button>
@@ -212,7 +217,7 @@ function RateMenu({ rate, onChoose }: { rate: number; onChoose: (rate: number) =
                     ))}
                 </div>
                 <label className='flex items-center gap-2 text-sm'>
-                    <span className='shrink-0'>数値で指定</span>
+                    <span className='shrink-0'>{t('recordingPlayer.rateValue')}</span>
                     <Input
                         type='text'
                         inputMode='decimal'
@@ -228,7 +233,7 @@ function RateMenu({ rate, onChoose }: { rate: number; onChoose: (rate: number) =
                     />
                 </label>
                 <p className='text-xs text-muted-foreground'>
-                    {MIN_RATE}〜{MAX_RATE}
+                    {t('recordingPlayer.rateRange', { min: MIN_RATE, max: MAX_RATE })}
                 </p>
             </PopoverContent>
         </Popover>

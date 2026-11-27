@@ -1,3 +1,5 @@
+import { sessionMessages } from '@/features/session/i18n';
+
 // 用語の入力を、足す語に分ける・確かめる（#175）。サーバーの検証（routes/sessions/ の add_term）と合わせる
 
 // 手で足す語の長さ（文字）の上限
@@ -16,10 +18,10 @@ export function splitTerms(text: string): string[] {
 // 足せない語なら、その理由。足せるなら null
 export function termProblem(term: string): string | null {
     if (term.length > MANUAL_MAX_CHARS) {
-        return `${MANUAL_MAX_CHARS} 文字を超えています`;
+        return sessionMessages.t('terms.tooLong', { n: MANUAL_MAX_CHARS });
     }
     if (term.includes('/')) {
-        return '「/」は使えません';
+        return sessionMessages.t('terms.noSlash');
     }
     return null;
 }
@@ -48,7 +50,9 @@ export function remainingDraft(terms: string[]): string {
 // 足せなかった理由の表示（長い語は先頭だけ出す）
 export function describeInvalid(invalid: ParsedTerms['invalid']): string {
     return invalid
-        .map(({ term, reason }) => `「${term.length > 12 ? `${term.slice(0, 12)}…` : term}」: ${reason}`)
+        .map(({ term, reason }) =>
+            sessionMessages.t('terms.invalidItem', { term: term.length > 12 ? `${term.slice(0, 12)}…` : term, reason }),
+        )
         .join(' / ');
 }
 

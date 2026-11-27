@@ -9,10 +9,13 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { recordingLocks } from '@/features/recording/recording';
 import { StatusIndicator } from '@/features/session/StatusIndicator';
+import { sessionMessages } from '@/features/session/i18n';
 import { generationLabel } from '@/features/session/transcriptGenerations';
+import { useT } from '@/i18n/messages';
 
 // 最終の文字起こし（#121）の世代の切り替えと作り直し。作っている途中なら、そう出す
 export function FinalTranscriptBar({ session, making }: { session: Session; making: boolean }) {
+    const t = useT(sessionMessages);
     const whisperModel = useAppStore((s) => s.settings.whisper.model);
     // 最終の文字起こし（WhisperX）を作れるサーバーか。古いサーバーは返さないので、作れないものとする
     const available = useAppStore((s) => s.options.whisper.finalTranscript === true);
@@ -49,7 +52,7 @@ export function FinalTranscriptBar({ session, making }: { session: Session; maki
             onClick={() => void regenerate(session.id)}
         >
             <RefreshCwIcon />
-            {whisperModel} で{final ? '再生成する' : '浄書する'}
+            {t(final ? 'common.regenerate' : 'finalTranscriptBar.polish', { model: whisperModel })}
         </Button>
     );
     const locked = regenerateButton && recording && (
@@ -59,12 +62,12 @@ export function FinalTranscriptBar({ session, making }: { session: Session; maki
         <StatusIndicator
             status={{
                 tone: 'active',
-                text: final ? '浄書済み文字起こしを再生成しています…' : '浄書中…',
+                text: final ? t('finalTranscriptBar.repolishing') : t('finalTranscriptBar.polishing'),
             }}
         />
     );
     const noRecording = available && done && session.files?.recording === false && (
-        <p className='text-xs text-muted-foreground'>録音ファイルがないため、再生成できません</p>
+        <p className='text-xs text-muted-foreground'>{t('finalTranscriptBar.noRecording')}</p>
     );
 
     if (!final) {
@@ -94,7 +97,11 @@ export function FinalTranscriptBar({ session, making }: { session: Session; maki
                             void pick(session.id, generationId);
                         }}
                     >
-                        <SelectTrigger size='sm' className='text-xs' aria-label='表示する浄書済み文字起こし'>
+                        <SelectTrigger
+                            size='sm'
+                            className='text-xs'
+                            aria-label={t('finalTranscriptBar.polishedTranscriptPicker')}
+                        >
                             <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -106,17 +113,19 @@ export function FinalTranscriptBar({ session, making }: { session: Session; maki
                         </SelectContent>
                     </Select>
                 ) : (
-                    <span className='text-xs text-muted-foreground'>{`浄書済み文字起こし（${label(final)}）`}</span>
+                    <span className='text-xs text-muted-foreground'>
+                        {t('finalTranscriptBar.polishedTranscriptLabel', { label: label(final) })}
+                    </span>
                 )}
                 {regenerateButton}
             </div>
             {final.model !== whisperModel && (
-                <p className='text-xs text-muted-foreground'>{whisperModel} の浄書済み文字起こしはまだありません</p>
+                <p className='text-xs text-muted-foreground'>
+                    {t('finalTranscriptBar.polishedTranscriptMissing', { model: whisperModel })}
+                </p>
             )}
             {final.diarization === 'unavailable' && (
-                <p className='text-xs text-muted-foreground'>
-                    話者分けはできませんでした（HuggingFace のトークンまたはモデルの利用条件への同意がありません）
-                </p>
+                <p className='text-xs text-muted-foreground'>{t('finalTranscriptBar.speakerLabelingUnavailable')}</p>
             )}
             {noRecording}
             {locked}
