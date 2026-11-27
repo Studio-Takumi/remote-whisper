@@ -1,5 +1,175 @@
 import type { ja } from '@/features/session/i18n/ja';
 import { defineTranslation } from '@/i18n/messages';
 
-// セッション（features/session/）の文（英語）。まだ訳していないキーは省く（日本語の文を出す）
-export const en = defineTranslation<typeof ja>()({});
+// セッション（features/session/）の文（英語）。訳は docs/spec/i18n.md の用語集に合わせる
+export const en = defineTranslation<typeof ja>()({
+    'common.copy': 'Copy',
+    'common.regenerate': 'Regenerate with {model}',
+
+    'corrections.lineOnlyFinal': '(polished line {n} only)',
+    'corrections.lineOnlyLive': '(real-time line {n} only)',
+    'corrections.maxChars': 'Up to {n} characters',
+    'corrections.rightEmpty': 'Enter the correct word',
+    'corrections.rightSame': 'Same as the selected text',
+    'corrections.selectOneLine': 'Select within one line',
+    'corrections.selectText': 'Select some text',
+
+    'emptyState.hintNoProjects': 'From “Create project” in the menu, choose a folder to keep recordings in',
+    'emptyState.hintWithProjects': "Open a session from the menu, or create one with a project's ＋",
+    'emptyState.titleNoProjects': 'Start by creating a project',
+    'emptyState.titleWithProjects': 'Open a session or start a new recording',
+
+    'finalTranscriptBar.noRecording': "Can't regenerate because there is no recording file",
+    'finalTranscriptBar.polish': 'Polish with {model}',
+    'finalTranscriptBar.polishedTranscriptLabel': 'Polished transcript ({label})',
+    'finalTranscriptBar.polishedTranscriptMissing': 'No polished transcript with {model} yet',
+    'finalTranscriptBar.polishedTranscriptPicker': 'Polished transcript to show',
+    'finalTranscriptBar.polishing': 'Polishing…',
+    'finalTranscriptBar.repolishing': 'Regenerating the polished transcript…',
+    'finalTranscriptBar.speakerLabelingUnavailable':
+        "Speaker labeling wasn't possible (no HuggingFace token, or the model's terms of use haven't been accepted)",
+
+    'lineText.speaker': 'Speaker {n}',
+
+    'liveSummary.ongoing': '(Ongoing summary section)',
+
+    'newSessionHeader.dropHint': 'You can also drop audio files (wav, mp3, m4a, etc.) to create one',
+    'newSessionHeader.recordTo': 'Recording to {name} ({path})',
+    'newSessionHeader.title': 'New session',
+    'newSessionHeader.transcriptionLanguage': 'Transcription language',
+
+    'notFoundState.description': 'This session or project was deleted or has expired',
+    'notFoundState.title': 'Not found',
+
+    'recordingPlayer.audio': 'Play recording',
+    'recordingPlayer.rate': 'Playback speed ({rate})',
+    'recordingPlayer.rateRange': '{min}–{max}',
+    'recordingPlayer.rateValue': 'Enter a value',
+    'recordingPlayer.source': 'Audio source to play',
+
+    'regenerateActions.busy': 'Recording is in progress or just stopped. Wait a moment, then regenerate',
+    'regenerateActions.finalDemo': "The transcript can't be regenerated in the demo",
+    'regenerateActions.finalExpired': "Can't regenerate because the recording file has expired",
+    'regenerateActions.finalFailed': "Can't regenerate the transcript: {message}",
+    'regenerateActions.loadFailed': "Can't load the transcript: {message}",
+    'regenerateActions.summaryDemo': "The summary can't be regenerated in the demo",
+    'regenerateActions.summaryExpired': "Can't regenerate because the transcript has expired",
+    'regenerateActions.summaryFailed': "Can't regenerate the summary: {message}",
+
+    'sessionHeader.continueRecording': 'Continue recording',
+    'sessionHeader.fromAudioFile': 'Created from audio file',
+    'sessionHeader.interrupted': ' · Interrupted',
+    'sessionHeader.provisionalTitle': '(Provisional title)',
+    'sessionHeader.recording': ' · Recording',
+    'sessionHeader.watched': ' · {state}',
+    'sessionHeader.watchedViewOnly': ' · {state} (view only on this device)',
+
+    'sessionTerms.failedCount': (p) => `Couldn't add (${Number(p.n) === 1 ? '1 term' : `${p.n} terms`})`,
+    'sessionTerms.manualRemoveTitle': 'Remove a term added by hand',
+    'sessionTerms.pickedRemoveTitle': "Remove if it's wrong (it won't be added again in this session)",
+    'sessionTerms.reflectAfterRegenerate': 'Applied when the polished transcript is regenerated',
+    'sessionTerms.replacementRemove': 'Remove replacement “{from} → {to}”',
+    'sessionTerms.replacementRemoveTitle': "Remove (no longer applied; lines already fixed aren't reverted)",
+    'sessionTerms.replacements': 'Replacements',
+    'sessionTerms.termAdd': 'Add term',
+    'sessionTerms.termRemove': 'Remove “{term}” from the term list',
+    'sessionTerms.terms': 'Terms',
+
+    'sessionView.emptyLiveSummary': 'Once recording starts, the real-time summary appears here every {n} min',
+    'sessionView.expiredTranscript': 'The transcript has expired and was deleted',
+    'sessionView.loading': 'Loading…',
+    'sessionView.recordingElsewhere': 'Recording in another session. When it stops, you can record from here',
+    'sessionView.startHint': 'Press the mic button to start recording',
+    'sessionView.tabSummary': 'Summary',
+    'sessionView.tabTranscript': 'Transcript',
+
+    'share.both': 'Summary and full transcript',
+    'share.summary': 'Summary',
+    'share.summaryHeading': 'Summary',
+    'share.transcript': 'Full transcript',
+    'share.transcriptHeading': 'Transcript',
+
+    'shareButton.copied': 'Copied',
+    'shareButton.copyFailed': "Couldn't copy",
+    'shareButton.description': 'Pass it to another app such as ChatGPT',
+    'shareButton.descriptionNoShare': "Sharing isn't available on this screen, so copy or download it instead",
+    'shareButton.download': 'Download .md',
+    'shareButton.failed': "Couldn't share. Copy or download it instead",
+    'shareButton.instruction': 'Additional instructions (optional)',
+    'shareButton.instructionPlaceholder': 'e.g. Based on this lecture, list what is likely to be on the exam',
+    'shareButton.share': 'Share',
+    'shareButton.what': 'What to share',
+
+    'sourceList.badgeNote': "A line's badge shows the audio source that picked up its voice (not the speaker)",
+    'sourceList.count': (p) => (Number(p.n) === 1 ? '1 audio source' : `${p.n} audio sources`),
+    'sourceList.kindPrefix': '{kind} · ',
+    'sourceList.list': 'Audio sources',
+    'sourceList.titleWithState': '{source} · {state}',
+
+    'sources.kindFile': 'File',
+    'sources.kindJoin': 'Joined device',
+    'sources.kindRecorder': 'Recording device',
+    'sources.label': 'Source {n}',
+    'sources.mergeLimit': 'Up to {n} can be combined',
+    'sources.mergeNoMulti': "This host doesn't support multiple audio sources",
+    'sources.mergeNotAllowed': 'Combining is turned off on this host',
+    'sources.spanFile': 'Whole file',
+    'sources.spanRange': '{start}–{end}',
+    'sources.spanUntilEnd': 'end',
+    'sources.stateConnected': 'Connected',
+    'sources.stateDisconnected': 'Disconnected',
+    'sources.stateLeft': 'Left',
+    'sources.titleNamed': 'Source {n} ({name})',
+
+    'summaryPanel.copied': 'Summary copied',
+    'summaryPanel.copyFailed': "Couldn't copy the summary",
+    'summaryPanel.copyTitle': 'Copy the summary as Markdown',
+    'summaryPanel.create': 'Create summary with {model}',
+    'summaryPanel.creating': 'Creating summary with {model}…',
+    'summaryPanel.empty': 'No summary yet',
+    'summaryPanel.expired': 'The summary has expired',
+    'summaryPanel.failedFinal': "Couldn't make the final summary",
+    'summaryPanel.failedRegenerate': 'The latest summary regeneration failed',
+    'summaryPanel.liveLabel': 'Real-time summary',
+    'summaryPanel.liveLabelRecording': 'Real-time summary (refreshed every few minutes while recording)',
+    'summaryPanel.notYetForModel': 'No summary with {model} yet',
+    'summaryPanel.picker': 'Summary to show',
+
+    'summaryView.hintBusy': 'Regenerate after the other summary is finished',
+    'summaryView.hintLlmDown': "Can't connect to {llm}. Check that it's running, then regenerate",
+    'summaryView.hintLlmUp': '{llm} is connected now. Regenerate (if saving failed, also check the free disk space)',
+    'summaryView.hintNoTranscript': "Can't regenerate because the transcript is gone",
+    'summaryView.label': 'Generated with {model} · {date}',
+    'summaryView.placeholderCurrent': 'Current summary (replaced when the regenerated summary arrives)',
+    'summaryView.placeholderLive': 'Real-time summary (replaced when the final summary arrives)',
+
+    'terms.invalidItem': '“{term}”: {reason}',
+    'terms.noSlash': '“/” is not allowed',
+    'terms.tooLong': 'Longer than {n} characters',
+
+    'transcript.followAgain': 'Back to playback position',
+
+    'transcriptActions.addFailed': "Can't add the term: {message}",
+    'transcriptActions.replaceFailed': "Can't replace: {message}",
+    'transcriptActions.replacementRemoveFailed': "Can't remove the replacement: {message}",
+    'transcriptActions.termRemoveFailed': "Can't remove the term: {message}",
+
+    'transcriptCorrection.all': 'All',
+    'transcriptCorrection.cancel': 'Cancel',
+    'transcriptCorrection.close': 'Close',
+    'transcriptCorrection.confirm': (p) =>
+        `Replace ${Number(p.n) === 1 ? '1 place' : `${p.n} places`} in this session with “${p.value}”`,
+    'transcriptCorrection.dialog': 'Replace the selected text',
+    'transcriptCorrection.done': 'Replaced “{wrong}” with “{value}” and added it to the terms',
+    'transcriptCorrection.enterRight': 'Correct “{wrong}” and press Enter',
+    'transcriptCorrection.noneToReplace': 'Nothing to replace (already “{value}”)',
+    'transcriptCorrection.thisLine': 'This line only',
+
+    'transcriptGenerations.separator': ' · ',
+    'transcriptGenerations.speakers': (p) => (Number(p.n) === 1 ? '1 speaker' : `${p.n} speakers`),
+
+    'transcriptRow.play': 'Play from {time}',
+
+    'usePlaybackSource.loadFailed': "Can't load the recording from {source}",
+    'usePlaybackSource.noRecordingAt': 'No recording at this time',
+});
