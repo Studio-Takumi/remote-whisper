@@ -22,26 +22,6 @@
                     document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
                 } catch (e) {}
             })();
-            // 表示言語（#487）も <html lang> に付ける。決め方は src/i18n/language.ts と同じ
-            // （localStorage の 'rw.language'。なければブラウザの言語で、日本語なら ja、ほかは en）
-            (function () {
-                var saved = null;
-                try {
-                    saved = localStorage.getItem('rw.language');
-                } catch (e) {}
-                var browser = (
-                    (navigator.languages && navigator.languages[0]) ||
-                    navigator.language ||
-                    ''
-                ).toLowerCase();
-                var language =
-                    saved === 'ja' || saved === 'en'
-                        ? saved
-                        : browser === 'ja' || browser.indexOf('ja-') === 0
-                          ? 'ja'
-                          : 'en';
-                document.documentElement.lang = language;
-            })();
         </script>
     </head>
     <body>

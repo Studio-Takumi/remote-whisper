@@ -2,19 +2,23 @@ import { act, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { LANGUAGE_KEY, getLanguage, setLanguage } from './language';
-import { type Dictionary, type Translation, defineMessages, useT } from './messages';
+import { defineDictionary, defineMessages, defineTranslation, useT } from './messages';
 
-const ja = {
+const ja = defineDictionary({
     'sample.title': '設定',
     'sample.left': 'あと {n} 分',
     'sample.pair': '{a} と {b}',
+    'sample.items': '{n} 件',
     'sample.count': (p: { n: number }) => `${p.n} 件`,
-} as const satisfies Dictionary;
+});
 
-const en: Translation<typeof ja> = {
+const en = defineTranslation<typeof ja>()({
     'sample.title': 'Settings',
-    'sample.count': (p) => (p.n === 1 ? '1 item' : `${p.n} items`),
-};
+    'sample.pair': '{b} and {a}',
+    // ja は文字列のまま、en だけ単数・複数を分ける
+    'sample.items': (p) => (p.n === 1 ? '1 item' : `${p.n} items`),
+    'sample.count': (p) => (p.n === 1 ? '1 thing' : `${p.n} things`),
+});
 
 const messages = defineMessages({ ja, en });
 
@@ -23,17 +27,20 @@ describe('defineMessages', () => {
         expect(messages.translate('ja', 'sample.title')).toBe('設定');
         expect(messages.translate('ja', 'sample.left', { n: 3 })).toBe('あと 3 分');
         expect(messages.translate('ja', 'sample.pair', { a: 'A', b: 'B' })).toBe('A と B');
+        expect(messages.translate('ja', 'sample.items', { n: 2 })).toBe('2 件');
         expect(messages.translate('ja', 'sample.count', { n: 2 })).toBe('2 件');
     });
 
     it('en にあるものは en、ないキーは ja の文を出す', () => {
         expect(messages.translate('en', 'sample.title')).toBe('Settings');
-        expect(messages.translate('en', 'sample.count', { n: 1 })).toBe('1 item');
-        expect(messages.translate('en', 'sample.count', { n: 3 })).toBe('3 items');
+        expect(messages.translate('en', 'sample.pair', { a: 'A', b: 'B' })).toBe('B and A');
+        expect(messages.translate('en', 'sample.items', { n: 1 })).toBe('1 item');
+        expect(messages.translate('en', 'sample.items', { n: 3 })).toBe('3 items');
+        expect(messages.translate('en', 'sample.count', { n: 1 })).toBe('1 thing');
         expect(messages.translate('en', 'sample.left', { n: 5 })).toBe('あと 5 分');
     });
 
-    it('キーと引数を型で確かめる', () => {
+    it('t のキーと引数を型で確かめる', () => {
         // @ts-expect-error 辞書にないキー
         messages.translate('ja', 'sample.titel');
         // @ts-expect-error 埋めるものがあるのに引数がない
@@ -42,9 +49,31 @@ describe('defineMessages', () => {
         messages.translate('ja', 'sample.left', { m: 3 });
         // @ts-expect-error 埋めるものがないのに引数がある
         messages.translate('ja', 'sample.title', { n: 1 });
-        // @ts-expect-error en に ja にないキー
-        const wrong: Translation<typeof ja> = { 'sample.other': 'x' };
-        expect(wrong).toBeDefined();
+    });
+
+    it('en のキーと {} を ja と突き合わせる', () => {
+        const translate = defineTranslation<typeof ja>();
+        // @ts-expect-error ja にないキー
+        translate({ 'sample.other': 'x' });
+        // @ts-expect-error ほかのキーと一緒でも、ja にないキーは止まる
+        translate({ 'sample.title': 'Settings', 'sample.other': 'x' });
+        // @ts-expect-error {} の名前が ja と違う
+        translate({ 'sample.left': '{m} min left' });
+        // @ts-expect-error ja にある {} がない
+        translate({ 'sample.left': 'a few min left' });
+        // @ts-expect-error ja にない {} がある
+        translate({ 'sample.title': 'Settings {x}' });
+        // @ts-expect-error 埋めるもののない文を関数にはできない（引数が来ない）
+        translate({ 'sample.title': () => 'Settings' });
+        // @ts-expect-error 関数の引数は ja の {} から決まる
+        translate({ 'sample.items': (p: { count: number }) => `${p.count} items` });
+        expect(translate({ 'sample.left': '{n} min left' })).toEqual({ 'sample.left': '{n} min left' });
+    });
+
+    it('ja の文が string に広がっていると止まる（defineDictionary の付け忘れ）', () => {
+        const widened: Record<'sample.left', string> = { 'sample.left': 'あと {n} 分' };
+        // @ts-expect-error 広がった ja では {n} を確かめられない
+        expect(defineMessages({ ja: widened, en: {} })).toBeDefined();
     });
 });
 

@@ -21,11 +21,49 @@ type ArgsOf<M> = M extends (params: infer P) => string
       : never;
 
 // ja 以外の辞書。キーは ja と同じものだけ（打ち間違いは型で分かる）。ないキーは ja の文を出す
+// ja が文字列なら、en は文字列か、ja の {} を引数に取る関数（英語の単数・複数など。ja を変えずに en だけで分けられる）。
+// ja が関数なら、en も同じ引数の関数
 export type Translation<D extends Dictionary> = {
-    readonly [K in keyof D]?: D[K] extends string ? string : D[K];
+    readonly [K in keyof D]?: D[K] extends string
+        ? [Placeholders<D[K]>] extends [never]
+            ? string
+            : string | ((params: Record<Placeholders<D[K]>, string | number>) => string)
+        : D[K];
+};
+
+type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+
+// en のキーが ja にあり、文の {} が ja と同じか。違うものは never にして止める
+// （tsc は「Type 'string' is not assignable to type 'never'」をそのキーの行に出す）
+type CheckTranslation<D extends Dictionary, T> = {
+    readonly [K in keyof T]: K extends keyof D
+        ? T[K] extends string
+            ? D[K] extends string
+                ? Same<Placeholders<T[K]>, Placeholders<D[K]>> extends true
+                    ? T[K]
+                    : never
+                : T[K]
+            : T[K]
+        : never;
+};
+
+// ja の値が string に広がっていない（as const か defineDictionary で作った）か。広がっていると {} の引数を確かめられない
+type Literal<D extends Dictionary> = {
+    readonly [K in keyof D]: string extends D[K] ? 'ja の辞書は defineDictionary で作ってください' : D[K];
 };
 
 export type Translate<D extends Dictionary> = <K extends keyof D & string>(key: K, ...args: ArgsOf<D[K]>) => string;
+
+// ja の辞書（i18n/ja.ts）を作る。文を string に広げずに残す（{n} の引数を型で確かめるため。as const は要らない）
+export function defineDictionary<const D extends Dictionary>(ja: D): D {
+    return ja;
+}
+
+// en など ja 以外の辞書（i18n/en.ts）を作る。defineTranslation<typeof ja>()({ ... }) のように使う
+// （ja の型を先に決め、文は広げずに受け取って、キーと {} を ja と突き合わせる）
+export function defineTranslation<D extends Dictionary>() {
+    return <const T extends Translation<D>>(translation: T & CheckTranslation<D, T>): Translation<D> => translation;
+}
 
 export interface Messages<D extends Dictionary> {
     // 今の表示言語で引く。React の外（ストア・トーストなど）でも使える。部品の中では useT を使う
@@ -35,7 +73,10 @@ export interface Messages<D extends Dictionary> {
 }
 
 // 画面の辞書を 1 つにまとめる。ja はすべての文を持つ。en はまだ訳していないキーを省いてよい
-export function defineMessages<D extends Dictionary>(dictionaries: { ja: D; en: Translation<D> }): Messages<D> {
+export function defineMessages<D extends Dictionary>(dictionaries: {
+    ja: D & Literal<D>;
+    en: Translation<D>;
+}): Messages<D> {
     const translate = <K extends keyof D & string>(language: Language, key: K, ...args: ArgsOf<D[K]>): string => {
         const own = language === 'ja' ? undefined : dictionaries[language][key];
         const message = own ?? dictionaries.ja[key];
