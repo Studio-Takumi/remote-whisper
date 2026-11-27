@@ -16,9 +16,9 @@ export function GpuStep({ wrongEdition = false }: { wrongEdition?: boolean }) {
         >
             {wrongEdition ? (
                 <>
-                    <Note>{t('gpuStep.wrongEdition')}</Note>
+                    <Note>{t('gpuStep.wrongBuild')}</Note>
                     <div>
-                        <LinkButton href={RELEASES_URL}>{t('gpuStep.getCudaEdition')}</LinkButton>
+                        <LinkButton href={RELEASES_URL}>{t('gpuStep.getCudaBuild')}</LinkButton>
                     </div>
                 </>
             ) : (

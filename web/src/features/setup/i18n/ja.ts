@@ -3,11 +3,11 @@ import { defineDictionary } from '@/i18n/messages';
 // セットアップ（features/setup/）の文（日本語）。キーは「ファイル名.役割」（web/README.md の「表示言語（i18n）」）
 export const ja = defineDictionary({
     // GpuStep.tsx
-    'gpuStep.getCudaEdition': 'Windows（CUDA）版を入手',
+    'gpuStep.getCudaBuild': 'Windows（CUDA）版を入手',
     'gpuStep.notFound':
         'GPU が見つからないため、文字起こしは CPU で動きます。GPU より数倍以上遅くなり、文字が出るまで時間がかかります。モデルを small などの小さいものにすると速くなります',
     'gpuStep.purpose': '文字起こしを速くするためのもの',
-    'gpuStep.wrongEdition':
+    'gpuStep.wrongBuild':
         'NVIDIA の GPU が見つかりましたが、この Remote Whisper は Windows（OpenVINO）版のため、GPU を使わずに CPU で動きます。Windows（CUDA）版を入れ直すと、GPU で速く動きます（録音と文字起こしの記録はそのまま残ります）',
 
     // LlmStep.tsx
@@ -23,11 +23,12 @@ export const ja = defineDictionary({
     'llmStep.unauthorized': 'LM Studio のトークンが違うため接続できません。設定の「要約」で確かめてください',
 
     // ModelsStep.tsx
+    'modelsStep.downloadCancelled': '取得をやめました',
+    'modelsStep.downloadFailed': '取得できませんでした',
+    'modelsStep.downloading': '{model} の取得',
     'modelsStep.lmStudioNote':
         '録音中は {model} を使います。入っていないと大きいモデルで代わりに動くため、VRAM が 6GB ほどの GPU では文字起こしが遅くなります',
-    'modelsStep.pullCancelled': '取得をやめました',
-    'modelsStep.pullFailed': '取得できませんでした',
-    'modelsStep.pulling': '{model} の取得',
+    'modelsStep.notInstalled': '入っていません',
     'modelsStep.purpose': '要約などに使う {llm} のモデル',
     'modelsStep.stopInLmStudio': '止めるときは LM Studio の画面から止めてください',
     'modelsStep.title': '要約のモデル',
@@ -100,6 +101,5 @@ export const ja = defineDictionary({
     // 複数のファイルで使う文
     'common.cancel': 'やめる',
     'common.installed': '入っています',
-    'common.notInstalled': '入っていません',
     'common.recheck': 'もう一度確かめる',
 });

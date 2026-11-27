@@ -46,7 +46,7 @@ export function ModelsStep({
                                         : 'min-w-[6.5em] text-right text-amber-700 dark:text-amber-400'
                                 }
                             >
-                                {m.installed ? t('common.installed') : t('common.notInstalled')}
+                                {m.installed ? t('common.installed') : t('modelsStep.notInstalled')}
                             </span>
                         </span>
                     </li>
@@ -55,7 +55,10 @@ export function ModelsStep({
             {pulling && pull ? (
                 <div className='flex flex-col gap-1'>
                     <Note>{pullProgressText(pull, llm.backend)}</Note>
-                    <ProgressBar percent={pullPercent(pull)} label={t('modelsStep.pulling', { model: pull.model })} />
+                    <ProgressBar
+                        percent={pullPercent(pull)}
+                        label={t('modelsStep.downloading', { model: pull.model })}
+                    />
                     {/* 取っている途中に切り替えたときも、始めたほうで決める（LM Studio は止められない） */}
                     {pull.backend !== 'lmstudio' ? (
                         <div>
@@ -75,8 +78,8 @@ export function ModelsStep({
                 </div>
             ) : (
                 <>
-                    {pull?.state === 'failed' && <Note warn>{pull.error ?? t('modelsStep.pullFailed')}</Note>}
-                    {pull?.state === 'cancelled' && <Note>{t('modelsStep.pullCancelled')}</Note>}
+                    {pull?.state === 'failed' && <Note warn>{pull.error ?? t('modelsStep.downloadFailed')}</Note>}
+                    {pull?.state === 'cancelled' && <Note>{t('modelsStep.downloadCancelled')}</Note>}
                     {missing.length > 0 && (
                         <div className='flex flex-wrap items-center gap-2'>
                             <Button
