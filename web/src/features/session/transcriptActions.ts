@@ -6,6 +6,7 @@ import { isDemo } from '@/api/demo';
 import type { ActionContext } from '@/app/actionContext';
 import { runMutation } from '@/app/query';
 import { type Correction, applyCorrectionLocally, revertCorrection } from '@/features/session/corrections';
+import { sessionMessages } from '@/features/session/i18n';
 
 export async function rejectTerm(ctx: ActionContext, sessionId: string, term: string) {
     const projectId = ctx.sessions.projectIdOf(sessionId);
@@ -43,7 +44,7 @@ export async function rejectTerm(ctx: ActionContext, sessionId: string, term: st
             },
             onError: (e, _v, before) => {
                 ctx.sessions.patchSession(sessionId, (x) => ({ ...x, ...before }));
-                toast.error(`用語を消せません: ${e.message}`);
+                toast.error(sessionMessages.t('transcriptActions.termRemoveFailed', { message: e.message }));
             },
         },
         undefined,
@@ -76,7 +77,7 @@ export async function addTerm(ctx: ActionContext, sessionId: string, term: strin
                     pickedTerms: res.pickedTerms,
                     manualTerms: res.manualTerms ?? x.manualTerms,
                 })),
-            onError: (e) => toast.error(`用語を足せません: ${e.message}`),
+            onError: (e) => toast.error(sessionMessages.t('transcriptActions.addFailed', { message: e.message })),
         },
         undefined,
     ).then(
@@ -114,7 +115,7 @@ export async function addCorrection(ctx: ActionContext, sessionId: string, corre
             },
             // 戻す。置き換えた行のうち、待っている間にほかで変わっていないものだけを戻す（届いた行・ほかで変わった行は残す）
             onError: (e, _v, change) => {
-                toast.error(`置き換えられません: ${e.message}`);
+                toast.error(sessionMessages.t('transcriptActions.correctionFailed', { message: e.message }));
                 if (change) {
                     ctx.sessions.patchSession(sessionId, (x) => ({
                         ...revertCorrection(x, change.before, change.applied),
@@ -163,7 +164,7 @@ export async function removeCorrection(ctx: ActionContext, sessionId: string, co
             },
             onError: (e, _v, before) => {
                 ctx.sessions.patchSession(sessionId, (x) => ({ ...x, corrections: before }));
-                toast.error(`置き換えを外せません: ${e.message}`);
+                toast.error(sessionMessages.t('transcriptActions.correctionRemoveFailed', { message: e.message }));
             },
         },
         undefined,

@@ -1,10 +1,9 @@
 import { type RefObject, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import type { Session } from '@/api/types';
+import { sessionMessages } from '@/features/session/i18n';
 import { playableSources, recordingQuery, toMainTime, toSourceTime } from '@/features/session/sourcePlayback';
 import { sourceLabel } from '@/features/session/sources';
-
-export const NO_RECORDING_AT = 'この時刻の録音はありません';
 
 // 再生する音源の切り替え（#371。spec/ui.md 8）。既定は主の音源。切り替えても再生位置（主の音源の時刻）を保ち、
 // 行の時刻を押したときも選んでいる音源で再生する。選べないとき（音源が 1 つ・古いサーバー）は今までと同じ
@@ -39,7 +38,7 @@ export function usePlaybackSource(session: Session | undefined, audio: RefObject
             const sec = toSourceTime(mainSec, currentRef.current, el.duration);
             if (sec === null) {
                 el.pause();
-                say(NO_RECORDING_AT);
+                say(sessionMessages.t('usePlaybackSource.noRecordingAt'));
                 return;
             }
             say(null);
@@ -92,7 +91,7 @@ export function usePlaybackSource(session: Session | undefined, audio: RefObject
         }
         pending.current = null;
         setChoice({ sessionId, id: 1 });
-        say(`${sourceLabel(selected)} の録音を読み込めません`);
+        say(sessionMessages.t('usePlaybackSource.loadFailed', { source: sourceLabel(selected) }));
         return true;
     };
 

@@ -2,6 +2,7 @@
 // 音源と話者は別のもの（1 つのマイクが複数の人を拾い、同じ人を複数のマイクが拾う）なので、音源から話者を決めない
 import type { LiveSource } from '@/api/protocol';
 import type { TranscriptLine } from '@/api/types';
+import { sessionMessages } from '@/features/session/i18n';
 import { formatClock } from '@/lib/time';
 
 // 文字起こしのフロントマターの音源（spec/files.md 5.5 節の sources）。1 つ目が主の音源
@@ -46,11 +47,11 @@ export function keepLineSources(fetched: TranscriptLine[], local: TranscriptLine
 
 // 行に付ける札の文字（「音源 2」）と、名前つきの説明（title と読み上げ。「音源 2（iPhone）」）
 export function sourceLabel(id: number) {
-    return `音源 ${id}`;
+    return sessionMessages.t('sources.label', { n: id });
 }
 
 export function sourceTitle(id: number, name: string | null | undefined) {
-    return name ? `音源 ${id}（${name}）` : sourceLabel(id);
+    return name ? sessionMessages.t('sources.titleNamed', { n: id, name }) : sourceLabel(id);
 }
 
 // 音源ごとの色。話者の札（塗りの四角）とは形を分け、枠線の丸い札にする（音源は話者ではない）
@@ -70,34 +71,45 @@ export function sourceColor(id: number) {
 // 音源の種類（録音した端末 / 参加した端末 / ファイル）。アップロードで作ったセッションの主の音源はファイル
 export function sourceKindLabel(kind: SessionSource['kind'], uploaded: boolean) {
     if (kind === 'join') {
-        return '参加した端末';
+        return sessionMessages.t('sources.kindJoin');
     }
     if (kind === 'upload' || uploaded) {
-        return 'ファイル';
+        return sessionMessages.t('sources.kindFile');
     }
-    return '録音した端末';
+    return sessionMessages.t('sources.kindRecorder');
 }
 
-export const LIVE_STATE_LABELS: Record<LiveSource['state'], string> = {
-    active: 'つながっています',
-    disconnected: '切れています',
-    left: '抜けました',
-};
+const LIVE_STATE_KEYS = {
+    active: 'sources.stateActive',
+    disconnected: 'sources.stateDisconnected',
+    left: 'sources.stateLeft',
+} as const;
+
+export function liveStateLabel(state: LiveSource['state']): string {
+    return sessionMessages.t(LIVE_STATE_KEYS[state]);
+}
 
 // 参加していた時間（主の音源の時刻）。録音中の音源はつながっているか
 export function describeSourceSpan(source: ListedSource, durationSec: number | undefined, uploaded: boolean) {
     if (source.live) {
-        return LIVE_STATE_LABELS[source.state];
+        return liveStateLabel(source.state);
     }
     if (source.kind === 'upload' || uploaded) {
-        return 'ファイル全体';
+        return sessionMessages.t('sources.spanFile');
     }
     const end = (sec: number | null | undefined) =>
-        sec != null ? formatClock(sec) : durationSec !== undefined ? formatClock(durationSec) : '終わりまで';
+        sec != null
+            ? formatClock(sec)
+            : durationSec !== undefined
+              ? formatClock(durationSec)
+              : sessionMessages.t('sources.spanUntilEnd');
     if (source.kind === 'main') {
-        return `00:00:00〜${end(undefined)}`;
+        return sessionMessages.t('sources.spanRange', { start: '00:00:00', end: end(undefined) });
     }
-    return `${formatClock(source.joinedSec ?? 0)}〜${end(source.leftSec)}`;
+    return sessionMessages.t('sources.spanRange', {
+        start: formatClock(source.joinedSec ?? 0),
+        end: end(source.leftSec),
+    });
 }
 
 // セッションの音源の一覧。録音中は sources のメッセージで届いたもの、録音を終えたらフロントマターのもの。
@@ -139,13 +151,13 @@ export function newlyDisconnected(before: LiveSource[] | undefined, after: LiveS
 // 複数のファイルを「1 つのセッションにまとめる」を押せないときの理由。押せるなら null（spec/api.md 7.1）
 export function mergeUnavailable(fileCount: number, maxSources: number | undefined): string | null {
     if (maxSources === undefined) {
-        return 'このホストは複数の音源に対応していません';
+        return sessionMessages.t('sources.mergeNoMulti');
     }
     if (maxSources < 2) {
-        return 'このホストではまとめられない設定です';
+        return sessionMessages.t('sources.mergeNotAllowed');
     }
     if (fileCount > maxSources) {
-        return `まとめられるのは ${maxSources} 個までです`;
+        return sessionMessages.t('sources.mergeLimit', { n: maxSources });
     }
     return null;
 }
