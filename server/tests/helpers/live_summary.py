@@ -10,9 +10,11 @@ from remote_whisper.summary.live_summary import LiveSummarizer
 class StubWriter:
     id = "20261010-100000"
 
-    def __init__(self):
+    def __init__(self, language="ja"):
         self.live_summary = None
         self.title = None
+        # 文字起こしの決まった言語（#482）だけを持つ
+        self.meta = type("Meta", (), {"language": language})()
 
     def save_live_summary(self, text):
         self.live_summary = text
@@ -22,13 +24,13 @@ class StubWriter:
 
 
 class Harness:
-    def __init__(self, home, fake, context=None):
+    def __init__(self, home, fake, context=None, language="ja"):
         self.settings = SettingsStore(home)
         # 0.006 分 = 0.36 秒ごと
         self.settings.update({"ollama": {"liveSummaryIntervalMin": 0.006}})
         self.ollama = OllamaClient(Hub(), self.settings, transport=fake.transport())
         self.gpu = GpuQueue()
-        self.writer = StubWriter()
+        self.writer = StubWriter(language)
         self.sent: list[dict] = []
         self.seconds = 0.0
         self.live = LiveSummarizer(

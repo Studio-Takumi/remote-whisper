@@ -149,10 +149,14 @@ def render_page(path: Path, index: int) -> bytes:
     return buf.getvalue()
 
 
+# 「書くことがない」の答え。英語の資料では英語で答えることがある（#485）
+_NOTHING = re.compile(r"[「『\"']?(なし|none|nothing|n/?a)[」』\"']?[。.]?", re.IGNORECASE)
+
+
 def clean_description(reply: str, page_text: str) -> str:
     """モデルの説明を整える。書くことがない・テキストの言い直しなら空にする"""
     text = reply.strip()
-    if not text or re.fullmatch(r"[「『]?なし[」』]?[。.]?", text):
+    if not text or _NOTHING.fullmatch(text):
         return ""
     grams = _bigrams(text)
     if grams and len(grams & _bigrams(page_text)) / len(grams) >= RESTATED_RATIO:

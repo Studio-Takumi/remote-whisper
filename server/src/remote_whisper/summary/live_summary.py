@@ -17,6 +17,7 @@ from remote_whisper.settings import SettingsStore
 from remote_whisper.storage.documents import context_name, parse
 from remote_whisper.storage.session_writer import SessionWriter, fmt_clock
 from remote_whisper.summary.prompts import live_overview_messages, live_section_messages, make_title
+from remote_whisper.summary.summary_language import summary_language
 from remote_whisper.summary.summary_parts import (
     CHUNK_CHARS,
     NUM_CTX,
@@ -143,6 +144,10 @@ class LiveSummarizer:
         model = models.live_summary
         # 要約度は区間ごとの要約に効かせる（概要は短いまま。#100）
         density = self.settings.get().ollama.live_summary_density
+        # 書く言語（#485）。回ごとに、そのときの設定と文字起こしの言語で決める
+        language = summary_language(
+            self.settings.get().ollama.summary_language, self.writer.meta.language
+        )
         started = time.monotonic()
         log.info(
             "live summary of %s started with %s (%d new lines)",
@@ -153,11 +158,11 @@ class LiveSummarizer:
         try:
             # 閉じた区間（最後の1つより前）の要約を確定させる。以後は書き直さない
             for i, chunk in enumerate(chunks[:-1]):
-                text = await self._section_summary(model, chunk, density)
+                text = await self._section_summary(model, chunk, density, language)
                 end = line_time(chunks[i + 1][0])
                 self.sections.append(Section(line_time(chunk[0]), end, text))
                 self._base += len(chunk)
-            current, overview = await self._current_summary(model, chunks[-1], density)
+            current, overview = await self._current_summary(model, chunks[-1], density, language)
         except LlmUnavailable as e:
             log.warning("live summary of %s failed: %s", self.writer.id, e)
             await self.send(ollama_error("リアルタイム要約"))
@@ -171,12 +176,16 @@ class LiveSummarizer:
             len(text),
         )
         # 区間が分かれていれば、ここまでの概要から作る
-        await self._provisional_title(models.live_title, overview or current)
+        await self._provisional_title(models.live_title, overview or current, language)
 
-    async def _section_summary(self, model: str, chunk: list[str], density: int) -> str:
+    async def _section_summary(
+        self, model: str, chunk: list[str], density: int, language: str
+    ) -> str:
         """閉じた区間の要約。確定させると後から直せないので、続いていた間の要約よりずっと短ければ
         （モデルが読み違えて一部しか書かなかった）、もう一度作って長い方を使う"""
-        messages = live_section_messages(chunk, self.context, self._previous(), density=density)
+        messages = live_section_messages(
+            chunk, self.context, self._previous(), density=density, language=language
+        )
         text = await self._chat(model, messages)
         ongoing = self._ongoing[1] if self._ongoing[0] == self._base else ""
         if len(text) < len(ongoing) * SHORT_RATIO:
@@ -192,13 +201,18 @@ class LiveSummarizer:
         return text
 
     async def _current_summary(
-        self, model: str, current_lines: list[str], density: int
+        self, model: str, current_lines: list[str], density: int, language: str
     ) -> tuple[str, str | None]:
         """続いている区間の要約（届いた分から流して出す。#123）と、区間が分かれていれば概要"""
         current = await self._stream_current(
             model,
             live_section_messages(
-                current_lines, self.context, self._previous(), ongoing=True, density=density
+                current_lines,
+                self.context,
+                self._previous(),
+                ongoing=True,
+                density=density,
+                language=language,
             ),
             line_time(current_lines[0]),
         )
@@ -209,7 +223,9 @@ class LiveSummarizer:
             return current, None
         overview = await self._chat(
             model,
-            live_overview_messages([s.text for s in self.sections] + [current], self.context),
+            live_overview_messages(
+                [s.text for s in self.sections] + [current], self.context, language
+            ),
         )
         return current, overview
 
@@ -225,11 +241,11 @@ class LiveSummarizer:
         except OSError:
             log.exception("failed to save the live summary of %s", self.writer.id)
 
-    async def _provisional_title(self, model: str, source: str) -> None:
+    async def _provisional_title(self, model: str, source: str, language: str) -> None:
         """仮のタイトルを作って送る"""
         started = time.monotonic()
         try:
-            title = await make_title(self.ollama, model, source)
+            title = await make_title(self.ollama, model, source, language=language)
         except LlmUnavailable as e:
             # 仮のタイトルは次の回に作り直す（要約はできているので、エラーは送らない）
             log.warning("provisional title of %s failed: %s", self.writer.id, e)

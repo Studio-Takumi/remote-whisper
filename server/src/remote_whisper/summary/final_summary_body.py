@@ -71,22 +71,25 @@ class SummaryBody:
         send: Callable[[dict[str, Any]], Awaitable[None]],
         density: Density | None = None,
         pages: list[Page] | None = None,
+        language: str = "ja",
     ) -> tuple[str, str]:
         """要約の本文と、タイトルを作る元（長いときは全体の概要）を返す。
-        どちらも空なら作れなかった"""
+        どちらも空なら作れなかった。language は書く言語（#485）"""
         density = density or Density()
         chunks = split_lines(lines, CHUNK_CHARS)
         if len(chunks) == 1:
-            return await self._summarize_once(models.detail, lines, context, send, density, pages)
+            return await self._summarize_once(
+                models.detail, lines, context, send, density, pages, language
+            )
         # 部分ごとに要約する（送らない）。これがそのまま「詳細」になる
-        parts = await self._summarize_parts(models.detail, chunks, context, density)
-        digest = await self._condense(models.overview, parts, context)
+        parts = await self._summarize_parts(models.detail, chunks, context, density, language)
+        digest = await self._condense(models.overview, parts, context, language)
         # 全体の概要を流してから、部分ごとの要約を時間の順に続ける
         head = f"## {OVERVIEW_HEADING}\n\n"
         report_progress("overview")
         stream = self.ollama.chat_stream(
             models.overview,
-            overview_messages(digest, context, density.overview),
+            overview_messages(digest, context, density.overview, language),
             think=True,
             options={"num_ctx": NUM_CTX},
         )
@@ -110,12 +113,13 @@ class SummaryBody:
         send: Callable[[dict[str, Any]], Awaitable[None]],
         density: Density,
         pages: list[Page] | None,
+        language: str,
     ) -> tuple[str, str]:
         """一度に収まるときの要約。流して送り、本文と、タイトルを作る元を返す"""
         report_progress("summary")
         stream = self.ollama.chat_stream(
             model,
-            final_summary_messages(lines, context, density.detail),
+            final_summary_messages(lines, context, density.detail, language),
             think=True,
             options={"num_ctx": NUM_CTX},
         )
@@ -127,7 +131,12 @@ class SummaryBody:
         return text, text
 
     async def _summarize_parts(
-        self, model: str, chunks: list[list[str]], context: str | None, density: Density
+        self,
+        model: str,
+        chunks: list[list[str]],
+        context: str | None,
+        density: Density,
+        language: str,
     ) -> list[str]:
         """部分ごとの要約。前の部分の要約の終わりを参考として渡す"""
         parts: list[str] = []
@@ -137,7 +146,7 @@ class SummaryBody:
             part = await self.ollama.chat(
                 model,
                 part_summary_messages(
-                    chunk, i, len(chunks), context, previous, density=density.detail
+                    chunk, i, len(chunks), context, previous, density.detail, language
                 ),
                 think=True,
                 options={"num_ctx": NUM_CTX},
@@ -149,7 +158,9 @@ class SummaryBody:
             parts.append(part.strip())
         return parts
 
-    async def _condense(self, model: str, parts: list[str], context: str | None) -> list[str]:
+    async def _condense(
+        self, model: str, parts: list[str], context: str | None, language: str
+    ) -> list[str]:
         """概要の材料。部分の要約を合わせてまだ長ければ、いくつかずつまとめるのを繰り返す"""
         digest = parts
         while len(digest) > 1 and sum(len(p) for p in digest) > CHUNK_CHARS:
@@ -163,7 +174,7 @@ class SummaryBody:
                 (
                     await self.ollama.chat(
                         model,
-                        reduce_summary_messages(group, context),
+                        reduce_summary_messages(group, context, language),
                         think=True,
                         options={"num_ctx": NUM_CTX},
                     )
