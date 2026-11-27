@@ -1,6 +1,8 @@
 import TurndownService from 'turndown';
 import { tables } from 'turndown-plugin-gfm';
 
+import { componentsMessages } from '@/components/i18n';
+
 // 要約を選んでコピーしたとき、Streamdown が描画した HTML を Markdown に戻す（#203）。
 // Streamdown は太字を span、コードを行ごとの span、数式を KaTeX で描くので、その形に合わせて戻す
 
@@ -96,7 +98,7 @@ export async function copyText(text: string) {
     document.body.appendChild(textarea);
     textarea.select();
     try {
-        if (!document.execCommand('copy')) throw new Error('コピーできませんでした');
+        if (!document.execCommand('copy')) throw new Error(componentsMessages.t('copyMarkdown.failed'));
     } finally {
         textarea.remove();
     }
