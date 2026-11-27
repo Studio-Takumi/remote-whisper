@@ -2,6 +2,7 @@
 // move_blocker）と同じ条件で、画面でも先に見る（ドラッグを始められないようにして理由を出す）
 import type { GpuJobs } from '@/api/protocol';
 import type { Session } from '@/api/types';
+import { projectsMessages } from '@/features/projects/i18n';
 
 export type MoveState = {
     jobs: GpuJobs;
@@ -15,17 +16,17 @@ export type MoveState = {
 export function moveBlocker(session: Session, state: MoveState): string | null {
     const id = session.id;
     if (session.status === 'recording' || state.recordingSessionId === id) {
-        return '録音中のセッションは移せません';
+        return projectsMessages.t('move.blockedByRecording');
     }
     if (state.transcribing.includes(id)) {
-        return '浄書済み文字起こしを作っている途中のセッションは移せません';
+        return projectsMessages.t('move.blockedByPolish');
     }
     if (state.summarizing.includes(id)) {
-        return '要約を作っている途中のセッションは移せません';
+        return projectsMessages.t('move.blockedBySummary');
     }
     const jobs = [state.jobs.running, ...state.jobs.waiting];
     if (jobs.some((j) => j?.session === id)) {
-        return 'GPU の処理を待っている・実行しているセッションは移せません';
+        return projectsMessages.t('move.blockedByGpu');
     }
     return null;
 }

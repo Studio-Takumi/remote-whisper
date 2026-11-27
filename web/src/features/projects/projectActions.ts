@@ -8,6 +8,7 @@ import { sessionsQuery } from '@/api/sessions';
 import type { ActionContext } from '@/app/actionContext';
 import { queryClient, runMutation } from '@/app/query';
 import { readProjectInfos, readProjects, readSession } from '@/app/sessionData';
+import { projectsMessages } from '@/features/projects/i18n';
 import { type ProjectOrder, reorderTracker } from '@/features/projects/reorderTracker';
 
 export async function createProject(ctx: ActionContext, path: string) {
@@ -16,9 +17,9 @@ export async function createProject(ctx: ActionContext, path: string) {
         const project = await api.post<ProjectJson>('/api/projects', { path });
         await get().loadProjects();
         set({ selection: { projectId: project.id, sessionId: null } });
-        toast.success(`${project.path} をプロジェクトにしました`);
+        toast.success(projectsMessages.t('projectActions.created', { path: project.path }));
     } catch (e) {
-        toast.error(`プロジェクトにできません: ${(e as Error).message}`);
+        toast.error(projectsMessages.t('projectActions.createFailed', { error: (e as Error).message }));
     }
 }
 
@@ -71,12 +72,14 @@ export async function moveSession(ctx: ActionContext, fromProjectId: string, ses
                 if (!isDemo) {
                     await ctx.sessions.reloadAfterMove(sessionId, from.id, to.id);
                 }
-                toast.success(`「${session.title}」を${to.name}へ移しました`);
+                toast.success(projectsMessages.t('projectActions.moved', { title: session.title, project: to.name }));
             },
             // 戻すときは逆向きに移す（待っている間に届いた、ほかのセッションの変更は消さない）
             onError: (e) => {
                 ctx.sessions.moveLocally(sessionId, to.id, from.id);
-                toast.error(`「${session.title}」を移せません: ${e.message}`);
+                toast.error(
+                    projectsMessages.t('projectActions.moveFailed', { title: session.title, error: e.message }),
+                );
             },
         },
         undefined,
@@ -108,7 +111,7 @@ export async function reorderProjects(ctx: ActionContext, ids: string[]) {
             onSuccess: (_d, _v, seq) => tracker.succeed(seq),
             // 保存できなかったので戻す。あとから並べ替えた並びを出しているなら、そのまま（#361）
             onError: (e, _v, seq) => {
-                toast.error(`プロジェクトの並びを保存できません: ${e.message}`);
+                toast.error(projectsMessages.t('projectActions.reorderFailed', { error: e.message }));
                 const back = seq === undefined ? null : tracker.fail(seq);
                 if (back) {
                     show(back);
