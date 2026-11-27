@@ -1,7 +1,7 @@
 import { createElement } from 'react';
-import { renderToStaticMarkup } from 'react-dom/server';
 
-import { describe, expect, it } from 'vitest';
+import { cleanup, render as renderElement } from '@testing-library/react';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import { PairChecks, settled } from '@/features/cloud/PairPage';
 import { type PairRequest, pairingCode } from '@/features/cloud/pairing';
@@ -9,6 +9,8 @@ import { type PairRequest, pairingCode } from '@/features/cloud/pairing';
 const base: PairRequest = { code: 'ABCD-EFGH', hostName: 'PC', status: 'pending', answeredByMe: null, expiresAt: 0 };
 
 describe('pairing', () => {
+    afterEach(cleanup);
+
     it('/pair?code= のときだけコードを取り出す', () => {
         expect(pairingCode({ pathname: '/pair', search: '?code=ABCD-EFGH' })).toBe('ABCD-EFGH');
         expect(pairingCode({ pathname: '/pair', search: '' })).toBeNull();
@@ -24,9 +26,7 @@ describe('pairing', () => {
 
     it('接続元の国が違うときだけ強く知らせる。送られてきたコードの注意はいつも出す（#251）', () => {
         const render = (request: PairRequest) => {
-            const container = document.createElement('div');
-            container.innerHTML = renderToStaticMarkup(createElement(PairChecks, { request }));
-            return container;
+            return renderElement(createElement(PairChecks, { request })).container;
         };
         const warned = render({ ...base, countryMismatch: true });
         const warning = warned.querySelector('[data-pair-warning="country"]');

@@ -6,12 +6,15 @@ import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import { type Device, fetchDevices, removeDevice } from '@/features/cloud/account';
+import { cloudMessages } from '@/features/cloud/i18n';
+import { useT } from '@/i18n/messages';
 
 function lastSeenLabel(ms: number) {
     return new Date(ms).toLocaleDateString('ja-JP', { month: 'numeric', day: 'numeric' });
 }
 
 export function DevicesSection({ open }: { open: boolean }) {
+    const t = useT(cloudMessages);
     const [devices, setDevices] = useState<Device[]>([]);
 
     useEffect(() => {
@@ -29,33 +32,35 @@ export function DevicesSection({ open }: { open: boolean }) {
     const remove = async (d: Device) => {
         try {
             setDevices(await removeDevice(d.id));
-            toast.success(`${d.name} を外しました`);
+            toast.success(t('common.removed', { name: d.name }));
         } catch (e) {
-            toast.error(`外せません: ${(e as Error).message}`);
+            toast.error(t('common.removeFailed', { message: (e as Error).message }));
         }
     };
 
     return (
         <section className='flex flex-col gap-2 border-t pt-3'>
-            <h3 className='font-medium'>アプリの端末</h3>
+            <h3 className='font-medium'>{t('devicesSection.title')}</h3>
             <ul className='flex flex-col gap-1.5'>
                 {devices.map((d) => (
                     <li key={d.id} className='flex items-center justify-between gap-2' data-device-row={d.id}>
                         <span className='truncate'>
                             {d.name}
                             <span className='ml-2 text-xs text-muted-foreground'>
-                                {d.current ? 'この端末' : `${lastSeenLabel(d.lastSeenAt)} に使用`}
+                                {d.current
+                                    ? t('devicesSection.thisDevice')
+                                    : t('devicesSection.lastUsed', { date: lastSeenLabel(d.lastSeenAt) })}
                             </span>
                         </span>
                         {!d.current && (
                             <Button size='sm' variant='ghost' onClick={() => void remove(d)}>
-                                外す
+                                {t('common.remove')}
                             </Button>
                         )}
                     </li>
                 ))}
             </ul>
-            <p className='text-xs text-muted-foreground'>外した端末は、もう一度ログインするまで使えません</p>
+            <p className='text-xs text-muted-foreground'>{t('devicesSection.notice')}</p>
         </section>
     );
 }

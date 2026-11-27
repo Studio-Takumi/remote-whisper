@@ -9,8 +9,11 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { type Me, canSubmitConsent, fetchMe, postConsent, useAccountStore } from '@/features/cloud/account';
 import { useCloudStore } from '@/features/cloud/cloud';
+import { cloudMessages } from '@/features/cloud/i18n';
+import { useT } from '@/i18n/messages';
 
 export function ConsentForm({ me, onSignOut }: { me: Me; onSignOut: () => void }) {
+    const t = useT(cloudMessages);
     const dispatch = useCloudStore((s) => s.dispatch);
     const setMe = useAccountStore((s) => s.setMe);
     const [agreed, setAgreed] = useState(false);
@@ -26,7 +29,7 @@ export function ConsentForm({ me, onSignOut }: { me: Me; onSignOut: () => void }
                 await postConsent(me, true);
                 setPosted(true);
             } catch (e) {
-                toast.error(`同意を送れませんでした: ${(e as Error).message}`);
+                toast.error(t('consentForm.consentFailed', { message: (e as Error).message }));
                 // 版が変わったかもしれないので、最新の情報に取り直す
                 fetchMe()
                     .then(setMe)
@@ -40,7 +43,7 @@ export function ConsentForm({ me, onSignOut }: { me: Me; onSignOut: () => void }
             setMe(await fetchMe());
             dispatch({ type: 'consented' });
         } catch {
-            toast.error('同意は送れましたが、状態を取り直せませんでした。もう一度「同意して進む」を押してください');
+            toast.error(t('consentForm.refetchFailed'));
         } finally {
             setBusy(false);
         }
@@ -48,37 +51,31 @@ export function ConsentForm({ me, onSignOut }: { me: Me; onSignOut: () => void }
 
     return (
         <>
-            <h1 className='text-xl font-semibold'>利用規約への同意</h1>
+            <h1 className='text-xl font-semibold'>{t('consentForm.title')}</h1>
             <p className='text-sm'>
-                使い始める前に、
+                {t('consentForm.introBefore')}
                 <a className='underline' href={me.termsUrl} target='_blank' rel='noreferrer'>
-                    利用規約
+                    {t('consentForm.terms')}
                 </a>
-                と
+                {t('consentForm.introAnd')}
                 <a className='underline' href={me.privacyUrl} target='_blank' rel='noreferrer'>
-                    プライバシーポリシー
+                    {t('consentForm.privacy')}
                 </a>
-                をお読みください
+                {t('consentForm.introAfter')}
             </p>
             <div className='flex items-center gap-2'>
                 <Checkbox id='consent-tos' checked={agreed} onCheckedChange={(v) => setAgreed(v === true)} />
-                <Label htmlFor='consent-tos'>利用規約とプライバシーポリシーに同意する</Label>
+                <Label htmlFor='consent-tos'>{t('consentForm.agree')}</Label>
             </div>
-            <p className='text-xs text-muted-foreground'>
-                クラウド版では品質改善のためのデータ収集を行なっています（文字起こしや要約の本文等は収集していません）
-            </p>
+            <p className='text-xs text-muted-foreground'>{t('consentForm.dataCollection')}</p>
             <Button disabled={!canSubmitConsent(agreed, busy)} onClick={() => void submit()}>
-                同意して進む
+                {t('consentForm.submit')}
             </Button>
-            {!agreed && (
-                <p className='text-xs text-muted-foreground'>
-                    進むには、利用規約とプライバシーポリシーへの同意が必要です
-                </p>
-            )}
+            {!agreed && <p className='text-xs text-muted-foreground'>{t('consentForm.agreeRequired')}</p>}
             <p className='text-xs text-muted-foreground'>
-                {me.displayName} でログインしています
+                {t('common.loggedInAs', { name: me.displayName })}
                 <button className='ml-1 underline' onClick={onSignOut}>
-                    ログアウト
+                    {t('common.logout')}
                 </button>
             </p>
         </>

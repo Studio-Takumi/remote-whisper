@@ -7,6 +7,8 @@ import { toast } from 'sonner';
 import { appAuthActive, appLogin, isCanceled } from '@/api/appAuth';
 import { Button } from '@/components/ui/button';
 import { PROVIDER_LABELS, type Provider, loginHref } from '@/features/cloud/account';
+import { cloudMessages } from '@/features/cloud/i18n';
+import { useT } from '@/i18n/messages';
 
 const PROVIDERS: Provider[] = ['google', 'discord', 'github'];
 
@@ -17,13 +19,14 @@ async function loginInApp(provider: Provider) {
         return true;
     } catch (e) {
         if (!isCanceled(e)) {
-            toast.error('ログインできませんでした。もう一度試してください');
+            toast.error(cloudMessages.t('loginButtons.loginFailed'));
         }
         return false;
     }
 }
 
 export function LoginButtons() {
+    const t = useT(cloudMessages);
     // ログインの画面を出している間は、ほかのボタンも押せないようにする（連打で 2 つ目が失敗するため）
     const [busy, setBusy] = useState(false);
     const start = async (p: Provider) => {
@@ -39,12 +42,12 @@ export function LoginButtons() {
             {PROVIDERS.map((p) =>
                 appAuthActive ? (
                     <Button key={p} variant='outline' disabled={busy} onClick={() => void start(p)}>
-                        {PROVIDER_LABELS[p]} でログイン
+                        {t('loginButtons.signInWith', { provider: PROVIDER_LABELS[p] })}
                     </Button>
                 ) : (
                     <Button key={p} variant='outline' asChild>
                         <a href={loginHref(p, { returnTo: location.pathname + location.search })}>
-                            {PROVIDER_LABELS[p]} でログイン
+                            {t('loginButtons.signInWith', { provider: PROVIDER_LABELS[p] })}
                         </a>
                     </Button>
                 ),
