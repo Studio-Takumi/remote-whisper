@@ -12,6 +12,7 @@ import { queryClient } from '@/app/query';
 import { currentProject, currentSession } from '@/app/selectors';
 import { readProjectInfos, readSession } from '@/app/sessionData';
 import { refreshContextSets } from '@/features/materials/contextSetCache';
+import { projectsMessages } from '@/features/projects/i18n';
 import { findLocal, putLocal } from '@/features/projects/localSessions';
 import { needsReload } from '@/features/projects/projectsView';
 import { offlineStoppedSession } from '@/features/recording/recorderState';
@@ -76,7 +77,7 @@ export async function loadProjects(ctx: ActionContext) {
     } catch (e) {
         // 移動・並べ替えで止めたもの（操作の結果を古い一覧で戻さないように）は、知らせない
         if (!isCancelledError(e)) {
-            toast.error(`プロジェクトを読み込めません: ${(e as Error).message}`);
+            toast.error(projectsMessages.t('loadProjects.failed', { error: (e as Error).message }));
         }
         return;
     }

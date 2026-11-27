@@ -73,7 +73,7 @@ export function subscribeLanguage(listener: () => void): () => void {
 
 // 今の表示言語。切り替えると描き直す
 export function useLanguage(): Language {
-    return useSyncExternalStore(subscribeLanguage, getLanguage);
+    return useSyncExternalStore(subscribeLanguage, getLanguage, getLanguage);
 }
 
 function apply(language: Language) {

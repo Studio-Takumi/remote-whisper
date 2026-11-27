@@ -1,3 +1,6 @@
+import { createElement } from 'react';
+import { renderToString } from 'react-dom/server';
+
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -92,5 +95,11 @@ describe('t と useT', () => {
         act(() => setLanguage('en'));
         expect(result.current('sample.title')).toBe('Settings');
         expect(messages.t('sample.title')).toBe('Settings');
+    });
+
+    it('react-dom/server で描いても動く（getServerSnapshot がある）', () => {
+        act(() => setLanguage('ja'));
+        const View = () => createElement('span', null, useT(messages)('sample.title'));
+        expect(renderToString(createElement(View))).toContain('設定');
     });
 });

@@ -4,6 +4,7 @@ import { ChevronRightIcon, CpuIcon } from 'lucide-react';
 
 import { isCloud } from '@/api/endpoint';
 import { GpuIndicator } from '@/app/GpuIndicator';
+import { appMessages } from '@/app/i18n';
 import { useAppStore } from '@/app/store';
 import { SidebarTrigger } from '@/components/ui/sidebar';
 import { CloudHostBadge } from '@/features/cloud/CloudHostBadge';
@@ -11,10 +12,12 @@ import { ContextSetSheet } from '@/features/materials/ContextSetSheet';
 import { RecordingLock } from '@/features/recording/RecordingLock';
 import { recordingLocks } from '@/features/recording/recording';
 import { llmModels } from '@/features/settings/settings';
+import { useT } from '@/i18n/messages';
 
 // メイン画面の右上の簡易設定。全体設定をそのまま書き換える
 // stickySlot は、セッションのタブと再生バーを入れる置き場の受け取り口（SessionView が中に出す。#463）
 export function TopBar({ stickySlot }: { stickySlot?: (el: HTMLDivElement | null) => void }) {
+    const t = useT(appMessages);
     const recording = useAppStore((s) => s.recordingState !== 'idle');
     const detailModel = useAppStore((s) => llmModels(s.settings).detail);
     // 設定モーダルの「モデル」ページを開く（URL は /settings/models。戻るで閉じる）
@@ -44,13 +47,13 @@ export function TopBar({ stickySlot }: { stickySlot?: (el: HTMLDivElement | null
         <div className='flex flex-col'>
             <p className='flex items-center gap-1 px-2 text-xs whitespace-nowrap'>
                 <CpuIcon className='hidden size-3 sm:block' />
-                モデル
+                {t('topBar.model')}
             </p>
             <button
                 type='button'
                 onClick={openModels}
-                aria-label={`モデルの設定を開く（${detailModel}）`}
-                title={`モデルの設定を開く（${detailModel}）`}
+                aria-label={t('topBar.modelSettings', { model: detailModel })}
+                title={t('topBar.modelSettings', { model: detailModel })}
                 className='flex h-8 w-fit max-w-24 items-center justify-between gap-1.5 rounded-lg py-2 pr-2 pl-2.5 text-sm whitespace-nowrap outline-none focus-visible:ring-3 focus-visible:ring-ring/50 sm:max-w-40 md:max-w-48 dark:bg-input/30 dark:hover:bg-input/50'
             >
                 <span className='truncate'>{detailModel}</span>
@@ -71,11 +74,11 @@ export function TopBar({ stickySlot }: { stickySlot?: (el: HTMLDivElement | null
         >
             <div className='flex flex-row items-center gap-1.5 sm:gap-2'>
                 {/* スマホの幅ではサイドバーが隠れるので、開くボタンをここに出す */}
-                <SidebarTrigger className='size-9 md:hidden' aria-label='メニューを開く' />
+                <SidebarTrigger className='size-9 md:hidden' aria-label={t('topBar.menuOpen')} />
                 <GpuIndicator />
                 {/* クラウド版だけ、つないでいるホスト（#161）。録音中は切り替えない */}
                 {isCloud && (
-                    <RecordingLock locked={recording} message='録音中はホストを切り替えられません'>
+                    <RecordingLock locked={recording} message={t('topBar.hostLocked')}>
                         <CloudHostBadge />
                     </RecordingLock>
                 )}

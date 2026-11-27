@@ -4,10 +4,6 @@ import { type CollisionDetection, closestCenter, rectIntersection } from '@dnd-k
 import type { Project } from '@/api/types';
 import { sortableId } from '@/features/projects/projectOrder';
 
-export const screenReaderInstructions = {
-    draggable: 'プロジェクトの並び順は、Space で持ち上げ、上下の矢印で動かし、Space で置きます。Esc でやめます',
-};
-
 // ドラッグしているセッション。data.type でプロジェクトの並び替え（#173）のドラッグと見分ける
 export type Dragging = { type: 'session'; sessionId: string; projectId: string; title: string };
 

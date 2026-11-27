@@ -22,7 +22,9 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog';
 import { isSameOrAncestor } from '@/features/materials/dirPath';
+import { materialsMessages } from '@/features/materials/i18n';
 import { useDirListing } from '@/features/materials/useDirListing';
+import { useT } from '@/i18n/messages';
 
 // 参考資料にするファイルを選ぶ。選べるのは「読み込めるフォルダ」の中の、読み込める拡張子のファイルだけ（spec/api.md 7.3 節）
 // 拡張子で絞るのはサーバー（GET /api/fs）。extensions は説明に出すだけ
@@ -40,14 +42,13 @@ export function MaterialPickerDialog({
     projectPath: string;
     onCreate: (materials: string[]) => void;
 }) {
+    const t = useT(materialsMessages);
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className='sm:max-w-lg'>
                 <DialogHeader>
-                    <DialogTitle>参考資料を選ぶ</DialogTitle>
-                    <DialogDescription>
-                        選んだ資料から用語リストとコンテキストを作ります（数分かかります）
-                    </DialogDescription>
+                    <DialogTitle>{t('materialPickerDialog.title')}</DialogTitle>
+                    <DialogDescription>{t('materialPickerDialog.description')}</DialogDescription>
                 </DialogHeader>
                 {/* DialogContent は閉じると消えるので、開くたびに選び直せる */}
                 <Picker
@@ -72,6 +73,7 @@ function Picker({
     projectPath: string;
     onCreate: (materials: string[]) => void;
 }) {
+    const t = useT(materialsMessages);
     const [selected, setSelected] = useState<string[]>([]);
     // 一番上は、読み込めるフォルダ（materials.roots）の一覧
     const { listing, error } = useDirListing(null);
@@ -90,11 +92,11 @@ function Picker({
         <>
             <div className='h-72 overflow-y-auto rounded-lg border p-1'>
                 {error ? (
-                    <Message>フォルダの一覧を取れません: {error}</Message>
+                    <Message>{t('materialPickerDialog.listFailed', { error })}</Message>
                 ) : !listing || !projectSettled ? (
-                    <Message>読み込んでいます…</Message>
+                    <Message>{t('materialPickerDialog.loading')}</Message>
                 ) : listing.dirs.length === 0 ? (
-                    <Message>読み込めるフォルダがありません。設定の「参考資料」で追加してください</Message>
+                    <Message>{t('materialPickerDialog.noFolders')}</Message>
                 ) : (
                     listing.dirs.map((root) => (
                         <FolderNode
@@ -110,14 +112,18 @@ function Picker({
                     ))
                 )}
             </div>
-            <p className='text-xs text-muted-foreground'>読み込める拡張子：{extensions.join(', ')}</p>
+            <p className='text-xs text-muted-foreground'>
+                {t('materialPickerDialog.extensions', { extensions: extensions.join(', ') })}
+            </p>
             <DialogFooter className='sm:items-center'>
-                <p className='mr-auto text-xs text-muted-foreground'>{selected.length} 件選択中</p>
+                <p className='mr-auto text-xs text-muted-foreground'>
+                    {t('materialPickerDialog.selected', { count: selected.length })}
+                </p>
                 <DialogClose asChild>
-                    <Button variant='outline'>キャンセル</Button>
+                    <Button variant='outline'>{t('materialPickerDialog.cancel')}</Button>
                 </DialogClose>
                 <Button disabled={selected.length === 0} onClick={() => onCreate([...selected].sort())}>
-                    この資料で作成
+                    {t('materialPickerDialog.create')}
                 </Button>
             </DialogFooter>
         </>

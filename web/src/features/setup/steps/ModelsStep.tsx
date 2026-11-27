@@ -9,6 +9,7 @@ import { pullBlockedReason, pullButtonLabel, pullProgressText } from '@/features
 import { type SetupStatus, missingModels, pullPercent } from '@/features/setup/setup';
 import { Note, ProgressBar, Step } from '@/features/setup/steps/StepParts';
 import { useT } from '@/i18n/messages';
+import { formatDecimal } from '@/lib/format';
 
 export function ModelsStep({
     status,
@@ -39,7 +40,7 @@ export function ModelsStep({
                     <li key={m.name} className='flex items-center justify-between gap-2 text-xs'>
                         <span className='font-mono'>{m.name}</span>
                         <span className='flex shrink-0 items-center gap-3 whitespace-nowrap text-muted-foreground'>
-                            {m.sizeGb !== null && <span>{m.sizeGb.toFixed(1)} GB</span>}
+                            {m.sizeGb !== null && <span>{formatDecimal(m.sizeGb, 1)} GB</span>}
                             <span
                                 className={
                                     m.installed

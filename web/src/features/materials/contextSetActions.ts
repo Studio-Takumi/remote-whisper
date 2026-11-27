@@ -10,6 +10,7 @@ import type { AppState } from '@/app/appState';
 import { queryClient, runMutation } from '@/app/query';
 import { currentContextSelection, currentProject } from '@/app/selectors';
 import { cachedContextSets, updateCachedContextSets } from '@/features/materials/contextSetCache';
+import { materialsMessages } from '@/features/materials/i18n';
 import { newId } from '@/lib/time';
 
 // 手元の上書きを消した選択（保存できた・できなかったとき）
@@ -55,9 +56,9 @@ export async function changeContextSelection(ctx: ActionContext, next: ContextSe
             onError: (e) => {
                 set((s) => ({ contextSelections: clearOverride(s, pid) }));
                 if (e instanceof ApiError && e.status === 409) {
-                    toast.error('録音中は参考資料を変えられません');
+                    toast.error(materialsMessages.t('contextSetActions.lockedWhileRecording'));
                 } else {
-                    toast.error(`参考資料の選択を保存できません: ${e.message}`);
+                    toast.error(materialsMessages.t('contextSetActions.selectionFailed', { error: e.message }));
                 }
             },
         },
@@ -87,18 +88,18 @@ export async function createContextSet(ctx: ActionContext, materials: string[]) 
                 [...sets.filter((x) => x.id !== entry.id), entry].sort((a, b) => a.id.localeCompare(b.id)),
             );
             if (created.reused) {
-                toast.info('同じ資料の参考資料があるので、それを使います');
+                toast.info(materialsMessages.t('contextSetActions.reused'));
             }
             await get().changeContextSelection({ ...selection, setId: created.id });
         } catch (e) {
-            toast.error(`参考資料を作れません: ${(e as Error).message}`);
+            toast.error(materialsMessages.t('contextSetActions.createFailed', { error: (e as Error).message }));
         }
         return;
     }
     const same = cachedContextSets(pid).find((x) => x.materials.join('\n') === materials.join('\n'));
     if (same) {
         get().changeContextSelection({ ...selection, setId: same.id });
-        toast.info('同じ資料の参考資料があるので、それを使います');
+        toast.info(materialsMessages.t('contextSetActions.reused'));
         return;
     }
     const created: ContextSet = { id: newId(), status: 'generating', materials };
@@ -106,6 +107,6 @@ export async function createContextSet(ctx: ActionContext, materials: string[]) 
     get().changeContextSelection({ ...selection, setId: created.id });
     setTimeout(() => {
         updateCachedContextSets(pid, (sets) => sets.map((x) => (x.id === created.id ? { ...x, status: 'ready' } : x)));
-        toast.success('参考資料ができました');
+        toast.success(materialsMessages.t('contextSetActions.created'));
     }, 4000);
 }
