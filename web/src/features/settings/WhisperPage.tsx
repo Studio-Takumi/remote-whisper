@@ -37,10 +37,11 @@ export function WhisperPage({
                     label={t('whisperPage.language')}
                     description={t('whisperPage.languageDescription')}
                 >
-                    {/* 未設定（#498）なら、この端末で録音を始めたときに使う値を出す */}
+                    {/* 未設定（#498）なら、この端末で録音を始めたときに使う値を出す。どちらを選んでも保存する */}
                     <TranscriptionLanguageSelect
                         id='transcription-language'
-                        value={transcriptionLanguageFor(language, displayLanguage)}
+                        value={language}
+                        fallback={transcriptionLanguageFor(language, displayLanguage)}
                         onChange={(next) => update('whisper', { language: next })}
                     />
                 </Row>
