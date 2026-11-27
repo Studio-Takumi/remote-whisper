@@ -7,6 +7,7 @@ import type { ServerMessage, WatchedState } from '@/api/protocol';
 import type { AppStore } from '@/app/appState';
 import { readProjects } from '@/app/sessionData';
 import type { SessionSync } from '@/app/sessionSync';
+import { recordingMessages } from '@/features/recording/i18n';
 import { SourceJoin, forgetJoin, recalledJoin } from '@/features/recording/join';
 import { micFallbackMessage } from '@/features/recording/micMessages';
 import { applyLive } from '@/features/recording/recordingMessages';
@@ -162,9 +163,10 @@ export class Watcher {
         // 録音している端末では、参加した端末が切れたら知らせる（録音は続いている。#357）
         if (m.session === get().recordingSessionId) {
             for (const lost of newlyDisconnected(get().liveSources[m.session], m.sources)) {
-                toast.warning(`${sourceTitle(lost.id, lost.name)} との接続が切れました。録音は続いています`, {
-                    duration: 10000,
-                });
+                toast.warning(
+                    recordingMessages.t('watcher.disconnected', { source: sourceTitle(lost.id, lost.name) }),
+                    { duration: 10000 },
+                );
             }
         }
         // 参加できるか（上限に達した・空いた）が変わる（#356）。音源の一覧も覚える（#357）

@@ -1,6 +1,7 @@
 // ほかのクライアントで録音中のセッションを見る（#238。spec/api.md 7.2・spec/ui.md 8 章）
 import type { JoinAvailability, WatchedState } from '@/api/protocol';
 import type { Project, Session } from '@/api/types';
+import { recordingMessages } from '@/features/recording/i18n';
 
 // join は参加できるか（#356）。参加に対応していない古いサーバーでは undefined
 export type Watching = { sessionId: string; state: WatchedState; join?: JoinAvailability };
@@ -29,12 +30,12 @@ export function recordedElsewhere(session: Session | undefined, recordingSession
 export function describeWatched(state: WatchedState | undefined) {
     switch (state) {
         case 'paused':
-            return 'ほかの端末で一時停止中';
+            return recordingMessages.t('watch.paused');
         case 'disconnected':
-            return 'ほかの端末で録音中（その端末とのつながりが切れています）';
+            return recordingMessages.t('watch.disconnected');
         case 'stopped':
-            return 'ほかの端末で録音を終えました';
+            return recordingMessages.t('watch.stopped');
         default:
-            return 'ほかの端末で録音中';
+            return recordingMessages.t('watch.recording');
     }
 }
