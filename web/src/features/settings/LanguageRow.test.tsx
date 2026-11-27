@@ -29,7 +29,8 @@ describe('LanguageRow', () => {
         expect(getLanguage()).toBe('en');
         expect(localStorage.getItem(LANGUAGE_KEY)).toBe('en');
         expect(screen.getByRole('combobox').textContent).toBe('English');
-        // 英訳（#497）までは <html lang> は ja のまま
-        expect(document.documentElement.lang).toBe('ja');
+        // <html lang> も表示言語に合わせる（#497）。行の文も英語になる
+        expect(document.documentElement.lang).toBe('en');
+        expect(screen.getByText('Display language')).toBeDefined();
     });
 });

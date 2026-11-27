@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import html from '../../index.html?raw';
 import {
@@ -86,13 +86,48 @@ describe('setLanguage', () => {
     });
 });
 
-// 英訳（#497）までは <html lang> を ja のまま止める（lang="en" の日本語は中国語の字形になりうるため）。
-// #497 で htmlLang を替えたら、index.html でも描く前に表示言語で lang を付ける（そうしないとこのテストが落ちる）
+// <html lang> は表示言語（#497）。index.html の起動前のスクリプトも、loadLanguage と同じ決め方で付ける
 describe('htmlLang', () => {
-    it('どの表示言語でも、index.html の <html lang> と同じ', () => {
-        const staticLang = /<html lang="([^"]+)">/.exec(html)?.[1];
+    const initialLang = document.documentElement.lang;
+    afterEach(() => {
+        localStorage.removeItem(LANGUAGE_KEY);
+        vi.restoreAllMocks();
+        document.documentElement.lang = initialLang;
+    });
+
+    it('表示言語をそのまま返す', () => {
         for (const language of languages) {
-            expect(htmlLang(language)).toBe(staticLang);
+            expect(htmlLang(language)).toBe(language);
+        }
+    });
+
+    it('index.html のスクリプトが付ける lang は、loadLanguage と同じ', () => {
+        const script = /<script>([\s\S]*?)<\/script>/.exec(html)?.[1] ?? '';
+        const cases: { saved: string | null; browser: string[] }[] = [
+            { saved: null, browser: ['ja-JP', 'en-US'] },
+            { saved: null, browser: ['en-US', 'ja'] },
+            { saved: null, browser: ['JA'] },
+            { saved: null, browser: ['jav'] },
+            { saved: null, browser: [] },
+            { saved: 'en', browser: ['ja'] },
+            { saved: 'ja', browser: ['en-US'] },
+            { saved: 'de', browser: ['ja'] },
+        ];
+        for (const { saved, browser } of cases) {
+            if (saved === null) {
+                localStorage.removeItem(LANGUAGE_KEY);
+            } else {
+                localStorage.setItem(LANGUAGE_KEY, saved);
+            }
+            vi.spyOn(navigator, 'languages', 'get').mockReturnValue(browser);
+            vi.spyOn(navigator, 'language', 'get').mockReturnValue(browser[0] ?? '');
+            document.documentElement.lang = '';
+            new Function(script)();
+            expect({ saved, browser, lang: document.documentElement.lang }).toEqual({
+                saved,
+                browser,
+                lang: htmlLang(loadLanguage(storageWith(saved), browser)),
+            });
         }
     });
 });
