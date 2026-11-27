@@ -6,8 +6,9 @@ This template provides a minimal setup to get React working in Vite with HMR and
 
 画面の文は、画面ごとの辞書に置いて表示言語（`ja` / `en`）で引く（#487。spec/ui.md 8）。仕組みは自作の小さなもので、ライブラリは使わない。
 
-- `src/i18n/language.ts`: 表示言語。端末ごとに localStorage の `rw.language` に覚える。初めはブラウザの言語（日本語なら `ja`、ほかは `en`）。`setLanguage` で切り替えると `<html lang>` も合わせる。`index.html` のスクリプトも同じ決め方で、描く前に `lang` を付ける
-- `src/i18n/messages.ts`: `defineMessages`（辞書をまとめる）・`useT`（部品の中で引く）・`Translation`（`en` の辞書の型）
+- `src/i18n/language.ts`: 表示言語。端末ごとに localStorage の `rw.language` に覚える。初めはブラウザの言語（日本語なら `ja`、ほかは `en`）。ほかのタブで切り替えたら（`storage` のイベント）合わせる
+    - `<html lang>` は `htmlLang()` が返す言語。英訳が入る（#497）までは、どの表示言語でも画面の文は日本語なので `ja` のまま止めている（`lang="en"` の下の日本語は、ブラウザによって中国語の字形のフォントになるため）。#497 で `htmlLang()` の中身を替え、`index.html` でも描く前に表示言語で `lang` を付ける（`language.test.ts` が `index.html` の `lang` と突き合わせる）
+- `src/i18n/messages.ts`: `defineDictionary`（`ja` の辞書を作る）・`defineTranslation`（`en` の辞書を作る）・`defineMessages`（2 つをまとめる）・`useT`（部品の中で引く）
 - `en` にないキーは `ja` の文を出す。訳していない画面は、`English` を選んでも日本語のまま
 - テスト（vitest）は表示言語を `ja` にして動かす（`src/test/setup.ts`）。日本語の文で確かめてよい
 
@@ -35,21 +36,21 @@ This template provides a minimal setup to get React working in Vite with HMR and
 1 つの `i18n/` には 3 つのファイルを置く（`src/features/settings/i18n/` が見本）。
 
 ```ts
-// i18n/ja.ts: すべての文。`as const` を付ける（{n} の引数を型で確かめるため）
-import type { Dictionary } from '@/i18n/messages';
+// i18n/ja.ts: すべての文。defineDictionary で包む（文を string に広げずに残し、{n} の引数を型で確かめるため）
+import { defineDictionary } from '@/i18n/messages';
 
-export const ja = {
+export const ja = defineDictionary({
     'micButton.start': '録音を始める',
     'micButton.left': 'あと {n} 分',
-} as const satisfies Dictionary;
+});
 ```
 
 ```ts
-// i18n/en.ts: 訳した文だけ。まだ訳していないキーは書かない（ja の文を出す）。ja にないキーは型で止まる
+// i18n/en.ts: 訳した文だけ。まだ訳していないキーは書かない（ja の文を出す）
 import type { ja } from '@/features/recording/i18n/ja';
-import type { Translation } from '@/i18n/messages';
+import { defineTranslation } from '@/i18n/messages';
 
-export const en: Translation<typeof ja> = {};
+export const en = defineTranslation<typeof ja>()({});
 ```
 
 ```ts
@@ -60,6 +61,12 @@ import { defineMessages } from '@/i18n/messages';
 
 export const recordingMessages = defineMessages({ ja, en });
 ```
+
+型で止まるもの（`npx tsc -b`）:
+
+- `ja` を `defineDictionary` で包み忘れた（`as const` もない）辞書を `defineMessages` に渡した（文が `string` に広がると `{n}` を確かめられないため）
+- `en` に `ja` にないキーがある
+- `en` の文の `{}` が `ja` と違う（`'あと {n} 分'` に `'{m} min left'`・`'a few min left'` など）。エラーは「Type 'string' is not assignable to type 'never'」としてそのキーの行に出る
 
 ### キーの付け方
 
@@ -83,7 +90,8 @@ export function MicButton() {
 - 部品の中では `useT(<辞書>)` の `t` を使う。キーと引数は型で確かめる（ないキー・引数の抜け・引数の名前の打ち間違いは `npx tsc -b` で止まる）
 - React の外（ストア・トースト・`recordingMessages.ts` のような文を作る関数）では `<辞書>.t('キー')`。呼んだ時点の表示言語で引く
 - ファイルの一番上の定数（`const LABEL = '…'`）に入れた文は、読み込んだときの言語で固まる。定数にはキーを入れておき、出すときに `t` で引く（ラベルの一覧なら `{ value: 'ja', labelKey: 'xxx.ja' }` のようにする）
-- 引数は `{名前}` で書き、`t('キー', { 名前: 値 })` で埋める。英語で単数・複数を分けるなどで文の形が変わるときは、値を関数にしてよい（`(p: { n: number }) => \`${p.n} 件\``。`en` でも同じ引数の関数にする）
+- 引数は `{名前}` で書き、`t('キー', { 名前: 値 })` で埋める。`ja` は（今の文を移すときは）文字列のままにする
+- 英語で単数・複数を分けるなどで文の形が変わるときは、`en` だけ関数にしてよい。引数は `ja` の `{}` から決まる（`ja` が `'{n} 件'` なら `en` は `(p) => (p.n === 1 ? '1 item' : \`${p.n} items\`)`、`p`は`{ n: string | number }`）。`{}` のない文は関数にできない。`ja` を関数にしたキーは、`en` も同じ引数の関数にする
 - 文の途中にリンクや太字などの部品が入るときは、部品の前後で別のキーに分け、組み立ては部品の中でする
 - 言語の名前（`日本語`・`English`）のように、どの表示言語でも同じに出すものは辞書に入れない
 
