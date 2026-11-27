@@ -13,7 +13,7 @@ from remote_whisper.hub import Hub
 from remote_whisper.llm.ollama import OllamaClient
 from remote_whisper.materials.figures import clean_description
 from remote_whisper.settings import Settings, SettingsStore
-from remote_whisper.summary import final_summary_body
+from remote_whisper.summary import final_summary_body, live_summary
 from remote_whisper.summary import prompts as p
 from remote_whisper.summary.final_summary import FinalSummarizer, fallback_title
 from remote_whisper.summary.okf import first_sentence
@@ -205,3 +205,55 @@ def test_live_summary_and_its_title_use_the_summary_language(home, fake, setting
     assert ("in English" in summary["messages"][0]["content"]) is english
     assert ("in English" in title["messages"][0]["content"]) is english
     assert title["format"]["properties"]["title"]["maxLength"] == (50 if english else 15)
+
+
+def is_english(body):
+    return "Write a concise summary in English" in body["messages"][0]["content"]
+
+
+def two_live_runs(home, fake, monkeypatch, between):
+    """2 回の途中の要約。1 回目の区間（0〜20 秒）はそこで確定する。
+    between(h) は 2 回のあいだに呼ぶ。区間ごとの要約の本文と、回ごとの要約の頼みを返す"""
+    monkeypatch.setattr(live_summary, "CHUNK_CHARS", 60)
+
+    async def main():
+        h = Harness(home, fake)
+        h.settings.update({"ollama": {"summaryLanguage": "transcript"}})
+        fake.reply_for = lambda body: "- A" if "format" not in body else None
+        h.live.add_final(0.0, "一つ目の話題について話します。")
+        h.live.add_final(10.0, "まだ一つ目の話題の続きです。")
+        h.live.add_final(20.0, "二つ目の話題に移ります。")
+        await h.live.run()
+        first = [b for b in fake.bodies("/api/chat") if "format" not in b]
+        between(h)
+        fake.reply_for = lambda body: "- B" if "format" not in body else None
+        h.live.add_final(30.0, "Now we talk in English.")
+        await h.live.run()
+        await h.close()
+        second = [b for b in fake.bodies("/api/chat") if "format" not in b][len(first) :]
+        return [s.text for s in h.live.sections], first, second
+
+    return asyncio.run(main())
+
+
+def test_live_summary_follows_a_setting_changed_while_recording(home, fake, monkeypatch):
+    # 録音中に設定を変えたら、次の更新から変わる。確定した区間は書き直さない（#485）
+    def to_english(h):
+        h.settings.update({"ollama": {"summaryLanguage": "en"}})
+
+    sections, first, second = two_live_runs(home, fake, monkeypatch, to_english)
+    assert first and not any(is_english(b) for b in first)
+    assert second and all(is_english(b) for b in second)
+    assert sections == ["- A"]
+
+
+def test_live_summary_follows_the_language_decided_while_recording(home, fake, monkeypatch):
+    # 自動判定で録音中に言語が決まる（#483。SessionWriter.set_language がフロントマターと
+    # writer.meta.language を書き換える）と、「文字起こしと同じ」の途中の要約も次の更新から従う
+    def decided(h):
+        h.writer.meta.language = "en"
+
+    sections, first, second = two_live_runs(home, fake, monkeypatch, decided)
+    assert first and not any(is_english(b) for b in first)
+    assert second and all(is_english(b) for b in second)
+    assert sections == ["- A"]
