@@ -181,3 +181,10 @@ def test_does_not_drop_japanese_speech_that_has_english_phrases():
         "Thanks for watching は動画の最後によく出る言葉です",
     ):
         assert drop_reason(seg(text, ns=0.4, lp=-0.7)) is None, text
+
+
+def test_without_scores_drops_an_english_phrase_from_a_short_voice():
+    assert drop_reason(ov("Thanks for watching!", voiced=0.5)) == "short_phrase"
+    assert drop_reason(ov("Thanks for watching!"), voiced_sec=0.7) == "short_phrase"
+    assert drop_reason(ov("Thanks for watching!", voiced=1.5)) is None
+    assert drop_reason(ov("Thank you.", voiced=0.5)) is None

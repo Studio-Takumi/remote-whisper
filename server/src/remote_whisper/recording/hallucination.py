@@ -90,7 +90,7 @@ def _is_english_phrase(text: str) -> bool:
         return False
     for p in _ENGLISH_KEYS:
         rest = rest.replace(p, "")
-    return rest == "" and _english_key(text) != ""
+    return rest == ""
 
 
 def _is_phrase(text: str) -> bool:

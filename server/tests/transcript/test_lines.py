@@ -405,7 +405,12 @@ def en_sentences(text, step=0.3, gap=0.0, **kw):
         ("i.e.", False),
         ("U.S.", False),
         ("J.", False),
-        ("etc.", False),
+        ("No.", True),
+        ("wait…", True),
+        ("etc.", True),
+        ("p.m.", True),
+        ("“Yes.”", True),
+        ("end.)", True),
         ("hello", False),
         ("hello,", False),
         ("", False),
@@ -457,3 +462,51 @@ def test_english_is_cut_at_the_max_length():
     out = en_sentences(text)
     assert len(out) > 1
     assert all(len(s) <= lines.SPACED_LIMITS.max_chars + len("word ") for s in out)
+
+
+@pytest.mark.parametrize(
+    ("word", "next_word", "expected"),
+    [
+        ("No.", "5", False),
+        ("No.", "I", True),
+        ("no.", None, True),
+        ("So...", "I", False),
+        ("So...", "I'm", False),
+        ("So...", "i", False),
+        ("So…", "I", False),
+        ("So...", "Then", True),
+        ("So…", "Then", True),
+        ("So…", "It", True),
+        ("p.m.", "I", True),
+        ("So…", None, True),
+        ("wait…", "“Then", True),
+        ("etc.", "then", False),
+        ("etc.", "Then", True),
+        ("Inc.", "We", True),
+        ("Inc.", "and", False),
+        ("p.m.", "Then", True),
+        ("a.m.", "then", False),
+        ("Mr.", "Smith", False),
+        ("e.g.", "Smith", False),
+    ],
+)
+def test_ends_sentence_looks_at_the_next_word(word, next_word, expected):
+    assert lines.ends_sentence(word, "en", next_word) is expected
+
+
+def test_english_pauses_split_only_after_the_long_limit():
+    # 240 文字を超えたあとは、短い間（0.25 秒）でも区切る。超える前は区切らない
+    text = " ".join(["word"] * 60)  # 299 文字
+    out = en_sentences(text, step=0.3, gap=0.3)
+    assert len(out) == 2
+    assert len(out[0]) >= lines.SPACED_LIMITS.long_chars
+    assert len(out[0]) - len(" word") < lines.SPACED_LIMITS.long_chars
+    assert en_sentences(" ".join(["word"] * 40), step=0.3, gap=0.3) == [" ".join(["word"] * 40)]
+
+
+def test_english_hesitation_and_trailing_abbreviation():
+    assert en_sentences("So... I think we met at 5 p.m. Then we left. No. 5 is mine.") == [
+        "So... I think we met at 5 p.m.",
+        "Then we left.",
+        "No. 5 is mine.",
+    ]
