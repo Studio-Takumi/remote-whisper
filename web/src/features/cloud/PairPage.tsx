@@ -29,7 +29,7 @@ export function settled(request: PairRequest): View | null {
             : { kind: 'done', message: cloudMessages.t('pairPage.doneAlreadyRegistered', { host: request.hostName }) };
     }
     if (request.status === 'rejected') {
-        return { kind: 'done', message: cloudMessages.t('pairPage.errorRejectedOrCanceled') };
+        return { kind: 'done', message: cloudMessages.t('pairPage.doneRejectedOrCanceled') };
     }
     return null;
 }

@@ -62,7 +62,6 @@ export const ja = defineDictionary({
     'hostPicker.checkRegistered': '登録したので確かめる',
     'hostPicker.checking': 'ホストを確かめています…',
     'hostPicker.choose': 'ホストを選ぶ',
-    'hostPicker.errorTitle': 'ホストの選択',
     'hostPicker.loadFailed': 'ホストの一覧を読めませんでした: {error}',
     'hostPicker.noneApprove': '開いた画面で、トレイと同じコードが出ているのを確かめて承認する',
     'hostPicker.noneDescription': '文字起こしをする PC（ホスト）が、まだ登録されていません',
@@ -71,6 +70,7 @@ export const ja = defineDictionary({
     'hostPicker.noneTitle': 'PC を登録してください',
     'hostPicker.reload': '一覧を読み直す',
     'hostPicker.retry': 'もう一度',
+    'hostPicker.selectHost': 'ホストの選択',
 
     'hostsSection.empty': 'まだありません。PC のトレイの「クラウド版にログイン」から登録します',
     'hostsSection.hostName': 'ホストの名前',
@@ -83,8 +83,8 @@ export const ja = defineDictionary({
     'hostsSection.save': '保存',
     'hostsSection.title': 'ホスト（文字起こしをする PC）',
 
+    'loginButtons.logInWith': '{provider} でログイン',
     'loginButtons.loginFailed': 'ログインできませんでした。もう一度試してください',
-    'loginButtons.signInWith': '{provider} でログイン',
 
     'pairPage.approve': '承認する',
     'pairPage.askAfterHost': 'を {name} のアカウントに登録しますか？',
@@ -95,9 +95,9 @@ export const ja = defineDictionary({
     'pairPage.doneAlreadyRegistered': '{host} は登録済みです',
     'pairPage.doneRegistered': '{host} を登録しました。PC のトレイにも通知が出ます',
     'pairPage.doneRejected': '登録を拒否しました',
+    'pairPage.doneRejectedOrCanceled': 'この登録は拒否されたか、取り消されました',
     'pairPage.errorApprovedByOther':
         '{host} は、ほかのアカウントで承認されています。心当たりがなければ、PC のトレイから「クラウド版から外す」を選んでください',
-    'pairPage.errorRejectedOrCanceled': 'この登録は拒否されたか、取り消されました',
     'pairPage.loginFirst': 'ログインしてから、登録する PC を確かめます',
     'pairPage.noPcWarningFirst': 'この PC が手元にないなら',
     'pairPage.noPcWarningSecond': '承認しないでください',

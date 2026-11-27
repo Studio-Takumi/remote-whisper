@@ -65,7 +65,7 @@ export function HostPicker() {
     if (error) {
         return (
             <div className='flex flex-col gap-2' data-hosts='error'>
-                <h1 className='text-xl font-semibold'>{t('hostPicker.errorTitle')}</h1>
+                <h1 className='text-xl font-semibold'>{t('hostPicker.selectHost')}</h1>
                 <p role='alert' className='text-sm text-destructive'>
                     {t('hostPicker.loadFailed', { error })}
                 </p>

@@ -42,12 +42,12 @@ export function LoginButtons() {
             {PROVIDERS.map((p) =>
                 appAuthActive ? (
                     <Button key={p} variant='outline' disabled={busy} onClick={() => void start(p)}>
-                        {t('loginButtons.signInWith', { provider: PROVIDER_LABELS[p] })}
+                        {t('loginButtons.logInWith', { provider: PROVIDER_LABELS[p] })}
                     </Button>
                 ) : (
                     <Button key={p} variant='outline' asChild>
                         <a href={loginHref(p, { returnTo: location.pathname + location.search })}>
-                            {t('loginButtons.signInWith', { provider: PROVIDER_LABELS[p] })}
+                            {t('loginButtons.logInWith', { provider: PROVIDER_LABELS[p] })}
                         </a>
                     </Button>
                 ),
