@@ -5,6 +5,8 @@ import { HardDriveUploadIcon } from 'lucide-react';
 import { useAppStore } from '@/app/store';
 import { Button } from '@/components/ui/button';
 import { page, rememberHost, selectable, useHostsStore } from '@/features/cloud/hosts';
+import { recordingMessages } from '@/features/recording/i18n';
+import { useT } from '@/i18n/messages';
 
 // オフラインのホストがあるとき、一覧を読み直す間隔（オンラインになったら「切り替える」を押せるように）
 const RELOAD_HOSTS_MS = 30_000;
@@ -12,6 +14,7 @@ const RELOAD_HOSTS_MS = 30_000;
 // ほかのホストに届かなかった音声が残っているときの知らせ（クラウド版。#227。spec/cloud.md 10.6）。
 // 復旧はそのホストにつないだときで、外したホスト・ホスト不明のものはまとめて捨てられるようにする
 export function UnsentElsewhereAlert() {
+    const t = useT(recordingMessages);
     const elsewhere = useAppStore((s) => s.unsentElsewhere);
     const idle = useAppStore((s) => s.recordingState === 'idle');
     const discard = useAppStore((s) => s.discardUnsentElsewhere);
@@ -48,27 +51,32 @@ export function UnsentElsewhereAlert() {
                     key={id}
                     hostId={id}
                     text={
-                        host ? `${host.name} に届かなかった録音があります` : 'ほかのホストに届かなかった録音があります'
+                        host
+                            ? t('unsentElsewhereAlert.unsentOnHost', { host: host.name })
+                            : t('unsentElsewhereAlert.unsentOnOtherHost')
                     }
                 >
                     {host && !selectable(host) ? (
-                        <span className='flex items-center gap-2' title={`${host.name} はオフラインです`}>
-                            <span className='text-xs text-muted-foreground'>オフラインです</span>
+                        <span
+                            className='flex items-center gap-2'
+                            title={t('unsentElsewhereAlert.offlineTitle', { host: host.name })}
+                        >
+                            <span className='text-xs text-muted-foreground'>{t('unsentElsewhereAlert.offline')}</span>
                             <Button size='sm' variant='outline' disabled>
-                                切り替える
+                                {t('unsentElsewhereAlert.switch')}
                             </Button>
                         </span>
                     ) : (
                         <Button size='sm' variant='outline' onClick={() => switchTo(id)}>
-                            切り替える
+                            {t('unsentElsewhereAlert.switch')}
                         </Button>
                     )}
                 </Alert>
             ))}
             {gone.length > 0 && (
-                <Alert hostId='gone' text='外したホストに届かなかった録音があります'>
+                <Alert hostId='gone' text={t('unsentElsewhereAlert.removedHost')}>
                     <Button size='sm' variant='outline' onClick={() => void discard(gone)}>
-                        捨てる
+                        {t('common.discard')}
                     </Button>
                 </Alert>
             )}

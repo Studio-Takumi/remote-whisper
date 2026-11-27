@@ -10,6 +10,7 @@ import { getHostId } from '@/api/endpoint';
 import type { ServerMessage } from '@/api/protocol';
 import type { AppStore } from '@/app/appState';
 import { listUnsent } from '@/features/recording/audio/unsentStore';
+import { recordingMessages } from '@/features/recording/i18n';
 import type { Recorder } from '@/features/recording/recorderState';
 
 const KEY = 'rw.recordingSessions';
@@ -175,9 +176,12 @@ export class ClosedRecordings {
         forget(session);
         this.retries.delete(session);
         if (reply.type === 'interrupted' && reply.result === 'interrupted') {
-            toast.error('閉じる前に録音していたセッションを、途中で終わりにしました。そこまでの録音は残っています', {
+            toast.error(recordingMessages.t('closedRecordings.interrupted'), {
                 duration: 15000,
-                action: { label: '続きから録音', onClick: () => void this.store.getState().continueRecording(session) },
+                action: {
+                    label: recordingMessages.t('common.continueRecording'),
+                    onClick: () => void this.store.getState().continueRecording(session),
+                },
             });
         }
     }
