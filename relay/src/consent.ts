@@ -1,5 +1,6 @@
 // 初回の同意（#162）: 利用規約の版と、データ収集の許可。仕様書 spec/cloud.md 10.7・10.11 節
-import { TOO_LARGE, error, json, readJsonLimited } from './http';
+import { apiError } from './errors';
+import { TOO_LARGE, json, readJsonLimited } from './http';
 import type { Env } from './index';
 
 // 今の利用規約の版。改定しても同意は取り直さない（users.tos_version が null のときだけ同意を求める）
@@ -58,13 +59,13 @@ function insertConsent(
 export async function postConsent(request: Request, env: Env, userId: string): Promise<Response> {
     const body = await readBody(request);
     if (body === TOO_LARGE) {
-        return error(413, '大きすぎます');
+        return apiError(413, 'request.tooLarge');
     }
     if (!body || typeof body.tosVersion !== 'string' || typeof body.dataCollection !== 'boolean') {
-        return error(400, 'tosVersion（文字列）と dataCollection（真偽値）が必要です');
+        return apiError(400, 'consent.badRequest');
     }
     if (body.tosVersion !== TOS_VERSION) {
-        return error(409, '利用規約の版が変わりました。画面を開き直してください');
+        return apiError(409, 'consent.termsChanged');
     }
     const now = Date.now();
     // 初回だけ（tos_version が null のとき）。consents の追記は、tos_version を入れる UPDATE より前に
@@ -78,7 +79,7 @@ export async function postConsent(request: Request, env: Env, userId: string): P
         ),
     ]);
     if (results[2].meta.changes === 0) {
-        return error(409, 'すでに同意済みです');
+        return apiError(409, 'consent.alreadyAgreed');
     }
     return json({ ok: true });
 }
@@ -87,16 +88,16 @@ export async function postConsent(request: Request, env: Env, userId: string): P
 export async function putDataCollection(request: Request, env: Env, userId: string): Promise<Response> {
     const body = await readBody(request);
     if (body === TOO_LARGE) {
-        return error(413, '大きすぎます');
+        return apiError(413, 'request.tooLarge');
     }
     if (!body || typeof body.granted !== 'boolean') {
-        return error(400, 'granted（真偽値）が必要です');
+        return apiError(400, 'dataCollection.badRequest');
     }
     const user = await env.DB.prepare('SELECT tos_version FROM users WHERE id = ?')
         .bind(userId)
         .first<{ tos_version: string | null }>();
     if (!user?.tos_version) {
-        return error(409, '先に利用規約に同意してください');
+        return apiError(409, 'consent.required');
     }
     await insertConsent(env, userId, 'data_collection', body.granted, DATA_COLLECTION_VERSION, Date.now()).run();
     return json({ ok: true, dataCollection: body.granted });

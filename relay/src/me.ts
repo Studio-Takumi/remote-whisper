@@ -2,6 +2,7 @@
 import { issueTicket, listDevices, removeDevice } from './appAuth';
 import { currentUser } from './auth';
 import { PRIVACY_URL, TERMS_URL, TOS_VERSION, dataCollectionGranted, postConsent, putDataCollection } from './consent';
+import { apiError } from './errors';
 import { type SessionUser, TOO_LARGE, clearSessionCookie, error, json, readJsonLimited, writeAllowed } from './http';
 import type { Env } from './index';
 import { PROVIDERS } from './providers';
@@ -11,7 +12,7 @@ import { type HostTunnel, deleteTunnel, deleteUserTunnels, tunnelOnline } from '
 export async function handleMe(request: Request, env: Env, path: string): Promise<Response> {
     const user = await currentUser(request, env);
     if (!user) {
-        return error(401, 'ログインしてください');
+        return apiError(401, 'login.required');
     }
     // 状態を変えるものは、Cookie なら同じオリジンの画面からだけ（CSRF の対策。アプリのトークンは勝手に付かないので要らない）
     if (request.method !== 'GET' && !writeAllowed(request, user)) {
@@ -94,23 +95,25 @@ async function hosts(env: Env, userId: string): Promise<Response> {
     });
 }
 
+const MAX_HOST_NAME = 64;
+
 // ホストの名前を変える（#161）。PC 名と同じく、制御文字と書式の文字を除いて 1〜64 文字
 async function renameHost(request: Request, env: Env, userId: string, hostId: string): Promise<Response> {
     // 名前は 64 文字まで。\uXXXX で書いても 400 バイト足らず、取り除かれる制御文字を混ぜても 1KB あれば足りる
     const raw = await readJsonLimited(request, 1024);
     if (raw === TOO_LARGE) {
-        return error(413, '大きすぎます');
+        return apiError(413, 'request.tooLarge');
     }
     const data = (raw ?? null) as { name?: unknown } | null;
     const name = typeof data?.name === 'string' ? data.name.replace(/[\p{Cc}\p{Cf}]/gu, '').trim() : '';
-    if (name.length === 0 || name.length > 64) {
-        return error(400, '名前は 1〜64 文字にしてください');
+    if (name.length === 0 || name.length > MAX_HOST_NAME) {
+        return apiError(400, 'host.badName', { max: MAX_HOST_NAME });
     }
     const res = await env.DB.prepare('UPDATE hosts SET name = ? WHERE id = ? AND user_id = ?')
         .bind(name, hostId, userId)
         .run();
     if (res.meta.changes === 0) {
-        return error(404, 'そのホストはありません');
+        return apiError(404, 'host.notFound');
     }
     return hosts(env, userId);
 }
@@ -121,7 +124,7 @@ async function removeHost(env: Env, userId: string, hostId: string): Promise<Res
         .bind(hostId, userId)
         .first<HostTunnel>();
     if (!host) {
-        return error(404, 'そのホストはありません');
+        return apiError(404, 'host.notFound');
     }
     await deleteTunnel(env, host);
     // 同じトランザクションで消す。申請の行は、そのユーザーが承認したものだけ
@@ -137,7 +140,7 @@ async function me(env: Env, userId: string): Promise<Response> {
         .bind(userId)
         .first<{ id: string; display_name: string; tos_version: string | null }>();
     if (!user) {
-        return error(401, 'ログインしてください');
+        return apiError(401, 'login.required');
     }
     const identities = await env.DB.prepare(
         'SELECT id, provider, email, display_name, created_at FROM auth_identities WHERE user_id = ? ORDER BY created_at',
@@ -179,7 +182,7 @@ async function removeIdentity(env: Env, user: SessionUser, identityId: string): 
         .bind(userId)
         .first<{ n: number }>();
     if ((count?.n ?? 0) <= 1) {
-        return error(409, '最後のログイン手段は外せません');
+        return apiError(409, 'loginMethod.lastOne');
     }
     // 同時に 2 つ外されても 0 にならないよう、数えるのと消すのを 1 つの文にする
     const res = await env.DB.prepare(
@@ -189,7 +192,7 @@ async function removeIdentity(env: Env, user: SessionUser, identityId: string): 
         .bind(identityId, userId)
         .run();
     if (res.meta.changes === 0) {
-        return error(404, 'そのログイン手段はありません');
+        return apiError(404, 'loginMethod.notFound');
     }
     // 外した手段で入った人（盗んだ人）を締め出すため、今の端末以外のログインセッションを消す（#250）。
     // 今の端末は、操作している本人なので残す（アプリの端末も同じ。#441）

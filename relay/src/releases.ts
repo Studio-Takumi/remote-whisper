@@ -3,6 +3,7 @@
 //
 // 確かめに来るたびに、Analytics Engine に 1 行書く（ホストの版とホストの ID だけ。spec/cloud.md 10.9）。
 // 国など cf 由来の値・IP アドレスは書かない。形の違うものは書かない（応答は返す）。書けなくても応答は止めない
+import { apiError } from './errors';
 import { json } from './http';
 import type { Env } from './index';
 
@@ -31,7 +32,7 @@ export function latestFromAppVersion(appVersion: string | undefined): LatestRele
 
 function latestRelease(env: Env): Response {
     const latest = latestFromAppVersion(env.APP_VERSION);
-    return latest ? json(latest) : json({ detail: 'リリースがありません' }, 404);
+    return latest ? json(latest) : apiError(404, 'release.notFound');
 }
 
 export type UpdateCheckDataPoint = { blobs: string[]; doubles: number[]; indexes: string[] };

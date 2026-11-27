@@ -3,7 +3,8 @@
 //
 // - 書くもの: 許可リストの数値・真偽・決まった形の文字列だけ。知らない項目は捨てる
 // - 書かないもの: 音声、文字起こし・要約・タイトル・用語の本文、プロジェクト名・ファイル名、error の文面、セッション ID、IP アドレス
-import { error, readLimited } from './http';
+import { apiError } from './errors';
+import { readLimited } from './http';
 import type { Env } from './index';
 import { browserOf, osOf } from './metrics';
 
@@ -180,10 +181,10 @@ async function allowed(env: Env, userId: string): Promise<boolean> {
 export async function postRecordingMetrics(request: Request, env: Env, userId: string): Promise<Response> {
     const bytes = await readLimited(request, MAX_BODY_BYTES);
     if (bytes === null) {
-        return error(413, '大きすぎます');
+        return apiError(413, 'request.tooLarge');
     }
     if (!(await allowed(env, userId))) {
-        return error(429, '送りすぎです。しばらくしてからにしてください');
+        return apiError(429, 'request.tooMany');
     }
     let body: unknown;
     try {

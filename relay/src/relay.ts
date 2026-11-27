@@ -10,6 +10,7 @@
 //   fetch の応答（101）をそのまま返す
 import { takeTicket, ticketUser } from './appAuth';
 import { currentUser } from './auth';
+import { apiError } from './errors';
 import { base64url, error, writeAllowed } from './http';
 import type { Env } from './index';
 
@@ -88,7 +89,7 @@ export async function handleHostRelay(request: Request, env: Env, path: string):
             ? await currentUser(request, env)
             : await ticketUser(request, env, ticket, hostId, hostPath, websocket);
     if (!user) {
-        return error(401, 'ログインしてください');
+        return apiError(401, 'login.required');
     }
     if ((websocket || !['GET', 'HEAD'].includes(request.method)) && !writeAllowed(request, user)) {
         return error(403, 'Forbidden');
@@ -98,10 +99,10 @@ export async function handleHostRelay(request: Request, env: Env, path: string):
         .first<{ relay_key: string | null; tunnel_hostname: string | null }>();
     if (!host) {
         // 他人のホスト・解除したホスト。あるかないかも教えない
-        return error(403, 'このホストにはつなげません');
+        return apiError(403, 'host.forbidden');
     }
     if (!host.relay_key || !host.tunnel_hostname || !TUNNEL_HOSTNAME.test(host.tunnel_hostname)) {
-        return error(503, 'ホストのトンネルがまだできていません');
+        return apiError(503, 'tunnel.notReady');
     }
     const target = `https://${host.tunnel_hostname}${hostPath}${search}`;
     const headers = new Headers();
@@ -119,7 +120,7 @@ export async function handleHostRelay(request: Request, env: Env, path: string):
         );
     } catch {
         // 中継の鍵が壊れている（base64url として読めない）
-        return error(503, 'ホストの中継の鍵が読めません。登録し直してください');
+        return apiError(503, 'tunnel.keyUnreadable');
     }
     const init: RequestInit = { method: request.method, headers, redirect: 'manual' };
     if (!['GET', 'HEAD'].includes(request.method)) {
@@ -129,7 +130,7 @@ export async function handleHostRelay(request: Request, env: Env, path: string):
     try {
         res = await fetch(target, init);
     } catch {
-        return error(502, 'ホストにつながりません（PC が起動しているか確かめてください）');
+        return apiError(502, 'host.unreachable');
     }
     const headersOut = safeResponseHeaders(res);
     if (res.status === 101 && res.webSocket) {

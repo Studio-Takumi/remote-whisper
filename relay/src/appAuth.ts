@@ -9,6 +9,7 @@
 //
 // トークンの認可はここで終わらせる。ホストに渡すのは今まで通り署名（X-RW-Relay）だけ（relay.ts）
 import { isAppOrigin } from './appOrigin';
+import { apiError } from './errors';
 import {
     type SessionUser,
     TOO_LARGE,
@@ -127,7 +128,7 @@ export async function handleAppToken(request: Request, env: Env): Promise<Respon
     }
     const raw = await readJsonLimited(request, 2048);
     if (raw === TOO_LARGE) {
-        return error(413, '大きすぎます');
+        return apiError(413, 'request.tooLarge');
     }
     const data = (raw ?? {}) as Record<string, unknown>;
     const now = Date.now();
@@ -137,14 +138,14 @@ export async function handleAppToken(request: Request, env: Env): Promise<Respon
     if (data.grantType === 'refresh_token') {
         return refresh(env, data, now);
     }
-    return error(400, 'grantType が違います');
+    return apiError(400, 'appToken.badGrantType');
 }
 
 async function exchangeCode(env: Env, data: Record<string, unknown>, now: number): Promise<Response> {
     const code = typeof data.code === 'string' ? data.code : '';
     const verifier = typeof data.codeVerifier === 'string' ? data.codeVerifier : '';
     if (!TOKEN.test(code) || !VERIFIER.test(verifier)) {
-        return error(400, 'ログインをやり直してください');
+        return apiError(400, 'login.retry');
     }
     // コードは一度だけ（読んだら消す。verifier が違っても消す）
     const row = await env.DB.prepare('DELETE FROM app_auth_codes WHERE code_hash = ? RETURNING *')
@@ -152,7 +153,7 @@ async function exchangeCode(env: Env, data: Record<string, unknown>, now: number
         .first<{ user_id: string; code_challenge: string; expires_at: number }>();
     const challenge = base64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
     if (!row || row.expires_at <= now || !sameString(challenge, row.code_challenge)) {
-        return error(400, 'ログインをやり直してください');
+        return apiError(400, 'login.retry');
     }
     const { tokens, accessHash, refreshHash } = await newTokens(now);
     await env.DB.batch([
@@ -182,7 +183,7 @@ async function exchangeCode(env: Env, data: Record<string, unknown>, now: number
 async function refresh(env: Env, data: Record<string, unknown>, now: number): Promise<Response> {
     const token = typeof data.refreshToken === 'string' ? data.refreshToken : '';
     if (!TOKEN.test(token)) {
-        return error(401, 'ログインしてください');
+        return apiError(401, 'login.required');
     }
     const { tokens, accessHash, refreshHash } = await newTokens(now);
     // 替えるのと確かめるのを 1 つの文にする（同じ更新トークンで 2 回替えられない）
@@ -193,7 +194,7 @@ async function refresh(env: Env, data: Record<string, unknown>, now: number): Pr
         .bind(accessHash, tokens.accessExpiresAt, refreshHash, tokens.refreshExpiresAt, now, await sha256(token), now)
         .first<{ id: string }>();
     if (!row) {
-        return error(401, 'ログインしてください');
+        return apiError(401, 'login.required');
     }
     return json(tokens);
 }
@@ -205,7 +206,7 @@ export async function handleAppLogout(request: Request, env: Env): Promise<Respo
     }
     const raw = await readJsonLimited(request, 1024);
     if (raw === TOO_LARGE) {
-        return error(413, '大きすぎます');
+        return apiError(413, 'request.tooLarge');
     }
     const token = (raw as { refreshToken?: unknown } | null)?.refreshToken;
     if (typeof token === 'string' && TOKEN.test(token)) {
@@ -315,11 +316,11 @@ export function takeTicket(search: string): { ticket: string | null; rest: strin
 // POST /me/tickets（アプリのトークンでだけ）。本文は { hostId, kind: 'ws' | 'media', path }
 export async function issueTicket(request: Request, env: Env, user: SessionUser): Promise<Response> {
     if (user.kind !== 'app') {
-        return error(403, 'アプリからだけ使えます');
+        return apiError(403, 'appTicket.appOnly');
     }
     const raw = await readJsonLimited(request, 1024);
     if (raw === TOO_LARGE) {
-        return error(413, '大きすぎます');
+        return apiError(413, 'request.tooLarge');
     }
     const data = (raw ?? {}) as { hostId?: unknown; kind?: unknown; path?: unknown };
     const hostId = typeof data.hostId === 'string' ? data.hostId : '';
@@ -327,13 +328,13 @@ export async function issueTicket(request: Request, env: Env, user: SessionUser)
     const kind = data.kind;
     const pathOk = kind === 'ws' ? path === '/ws' : kind === 'media' ? MEDIA_PATH.test(path) : false;
     if (!HOST_ID.test(hostId) || !pathOk) {
-        return error(400, 'チケットの形が違います');
+        return apiError(400, 'appTicket.invalid');
     }
     const host = await env.DB.prepare('SELECT id FROM hosts WHERE id = ? AND user_id = ?')
         .bind(hostId, user.userId)
         .first();
     if (!host) {
-        return error(403, 'このホストにはつなげません');
+        return apiError(403, 'host.forbidden');
     }
     const ticket = randomToken();
     const now = Date.now();
@@ -378,7 +379,7 @@ export async function removeDevice(env: Env, user: SessionUser, id: string): Pro
         .bind(id, user.userId)
         .run();
     if (res.meta.changes === 0) {
-        return error(404, 'その端末はありません');
+        return apiError(404, 'device.notFound');
     }
     return listDevices(env, user);
 }

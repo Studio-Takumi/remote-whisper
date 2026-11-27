@@ -9,6 +9,7 @@
 // - GET /pair/request?code=: 確認の画面に出す申請（PC 名など）
 // - POST /pair/approve・/pair/reject {code}: 承認・拒否。承認したときに hosts に入れる
 import { currentUser } from './auth';
+import { apiError } from './errors';
 import { base64url, error, json, randomToken, readLimited, sha256, writeAllowed } from './http';
 import type { Env } from './index';
 import { type HostTunnel, MAX_HOSTS_PER_USER, TunnelUnavailable, deleteTunnel, ensureTunnel } from './tunnel';
@@ -449,7 +450,7 @@ async function tunnel(request: Request, env: Env): Promise<Response> {
 async function fromBrowser(request: Request, env: Env, path: string): Promise<Response> {
     const user = await currentUser(request, env);
     if (!user) {
-        return error(401, 'ログインしてください');
+        return apiError(401, 'login.required');
     }
     if (request.method !== 'GET' && !writeAllowed(request, user)) {
         return error(403, 'Forbidden');
@@ -463,7 +464,7 @@ async function fromBrowser(request: Request, env: Env, path: string): Promise<Re
         code = normalizeCode(typeof data?.code === 'string' ? data.code : null);
     }
     if (!code) {
-        return error(400, '登録コードの形が違います');
+        return apiError(400, 'pairing.badCode');
     }
     const codeHash = await sha256(code);
     const now = Date.now();
@@ -482,7 +483,7 @@ async function fromBrowser(request: Request, env: Env, path: string): Promise<Re
                 client_country: string | null;
             }>();
         if (!row) {
-            return error(404, '登録の申請が見つかりません（期限が切れたかもしれません）');
+            return apiError(404, 'pairing.notFoundMaybeExpired');
         }
         return json({
             code,
@@ -503,14 +504,14 @@ async function fromBrowser(request: Request, env: Env, path: string): Promise<Re
         )
             .bind(user.userId, codeHash, now)
             .run();
-        return res.meta.changes ? json({ ok: true }) : error(404, '登録の申請が見つかりません');
+        return res.meta.changes ? json({ ok: true }) : apiError(404, 'pairing.notFound');
     }
     // ホストは 1 人 MAX_HOSTS_PER_USER 台まで（#166。トンネルと DNS のレコードを際限なく作らせない）
     const owned = await env.DB.prepare('SELECT COUNT(*) AS n FROM hosts WHERE user_id = ?')
         .bind(user.userId)
         .first<{ n: number }>();
     if ((owned?.n ?? 0) >= MAX_HOSTS_PER_USER) {
-        return error(409, `ホストは ${MAX_HOSTS_PER_USER} 台まで登録できます。使っていないホストを外してください`);
+        return apiError(409, 'host.tooMany', { max: MAX_HOSTS_PER_USER });
     }
     // 承認: hosts に入れて、申請を承認済みにする（同じトランザクション。台数の確かめも同じ文で、同時の承認でも超えない）
     const relayKey = randomToken(32);
@@ -535,9 +536,9 @@ async function fromBrowser(request: Request, env: Env, path: string): Promise<Re
             .bind(user.userId)
             .first<{ n: number }>();
         if ((after?.n ?? 0) >= MAX_HOSTS_PER_USER) {
-            return error(409, `ホストは ${MAX_HOSTS_PER_USER} 台まで登録できます。使っていないホストを外してください`);
+            return apiError(409, 'host.tooMany', { max: MAX_HOSTS_PER_USER });
         }
-        return error(404, '登録の申請が見つかりません');
+        return apiError(404, 'pairing.notFound');
     }
     const host = await env.DB.prepare('SELECT host_id, host_name FROM pairing_requests WHERE code_hash = ?')
         .bind(codeHash)
