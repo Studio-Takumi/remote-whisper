@@ -1,11 +1,13 @@
 import { toast } from 'sonner';
 
+import { setupMessages } from '@/features/setup/i18n';
 import { type SetupStatus, type WhisperFlags, missingSteps, needsCudaEdition } from '@/features/setup/setup';
 import { GpuStep } from '@/features/setup/steps/GpuStep';
 import { LlmStep } from '@/features/setup/steps/LlmStep';
 import { ModelsStep } from '@/features/setup/steps/ModelsStep';
 import { TokenStep } from '@/features/setup/steps/TokenStep';
 import { WhisperXStep } from '@/features/setup/steps/WhisperXStep';
+import { useT } from '@/i18n/messages';
 
 // 足りないものを順に並べる（設定の「セットアップ」と、初回の「はじめに」で同じもの）
 export function SetupGuide({
@@ -19,6 +21,7 @@ export function SetupGuide({
     onRefresh: () => Promise<void>;
     settings: WhisperFlags;
 }) {
+    const t = useT(setupMessages);
     const missing = missingSteps(status, settings);
     // クラウド版（トンネル）からは見るだけ
     const locked = status.remote;
@@ -27,7 +30,7 @@ export function SetupGuide({
         try {
             onStatus(await call());
         } catch (e) {
-            toast.error(e instanceof Error ? e.message : 'できませんでした');
+            toast.error(e instanceof Error ? e.message : t('setupGuide.failed'));
             void onRefresh();
         }
     }
@@ -36,12 +39,10 @@ export function SetupGuide({
         <div className='flex flex-col gap-3'>
             {locked ? (
                 <p className='rounded-md border border-amber-300 bg-amber-50 p-2 text-xs text-amber-800 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-300'>
-                    クラウド版からは見るだけです。ホストで直接開いた画面から操作してください
+                    {t('setupGuide.cloudReadOnly')}
                 </p>
             ) : (
-                <p className='text-xs text-muted-foreground'>
-                    どれも飛ばせます（文字起こしはそのまま使えます）。ボタンを押した時点で実行します
-                </p>
+                <p className='text-xs text-muted-foreground'>{t('setupGuide.skippable')}</p>
             )}
             {status.gpu === 'none' && <GpuStep />}
             {needsCudaEdition(status) && <GpuStep wrongEdition />}
