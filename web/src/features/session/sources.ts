@@ -80,7 +80,7 @@ export function sourceKindLabel(kind: SessionSource['kind'], uploaded: boolean) 
 }
 
 const LIVE_STATE_KEYS = {
-    active: 'sources.stateActive',
+    active: 'sources.stateConnected',
     disconnected: 'sources.stateDisconnected',
     left: 'sources.stateLeft',
 } as const;

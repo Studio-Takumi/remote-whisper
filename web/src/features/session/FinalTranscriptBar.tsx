@@ -52,7 +52,7 @@ export function FinalTranscriptBar({ session, making }: { session: Session; maki
             onClick={() => void regenerate(session.id)}
         >
             <RefreshCwIcon />
-            {t(final ? 'finalTranscriptBar.regenerate' : 'finalTranscriptBar.transcribe', { model: whisperModel })}
+            {t(final ? 'common.regenerate' : 'finalTranscriptBar.polish', { model: whisperModel })}
         </Button>
     );
     const locked = regenerateButton && recording && (
@@ -62,7 +62,7 @@ export function FinalTranscriptBar({ session, making }: { session: Session; maki
         <StatusIndicator
             status={{
                 tone: 'active',
-                text: final ? t('finalTranscriptBar.makingAgain') : t('finalTranscriptBar.making'),
+                text: final ? t('finalTranscriptBar.repolishing') : t('finalTranscriptBar.polishing'),
             }}
         />
     );
@@ -100,7 +100,7 @@ export function FinalTranscriptBar({ session, making }: { session: Session; maki
                         <SelectTrigger
                             size='sm'
                             className='text-xs'
-                            aria-label={t('finalTranscriptBar.generationPicker')}
+                            aria-label={t('finalTranscriptBar.polishedTranscriptPicker')}
                         >
                             <SelectValue />
                         </SelectTrigger>
@@ -114,18 +114,18 @@ export function FinalTranscriptBar({ session, making }: { session: Session; maki
                     </Select>
                 ) : (
                     <span className='text-xs text-muted-foreground'>
-                        {t('finalTranscriptBar.generationLabel', { label: label(final) })}
+                        {t('finalTranscriptBar.polishedTranscriptLabel', { label: label(final) })}
                     </span>
                 )}
                 {regenerateButton}
             </div>
             {final.model !== whisperModel && (
                 <p className='text-xs text-muted-foreground'>
-                    {t('finalTranscriptBar.notYetForModel', { model: whisperModel })}
+                    {t('finalTranscriptBar.polishedTranscriptMissing', { model: whisperModel })}
                 </p>
             )}
             {final.diarization === 'unavailable' && (
-                <p className='text-xs text-muted-foreground'>{t('finalTranscriptBar.diarizationUnavailable')}</p>
+                <p className='text-xs text-muted-foreground'>{t('finalTranscriptBar.speakerLabelingUnavailable')}</p>
             )}
             {noRecording}
             {locked}

@@ -103,7 +103,7 @@ export function SummaryPanel({
                 onClick={() => void regenerate(session.id)}
             >
                 <RefreshCwIcon />
-                {t(summary ? 'summaryPanel.regenerate' : 'summaryPanel.create', { model: finalModel })}
+                {t(summary ? 'common.regenerate' : 'summaryPanel.create', { model: finalModel })}
             </Button>
             {recording && <p className='text-xs text-muted-foreground'>{recordingLocks.regenerate}</p>}
         </div>
@@ -202,7 +202,7 @@ export function SummaryPanel({
                         }
                     >
                         <CopyIcon />
-                        {t('summaryPanel.copy')}
+                        {t('common.copy')}
                     </Button>
                 )}
                 {summary.text && <ShareButton source={shareSource(session, summary.text)} initial='summary' />}

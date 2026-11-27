@@ -112,7 +112,7 @@ export function SessionTerms({ session, showPicked }: { session: Session; showPi
                 <div className='flex flex-wrap items-center gap-1.5'>
                     <span className='flex items-center gap-1 text-muted-foreground'>
                         <ArrowRightLeftIcon className='size-3.5' />
-                        {t('sessionTerms.corrections')}
+                        {t('sessionTerms.replacements')}
                     </span>
                     {corrections.map((c) => (
                         <span
@@ -122,8 +122,8 @@ export function SessionTerms({ session, showPicked }: { session: Session; showPi
                             {describeCorrection(c)}
                             <button
                                 className='rounded-full p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground'
-                                aria-label={t('sessionTerms.correctionRemove', { from: c.from, to: c.to })}
-                                title={t('sessionTerms.correctionRemoveTitle')}
+                                aria-label={t('sessionTerms.replacementRemove', { from: c.from, to: c.to })}
+                                title={t('sessionTerms.replacementRemoveTitle')}
                                 onClick={() => void removeCorrection(session.id, c)}
                             >
                                 <XIcon className='size-3' />

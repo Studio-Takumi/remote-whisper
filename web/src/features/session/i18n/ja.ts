@@ -2,6 +2,9 @@ import { defineDictionary } from '@/i18n/messages';
 
 // セッション（features/session/）の文（日本語）。キーは「ファイル名.役割」（web/README.md の「表示言語（i18n）」）
 export const ja = defineDictionary({
+    'common.copy': 'コピー',
+    'common.regenerate': '{model} で再生成する',
+
     'corrections.lineOnlyFinal': '（浄書の {n} 行目だけ）',
     'corrections.lineOnlyLive': '（リアルタイムの {n} 行目だけ）',
     'corrections.maxChars': '{n} 文字までにしてください',
@@ -15,16 +18,15 @@ export const ja = defineDictionary({
     'emptyState.titleNoProjects': 'まずはプロジェクトを作りましょう',
     'emptyState.titleWithProjects': 'セッションを開くか、新しく録音しましょう',
 
-    'finalTranscriptBar.diarizationUnavailable':
-        '話者分けはできませんでした（HuggingFace のトークンまたはモデルの利用条件への同意がありません）',
-    'finalTranscriptBar.generationLabel': '浄書済み文字起こし（{label}）',
-    'finalTranscriptBar.generationPicker': '表示する浄書済み文字起こし',
-    'finalTranscriptBar.making': '浄書中…',
-    'finalTranscriptBar.makingAgain': '浄書済み文字起こしを再生成しています…',
     'finalTranscriptBar.noRecording': '録音ファイルがないため、再生成できません',
-    'finalTranscriptBar.notYetForModel': '{model} の浄書済み文字起こしはまだありません',
-    'finalTranscriptBar.regenerate': '{model} で再生成する',
-    'finalTranscriptBar.transcribe': '{model} で浄書する',
+    'finalTranscriptBar.polish': '{model} で浄書する',
+    'finalTranscriptBar.polishedTranscriptLabel': '浄書済み文字起こし（{label}）',
+    'finalTranscriptBar.polishedTranscriptMissing': '{model} の浄書済み文字起こしはまだありません',
+    'finalTranscriptBar.polishedTranscriptPicker': '表示する浄書済み文字起こし',
+    'finalTranscriptBar.polishing': '浄書中…',
+    'finalTranscriptBar.repolishing': '浄書済み文字起こしを再生成しています…',
+    'finalTranscriptBar.speakerLabelingUnavailable':
+        '話者分けはできませんでした（HuggingFace のトークンまたはモデルの利用条件への同意がありません）',
 
     'lineText.speaker': '話者 {n}',
 
@@ -53,21 +55,21 @@ export const ja = defineDictionary({
     'regenerateActions.summaryExpired': '文字起こしが期限切れのため、再生成できません',
     'regenerateActions.summaryFailed': '要約を再生成できません: {message}',
 
-    'sessionHeader.fromAudioFile': '音声ファイルから作成',
     'sessionHeader.continueRecording': '続きから録音',
+    'sessionHeader.fromAudioFile': '音声ファイルから作成',
     'sessionHeader.interrupted': '・途中で中断',
     'sessionHeader.provisionalTitle': '（仮のタイトル）',
     'sessionHeader.recording': '・録音中',
     'sessionHeader.watched': '・{state}',
     'sessionHeader.watchedViewOnly': '・{state}（この端末では閲覧専用です）',
 
-    'sessionTerms.correctionRemove': '置き換え「{from} → {to}」を外す',
-    'sessionTerms.correctionRemoveTitle': '外す（以後は当たらない。もう直した行は戻さない）',
-    'sessionTerms.corrections': '置き換え',
     'sessionTerms.failedCount': '足せませんでした（{n} 語）',
     'sessionTerms.manualRemoveTitle': '手で足した語を外す',
     'sessionTerms.pickedRemoveTitle': '誤った語なら外す（このセッションでは、以後足さない）',
     'sessionTerms.reflectAfterRegenerate': '浄書済み文字起こしを再生成すると反映されます',
+    'sessionTerms.replacementRemove': '置き換え「{from} → {to}」を外す',
+    'sessionTerms.replacementRemoveTitle': '外す（以後は当たらない。もう直した行は戻さない）',
+    'sessionTerms.replacements': '置き換え',
     'sessionTerms.termAdd': '用語を足す',
     'sessionTerms.termRemove': '「{term}」を用語リストから外す',
     'sessionTerms.terms': '用語',
@@ -87,7 +89,6 @@ export const ja = defineDictionary({
     'share.transcriptHeading': '文字起こし',
 
     'shareButton.copied': 'コピーしました',
-    'shareButton.copy': 'コピー',
     'shareButton.copyFailed': 'コピーできませんでした',
     'shareButton.description': 'ChatGPT などほかのアプリに渡します',
     'shareButton.descriptionNoShare': 'この画面では共有機能を使えないので、コピーかダウンロードで渡してください',
@@ -98,29 +99,28 @@ export const ja = defineDictionary({
     'shareButton.share': '共有',
     'shareButton.what': '共有するもの',
 
-    'sourceList.list': '音源の一覧',
     'sourceList.badgeNote': '行の札は、その行の声を拾った音源です（話者とは別です）',
     'sourceList.count': '音源 {n} つ',
-    'sourceList.titleWithState': '{source}・{state}',
     'sourceList.kindPrefix': '{kind}・',
+    'sourceList.list': '音源の一覧',
+    'sourceList.titleWithState': '{source}・{state}',
 
     'sources.kindFile': 'ファイル',
     'sources.kindJoin': '参加した端末',
     'sources.kindRecorder': '録音した端末',
+    'sources.label': '音源 {n}',
     'sources.mergeLimit': 'まとめられるのは {n} 個までです',
     'sources.mergeNoMulti': 'このホストは複数の音源に対応していません',
     'sources.mergeNotAllowed': 'このホストではまとめられない設定です',
-    'sources.label': '音源 {n}',
     'sources.spanFile': 'ファイル全体',
     'sources.spanRange': '{start}〜{end}',
     'sources.spanUntilEnd': '終わりまで',
-    'sources.stateActive': 'つながっています',
+    'sources.stateConnected': 'つながっています',
     'sources.stateDisconnected': '切れています',
     'sources.stateLeft': '抜けました',
     'sources.titleNamed': '音源 {n}（{name}）',
 
     'summaryPanel.copied': '要約をコピーしました',
-    'summaryPanel.copy': 'コピー',
     'summaryPanel.copyFailed': '要約をコピーできませんでした',
     'summaryPanel.copyTitle': '要約を Markdown のままコピーします',
     'summaryPanel.create': '{model} で要約を作る',
@@ -133,7 +133,6 @@ export const ja = defineDictionary({
     'summaryPanel.liveLabelRecording': 'リアルタイム要約（録音中に数分おきに更新します）',
     'summaryPanel.notYetForModel': '{model} の要約はまだありません',
     'summaryPanel.picker': '表示する要約',
-    'summaryPanel.regenerate': '{model} で再生成する',
 
     'summaryView.hintBusy': 'ほかの要約を作り終えてから、再生成してください',
     'summaryView.hintLlmDown': '{llm} に接続できません。動いているか確かめてから再生成してください',
@@ -151,8 +150,8 @@ export const ja = defineDictionary({
     'transcript.followAgain': '再生位置に戻る',
 
     'transcriptActions.addFailed': '用語を足せません: {message}',
-    'transcriptActions.correctionRemoveFailed': '置き換えを外せません: {message}',
-    'transcriptActions.correctionFailed': '置き換えられません: {message}',
+    'transcriptActions.replaceFailed': '置き換えられません: {message}',
+    'transcriptActions.replacementRemoveFailed': '置き換えを外せません: {message}',
     'transcriptActions.termRemoveFailed': '用語を消せません: {message}',
 
     'transcriptCorrection.all': '全部',

@@ -106,7 +106,7 @@ export function ShareButton({ source, initial }: { source: ShareSource; initial:
                         }
                     >
                         <CopyIcon />
-                        {t('shareButton.copy')}
+                        {t('common.copy')}
                     </Button>
                     <Button
                         variant='outline'

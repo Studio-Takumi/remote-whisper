@@ -115,7 +115,7 @@ export async function addCorrection(ctx: ActionContext, sessionId: string, corre
             },
             // 戻す。置き換えた行のうち、待っている間にほかで変わっていないものだけを戻す（届いた行・ほかで変わった行は残す）
             onError: (e, _v, change) => {
-                toast.error(sessionMessages.t('transcriptActions.correctionFailed', { message: e.message }));
+                toast.error(sessionMessages.t('transcriptActions.replaceFailed', { message: e.message }));
                 if (change) {
                     ctx.sessions.patchSession(sessionId, (x) => ({
                         ...revertCorrection(x, change.before, change.applied),
@@ -164,7 +164,7 @@ export async function removeCorrection(ctx: ActionContext, sessionId: string, co
             },
             onError: (e, _v, before) => {
                 ctx.sessions.patchSession(sessionId, (x) => ({ ...x, corrections: before }));
-                toast.error(sessionMessages.t('transcriptActions.correctionRemoveFailed', { message: e.message }));
+                toast.error(sessionMessages.t('transcriptActions.replacementRemoveFailed', { message: e.message }));
             },
         },
         undefined,
