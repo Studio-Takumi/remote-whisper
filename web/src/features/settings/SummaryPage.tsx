@@ -3,6 +3,7 @@ import { DensitySelect } from '@/features/settings/DensitySelect';
 import { LlmSection } from '@/features/settings/LlmSection';
 import { NumberInput } from '@/features/settings/NumberInput';
 import { Row, Section } from '@/features/settings/SettingsParts';
+import { SummaryLanguageSelect } from '@/features/settings/SummaryLanguageSelect';
 import type { LlmBackend, Settings } from '@/features/settings/settings';
 import type { LmStudioSettings, UpdateSection } from '@/features/settings/settingsDraft';
 
@@ -20,6 +21,7 @@ export function SummaryPage({
     onChangeBackend: (backend: LlmBackend) => void;
     onChangeLmStudio: (patch: Partial<LmStudioSettings>) => void;
 }) {
+    const summaryLanguage = draft.ollama.summaryLanguage;
     return (
         <>
             <LlmSection
@@ -29,6 +31,18 @@ export function SummaryPage({
                 onChangeOllamaHost={(host) => update('ollama', { host })}
                 onChangeLmStudio={onChangeLmStudio}
             />
+            {/* 古いサーバー（要約の言語を持たない）では出さない */}
+            {summaryLanguage !== undefined && (
+                <Section>
+                    <Row id='summary-language' label='要約の言語' description='タイトルも同じ言語で付けます'>
+                        <SummaryLanguageSelect
+                            id='summary-language'
+                            value={summaryLanguage}
+                            onChange={(next) => update('ollama', { summaryLanguage: next })}
+                        />
+                    </Row>
+                </Section>
+            )}
             <Section title='要約度' description='1 は要点だけで、5 になるにつれてより細かくなります'>
                 <Row id='live-density' label='リアルタイム要約' description='約 4000 文字ごとの要約'>
                     <DensitySelect

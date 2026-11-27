@@ -79,6 +79,7 @@ class _Model(BaseModel):
 
 
 TranscriptionLanguage = Literal["ja", "auto"]
+SummaryLanguage = Literal["ja", "en", "transcript"]
 
 
 class WhisperSettings(_Model):
@@ -262,6 +263,9 @@ class OllamaSettings(_Model):
     # 最終要約の詳細の項目に、参考資料の場所（PDF のページ）を付けるか（#237）。既定はオフ。
     # オンにしたあとで作った要約と、作り直した要約に付く
     detail_material_pages: bool = False
+    # 要約とタイトルを書く言語（#485）。transcript は文字起こしの言語（決まった言語）に合わせる。
+    # 要約を作り始めるときに読む
+    summary_language: SummaryLanguage = "ja"
 
 
 LlmBackend = Literal["ollama", "lmstudio"]

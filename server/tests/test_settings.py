@@ -219,6 +219,17 @@ def test_display_session_meta(client):
     assert res.json()["display"]["sessionMeta"] is True
 
 
+def test_summary_language(client):
+    # 要約の言語は既定で日本語。ja / en / transcript だけ受け付ける（#485）
+    assert client.get("/api/settings").json()["ollama"]["summaryLanguage"] == "ja"
+    res = client.patch("/api/settings", json={"ollama": {"summaryLanguage": "transcript"}})
+    assert res.json()["ollama"]["summaryLanguage"] == "transcript"
+    for value in ["fr", "EN", None, 1]:
+        res = client.patch("/api/settings", json={"ollama": {"summaryLanguage": value}})
+        assert res.status_code == 422
+    assert client.get("/api/settings").json()["ollama"]["summaryLanguage"] == "transcript"
+
+
 def test_display_show_picked_terms(client):
     # 拾った用語の表示は既定ではオフで、オンにできる（#147）
     assert client.get("/api/settings").json()["display"]["showPickedTerms"] is False

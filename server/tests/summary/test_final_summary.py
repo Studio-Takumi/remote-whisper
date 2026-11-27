@@ -9,7 +9,13 @@ from helpers.recorder import chunk, finished, of_type, receive_until, start
 from remote_whisper.hub import Hub
 from remote_whisper.llm.ollama import OllamaClient
 from remote_whisper.settings import FinalModels, SettingsStore
-from remote_whisper.storage.documents import SummaryMeta, TranscriptMeta, parse, read_doc
+from remote_whisper.storage.documents import (
+    SummaryMeta,
+    TranscriptMeta,
+    parse,
+    read_doc,
+    write_doc,
+)
 from remote_whisper.storage.session_writer import safe_filename
 from remote_whisper.summary import final_summary, final_summary_body
 from remote_whisper.summary.final_summary import FinalSummarizer, fallback_title
@@ -408,6 +414,28 @@ def test_regenerate_with_another_model(client, project, fake_ollama, tmp_path):
     # 選んだディレクトリにも新しいコピーを置く
     copies = sorted(p.name for p in (tmp_path / "work" / "meetings").glob("summary-*.md"))
     assert len(copies) == 2
+
+
+def test_regenerate_follows_the_language_in_the_front_matter(client, project, fake_ollama):
+    # 「文字起こしと同じ」の再生成は、フロントマターの language（決まった言語）で決める（#485）
+    pid, d = project
+    sid, _ = record(client, pid)
+    client.patch("/api/settings", json={"ollama": {"summaryLanguage": "transcript"}})
+    path = d / f"transcript-{sid}.md"
+    meta, body = read_doc(path, TranscriptMeta)
+    meta.language_choice, meta.language = "auto", "en"
+    write_doc(path, meta, body)
+    before = len(fake_ollama.bodies("/api/chat"))
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        assert client.post(f"/api/projects/{pid}/sessions/{sid}/summaries").status_code == 202
+        receive_until(ws, lambda m: m["type"] == "title" and not m["provisional"])
+    chats = fake_ollama.bodies("/api/chat")[before:]
+    [summary] = [b for b in chats if not b.get("format")]
+    [title] = [b for b in chats if b.get("format")]
+    assert "Write a concise summary in English" in summary["messages"][0]["content"]
+    assert "in English" in title["messages"][0]["content"]
+    assert title["format"]["properties"]["title"]["maxLength"] == 50
 
 
 def test_regenerate_errors(client, project):

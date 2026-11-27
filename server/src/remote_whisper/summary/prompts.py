@@ -1,87 +1,77 @@
 """Ollama に渡すプロンプト（途中の要約・最終の要約・タイトル）。spec/flows.md 6.4・6.5。
-言い回しは使いながら見直す（**仮**）"""
+言い回しは使いながら見直す（**仮**）。
+
+要約とタイトルは、書く言語（language。summary_language で決めたコード）で文面を選ぶ（#485）。
+文面は prompt_texts.py。省けば日本語
+"""
 
 import json
 import logging
 from typing import Any
 
 from remote_whisper.llm.llm import LlmClient
+from remote_whisper.summary.prompt_texts import DESCRIPTION_MAX, JA, PromptTexts, texts_for
 from remote_whisper.summary.summary_parts import NUM_CTX
 
 log = logging.getLogger(__name__)
 
-TITLE_MAX = 15
-
-# 見出しは決め打ちしない。「決まったこと」「次にやること」は実際にあったときだけ（#79）
-SUMMARY_SYSTEM = (
-    "あなたは、録音した話の文字起こしを要約する係です。"
-    "話は会議・講義・打ち合わせ・雑談など、どんな種類でもかまいません。"
-    "日本語の Markdown で、見出し（##）と箇条書きを使って簡潔にまとめてください。\n"
-    "- 見出しは決まった項目に当てはめず、話の内容に合わせて付けてください。\n"
-    "- 「決まったこと」や「次にやること（担当・期限）」は、文字起こしの中で実際に決まったり、"
-    "頼まれたり約束されたりしたときだけ書いてください。"
-    "当てはまる内容がなければ、その見出しは作らないでください（「なし」「特になし」とも書かない）。\n"
-    "- 短い話や雑談でも、話した内容を必ずまとめてください。"
-    "「要約できません」とは書かないでください。\n"
-    "- 文字起こしにないことは書かないでください。要約だけを出力してください。"
-)
-
-TITLE_SYSTEM = (
-    "要約を読んで、内容を表す短いタイトルを日本語で付けてください。"
-    f"{TITLE_MAX}文字以内にしてください。"
-)
-
-TITLE_FORMAT: dict[str, Any] = {
-    "type": "object",
-    "properties": {"title": {"type": "string", "maxLength": TITLE_MAX}},
-    "required": ["title"],
-}
-
-# 最終要約のコピー（OKF。#343）のために、タイトルと一緒に 1 文の説明も作らせる。
-# LLM を呼ぶ回数を増やさない。タイトルを先に書かせて、タイトルの質を保つ
-DESCRIPTION_MAX = 120
-TITLE_DESCRIPTION_SYSTEM = (
-    TITLE_SYSTEM + "あわせて、要約の内容を 1 文で表した説明も日本語で書いてください。"
-    f"{DESCRIPTION_MAX}文字以内にしてください。"
-)
-TITLE_DESCRIPTION_FORMAT: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "title": {"type": "string", "maxLength": TITLE_MAX},
-        "description": {"type": "string", "maxLength": DESCRIPTION_MAX},
-    },
-    "required": ["title", "description"],
-}
-
+# 日本語のときの値（以前からの名前）
+TITLE_MAX = JA.title_max
+SUMMARY_SYSTEM = JA.system
 
 # 要約度（要約の細かさ。1〜5、既定は 3。spec/README.md 3・spec/files.md 5.3）。#100
 DEFAULT_DENSITY = 3
 
-# 詳細（区間・部分ごとの要約と、一度に収まるときの要約）の指示。「…で話された内容を、」に続ける。
-# 3 は要約度を入れる前と同じ文言（出力を変えないため）
-_DETAIL = {
-    1: "要点だけに絞って、ごく短くまとめてください（大事なことを数個の箇条書きにする程度）。",
-    2: "主な点に絞って、短めにまとめてください。細かい説明や例は省いてかまいません。",
-    3: "省かずに話の順にまとめてください。",
-    4: "省かずに話の順に、詳しくまとめてください。数字・固有名詞・理由や経緯も残してください。",
-    5: (
-        "できるだけ省かずに、話の順に細かくまとめてください。"
-        "数字・固有名詞・例・理由や経緯・発言の細かい点も残してください。"
-    ),
-}
 
-# 概要の箇条書きの数。3 は要約度を入れる前と同じ
-_OVERVIEW_ITEMS = {1: "2〜3個", 2: "3〜5個", 3: "5〜10個", 4: "8〜12個", 5: "10〜15個"}
+def title_system(language: str = "ja") -> str:
+    t = texts_for(language)
+    return t.title.format(max=t.title_max)
 
 
-def _detail(density: int) -> str:
-    return _DETAIL.get(density, _DETAIL[DEFAULT_DENSITY])
+def title_format(language: str = "ja") -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {"title": {"type": "string", "maxLength": texts_for(language).title_max}},
+        "required": ["title"],
+    }
 
 
-def _context_block(context: str | None) -> str:
+# 最終要約のコピー（OKF。#343）のために、タイトルと一緒に 1 文の説明も作らせる。
+# LLM を呼ぶ回数を増やさない。タイトルを先に書かせて、タイトルの質を保つ
+def title_description_system(language: str = "ja") -> str:
+    return title_system(language) + texts_for(language).description.format(max=DESCRIPTION_MAX)
+
+
+def title_description_format(language: str = "ja") -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "title": {"type": "string", "maxLength": texts_for(language).title_max},
+            "description": {"type": "string", "maxLength": DESCRIPTION_MAX},
+        },
+        "required": ["title", "description"],
+    }
+
+
+TITLE_SYSTEM = title_system()
+TITLE_FORMAT = title_format()
+TITLE_DESCRIPTION_SYSTEM = title_description_system()
+TITLE_DESCRIPTION_FORMAT = title_description_format()
+
+
+def _detail(t: PromptTexts, density: int) -> str:
+    """詳細（区間・部分ごとの要約と、一度に収まるときの要約）の指示"""
+    return t.detail.get(density, t.detail[DEFAULT_DENSITY])
+
+
+def _context_block(t: PromptTexts, context: str | None) -> str:
     if not context:
         return ""
-    return f"## 参考情報（話の背景。要約には書き写さない）\n{context.strip()}\n\n"
+    return t.context.format(text=context.strip())
+
+
+def _system(t: PromptTexts, user: str) -> list[dict[str, str]]:
+    return [{"role": "system", "content": t.system}, {"role": "user", "content": user}]
 
 
 def live_section_messages(
@@ -90,58 +80,53 @@ def live_section_messages(
     previous: str | None = None,
     ongoing: bool = False,
     density: int = DEFAULT_DENSITY,
+    language: str = "ja",
 ) -> list[dict[str, str]]:
     """途中の要約（区間ごと）（#93）。最終の部分ごとの要約と同じ言い方にして濃さを揃える。
     previous は 1 つ前、ongoing は続いている区間か"""
-    before = (
-        "## 前の区間の要約（つながりの参考。ここに書いてあることは繰り返さない）\n"
-        + f"{previous.strip()}\n\n"
-        if previous
-        else ""
-    )
+    t = texts_for(language)
     user = (
-        _context_block(context)
-        + before
-        + "## 文字起こし（録音中の話を、前から順に区切ったうちの1区間）\n"
+        _context_block(t, context)
+        + (t.live_previous.format(text=previous.strip()) if previous else "")
+        + t.live_heading
         + "\n".join(lines)
-        + f"\n\nこの区間で話された内容を、{_detail(density)}"
-        + "要約はほかの区間の要約と時間の順に並べて読まれます。"
-        + "前の区間から続いている話は、その続きとして書いてください。"
-        + (
-            "この区間はまだ録音が続いていて、話の途中で終わっていることがあります。"
-            if ongoing
-            else ""
-        )
+        + t.live_ask.format(detail=_detail(t, density))
+        + (t.live_ongoing if ongoing else "")
     )
-    return [{"role": "system", "content": SUMMARY_SYSTEM}, {"role": "user", "content": user}]
+    return _system(t, user)
 
 
-def live_overview_messages(sections: list[str], context: str | None) -> list[dict[str, str]]:
+def _blocks(template: str, texts: list[str]) -> str:
+    return "\n\n".join(template.format(n=i + 1, text=s.strip()) for i, s in enumerate(texts))
+
+
+def live_overview_messages(
+    sections: list[str], context: str | None, language: str = "ja"
+) -> list[dict[str, str]]:
     """途中の要約（ここまでの概要）。区間ごとの要約から、ここまでの話を短くまとめる（#93）"""
-    blocks = "\n\n".join(f"### 区間{i + 1}\n{s.strip()}" for i, s in enumerate(sections))
+    t = texts_for(language)
     user = (
-        _context_block(context)
-        + "## 録音中の話を前から順に区切って作った要約（最後の区間はまだ続いている）\n"
-        + blocks
-        + "\n\nこれらから、ここまでの話の概要を短くまとめてください。"
-        + "見出しは付けず、大事な点を3〜6個ほどの箇条書きにしてください。"
-        + "細かい内容は、このあとに区間ごとの要約をそのまま載せるので省いてかまいません。"
+        _context_block(t, context)
+        + t.live_overview_heading
+        + _blocks(t.live_block, sections)
+        + t.live_overview_ask
     )
-    return [{"role": "system", "content": SUMMARY_SYSTEM}, {"role": "user", "content": user}]
+    return _system(t, user)
 
 
 def final_summary_messages(
-    lines: list[str], context: str | None, density: int = DEFAULT_DENSITY
+    lines: list[str], context: str | None, density: int = DEFAULT_DENSITY, language: str = "ja"
 ) -> list[dict[str, str]]:
     """最終の要約（文字起こし全体が一度に収まるとき）。
     部分ごとの要約と同じ言い方にして濃さを揃える（#92）。要約度は詳細"""
+    t = texts_for(language)
     user = (
-        _context_block(context)
-        + "## 文字起こし\n"
+        _context_block(t, context)
+        + t.final_heading
         + "\n".join(lines)
-        + f"\n\nこの文字起こしで話された内容を、{_detail(density)}"
+        + t.final_ask.format(detail=_detail(t, density))
     )
-    return [{"role": "system", "content": SUMMARY_SYSTEM}, {"role": "user", "content": user}]
+    return _system(t, user)
 
 
 def part_summary_messages(
@@ -151,56 +136,45 @@ def part_summary_messages(
     context: str | None,
     previous: str | None = None,
     density: int = DEFAULT_DENSITY,
+    language: str = "ja",
 ) -> list[dict[str, str]]:
     """最終の要約（部分ごと）（#92）。結果は「詳細」として並べる。
     previous は 1 つ前の部分の要約（境目で話が途切れないように）"""
-    before = (
-        "## 前の部分の要約（つながりの参考。ここに書いてあることは繰り返さない）\n"
-        + f"{previous.strip()}\n\n"
-        if previous
-        else ""
-    )
+    t = texts_for(language)
     user = (
-        _context_block(context)
-        + before
-        + f"## 文字起こし（全{total}部分のうち{index + 1}番目）\n"
+        _context_block(t, context)
+        + (t.part_previous.format(text=previous.strip()) if previous else "")
+        + t.part_heading.format(total=total, index=index + 1)
         + "\n".join(lines)
-        + f"\n\nこの部分で話された内容を、{_detail(density)}"
-        + "要約はほかの部分の要約と時間の順に並べて読まれます。"
-        + "前の部分から続いている話は、その続きとして書いてください。"
+        + t.part_ask.format(detail=_detail(t, density))
     )
-    return [{"role": "system", "content": SUMMARY_SYSTEM}, {"role": "user", "content": user}]
+    return _system(t, user)
 
 
 def overview_messages(
-    parts: list[str], context: str | None, density: int = DEFAULT_DENSITY
+    parts: list[str], context: str | None, density: int = DEFAULT_DENSITY, language: str = "ja"
 ) -> list[dict[str, str]]:
     """最終の要約（全体の概要）。部分ごとの要約から話全体を短く凝縮する（#92）。
     要約度で箇条書きの数を変える（#100）"""
-    items = _OVERVIEW_ITEMS.get(density, _OVERVIEW_ITEMS[DEFAULT_DENSITY])
-    blocks = "\n\n".join(f"### 部分{i + 1}\n{p.strip()}" for i, p in enumerate(parts))
+    t = texts_for(language)
+    items = t.overview_items.get(density, t.overview_items[DEFAULT_DENSITY])
     user = (
-        _context_block(context)
-        + "## 文字起こしを前から順に区切って作った要約\n"
-        + blocks
-        + "\n\nこれらから、話全体の概要を短くまとめてください。"
-        + f"見出しは付けず、大事な点を{items}ほどの箇条書きにしてください。"
-        + "細かい内容は、このあとに部分ごとの要約をそのまま載せるので省いてかまいません。"
+        _context_block(t, context)
+        + t.parts_heading
+        + _blocks(t.parts_block, parts)
+        + t.overview_ask.format(items=items)
     )
-    return [{"role": "system", "content": SUMMARY_SYSTEM}, {"role": "user", "content": user}]
+    return _system(t, user)
 
 
-def reduce_summary_messages(parts: list[str], context: str | None) -> list[dict[str, str]]:
+def reduce_summary_messages(
+    parts: list[str], context: str | None, language: str = "ja"
+) -> list[dict[str, str]]:
     """部分ごとの要約がまだ長すぎるとき、いくつかずつ1つにまとめる（概要を作る前の下ごしらえ）"""
-    blocks = "\n\n".join(f"### 部分{i + 1}\n{p.strip()}" for i, p in enumerate(parts))
-    user = (
-        _context_block(context)
-        + "## 文字起こしを前から順に区切って作った要約\n"
-        + blocks
-        + "\n\nこれらをまとめて、全体の要約を1つ出力してください。重複はまとめてください。"
-        + "見出しは部分ごとに分けず、全体の内容に合わせて付け直してください。"
-    )
-    return [{"role": "system", "content": SUMMARY_SYSTEM}, {"role": "user", "content": user}]
+    t = texts_for(language)
+    blocks = _blocks(t.parts_block, parts)
+    user = _context_block(t, context) + t.parts_heading + blocks + t.reduce_ask
+    return _system(t, user)
 
 
 MATERIALS_SYSTEM = (
@@ -263,14 +237,14 @@ def figure_messages(page_text: str, image: str) -> list[dict[str, object]]:
     ]
 
 
-def title_messages(summary: str) -> list[dict[str, str]]:
+def title_messages(summary: str, language: str = "ja") -> list[dict[str, str]]:
     return [
-        {"role": "system", "content": TITLE_SYSTEM},
+        {"role": "system", "content": title_system(language)},
         {"role": "user", "content": summary.strip()},
     ]
 
 
-def parse_title(reply: str) -> str | None:
+def parse_title(reply: str, language: str = "ja") -> str | None:
     """`{"title": "..."}` からタイトルを取り出す。長すぎたら切る。取り出せなければ None"""
     try:
         title = json.loads(reply)["title"]
@@ -280,7 +254,7 @@ def parse_title(reply: str) -> str | None:
     if not isinstance(title, str):
         return None
     title = " ".join(title.split()).strip("「」『』\"' ")
-    return title[:TITLE_MAX] or None
+    return title[: texts_for(language).title_max] or None
 
 
 def parse_description(reply: str) -> str | None:
@@ -295,35 +269,35 @@ def parse_description(reply: str) -> str | None:
 
 
 async def make_title_description(
-    ollama: LlmClient, model: str, summary: str, think: bool = False
+    ollama: LlmClient, model: str, summary: str, think: bool = False, language: str = "ja"
 ) -> tuple[str | None, str | None]:
     """要約からタイトルと 1 文の説明を 1 回の呼び出しで作る（#343）。作れなかったほうは None"""
     reply = await ollama.chat(
         model,
         [
-            {"role": "system", "content": TITLE_DESCRIPTION_SYSTEM},
+            {"role": "system", "content": title_description_system(language)},
             {"role": "user", "content": summary.strip()},
         ],
         think=think,
-        format=TITLE_DESCRIPTION_FORMAT,
+        format=title_description_format(language),
         options={"num_ctx": NUM_CTX},
     )
-    return parse_title(reply), parse_description(reply)
+    return parse_title(reply, language), parse_description(reply)
 
 
 async def make_title(
-    ollama: LlmClient, model: str, summary: str, think: bool = False
+    ollama: LlmClient, model: str, summary: str, think: bool = False, language: str = "ja"
 ) -> str | None:
-    """要約からタイトルを作る（JSON Schema で 15 文字以内）。作れなければ None。
+    """要約からタイトルを作る（JSON Schema で上限の文字数。日本語は 15 文字）。作れなければ None。
     num_ctx は要約と同じにする（変わるとモデルを読み込み直す）"""
     reply = await ollama.chat(
         model,
-        title_messages(summary),
+        title_messages(summary, language),
         think=think,
-        format=TITLE_FORMAT,
+        format=title_format(language),
         options={"num_ctx": NUM_CTX},
     )
-    return parse_title(reply)
+    return parse_title(reply, language)
 
 
 # 録音中に文字起こしから拾う用語（#103）。JSON Schema で一覧を返させる

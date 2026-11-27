@@ -19,7 +19,8 @@ from remote_whisper.storage.session_writer import SessionWriter
 from remote_whisper.storage.timeutil import now
 from remote_whisper.summary.final_summary_body import Density, SummaryBody, needs_overview
 from remote_whisper.summary.live_summary import load_context
-from remote_whisper.summary.prompts import TITLE_MAX, make_title_description
+from remote_whisper.summary.prompts import make_title_description
+from remote_whisper.summary.summary_language import summary_language, title_max
 
 log = logging.getLogger(__name__)
 
@@ -32,12 +33,12 @@ def _mark_failed(writer: SessionWriter, failed: bool) -> None:
         log.warning("failed to record the summary state of %s: %s", writer.id, e)
 
 
-def fallback_title(summary: str) -> str | None:
+def fallback_title(summary: str, language: str = "ja") -> str | None:
     """タイトルを作れなかったとき、要約の最初の見出しか行から作る"""
     for line in summary.splitlines():
         text = line.strip().lstrip("#").strip().lstrip("-*").strip()
         if text:
-            return text[:TITLE_MAX]
+            return text[: title_max(language)]
     return None
 
 
@@ -138,12 +139,16 @@ class FinalSummarizer:
             return None
         models = await self._resolve(models)
         context, density, pages = await self._inputs(writer)
-        made = await self._make_body(writer, models, lines, context, send, density, pages)
+        # 書く言語（#485）。作り始めた時点の設定と、文字起こしの決まった言語で決める
+        language = summary_language(
+            self.settings.get().ollama.summary_language, writer.meta.language
+        )
+        made = await self._make_body(writer, models, lines, context, send, density, pages, language)
         if made is None:
             return None
-        title, description = await self._make_title(writer, models.title, made.gist)
+        title, description = await self._make_title(writer, models.title, made.gist, language)
         # 作れなければ、仮のタイトルか要約の最初の行を使う
-        title = title or writer.meta.title or fallback_title(made.gist)
+        title = title or writer.meta.title or fallback_title(made.gist, language)
         gid = await self._save(writer, send, models, made, title, started, density, lines)
         if gid is None:
             return None
@@ -202,6 +207,7 @@ class FinalSummarizer:
         send: Callable[[dict[str, Any]], Awaitable[None]],
         density: Density,
         pages: list[Page],
+        language: str,
     ) -> _Made | None:
         """要約の本文を作って流す。作れなければ失敗を記録して None"""
         clock = time.monotonic()
@@ -214,7 +220,9 @@ class FinalSummarizer:
         )
         try:
             think = await self.ollama.supports_thinking(models.detail)
-            text, gist = await self.body.make(models, lines, context, send, density, pages)
+            text, gist = await self.body.make(
+                models, lines, context, send, density, pages, language
+            )
             if not gist:
                 raise LlmUnavailable("要約が空でした")
         except LlmUnavailable as e:
@@ -233,13 +241,15 @@ class FinalSummarizer:
         return _Made(text, gist, think)
 
     async def _make_title(
-        self, writer: SessionWriter, model: str, gist: str
+        self, writer: SessionWriter, model: str, gist: str, language: str
     ) -> tuple[str | None, str | None]:
         """タイトルと説明。作れなければ None（本文はもうできているので捨てない。#118）"""
         clock = time.monotonic()
         report_progress("title")
         try:
-            title, description = await make_title_description(self.ollama, model, gist)
+            title, description = await make_title_description(
+                self.ollama, model, gist, language=language
+            )
             if title:
                 log.info("title of %s done in %.1fs", writer.id, time.monotonic() - clock)
             return title, description
