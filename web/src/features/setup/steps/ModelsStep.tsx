@@ -81,7 +81,7 @@ export function ModelsStep({
                 <>
                     {pull?.state === 'failed' && (
                         <Note warn>
-                            {pull.error === null
+                            {pull.error == null
                                 ? t('modelsStep.downloadFailed')
                                 : serverErrorText(pull.errorCode, pull.errorParams, pull.error)}
                         </Note>

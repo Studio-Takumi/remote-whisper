@@ -61,7 +61,11 @@ def test_every_code_is_in_the_dictionary(dictionary):
     """サーバーのソースにあるコードの形の文字列は、すべて辞書にある（新しい対象も）"""
     found = set(re.findall(r'"([a-z][a-zA-Z]*\.[a-z][a-zA-Z]*)"', _source()))
     codes = {c for c in found if c.split(".")[1] not in FILE_EXTENSIONS} - NOT_CODES
-    assert codes - dictionary.keys() == set()
+    missing = codes - dictionary.keys()
+    assert missing == set(), (
+        f"web の辞書（ja.ts）にないコード: {sorted(missing)}。"
+        "エラーのコードなら辞書に足す。コードでなければ NOT_CODES に足す"
+    )
 
 
 def test_every_key_is_used_by_the_server(dictionary):
