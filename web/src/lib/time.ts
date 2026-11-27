@@ -1,5 +1,5 @@
 import { type Language, getLanguage } from '@/i18n/language';
-import { intlLocale } from '@/lib/format';
+import { dateTimeFormat } from '@/lib/format';
 
 // ID と表示用の日時。ID の形式は spec/files.md 5.2 節の YYYYMMDD-HHMMSS
 function pad(n: number) {
@@ -41,7 +41,7 @@ function parseDateTime(text: string) {
     return m ? new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]) : null;
 }
 
-// 左メニューに出す録音日時（ja: 10/11 14:05、en: 10/11, 2:05 PM）
+// 左メニューに出す録音日時（ja: 10/11 14:05、en: Oct 11, 2:05 PM）
 export function formatShortDateTime(text: string, language: Language = getLanguage()) {
     const d = parseDateTime(text);
     if (!d) {
@@ -50,8 +50,8 @@ export function formatShortDateTime(text: string, language: Language = getLangua
     if (language === 'ja') {
         return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
     }
-    return new Intl.DateTimeFormat(intlLocale(language), {
-        month: 'numeric',
+    return dateTimeFormat(language, {
+        month: 'short',
         day: 'numeric',
         hour: 'numeric',
         minute: '2-digit',
@@ -64,7 +64,7 @@ export function formatDisplayDateTime(text: string, language: Language = getLang
     if (!d || language === 'ja') {
         return text;
     }
-    return new Intl.DateTimeFormat(intlLocale(language), { dateStyle: 'medium', timeStyle: 'short' }).format(d);
+    return dateTimeFormat(language, { dateStyle: 'medium', timeStyle: 'short' }).format(d);
 }
 
 // 録音の長さ（秒）。記録がなければ（記録する前のセッション）開始と終了の日時の差にする（分の単位まで）
