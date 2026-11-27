@@ -84,8 +84,8 @@ flowchart LR
 Worker が答えるエラーのうち、画面（web・iOS アプリ）に届くものは、ホストのエラー（api.md 7.6 節。#494）と同じ形で、文ではなくコードと文に埋める値で返す。web はコードから表示言語の辞書（`web/src/api/relayErrors/`）を引いて文を出す。
 
 - **本文**: `{"detail": "<日本語の文>", "code": "<コード>", "params": {<値>}}`。`relay/src/errors.ts` の `ERRORS`（コードごとの日本語と英語の文）と `apiError` で返す。対象は `/me`・`/pair/`（ブラウザから）・`/auth/`・`/h/`（Worker が断ったとき）・`/releases/latest` の日本語の文だったもの
-- **コードの形**: api.md 7.6 節と同じ `<対象>.<理由>`（`login.required`・`host.tooMany`・`pairing.notFound` など）。対象の名前は用語集（12 章）の英語に合わせる。**ホストのエラーのコードと重ねない**（`/h/` の中継では、ホストのエラーと Worker のエラーのどちらも届き、web は 2 つの辞書を続けて引くため。`web/src/api/relayErrors/relayErrors.test.ts` が確かめる）
-- **値（`params`）**: 文に埋める数（`host.tooMany` の `max` など）だけ。**ID・トークン・内部のパスなど、文にないものは入れない**（クラウド版は公開しているため）
+- **コードの形**: api.md 7.6 節と同じ `<対象>.<理由>`（`login.required`・`cloudHost.tooMany`・`pairing.notFound` など）。対象の名前は用語集（12 章）の英語に合わせる。登録したホスト（10.6 節）のことは `cloudHost`（クラウド版 = Cloud edition のホスト）にする。ホストのエラーの `host.*` は HTTP の `Host` ヘッダーのこと（api.md 7.5 節）で、同じ接頭辞を別の意味に使わないため。**ホストのエラーのコードと重ねない**（`/h/` の中継では、ホストのエラーと Worker のエラーのどちらも届き、web は 2 つの辞書を続けて引くため。`web/src/api/relayErrors/relayErrors.test.ts` が確かめる）
+- **値（`params`）**: 文に埋める数（`cloudHost.tooMany` の `max` など）だけ。**ID・トークン・内部のパスなど、文にないものは入れない**（クラウド版は公開しているため）
 - **web の扱い**: ホストのエラーと同じく、辞書にあるコードで値がそろえば辞書の文、知らないコード・コードがない（古い Worker）・値が足りないときは `detail` をそのまま出す。引くのは `src/api/serverErrors/serverErrors.ts`（ホストの辞書のあとに Worker の辞書を引く）で、`features/cloud/account.ts` の `request`（`/me`・`/pair/`）と `src/api/api.ts`（`/h/`）が使う
 - **日本語の文はそろえる**: 辞書の日本語と英語は、`ERRORS` の文と 1 文字も違わないようにする。`relay/test/errors.test.ts` が、web の辞書と `ERRORS` が同じこと・どのコードも `src` で使っていること・`error()` や `detail` に日本語の文を直に書いていないことを確かめる（web の辞書の中身は `vitest.config.ts` が読んで渡す。web がなければ飛ばす）
 - **日本語の `detail` を返す期間**: api.md 7.6 節と同じ。古い web（iOS アプリに同梱した画面や、更新を受け入れていない PWA）のために当面は日本語の文を返し続け、少なくとも #495 が入ったリリースの次のリリースまでは消さない

@@ -107,13 +107,13 @@ async function renameHost(request: Request, env: Env, userId: string, hostId: st
     const data = (raw ?? null) as { name?: unknown } | null;
     const name = typeof data?.name === 'string' ? data.name.replace(/[\p{Cc}\p{Cf}]/gu, '').trim() : '';
     if (name.length === 0 || name.length > MAX_HOST_NAME) {
-        return apiError(400, 'host.badName', { max: MAX_HOST_NAME });
+        return apiError(400, 'cloudHost.badName', { max: MAX_HOST_NAME });
     }
     const res = await env.DB.prepare('UPDATE hosts SET name = ? WHERE id = ? AND user_id = ?')
         .bind(name, hostId, userId)
         .run();
     if (res.meta.changes === 0) {
-        return apiError(404, 'host.notFound');
+        return apiError(404, 'cloudHost.notFound');
     }
     return hosts(env, userId);
 }
@@ -124,7 +124,7 @@ async function removeHost(env: Env, userId: string, hostId: string): Promise<Res
         .bind(hostId, userId)
         .first<HostTunnel>();
     if (!host) {
-        return apiError(404, 'host.notFound');
+        return apiError(404, 'cloudHost.notFound');
     }
     await deleteTunnel(env, host);
     // 同じトランザクションで消す。申請の行は、そのユーザーが承認したものだけ

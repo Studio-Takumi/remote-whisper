@@ -511,7 +511,7 @@ async function fromBrowser(request: Request, env: Env, path: string): Promise<Re
         .bind(user.userId)
         .first<{ n: number }>();
     if ((owned?.n ?? 0) >= MAX_HOSTS_PER_USER) {
-        return apiError(409, 'host.tooMany', { max: MAX_HOSTS_PER_USER });
+        return apiError(409, 'cloudHost.tooMany', { max: MAX_HOSTS_PER_USER });
     }
     // 承認: hosts に入れて、申請を承認済みにする（同じトランザクション。台数の確かめも同じ文で、同時の承認でも超えない）
     const relayKey = randomToken(32);
@@ -536,7 +536,7 @@ async function fromBrowser(request: Request, env: Env, path: string): Promise<Re
             .bind(user.userId)
             .first<{ n: number }>();
         if ((after?.n ?? 0) >= MAX_HOSTS_PER_USER) {
-            return apiError(409, 'host.tooMany', { max: MAX_HOSTS_PER_USER });
+            return apiError(409, 'cloudHost.tooMany', { max: MAX_HOSTS_PER_USER });
         }
         return apiError(404, 'pairing.notFound');
     }

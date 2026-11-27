@@ -334,7 +334,7 @@ export async function issueTicket(request: Request, env: Env, user: SessionUser)
         .bind(hostId, user.userId)
         .first();
     if (!host) {
-        return apiError(403, 'host.forbidden');
+        return apiError(403, 'cloudHost.forbidden');
     }
     const ticket = randomToken();
     const now = Date.now();

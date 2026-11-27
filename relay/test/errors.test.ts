@@ -54,10 +54,10 @@ describe('relay の文', () => {
     });
 
     it('{} に params を埋める', () => {
-        expect(errorText('host.tooMany', { max: 5 })).toBe(
+        expect(errorText('cloudHost.tooMany', { max: 5 })).toBe(
             'ホストは 5 台まで登録できます。使っていないホストを外してください',
         );
-        expect(errorText('host.badName', { max: 64 }, 'en')).toBe('The name must be 1 to 64 characters');
+        expect(errorText('cloudHost.badName', { max: 64 }, 'en')).toBe('The name must be 1 to 64 characters');
     });
 });
 

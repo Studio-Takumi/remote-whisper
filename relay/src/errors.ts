@@ -68,14 +68,14 @@ export const ERRORS = {
         en: 'Please agree to the terms of service first',
     },
     'dataCollection.badRequest': { ja: 'granted（真偽値）が必要です', en: 'granted (boolean) is required' },
-    'host.badName': { ja: '名前は 1〜{max} 文字にしてください', en: 'The name must be 1 to {max} characters' },
-    'host.notFound': { ja: 'そのホストはありません', en: 'Host not found' },
-    'host.forbidden': { ja: 'このホストにはつなげません', en: "You can't connect to this host" },
-    'host.unreachable': {
+    'cloudHost.badName': { ja: '名前は 1〜{max} 文字にしてください', en: 'The name must be 1 to {max} characters' },
+    'cloudHost.notFound': { ja: 'そのホストはありません', en: 'Host not found' },
+    'cloudHost.forbidden': { ja: 'このホストにはつなげません', en: "You can't connect to this host" },
+    'cloudHost.unreachable': {
         ja: 'ホストにつながりません（PC が起動しているか確かめてください）',
         en: "Can't reach the host (check that the PC is on)",
     },
-    'host.tooMany': {
+    'cloudHost.tooMany': {
         ja: 'ホストは {max} 台まで登録できます。使っていないホストを外してください',
         en: "You can register up to {max} hosts. Remove hosts you don't use",
     },

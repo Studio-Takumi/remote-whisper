@@ -16,14 +16,14 @@ describe('relay のエラー', () => {
         expect(httpErrorText({ detail: 'ログインしてください', code: 'login.required', params: {} })).toBe(
             'ログインしてください',
         );
-        expect(serverErrorText('host.tooMany', { max: 5 }, 'x')).toBe(
+        expect(serverErrorText('cloudHost.tooMany', { max: 5 }, 'x')).toBe(
             'ホストは 5 台まで登録できます。使っていないホストを外してください',
         );
     });
 
     it('English では英語の文', () => {
         setLanguage('en');
-        expect(serverErrorText('host.tooMany', { max: 5 }, 'x')).toBe(
+        expect(serverErrorText('cloudHost.tooMany', { max: 5 }, 'x')).toBe(
             "You can register up to 5 hosts. Remove hosts you don't use",
         );
         expect(serverErrorText('login.required', {}, 'x')).toBe('Please log in');
@@ -34,7 +34,7 @@ describe('relay のエラー', () => {
         expect(httpErrorText({ detail: '新しい relay の文', code: 'host.future', params: {} })).toBe(
             '新しい relay の文',
         );
-        expect(serverErrorText('host.tooMany', {}, 'relay の文')).toBe('relay の文');
+        expect(serverErrorText('cloudHost.tooMany', {}, 'relay の文')).toBe('relay の文');
     });
 
     it('サーバーのエラーのコードと重ならない（どちらの辞書を引くかが決まるように）', () => {

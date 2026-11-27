@@ -99,7 +99,7 @@ export async function handleHostRelay(request: Request, env: Env, path: string):
         .first<{ relay_key: string | null; tunnel_hostname: string | null }>();
     if (!host) {
         // 他人のホスト・解除したホスト。あるかないかも教えない
-        return apiError(403, 'host.forbidden');
+        return apiError(403, 'cloudHost.forbidden');
     }
     if (!host.relay_key || !host.tunnel_hostname || !TUNNEL_HOSTNAME.test(host.tunnel_hostname)) {
         return apiError(503, 'tunnel.notReady');
@@ -130,7 +130,7 @@ export async function handleHostRelay(request: Request, env: Env, path: string):
     try {
         res = await fetch(target, init);
     } catch {
-        return apiError(502, 'host.unreachable');
+        return apiError(502, 'cloudHost.unreachable');
     }
     const headersOut = safeResponseHeaders(res);
     if (res.status === 101 && res.webSocket) {
