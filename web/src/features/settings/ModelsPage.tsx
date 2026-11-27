@@ -3,6 +3,7 @@ import { RotateCcwIcon } from 'lucide-react';
 import type { SettingsOptions } from '@/api/protocol';
 import { Button } from '@/components/ui/button';
 import { OptionSelect, Row, Section } from '@/features/settings/SettingsParts';
+import { settingsMessages } from '@/features/settings/i18n';
 import { isMissing, llmModelNames, thinkingNote, withCurrent } from '@/features/settings/options';
 import {
     LLM_NAMES,
@@ -13,6 +14,7 @@ import {
     llmModels,
     recommendedModelsFor,
 } from '@/features/settings/settings';
+import { useT } from '@/i18n/messages';
 
 // 選べない処理は、何を使っているかを薄い文字で出す
 function Fixed({ children }: { children: React.ReactNode }) {
@@ -21,7 +23,8 @@ function Fixed({ children }: { children: React.ReactNode }) {
 
 // モデルの横に出す「入っていません」（おすすめのモデルの名前は出さない。#239）
 function Missing({ missing }: { missing: boolean }) {
-    return missing ? <p className='text-amber-700 dark:text-amber-400'>入っていません</p> : null;
+    const t = useT(settingsMessages);
+    return missing ? <p className='text-amber-700 dark:text-amber-400'>{t('modelsPage.notInstalled')}</p> : null;
 }
 
 // 設定モーダルの「モデル」ページ（#179）。どの処理でどのモデルを使うかを、大きな段階ごとに並べる
@@ -40,6 +43,7 @@ export function ModelsPage({
     // 選んでいる LLM（llm.backend）の処理ごとのモデルを変える（ollama.models か lmstudio.models。#327）
     onChangeModels: (backend: LlmBackend, models: OllamaModels) => void;
 }) {
+    const t = useT(settingsMessages);
     // 選んでいる LLM（設定モーダルで切り替えたら、保存する前でもそちら）
     const backend = llmBackend(draft);
     const models = llmModels(draft);
@@ -75,9 +79,7 @@ export function ModelsPage({
     return (
         <>
             <div className='flex items-center justify-between gap-3'>
-                <p className='text-xs text-muted-foreground'>
-                    処理ごとのモデルです（{LLM_NAMES[backend]}）。薄い文字のものは表示だけで、選べません
-                </p>
+                <p className='text-xs text-muted-foreground'>{t('modelsPage.intro', { llm: LLM_NAMES[backend] })}</p>
                 <Button
                     variant='outline'
                     size='sm'
@@ -85,28 +87,28 @@ export function ModelsPage({
                     onClick={() => onChangeModels(backend, { ...recommendedModelsFor(backend) })}
                 >
                     <RotateCcwIcon />
-                    おすすめに戻す
+                    {t('modelsPage.restoreRecommended')}
                 </Button>
             </div>
             {!listed && (
                 <p className='mt-2 text-xs text-amber-700 dark:text-amber-400'>
-                    {LLM_NAMES[backend]} に切り替わると、入っているモデルから選べます
+                    {t('modelsPage.switching', { llm: LLM_NAMES[backend] })}
                 </p>
             )}
             <Section
-                title='参考資料'
-                description={`${LLM_NAMES[backend]} で、資料から用語リストとコンテキストを作ります`}
+                title={t('common.referenceMaterials')}
+                description={t('modelsPage.referenceMaterialsDescription', { llm: LLM_NAMES[backend] })}
             >
-                {ollamaRow('materialTerms', '用語リスト（資料抽出）')}
-                {ollamaRow('context', 'コンテキスト', thinkingNote(options, models.context))}
-                {ollamaRow('scope', '範囲の判断', '資料のどこを使うかを判断します。小さいモデルでは答えが安定しません')}
-                {ollamaRow('figures', '図の読み取り', 'PDF の図を読みます。画像を読めるモデルを選んでください')}
+                {ollamaRow('materialTerms', t('modelsPage.termListFromMaterials'))}
+                {ollamaRow('context', t('modelsPage.context'), thinkingNote(options, models.context))}
+                {ollamaRow('scope', t('modelsPage.scope'), t('modelsPage.scopeDescription'))}
+                {ollamaRow('figures', t('common.figureReading'), t('modelsPage.figuresDescription'))}
             </Section>
-            <Section title='リアルタイム文字起こし'>
-                <Row id='model-vad' label='無音区間の判別'>
+            <Section title={t('modelsPage.realTimeTranscript')}>
+                <Row id='model-vad' label={t('modelsPage.vad')}>
                     <Fixed>Silero VAD</Fixed>
                 </Row>
-                <Row id='whisper-model' label='文字起こし' locked={whisperLocked}>
+                <Row id='whisper-model' label={t('common.transcript')} locked={whisperLocked}>
                     <OptionSelect
                         id='whisper-model'
                         value={whisperModel}
@@ -114,27 +116,27 @@ export function ModelsPage({
                         onChange={onChangeWhisperModel}
                     />
                 </Row>
-                {ollamaRow('transcriptTerms', '用語リスト（文字起こし抽出）')}
+                {ollamaRow('transcriptTerms', t('modelsPage.termListFromTranscript'))}
             </Section>
-            <Section title='浄書' description='録音終了後に、録音全体から作り直します'>
-                <Row id='model-final-transcript' label='文字起こし'>
-                    <Fixed>WhisperX（Whisper: {whisperModel}。リアルタイム文字起こしと同じ）</Fixed>
+            <Section title={t('common.polish')} description={t('modelsPage.polishDescription')}>
+                <Row id='model-final-transcript' label={t('common.transcript')}>
+                    <Fixed>{t('modelsPage.polishTranscript', { model: whisperModel })}</Fixed>
                 </Row>
-                <Row id='model-align' label='時刻合わせ'>
+                <Row id='model-align' label={t('modelsPage.align')}>
                     <Fixed>wav2vec2</Fixed>
                 </Row>
-                <Row id='model-diarize' label='話者分け'>
+                <Row id='model-diarize' label={t('common.speakerLabeling')}>
                     <Fixed>WhisperX（pyannote）</Fixed>
                 </Row>
             </Section>
-            <Section title='リアルタイム要約' description='録音中に数分おきに作ります（思考モードはオフ）'>
-                {ollamaRow('liveSummary', '要約')}
-                {ollamaRow('liveTitle', 'タイトル')}
+            <Section title={t('common.realTimeSummary')} description={t('modelsPage.realTimeSummaryDescription')}>
+                {ollamaRow('liveSummary', t('common.summary'))}
+                {ollamaRow('liveTitle', t('modelsPage.title'))}
             </Section>
-            <Section title='最終要約' description='録音終了後に作ります'>
-                {ollamaRow('overview', '全体概要', thinkingNote(options, models.overview))}
-                {ollamaRow('detail', '要約詳細', thinkingNote(options, models.detail))}
-                {ollamaRow('finalTitle', 'タイトル')}
+            <Section title={t('modelsPage.finalSummary')} description={t('modelsPage.finalSummaryDescription')}>
+                {ollamaRow('overview', t('common.overview'), thinkingNote(options, models.overview))}
+                {ollamaRow('detail', t('common.detailedSummary'), thinkingNote(options, models.detail))}
+                {ollamaRow('finalTitle', t('modelsPage.title'))}
             </Section>
         </>
     );

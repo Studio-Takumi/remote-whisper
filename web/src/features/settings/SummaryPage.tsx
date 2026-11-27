@@ -4,8 +4,10 @@ import { LlmSection } from '@/features/settings/LlmSection';
 import { NumberInput } from '@/features/settings/NumberInput';
 import { Row, Section } from '@/features/settings/SettingsParts';
 import { SummaryLanguageSelect } from '@/features/settings/SummaryLanguageSelect';
+import { settingsMessages } from '@/features/settings/i18n';
 import type { LlmBackend, Settings } from '@/features/settings/settings';
 import type { LmStudioSettings, UpdateSection } from '@/features/settings/settingsDraft';
+import { useT } from '@/i18n/messages';
 
 // 設定の「要約」ページ（URL は /settings/ollama のまま）
 export function SummaryPage({
@@ -21,6 +23,7 @@ export function SummaryPage({
     onChangeBackend: (backend: LlmBackend) => void;
     onChangeLmStudio: (patch: Partial<LmStudioSettings>) => void;
 }) {
+    const t = useT(settingsMessages);
     const summaryLanguage = draft.ollama.summaryLanguage;
     return (
         <>
@@ -34,7 +37,11 @@ export function SummaryPage({
             {/* 古いサーバー（要約の言語を持たない）では出さない */}
             {summaryLanguage !== undefined && (
                 <Section>
-                    <Row id='summary-language' label='要約の言語' description='タイトルも同じ言語で付けます'>
+                    <Row
+                        id='summary-language'
+                        label={t('summaryPage.language')}
+                        description={t('summaryPage.languageDescription')}
+                    >
                         <SummaryLanguageSelect
                             id='summary-language'
                             value={summaryLanguage}
@@ -43,8 +50,15 @@ export function SummaryPage({
                     </Row>
                 </Section>
             )}
-            <Section title='要約度' description='1 は要点だけで、5 になるにつれてより細かくなります'>
-                <Row id='live-density' label='リアルタイム要約' description='約 4000 文字ごとの要約'>
+            <Section
+                title={t('summaryPage.summaryDetailLevel')}
+                description={t('summaryPage.summaryDetailLevelDescription')}
+            >
+                <Row
+                    id='live-density'
+                    label={t('common.realTimeSummary')}
+                    description={t('summaryPage.realTimeSummaryDescription')}
+                >
                     <DensitySelect
                         id='live-density'
                         value={draft.ollama.liveSummaryDensity}
@@ -53,8 +67,8 @@ export function SummaryPage({
                 </Row>
                 <Row
                     id='overview-density'
-                    label='全体概要'
-                    description='長い録音で、一番上に置く「全体概要」の箇条書き'
+                    label={t('common.overview')}
+                    description={t('summaryPage.overviewDescription')}
                 >
                     <DensitySelect
                         id='overview-density'
@@ -62,7 +76,11 @@ export function SummaryPage({
                         onChange={(overviewDensity) => update('ollama', { overviewDensity })}
                     />
                 </Row>
-                <Row id='detail-density' label='要約詳細' description='部分ごとの要約（短い録音では要約そのもの）'>
+                <Row
+                    id='detail-density'
+                    label={t('common.detailedSummary')}
+                    description={t('summaryPage.detailedSummaryDescription')}
+                >
                     <DensitySelect
                         id='detail-density'
                         value={draft.ollama.detailDensity}
@@ -73,8 +91,8 @@ export function SummaryPage({
             <Section>
                 <Row
                     id='detail-material-pages'
-                    label='参考資料のページの表示'
-                    description='要約詳細の項目に「〇〇.pdf p.12 の内容」のように資料の該当ページを表示します（PDF のみ）'
+                    label={t('summaryPage.materialPages')}
+                    description={t('summaryPage.materialPagesDescription')}
                 >
                     <Switch
                         id='detail-material-pages'
@@ -82,19 +100,19 @@ export function SummaryPage({
                         onCheckedChange={(detailMaterialPages) => update('ollama', { detailMaterialPages })}
                     />
                 </Row>
-                <Row id='live-interval' label='リアルタイム要約の間隔'>
+                <Row id='live-interval' label={t('summaryPage.realTimeInterval')}>
                     <NumberInput
                         id='live-interval'
                         value={draft.ollama.liveSummaryIntervalMin}
                         min={1}
-                        unit='分'
+                        unit={t('common.minutes')}
                         onChange={(liveSummaryIntervalMin) => update('ollama', { liveSummaryIntervalMin })}
                     />
                 </Row>
                 <Row
                     id='pick-terms'
-                    label='録音中の用語抽出'
-                    description='GPU の負荷が上がります。参考資料のスイッチもオンのときだけ抽出します'
+                    label={t('summaryPage.pickTerms')}
+                    description={t('summaryPage.pickTermsDescription')}
                 >
                     <Switch
                         id='pick-terms'
@@ -102,12 +120,12 @@ export function SummaryPage({
                         onCheckedChange={(pickTerms) => update('ollama', { pickTerms })}
                     />
                 </Row>
-                <Row id='keep-alive' label='要約後にモデルを停止するまでの時間'>
+                <Row id='keep-alive' label={t('summaryPage.keepAlive')}>
                     <NumberInput
                         id='keep-alive'
                         value={draft.ollama.keepAliveMin}
                         min={1}
-                        unit='分'
+                        unit={t('common.minutes')}
                         onChange={(keepAliveMin) => update('ollama', { keepAliveMin })}
                     />
                 </Row>

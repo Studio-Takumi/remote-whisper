@@ -1,7 +1,9 @@
 import { useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
+import { settingsMessages } from '@/features/settings/i18n';
 import { DEFAULT_MIC_SHORTCUT, captureShortcut, formatShortcut, isMacPlatform } from '@/features/settings/shortcut';
+import { useT } from '@/i18n/messages';
 
 // キーの組み合わせを決める入力欄（#236。spec/files.md 5.3・spec/ui.md 8）。Esc でやめる。
 // 決めている間は data-shortcut-capture を付け、設定モーダルが Esc で閉じないようにする（SettingsDialog）
@@ -14,6 +16,7 @@ export function ShortcutInput({
     value: string;
     onChange: (value: string) => void;
 }) {
+    const t = useT(settingsMessages);
     const [capturing, setCapturing] = useState(false);
     const [error, setError] = useState(false);
     // 決めている間に押したキーを離したとき、Space の keyup でボタンが押されたことにならないように
@@ -42,7 +45,11 @@ export function ShortcutInput({
         }
     }
 
-    const label = capturing ? 'キーを押してください…' : value === '' ? '使わない' : formatShortcut(value);
+    const label = capturing
+        ? t('shortcutInput.pressKey')
+        : value === ''
+          ? t('shortcutInput.none')
+          : formatShortcut(value);
 
     return (
         <div className='flex flex-col items-start gap-1 md:items-end'>
@@ -79,15 +86,15 @@ export function ShortcutInput({
                     disabled={value === DEFAULT_MIC_SHORTCUT}
                     onClick={() => onChange(DEFAULT_MIC_SHORTCUT)}
                 >
-                    既定に戻す
+                    {t('shortcutInput.reset')}
                 </Button>
                 <Button type='button' variant='ghost' size='sm' disabled={value === ''} onClick={() => onChange('')}>
-                    使わない
+                    {t('shortcutInput.none')}
                 </Button>
             </div>
             {capturing && (
                 <p className={`text-xs ${error ? 'text-destructive' : 'text-muted-foreground'}`}>
-                    {error ? `${modifiers} のどれかと一緒に押してください` : 'Esc で取り消します'}
+                    {error ? t('shortcutInput.needsModifier', { modifiers }) : t('shortcutInput.escToCancel')}
                 </p>
             )}
         </div>

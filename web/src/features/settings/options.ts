@@ -1,6 +1,7 @@
 import { withAppAuth } from '@/api/appAuth';
 import { apiUrl } from '@/api/endpoint';
 import type { SettingsOptions } from '@/api/protocol';
+import { settingsMessages } from '@/features/settings/i18n';
 import type { LlmBackend, OllamaModels } from '@/features/settings/settings';
 
 // 設定で選べる値（GET /api/settings/options）を取る
@@ -48,10 +49,10 @@ export function isMissing(options: SettingsOptions, backend: LlmBackend, key: ke
 export function thinkingNote(options: SettingsOptions, model: string) {
     const thinking = options.llm.models.find((m) => m.name === model)?.thinking;
     if (thinking === false) {
-        return 'このモデルは思考モードに対応していないため、オフで実行します';
+        return settingsMessages.t('options.thinkingModeUnsupported');
     }
     if (thinking === undefined) {
-        return '思考モードはオン（対応していないモデルではオフで実行します）';
+        return settingsMessages.t('options.thinkingModeOnMaybeOff');
     }
-    return '思考モードはオン';
+    return settingsMessages.t('options.thinkingModeOn');
 }

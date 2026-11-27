@@ -5,6 +5,7 @@ import { ApiError, api } from '@/api/api';
 import { isDemo } from '@/api/demo';
 import type { ActionContext } from '@/app/actionContext';
 import { currentSession, needsSummaryFor } from '@/app/selectors';
+import { settingsMessages } from '@/features/settings/i18n';
 import { fetchOptions } from '@/features/settings/options';
 import { type Settings, finalModelLabel, llmBackend, llmModels } from '@/features/settings/settings';
 
@@ -43,7 +44,7 @@ export async function changeSettings(ctx: ActionContext, next: Settings) {
     }
     // 読み終わる前の settings は既定値。これを送ると、サーバーの設定が既定値で上書きされる（#339）
     if (!get().settingsLoaded) {
-        toast.error('設定を読み込めていないため、保存できません');
+        toast.error(settingsMessages.t('settingsActions.notLoaded'));
         return false;
     }
     const before = finalModelLabel(llmModels(get().settings));
@@ -74,7 +75,7 @@ export async function changeSettings(ctx: ActionContext, next: Settings) {
         return true;
     } catch (e) {
         if (e instanceof ApiError && e.status === 409) {
-            toast.error('録音中は、文字起こしのモデル・区切り・マイクの処理は変えられません');
+            toast.error(settingsMessages.t('settingsActions.lockedWhileRecording'));
         } else {
             toast.error(`設定を保存できません: ${(e as Error).message}`);
         }

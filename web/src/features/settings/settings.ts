@@ -40,21 +40,25 @@ export function finalModelLabel(models: OllamaModels) {
     return models.overview === models.detail ? models.detail : `${models.overview} / ${models.detail}`;
 }
 
+// 言語の選択肢。言語の名前（日本語・English）はどの表示言語でも同じなので label、それ以外は辞書のキー（labelKey）
+export type LanguageOption<V> =
+    { value: V; label: string } | { value: V; labelKey: 'settings.autoDetect' | 'settings.sameAsTranscript' };
+
 export type TranscriptionLanguage = 'ja' | 'auto';
 
 // 文字起こしの言語の選択肢（#482）。英語などを一つずつ選ばせず、日本語と自動判定の 2 つだけ
-export const transcriptionLanguages: { value: TranscriptionLanguage; label: string }[] = [
+export const transcriptionLanguages: LanguageOption<TranscriptionLanguage>[] = [
     { value: 'ja', label: '日本語' },
-    { value: 'auto', label: '自動判定' },
+    { value: 'auto', labelKey: 'settings.autoDetect' },
 ];
 
 export type SummaryLanguage = 'ja' | 'en' | 'transcript';
 
 // 要約の言語の選択肢（#485）。transcript は文字起こしの決まった言語に合わせる
-export const summaryLanguages: { value: SummaryLanguage; label: string }[] = [
+export const summaryLanguages: LanguageOption<SummaryLanguage>[] = [
     { value: 'ja', label: '日本語' },
     { value: 'en', label: 'English' },
-    { value: 'transcript', label: '文字起こしと同じ' },
+    { value: 'transcript', labelKey: 'settings.sameAsTranscript' },
 ];
 
 // setting.json の中身（docs/spec/files.md 5.3 節）。後で GET /api/settings から取り、PATCH /api/settings で保存する

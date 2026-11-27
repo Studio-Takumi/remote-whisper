@@ -5,9 +5,11 @@ import { recordingLocks } from '@/features/recording/recording';
 import { NumberInput } from '@/features/settings/NumberInput';
 import { OptionSelect, Row, Section } from '@/features/settings/SettingsParts';
 import { TranscriptionLanguageSelect } from '@/features/settings/TranscriptionLanguageSelect';
+import { settingsMessages } from '@/features/settings/i18n';
 import { withCurrent } from '@/features/settings/options';
 import type { Settings } from '@/features/settings/settings';
 import type { UpdateSection } from '@/features/settings/settingsDraft';
+import { useT } from '@/i18n/messages';
 
 // 設定の「文字起こし」ページ
 export function WhisperPage({
@@ -22,6 +24,7 @@ export function WhisperPage({
     // 録音中に変えられない項目の理由。録音していなければ undefined（変えられる）
     lock: (reason: string) => string | undefined;
 }) {
+    const t = useT(settingsMessages);
     const language = draft.whisper.language;
     return (
         <Section>
@@ -29,8 +32,8 @@ export function WhisperPage({
             {language !== undefined && (
                 <Row
                     id='transcription-language'
-                    label='文字起こしの言語'
-                    description='自動判定では、浄書のときに言語を判定します'
+                    label={t('whisperPage.language')}
+                    description={t('whisperPage.languageDescription')}
                 >
                     <TranscriptionLanguageSelect
                         id='transcription-language'
@@ -41,9 +44,9 @@ export function WhisperPage({
             )}
             <Row
                 id='compute-type'
-                label='計算の精度'
+                label={t('whisperPage.computeType')}
                 locked={lock(recordingLocks.whisperModel)}
-                description='int8 にすると VRAM が減りますが、精度が少し落ちます'
+                description={t('whisperPage.computeTypeDescription')}
             >
                 <OptionSelect
                     id='compute-type'
@@ -52,7 +55,7 @@ export function WhisperPage({
                     onChange={(computeType) => update('whisper', { computeType })}
                 />
             </Row>
-            <Row id='beam-size' label='ビームサイズ' description='大きいほど精度が上がりますが、遅くなります'>
+            <Row id='beam-size' label={t('whisperPage.beamSize')} description={t('whisperPage.beamSizeDescription')}>
                 <NumberInput
                     id='beam-size'
                     value={draft.whisper.beamSize}
@@ -60,40 +63,40 @@ export function WhisperPage({
                     onChange={(beamSize) => update('whisper', { beamSize })}
                 />
             </Row>
-            <Row id='partial-interval' label='途中結果の間隔'>
+            <Row id='partial-interval' label={t('whisperPage.partialInterval')}>
                 <NumberInput
                     id='partial-interval'
                     value={draft.whisper.partialIntervalSec}
                     min={0.1}
                     step={0.1}
-                    unit='秒'
+                    unit={t('whisperPage.seconds')}
                     onChange={(partialIntervalSec) => update('whisper', { partialIntervalSec })}
                 />
             </Row>
-            <Row id='silence-ms' label='区切りとみなす無音' locked={lock(recordingLocks.segmentation)}>
+            <Row id='silence-ms' label={t('whisperPage.silence')} locked={lock(recordingLocks.segmentation)}>
                 <NumberInput
                     id='silence-ms'
                     value={draft.whisper.silenceMs}
                     min={100}
                     step={100}
-                    unit='ミリ秒'
+                    unit={t('whisperPage.milliseconds')}
                     onChange={(silenceMs) => update('whisper', { silenceMs })}
                 />
             </Row>
-            <Row id='max-segment' label='チャンクの最大の長さ' locked={lock(recordingLocks.segmentation)}>
+            <Row id='max-segment' label={t('whisperPage.maxSegment')} locked={lock(recordingLocks.segmentation)}>
                 <NumberInput
                     id='max-segment'
                     value={draft.whisper.maxSegmentSec}
                     min={1}
-                    unit='秒'
+                    unit={t('whisperPage.seconds')}
                     onChange={(maxSegmentSec) => update('whisper', { maxSegmentSec })}
                 />
             </Row>
             <Row
                 id='speech-threshold'
-                label='話し声の判定'
+                label={t('whisperPage.speechThreshold')}
                 locked={lock(recordingLocks.segmentation)}
-                description='自動では Silero VAD で判定し、手動では音量で判定します'
+                description={t('whisperPage.speechThresholdDescription')}
             >
                 <Select
                     value={draft.whisper.speechThreshold}
@@ -106,8 +109,8 @@ export function WhisperPage({
                     </SelectTrigger>
                     <SelectContent>
                         <SelectGroup>
-                            <SelectItem value='auto'>自動</SelectItem>
-                            <SelectItem value='manual'>手動（音量）</SelectItem>
+                            <SelectItem value='auto'>{t('whisperPage.speechAuto')}</SelectItem>
+                            <SelectItem value='manual'>{t('whisperPage.speechManual')}</SelectItem>
                         </SelectGroup>
                     </SelectContent>
                 </Select>
@@ -115,9 +118,9 @@ export function WhisperPage({
             {draft.whisper.speechThreshold === 'manual' && (
                 <Row
                     id='speech-dbfs'
-                    label='手動のときの音量'
+                    label={t('whisperPage.speechDbfs')}
                     locked={lock(recordingLocks.segmentation)}
-                    description='この音量より大きい音を話し声とみなします（-70〜-10）'
+                    description={t('whisperPage.speechDbfsDescription')}
                 >
                     <NumberInput
                         id='speech-dbfs'
@@ -129,11 +132,7 @@ export function WhisperPage({
                     />
                 </Row>
             )}
-            <Row
-                id='final-transcript'
-                label='浄書'
-                description='録音終了後、文字起こしが読みやすくなるように浄書します'
-            >
+            <Row id='final-transcript' label={t('common.polish')} description={t('whisperPage.polishDescription')}>
                 <Switch
                     id='final-transcript'
                     checked={draft.whisper.finalTranscript ?? true}
@@ -142,8 +141,8 @@ export function WhisperPage({
             </Row>
             <Row
                 id='diarize'
-                label='話者分け'
-                description='浄書済み文字起こしを「話者 1」などに分けます。HuggingFace のトークンやモデルの利用条件への同意が必要です'
+                label={t('common.speakerLabeling')}
+                description={t('whisperPage.speakerLabelingDescription')}
             >
                 <Switch
                     id='diarize'
@@ -152,12 +151,12 @@ export function WhisperPage({
                     onCheckedChange={(diarize) => update('whisper', { diarize })}
                 />
             </Row>
-            <Row id='unload-after' label='録音終了後にモデルを停止するまでの時間'>
+            <Row id='unload-after' label={t('whisperPage.unloadAfter')}>
                 <NumberInput
                     id='unload-after'
                     value={draft.whisper.unloadAfterMin}
                     min={1}
-                    unit='分'
+                    unit={t('common.minutes')}
                     onChange={(unloadAfterMin) => update('whisper', { unloadAfterMin })}
                 />
             </Row>
