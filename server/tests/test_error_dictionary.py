@@ -1,6 +1,7 @@
-"""サーバーのエラーのコードと、web の辞書（web/src/api/serverErrors/i18n/ja.ts）を突き合わせる（#494）。
+"""サーバーのエラーのコードと、web の辞書を突き合わせる（#494）。
 
-web はコードから辞書の文を引くので、日本語の文がサーバーの detail・message と違うと、表示が変わってしまう。
+辞書は web/src/api/serverErrors/i18n/ja.ts。web はコードから辞書の文を引くので、
+日本語の文がサーバーの detail・message と違うと、表示が変わってしまう。
 """
 
 import re
@@ -50,9 +51,7 @@ def test_every_code_is_in_the_dictionary(dictionary):
     namespaces = {key.split(".")[0] for key in dictionary}
     found = set(re.findall(r'"([a-z][a-zA-Z]*\.[a-z][a-zA-Z]*)"', _source()))
     codes = {
-        c
-        for c in found
-        if c.split(".")[0] in namespaces and c.split(".")[1] not in FILE_EXTENSIONS
+        c for c in found if c.split(".")[0] in namespaces and c.split(".")[1] not in FILE_EXTENSIONS
     } - NOT_CODES
     assert codes - dictionary.keys() == set()
 
