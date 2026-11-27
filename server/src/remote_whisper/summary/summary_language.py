@@ -35,7 +35,8 @@ _DENSE = {"ja", "zh", "yue"}
 def summary_language(choice: str | None, transcript_language: str | None) -> str:
     """要約を書く言語のコード。choice は設定（ja / en / transcript）。
     transcript は文字起こしの言語に合わせ、日本語でも LANGUAGE_NAMES にもない言語なら英語。
-    知らない choice は日本語（古い設定・手で書き換えた設定）"""
+    choice が None（渡されなかった）なら日本語。項目のない古い設定は読み込むときに ja で埋まり、
+    ほかの値の setting.json は読み込めない（SettingsError）ので、ここには来ない"""
     if choice == "transcript":
         code = transcript_language or "ja"
         return code if code == "ja" or code in LANGUAGE_NAMES else "en"
