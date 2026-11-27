@@ -110,7 +110,7 @@ def _rewrite_project(path: Path, project_path: str, undo: _Undo, uuid: str | Non
 def move_session(store: ProjectStore, src: str, dst: str, sid: str) -> SessionEntry:
     """セッションを src から dst へ移す。移せなければ ProjectError（400・404・409・500）"""
     if src == dst:
-        raise ProjectError(400, "移動先が同じプロジェクトです")
+        raise ProjectError(400, "sessionMove.sameProject", "移動先が同じプロジェクトです")
     # 文字起こしのファイルの書き込み（用語・置き換えなど）とも混ざらないようにする
     with store.lock, transcript_lock(store.dir(src) / transcript_name(sid)):
         source = store.load(src)
@@ -149,13 +149,18 @@ def _check(
     """移せるか確かめて、セッションと動かすファイルを返す。移せなければ ProjectError"""
     entry = next((s for s in source.sessions if s.id == sid), None)
     if entry is None:
-        raise ProjectError(404, f"セッション {sid} はありません")
+        raise ProjectError(404, "session.notFound", f"セッション {sid} はありません", {"id": sid})
     if any(s.id == sid for s in target.sessions):
-        raise ProjectError(409, "移動先に同じ ID のセッションがあります")
+        raise ProjectError(409, "sessionMove.sameId", "移動先に同じ ID のセッションがあります")
     paths = session_paths(src_dir, sid)
     for path in paths:
         if (dst_dir / path.relative_to(src_dir)).exists():
-            raise ProjectError(409, f"移動先に同じ名前のファイルがあります: {path.name}")
+            raise ProjectError(
+                409,
+                "sessionMove.sameFile",
+                f"移動先に同じ名前のファイルがあります: {path.name}",
+                {"name": path.name},
+            )
     return entry, paths
 
 
@@ -227,7 +232,13 @@ def move_error(e: Exception) -> ProjectError:
         # Windows では、開いているファイル（ほかの端末で再生中の録音など）は動かせない
         return ProjectError(
             409,
+            "sessionMove.fileInUse",
             "使われているファイルがあるため移せませんでした（元のままです）。"
             "ほかの端末で録音を再生していないか確かめてください",
         )
-    return ProjectError(500, f"セッションを移せませんでした（元のままです）: {e}")
+    return ProjectError(
+        500,
+        "sessionMove.failed",
+        f"セッションを移せませんでした（元のままです）: {e}",
+        {"reason": str(e)},
+    )

@@ -13,7 +13,7 @@ from typing import Any
 import httpx
 
 from remote_whisper.hub import Hub
-from remote_whisper.llm.llm import LlmUnavailable, PullProgress
+from remote_whisper.llm.llm import LlmProduct, LlmUnavailable, PullProgress, unavailable_error
 from remote_whisper.settings import SettingsStore, has_model
 
 log = logging.getLogger(__name__)
@@ -26,13 +26,9 @@ class OllamaUnavailable(LlmUnavailable):
     """Ollama につながらない・エラーを返した"""
 
 
-def ollama_error(what: str) -> dict[str, Any]:
+def ollama_error(what: LlmProduct) -> dict[str, Any]:
     """要約などを作れなかったことをブラウザに伝えるメッセージ"""
-    return {
-        "type": "error",
-        "code": "ollama_unavailable",
-        "message": f"Ollama に接続できないため、{what}を作れませんでした",
-    }
+    return unavailable_error("ollama", "Ollama", what)
 
 
 def _to_ollama_message(message: dict[str, Any]) -> dict[str, Any]:

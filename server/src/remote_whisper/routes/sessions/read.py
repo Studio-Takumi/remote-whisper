@@ -5,9 +5,10 @@
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Query
 from fastapi.responses import FileResponse
 
+from remote_whisper.api_errors import ApiError, api_error
 from remote_whisper.context import Pid
 from remote_whisper.llm.llm import backend_of
 from remote_whisper.routes.sessions.common import (
@@ -16,6 +17,7 @@ from remote_whisper.routes.sessions.common import (
     load_project,
     load_session,
     session_json,
+    transcript_unreadable,
 )
 from remote_whisper.storage.documents import FinalTranscriptMeta, SummaryMeta, read_doc
 from remote_whisper.storage.projects import ProjectError
@@ -71,11 +73,11 @@ def get_session(pid: Pid, sid: str, ctx: Ctx) -> dict[str, Any]:
 def get_transcript(pid: Pid, sid: str, ctx: Ctx) -> dict[str, Any]:
     _, files = load_session(ctx, pid, sid)
     if not files.transcript.is_file():
-        raise gone("文字起こし")
+        raise gone("transcript")
     try:
         meta, body = read_transcript(files)
     except (OSError, ValueError) as e:
-        raise HTTPException(status_code=500, detail=f"文字起こしを読み込めません: {e}") from e
+        raise transcript_unreadable(e) from e
     return {"meta": meta.to_json(), "lines": parse_transcript_lines(body)}
 
 
@@ -93,17 +95,17 @@ def get_final_transcript(pid: Pid, sid: str, gid: str, ctx: Ctx) -> dict[str, An
     finals = files.final_transcripts()
     if gid == "latest":
         if not finals:
-            raise gone("浄書済み文字起こし")
+            raise gone("polishedTranscript")
         gid = finals[-1].generation_id
     elif not ID_RE.fullmatch(gid):
-        raise HTTPException(status_code=404, detail="浄書済み文字起こしがありません")
+        raise ApiError(404, "polishedTranscript.notFound", "浄書済み文字起こしがありません")
     path = files.final_transcript(gid)
     if not path.is_file():
-        raise gone("浄書済み文字起こし")
+        raise gone("polishedTranscript")
     try:
         meta, body = read_doc(path, FinalTranscriptMeta)
     except (OSError, ValueError) as e:
-        raise HTTPException(status_code=500, detail=f"文字起こしを読み込めません: {e}") from e
+        raise transcript_unreadable(e) from e
     meta = meta.model_copy(update={"id": sid, "generation_id": gid})
     # 画面で足した置き換え（#176）は、版の中身は書き換えず、ここで当てる（作り直した版にも当たる）
     body = correct_final_body(body, session_corrections(files), gid)
@@ -121,15 +123,23 @@ def get_recording(
     source は音源 ID（#371）"""
     entry, files = load_session(ctx, pid, sid)
     if source is not None and not 1 <= source <= MAX_SOURCE_ID:
-        raise HTTPException(status_code=404, detail="録音ファイルはありません")
+        raise _no_recording()
     n = source or 1
     if entry.status == "recording":
         path = files.source_recording(n)
     else:
         path = files.source_audio(n)
     if path is None:
-        raise HTTPException(status_code=404, detail="録音ファイルはありません")
+        raise _no_recording()
     return FileResponse(path, media_type=_AUDIO_TYPES.get(path.suffix, "application/octet-stream"))
+
+
+def _no_recording() -> ApiError:
+    return ApiError(404, "recordingFile.notFound", "録音ファイルはありません")
+
+
+def _no_summary(gid: str) -> ApiError:
+    return ApiError(404, "summary.notFound", f"要約 {gid} はありません", {"id": gid})
 
 
 @router.get("/{sid}/summaries")
@@ -150,14 +160,16 @@ def get_summary(pid: Pid, sid: str, gid: str, ctx: Ctx) -> dict[str, Any]:
             return _live_summary(files)
         gid = latest.generation_id
     if not ID_RE.fullmatch(gid):
-        raise HTTPException(status_code=404, detail=f"要約 {gid} はありません")
+        raise _no_summary(gid)
     path = files.summary(gid)
     if not path.is_file():
-        raise HTTPException(status_code=404, detail=f"要約 {gid} はありません")
+        raise _no_summary(gid)
     try:
         meta, body = read_doc(path, SummaryMeta)
     except (OSError, ValueError) as e:
-        raise HTTPException(status_code=500, detail=f"要約を読み込めません: {e}") from e
+        raise ApiError(
+            500, "summary.unreadable", f"要約を読み込めません: {e}", {"reason": str(e)}
+        ) from e
     meta = meta.model_copy(update={"id": sid, "generation_id": gid})  # ファイル名を正とする
     return {"kind": "final", **_summary_json(meta), "text": body}
 
@@ -165,11 +177,16 @@ def get_summary(pid: Pid, sid: str, gid: str, ctx: Ctx) -> dict[str, Any]:
 def _live_summary(files: SessionFiles) -> dict[str, Any]:
     path = files.live_summary
     if not path.is_file():
-        raise HTTPException(status_code=404, detail="要約はまだありません")
+        raise ApiError(404, "summary.notYet", "要約はまだありません")
     try:
         text = path.read_text(encoding="utf-8")
     except (OSError, ValueError) as e:
-        raise HTTPException(status_code=500, detail=f"リアルタイム要約を読み込めません: {e}") from e
+        raise ApiError(
+            500,
+            "realtimeSummary.unreadable",
+            f"リアルタイム要約を読み込めません: {e}",
+            {"reason": str(e)},
+        ) from e
     return {"kind": "live", "text": text}
 
 
@@ -182,6 +199,6 @@ def find_session(session_uuid: str, ctx: Ctx) -> dict[str, Any]:
     try:
         pid, project, entry = ctx.projects.find_session(session_uuid)
     except ProjectError as e:
-        raise HTTPException(status_code=e.status, detail=e.message) from e
+        raise api_error(e) from e
     files = SessionFiles(ctx.projects.dir(pid), entry.id)
     return {"projectId": pid, "projectUuid": project.uuid, **session_json(entry, files)}
