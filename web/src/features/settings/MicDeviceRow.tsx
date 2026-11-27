@@ -15,6 +15,8 @@ import {
     saveChosenMic,
 } from '@/features/recording/audio/micDevice';
 import { Row } from '@/features/settings/SettingsParts';
+import { settingsMessages } from '@/features/settings/i18n';
+import { useT } from '@/i18n/messages';
 
 // 「OS に任せる」の値（deviceId には出てこない文字）
 const OS = 'os';
@@ -22,6 +24,7 @@ const OS = 'os';
 // 設定の「録音」の「この端末」にある、録音に使うマイク（#449。spec/ui.md 8 章）。
 // 端末ごと（localStorage）で、全体設定の保存とは別に、選んだ時点で効く。録音中なら、録音を続けたまま選んだマイクに切り替える
 export function MicDeviceRow() {
+    const t = useT(settingsMessages);
     const switchMicrophone = useAppStore((s) => s.switchMicrophone);
     const [chosen, setChosen] = useState<ChosenMic | null>(loadChosenMic);
     // undefined は読み込み中、null は一覧を取れないブラウザ
@@ -52,10 +55,10 @@ export function MicDeviceRow() {
         setAsking(true);
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            stream.getTracks().forEach((t) => t.stop());
+            stream.getTracks().forEach((track) => track.stop());
             setInputs(await listMicInputs());
         } catch {
-            toast.error('マイクが使えません。ブラウザの設定でマイクを許可してください');
+            toast.error(t('micDeviceRow.denied'));
         } finally {
             setAsking(false);
         }
@@ -67,14 +70,14 @@ export function MicDeviceRow() {
     const labelled = inputs ? hasLabels(inputs) : false;
     const label = (deviceId: string) => {
         if (deviceId === OS) {
-            return 'OS に任せる';
+            return t('micDeviceRow.os');
         }
         const input = listed.find((i) => i.deviceId === deviceId);
         if (input) {
             return input.label;
         }
         // 選んだマイクが一覧にない（抜いた・許可の前で名前が分からない）
-        return found === null ? `${chosen?.label}（見つかりません）` : (chosen?.label ?? '');
+        return found === null ? t('micDeviceRow.notFound', { label: chosen?.label ?? '' }) : (chosen?.label ?? '');
     };
     const options = [OS, ...listed.map((i) => i.deviceId)];
     if (chosen && !found) {
@@ -93,22 +96,22 @@ export function MicDeviceRow() {
 
     let description: React.ReactNode;
     if (inputs === null) {
-        description = 'このブラウザでは選べません';
+        description = t('micDeviceRow.unsupported');
     } else if (inputs && !labelled) {
         description = (
             <span className='flex flex-wrap items-center gap-2'>
-                マイクを許可すると選べます
+                {t('micDeviceRow.allowToChoose')}
                 <Button size='sm' variant='outline' disabled={asking} onClick={() => void allow()}>
-                    許可する
+                    {t('micDeviceRow.allow')}
                 </Button>
             </span>
         );
     } else if (found === null) {
-        description = 'つながるまで OS の既定のマイクで録音します';
+        description = t('micDeviceRow.waitingForDevice');
     }
 
     return (
-        <Row id='mic-device' label='録音に使うマイク' description={description}>
+        <Row id='mic-device' label={t('micDeviceRow.label')} description={description}>
             <Select value={value} onValueChange={change} disabled={inputs === null}>
                 {/* マイクの名前は長いことがあるので、収まらない分は「…」にし、全体を title で見られるように */}
                 <SelectTrigger id='mic-device' className='w-64' title={label(value)}>

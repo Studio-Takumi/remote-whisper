@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { api } from '@/api/api';
 import { useAppStore } from '@/app/store';
+import { setupMessages } from '@/features/setup/i18n';
 import { type SetupStatus, isBusy, normalizeSetup } from '@/features/setup/setup';
 
 // セットアップの状態（GET /api/setup。#291。spec/flows.md 6.15）。取っている・入れている間は 1 秒ごとに取り直し、
@@ -19,7 +20,7 @@ export function useSetupStatus(enabled: boolean, onFirst?: (status: SetupStatus)
             setStatus(await api.get<SetupStatus>('/api/setup'));
             setError(null);
         } catch (e) {
-            setError(e instanceof Error ? e.message : 'セットアップの状態を取得できませんでした');
+            setError(e instanceof Error ? e.message : setupMessages.t('useSetupStatus.loadFailed'));
         }
     }, [setStatus]);
 

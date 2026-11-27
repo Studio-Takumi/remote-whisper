@@ -1,5 +1,6 @@
 // 初回のセットアップの案内（#291。docs/spec/flows.md 6.15・ui.md 8・api.md 7.1）
 import type { LlmBackend } from '@/features/settings/settings';
+import { setupMessages } from '@/features/setup/i18n';
 
 // 全体設定のうち、案内が見るもの（浄書と話者分けのオン・オフ）
 export type WhisperFlags = { whisper: { finalTranscript?: boolean; diarize?: boolean } };
@@ -178,15 +179,15 @@ export function pullPercent(job: PullJob): number {
     return job.total > 0 ? Math.min(100, Math.floor((job.completed / job.total) * 100)) : 0;
 }
 
-export const PHASE_LABELS: Record<InstallJob['phase'], string> = {
-    preparing: '準備中',
-    downloading: 'ダウンロード中',
-    installing: 'インストール中',
-    rollingBack: '元に戻しています',
-};
+export const PHASE_LABEL_KEYS = {
+    preparing: 'setup.phasePreparing',
+    downloading: 'setup.phaseDownloading',
+    installing: 'setup.phaseInstalling',
+    rollingBack: 'setup.phaseRollingBack',
+} as const satisfies Record<InstallJob['phase'], string>;
 
 export function formatElapsed(sec: number): string {
     const m = Math.floor(sec / 60);
     const s = sec % 60;
-    return m > 0 ? `${m} 分 ${s} 秒` : `${s} 秒`;
+    return m > 0 ? setupMessages.t('setup.elapsedMinutes', { m, s }) : setupMessages.t('setup.elapsedSeconds', { s });
 }

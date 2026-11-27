@@ -1,5 +1,7 @@
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { settingsMessages } from '@/features/settings/i18n';
 import { type SummaryLanguage, summaryLanguages } from '@/features/settings/settings';
+import { useT } from '@/i18n/messages';
 
 // 要約の言語（#485）を選ぶ。設定の「要約」ページで使う
 export function SummaryLanguageSelect({
@@ -11,6 +13,7 @@ export function SummaryLanguageSelect({
     value: SummaryLanguage;
     onChange: (value: SummaryLanguage) => void;
 }) {
+    const t = useT(settingsMessages);
     return (
         <Select value={value} onValueChange={(v) => onChange(v as SummaryLanguage)}>
             <SelectTrigger id={id} className='w-44'>
@@ -20,7 +23,7 @@ export function SummaryLanguageSelect({
                 <SelectGroup>
                     {summaryLanguages.map((l) => (
                         <SelectItem key={l.value} value={l.value}>
-                            {l.label}
+                            {'labelKey' in l ? t(l.labelKey) : l.label}
                         </SelectItem>
                     ))}
                 </SelectGroup>

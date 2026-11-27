@@ -3,8 +3,10 @@ import { useState } from 'react';
 import { api } from '@/api/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { setupMessages } from '@/features/setup/i18n';
 import { DIARIZATION_MODEL_URL, HF_TOKENS_URL, type SetupStatus } from '@/features/setup/setup';
 import { Note, Step } from '@/features/setup/steps/StepParts';
+import { useT } from '@/i18n/messages';
 
 export function TokenStep({
     status,
@@ -17,6 +19,7 @@ export function TokenStep({
     locked: boolean;
     act: (call: () => Promise<SetupStatus>) => Promise<void>;
 }) {
+    const t = useT(setupMessages);
     const [token, setToken] = useState('');
     const source = status.hfToken.source;
 
@@ -28,19 +31,19 @@ export function TokenStep({
     }
 
     return (
-        <Step title='HuggingFace のトークン' purpose='話者分けのモデルを取るためのもの' ok={ok}>
-            {source === 'env' && <Note>環境変数 HF_TOKEN のトークンを使っています</Note>}
-            {source === 'login' && <Note>hf auth login で保存したトークンを使っています</Note>}
+        <Step title={t('tokenStep.title')} purpose={t('tokenStep.purpose')} ok={ok}>
+            {source === 'env' && <Note>{t('tokenStep.fromEnv')}</Note>}
+            {source === 'login' && <Note>{t('tokenStep.fromLogin')}</Note>}
             {source === 'file' ? (
                 <div className='flex flex-wrap items-center gap-2'>
-                    <Note>保存済み</Note>
+                    <Note>{t('tokenStep.saved')}</Note>
                     <Button
                         variant='outline'
                         size='sm'
                         disabled={locked}
                         onClick={() => void act(() => api.delete<SetupStatus>('/api/setup/hf-token'))}
                     >
-                        削除
+                        {t('tokenStep.delete')}
                     </Button>
                 </div>
             ) : (
@@ -53,15 +56,15 @@ export function TokenStep({
                                 target='_blank'
                                 rel='noreferrer noopener'
                             >
-                                話者分けのモデルのページ
+                                {t('tokenStep.modelPage')}
                             </a>
-                            で、ログインして利用条件に同意します
+                            {t('tokenStep.modelPageAfter')}
                         </li>
                         <li>
                             <a className='underline' href={HF_TOKENS_URL} target='_blank' rel='noreferrer noopener'>
-                                アクセストークンのページ
+                                {t('tokenStep.tokensPage')}
                             </a>
-                            で Read のトークンを作り、下に貼ります
+                            {t('tokenStep.tokensPageAfter')}
                         </li>
                     </ol>
                     <form
@@ -75,7 +78,7 @@ export function TokenStep({
                             type='password'
                             autoComplete='off'
                             spellCheck={false}
-                            aria-label='HuggingFace のトークン'
+                            aria-label={t('tokenStep.title')}
                             placeholder='hf_…'
                             className='w-56'
                             value={token}
@@ -83,7 +86,7 @@ export function TokenStep({
                             onChange={(e) => setToken(e.target.value)}
                         />
                         <Button type='submit' size='sm' disabled={locked || token.trim() === ''}>
-                            保存
+                            {t('tokenStep.save')}
                         </Button>
                     </form>
                 </>

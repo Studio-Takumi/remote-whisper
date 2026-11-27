@@ -10,9 +10,12 @@ import {
 } from 'lucide-react';
 
 import { TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { settingsMessages } from '@/features/settings/i18n';
+import { useT } from '@/i18n/messages';
 
 // 設定のカテゴリ。スマホの幅では上に横並び、それ以外は左に縦並び。
 export function SettingsTabList({ isMobile }: { isMobile: boolean }) {
+    const t = useT(settingsMessages);
     return (
         <TabsList
             variant='line'
@@ -27,35 +30,35 @@ export function SettingsTabList({ isMobile }: { isMobile: boolean }) {
             {/* 並びは SETTINGS_PAGES と同じ（#239） */}
             <TabsTrigger value='models'>
                 <CpuIcon />
-                モデル
+                {t('settingsTabList.models')}
             </TabsTrigger>
             <TabsTrigger value='materials'>
                 <FileTextIcon />
-                参考資料
+                {t('common.referenceMaterials')}
             </TabsTrigger>
             <TabsTrigger value='recording'>
                 <CircleDotIcon />
-                録音
+                {t('settingsTabList.recording')}
             </TabsTrigger>
             <TabsTrigger value='whisper'>
                 <MicIcon />
-                文字起こし
+                {t('common.transcript')}
             </TabsTrigger>
             <TabsTrigger value='ollama'>
                 <SparklesIcon />
-                要約
+                {t('common.summary')}
             </TabsTrigger>
             <TabsTrigger value='storage'>
                 <HardDriveIcon />
-                保存
+                {t('settingsTabList.storage')}
             </TabsTrigger>
             <TabsTrigger value='display'>
                 <MonitorIcon />
-                表示・その他
+                {t('settingsTabList.display')}
             </TabsTrigger>
             <TabsTrigger value='setup'>
                 <WrenchIcon />
-                セットアップ
+                {t('settingsTabList.setup')}
             </TabsTrigger>
         </TabsList>
     );

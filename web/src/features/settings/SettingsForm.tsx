@@ -16,6 +16,7 @@ import { StoragePage } from '@/features/settings/StoragePage';
 import { SummaryPage } from '@/features/settings/SummaryPage';
 import { VersionInfo } from '@/features/settings/VersionInfo';
 import { WhisperPage } from '@/features/settings/WhisperPage';
+import { settingsMessages } from '@/features/settings/i18n';
 import type { Settings } from '@/features/settings/settings';
 import {
     type LmStudioSettings,
@@ -25,6 +26,7 @@ import {
     keepLocked,
 } from '@/features/settings/settingsDraft';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { useT } from '@/i18n/messages';
 
 const PAGE = 'min-h-0 overflow-x-hidden overflow-y-auto pr-2';
 
@@ -44,6 +46,7 @@ export function SettingsForm({
     recording: boolean;
     onSave: (settings: Settings) => void;
 }) {
+    const t = useT(settingsMessages);
     const [edited, setDraft] = useState(settings);
     const draft = recording ? keepLocked(edited, settings) : edited;
     // 録音中に変えられない項目の理由。録音していなければ undefined（変えられる）
@@ -123,9 +126,9 @@ export function SettingsForm({
                     <AppEndpointInfo />
                 </div>
                 <DialogClose asChild>
-                    <Button variant='outline'>キャンセル</Button>
+                    <Button variant='outline'>{t('settingsForm.cancel')}</Button>
                 </DialogClose>
-                <Button onClick={() => onSave(cleanForSave(draft))}>保存</Button>
+                <Button onClick={() => onSave(cleanForSave(draft))}>{t('settingsForm.save')}</Button>
             </DialogFooter>
         </>
     );
