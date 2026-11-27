@@ -1,6 +1,7 @@
 // サーバーの REST API（docs/spec/api.md 7.1 節）を呼ぶ
 import { withAppAuth } from '@/api/appAuth';
 import { apiUrl } from '@/api/endpoint';
+import { apiMessages } from '@/api/i18n';
 import type { Correction } from '@/features/session/corrections';
 import type { SessionSource } from '@/features/session/sources';
 
@@ -28,7 +29,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
             }),
         );
     } catch {
-        throw new ApiError(0, 'ホストにつながりません');
+        throw new ApiError(0, apiMessages.t('common.hostUnreachable'));
     }
     if (!res.ok) {
         let message = `${method} ${path}: ${res.status}`;

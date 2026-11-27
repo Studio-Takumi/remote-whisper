@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import { toast } from 'sonner';
 
 import { alreadyNotified, rememberNotified } from '@/app/hostUpdate';
+import { appMessages } from '@/app/i18n';
 import { useAppStore } from '@/app/store';
 import { minorVersion } from '@/app/version';
 
@@ -15,10 +16,13 @@ export function HostUpdateNotice() {
             return;
         }
         rememberNotified(hostUpdate.version);
-        toast.info(`${minorVersion(hostUpdate.version)} が出ています`, {
-            description: 'ホストを更新すると使えます',
+        toast.info(appMessages.t('hostUpdateNotice.available', { version: minorVersion(hostUpdate.version) }), {
+            description: appMessages.t('hostUpdateNotice.description'),
             duration: Infinity,
-            action: { label: 'リリースノート', onClick: () => window.open(hostUpdate.url, '_blank', 'noopener') },
+            action: {
+                label: appMessages.t('hostUpdateNotice.releaseNotes'),
+                onClick: () => window.open(hostUpdate.url, '_blank', 'noopener'),
+            },
         });
     }, [hostUpdate]);
 

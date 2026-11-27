@@ -4,14 +4,17 @@ import { CpuIcon } from 'lucide-react';
 
 import { GpuJobList } from '@/app/GpuJobList';
 import { findJobSession, gpuTriggerLabel, waitingCount } from '@/app/gpuJobs';
+import { appMessages } from '@/app/i18n';
 import { useProjectList } from '@/app/sessionHooks';
 import { useAppStore } from '@/app/store';
 import { useNow } from '@/app/useNow';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { useT } from '@/i18n/messages';
 
 // 上のバーに小さく出す GPU の状態（使用率と、GPU キューのジョブの数）。押すとジョブの一覧が開く（spec/flows.md 6.3・spec/ui.md 8）
 // 録音中でも見られるよう、設定のロックの外に置く
 export function GpuIndicator() {
+    const t = useT(appMessages);
     const jobs = useAppStore((s) => s.server.jobs);
     const jobsAt = useAppStore((s) => s.server.jobsAt);
     const gpu = useAppStore((s) => s.server.gpu);
@@ -53,7 +56,7 @@ export function GpuIndicator() {
                     {waiting > 0 && (
                         <>
                             <span className='hidden rounded-full bg-amber-500/15 px-1.5 text-amber-700 md:inline dark:text-amber-300'>
-                                待ち {waiting}
+                                {t('gpuIndicator.waiting', { count: waiting })}
                             </span>
                             <span
                                 aria-hidden
