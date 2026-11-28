@@ -11,33 +11,33 @@ export const ERRORS = {
     'request.tooLarge': { ja: '大きすぎます', en: 'Too large' },
     'request.tooMany': {
         ja: '送りすぎです。しばらくしてからにしてください',
-        en: 'Too many requests. Please try again later',
+        en: 'Too many requests. Try again later',
     },
-    'login.required': { ja: 'ログインしてください', en: 'Please log in' },
-    'login.retry': { ja: 'ログインをやり直してください', en: 'Please log in again' },
+    'login.required': { ja: 'ログインしてください', en: 'Log in' },
+    'login.retry': { ja: 'ログインをやり直してください', en: 'Log in again' },
     'login.badAppRequest': {
         ja: 'ログインをやり直してください（アプリから始めたログインの形が違います）',
-        en: 'Please log in again (the login started from the app is malformed)',
+        en: 'Log in again (the login started from the app is malformed)',
     },
     'login.noState': {
         ja: 'ログインをやり直してください（state がありません）',
-        en: 'Please log in again (the state is missing)',
+        en: 'Log in again (the state is missing)',
     },
     'login.otherBrowser': {
         ja: 'ログインをやり直してください（このブラウザで始めたログインではありません）',
-        en: 'Please log in again (the login was not started in this browser)',
+        en: 'Log in again (the login was not started in this browser)',
     },
     'login.stateExpired': {
         ja: 'ログインをやり直してください（期限が切れたか、使い終わった state です）',
-        en: 'Please log in again (the state has expired or was already used)',
+        en: 'Log in again (the state has expired or was already used)',
     },
     'login.userChanged': {
         ja: 'ログインをやり直してください（ログインしているユーザーが変わりました）',
-        en: 'Please log in again (the logged-in user has changed)',
+        en: 'Log in again (the logged-in user has changed)',
     },
     'login.failed': {
         ja: 'ログインできませんでした。もう一度試してください',
-        en: "Couldn't log in. Please try again",
+        en: "Couldn't log in. Try again",
     },
     'loginMethod.unknown': { ja: 'ログインの手段がありません', en: 'No such login method' },
     'loginMethod.unavailable': {
@@ -60,12 +60,12 @@ export const ERRORS = {
     },
     'consent.termsChanged': {
         ja: '利用規約の版が変わりました。画面を開き直してください',
-        en: 'The terms of service have changed. Please reopen the page',
+        en: 'The terms of service have changed. Reopen the page',
     },
     'consent.alreadyAgreed': { ja: 'すでに同意済みです', en: 'You have already agreed' },
     'consent.required': {
         ja: '先に利用規約に同意してください',
-        en: 'Please agree to the terms of service first',
+        en: 'Agree to the terms of service first',
     },
     'dataCollection.badRequest': { ja: 'granted（真偽値）が必要です', en: 'granted (boolean) is required' },
     'cloudHost.badName': { ja: '名前は 1〜{max} 文字にしてください', en: 'The name must be 1 to {max} characters' },

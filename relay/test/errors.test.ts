@@ -148,7 +148,7 @@ describe('返す形', () => {
         });
         expect(res.status).toBe(400);
         expect(await res.json()).toMatchObject({
-            detail: 'Please log in again (the state is missing)',
+            detail: 'Log in again (the state is missing)',
             code: 'login.noState',
         });
     });
