@@ -33,9 +33,10 @@ describe('serverErrorText', () => {
         expect(serverErrorText('toString', {}, 'サーバーの文')).toBe('サーバーの文');
     });
 
-    it('英訳がまだないコードは、English でも日本語の文を出す', () => {
+    it('English では英語の文を出す（#497）', () => {
         setLanguage('en');
-        expect(serverErrorText('upload.empty', {}, 'x')).toBe('ファイルが空です');
+        expect(serverErrorText('upload.empty', {}, 'x')).toBe('The file is empty');
+        expect(serverErrorText('session.notFound', { id: 'a' }, 'x')).toBe('Session a not found');
     });
 });
 
