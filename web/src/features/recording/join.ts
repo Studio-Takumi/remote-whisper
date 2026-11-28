@@ -57,14 +57,15 @@ export function recalledJoin(sessionId: string): { source: number; nextSeq: numb
     }
 }
 
-// サーバーのログと音源の一覧に出す、端末の大まかな名前
+// サーバーのログと音源の一覧に出す、端末の大まかな名前。サーバーに保存されてほかの端末にも出るので、
+// 「ブラウザ」は参加した時点の表示言語で決まる（あとから言語を替えても変わらない）
 export function deviceName(ua = navigator.userAgent): string {
     if (/iPhone/.test(ua)) return 'iPhone';
     if (/iPad/.test(ua)) return 'iPad';
     if (/Android/.test(ua)) return 'Android';
     if (/Macintosh/.test(ua)) return 'Mac';
     if (/Windows/.test(ua)) return 'Windows';
-    return 'ブラウザ';
+    return recordingMessages.t('join.browser');
 }
 
 // 参加しているあいだのマイクと送信。録音しているクライアントと同じく、連番を付けて送り、ack まで手元に残す

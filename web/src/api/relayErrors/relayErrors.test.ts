@@ -26,7 +26,7 @@ describe('relay のエラー', () => {
         expect(serverErrorText('cloudHost.tooMany', { max: 5 }, 'x')).toBe(
             "You can register up to 5 hosts. Remove hosts you don't use",
         );
-        expect(serverErrorText('login.required', {}, 'x')).toBe('Please log in');
+        expect(serverErrorText('login.required', {}, 'x')).toBe('Log in');
     });
 
     it('古い relay（コードなし）・知らないコード・値が足りないときは detail をそのまま', () => {

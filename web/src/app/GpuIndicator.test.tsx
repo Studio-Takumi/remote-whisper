@@ -100,7 +100,10 @@ describe('GpuIndicator', () => {
         const link = screen.getByRole('link');
         expect(link.getAttribute('href')).toBe('/s/u-1');
         expect(link.getAttribute('aria-label')).toMatch(/^文字起こしの浄書のセッション「第 3 回」を開く（/);
-        expect(screen.getByText('gone（見つかりません）')).toBeTruthy();
+        // タイトルは lang を付けた span に入る（#497）ので、行の段落の文で見る
+        expect(
+            screen.getByText((_, el) => el?.tagName === 'P' && el.textContent === 'gone（見つかりません）'),
+        ).toBeTruthy();
         fireEvent.click(link, { button: 0 });
         expect(selectSession).toHaveBeenCalledWith('p1', 's1');
     });

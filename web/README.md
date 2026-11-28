@@ -7,9 +7,10 @@ This template provides a minimal setup to get React working in Vite with HMR and
 画面の文は、画面ごとの辞書に置いて表示言語（`ja` / `en`）で引く（#487。spec/ui.md 8）。仕組みは自作の小さなもので、ライブラリは使わない。
 
 - `src/i18n/language.ts`: 表示言語。端末ごとに localStorage の `rw.language` に覚える。初めはブラウザの言語（日本語なら `ja`、ほかは `en`）。ほかのタブで切り替えたら（`storage` のイベント）合わせる
-    - `<html lang>` は `htmlLang()` が返す言語。英訳が入る（#497）までは、どの表示言語でも画面の文は日本語なので `ja` のまま止めている（`lang="en"` の下の日本語は、ブラウザによって中国語の字形のフォントになるため）。#497 で `htmlLang()` の中身を替え、`index.html` でも描く前に表示言語で `lang` を付ける（`language.test.ts` が `index.html` の `lang` と突き合わせる）
+    - `<html lang>` は表示言語（`htmlLang()`。#497）。`index.html` の起動前のスクリプトも、描く前に同じ決め方で付ける（`language.test.ts` がスクリプトを動かして `loadLanguage` と突き合わせる。スクリプトを変えたら `public/_headers` の CSP のハッシュも替える）
+    - 文字起こし・要約・タイトル・用語・プロジェクトの名前など、ユーザーの言葉を出す要素には、`contentLang()`（`src/i18n/contentLang.ts`）で `lang` を付ける。中身に仮名か漢字があれば `ja`、なければ付けない（セッションの言語は画面に届いていないので、中身の文字から決める）。`lang="en"` の下の日本語が、ブラウザによって中国語の字形のフォントになるのを防ぐため。言語の名前の「日本語」には固定で `lang='ja'` を付ける
 - `src/i18n/messages.ts`: `defineDictionary`（`ja` の辞書を作る）・`defineTranslation`（`en` の辞書を作る）・`defineMessages`（2 つをまとめる）・`useT`（部品の中で引く）
-- `en` にないキーは `ja` の文を出す。訳していない画面は、`English` を選んでも日本語のまま
+- `en` にないキーは `ja` の文を出す。ただし `ja` と `en` のキーがそろっていないと `src/i18n/dictionaries.test.ts` が落ちる（`ja` に文を足したら `en` にも訳を足す。訳は `docs/spec/i18n.md` の用語集に合わせる）
 - テスト（vitest）は表示言語を `ja` にして動かす（`src/test/setup.ts`）。日本語の文で確かめてよい
 
 ### 辞書の置き場所
@@ -73,7 +74,7 @@ export const recordingMessages = defineMessages({ ja, en });
 
 - `'<ファイル名>.<役割>'`。ファイル名は文を使うファイルの名前（拡張子なし）を lowerCamelCase にしたもの（`MicButton.tsx` → `micButton`、`micMessages.ts` → `micMessages`）。役割は英語の lowerCamelCase（`start`・`denied`・`tooltip`・`left`）
 - 同じファイルの中で同じ文を何度も使うときは、1 つのキーにまとめてよい。ファイルをまたいで同じ文（「保存」「キャンセル」など）を使うときは `'common.<役割>'` にまとめる（同じフォルダの中だけ）
-- `ja.ts` の中は、ファイルごとにまとめ、ファイル名の順（アルファベット順）に並べる
+- `ja.ts` の中は、ファイルごとにまとめ、ファイル名の順（アルファベット順）に並べる。`common.*` は一番上に置く。`en.ts` も `ja.ts` と同じ順にする
 - 文は今の日本語をそのまま移す（1 文字も変えない。`。` の有無・空白・全角半角も）
 
 ### 使い方

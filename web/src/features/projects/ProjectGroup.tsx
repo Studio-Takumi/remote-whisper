@@ -10,6 +10,7 @@ import { AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { projectsMessages } from '@/features/projects/i18n';
 import { type ProjectDrag, pointerOnly } from '@/features/projects/projectDrag';
 import { sortableId } from '@/features/projects/projectOrder';
+import { contentLang } from '@/i18n/contentLang';
 import { useT } from '@/i18n/messages';
 
 // 1 つのプロジェクト（見出しとセッションの一覧）。
@@ -78,7 +79,7 @@ export function ProjectGroup({
                     <GripVerticalIcon size={14} />
                 </button>
                 <AccordionTrigger className='flex-none justify-start gap-1 py-1.5 text-xs text-sidebar-foreground/70 hover:no-underline **:data-[slot=accordion-trigger-icon]:ml-0'>
-                    {project.name}
+                    <span lang={contentLang(project.name)}>{project.name}</span>
                 </AccordionTrigger>
                 <button
                     className={`ml-auto flex size-6 items-center justify-center rounded-md text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground ${active ? 'bg-sidebar-accent text-sidebar-accent-foreground' : ''}`}

@@ -12,6 +12,7 @@
 //   --out <dir>      保存先（既定: docs/images）
 //   --only <a,b>     名前に a か b を含む場面だけ撮る（撮り直し用）
 //   --layouts <a,b>  desktop-light・desktop-dark・mobile-light・mobile-dark のどれを撮るか（既定: 全部）
+//   --language <l>   表示言語（ja・en。既定: ja）。en は README の場面だけ（--all の場面は日本語の文で探すものがある）
 //
 // 環境変数:
 //   SCREENSHOT_URL     画面の URL（既定: http://localhost:5173）
@@ -35,8 +36,17 @@ const { values: args } = parseArgs({
         out: { type: 'string' },
         only: { type: 'string' },
         layouts: { type: 'string' },
+        language: { type: 'string', default: 'ja' },
     },
 });
+
+// 表示言語（#497）。en は英語の画面で撮る（英語で崩れるところを見る。保存先は --out で分ける）。
+// 画面の文で探す操作は L(日本語, 英語) で書く。英語にまだしていない場面は、--language en では失敗する
+if (args.language !== 'ja' && args.language !== 'en') {
+    throw new Error(`--language は ja か en: ${args.language}`);
+}
+const english = args.language === 'en';
+const L = (ja, en) => (english ? en : ja);
 
 const url = process.env.SCREENSHOT_URL ?? 'http://localhost:5173';
 const serverUrl = process.env.SCREENSHOT_SERVER ?? 'http://localhost:8000';
@@ -79,7 +89,7 @@ const scenes = [
         name: 'summary',
         async open(page, { mobile }) {
             await openSession(page, mobile, 'アルゴリズム 二分探索');
-            await page.getByRole('tab', { name: '要約' }).click();
+            await page.getByRole('tab', { name: L('要約', 'Summary') }).click();
         },
     },
     {
@@ -109,19 +119,19 @@ const scenes = [
         ],
         async open(page, { mobile, shot, all }) {
             await openNewSession(page, mobile, 'meetings');
-            await page.getByLabel('クリックして録音開始').click();
+            await page.getByLabel(L('クリックして録音開始', 'Click to start recording')).click();
             // 途中の要約（モックサーバーは --mock-live-summary-sec の間隔で送る）が届くまで待つ
             await page.waitForFunction(() => recordingSession()?.liveSummary, null, { timeout: 30000 });
             await waitForPartial(page);
             // 待つと区間が確定してしまうので、すぐ撮る
             await shot('recording', { wait: 0 });
             await shot('mic-recording', { wait: 0, clip: micClip });
-            await page.getByRole('tab', { name: '要約' }).click();
+            await page.getByRole('tab', { name: L('要約', 'Summary') }).click();
             await shot('recording-summary');
             if (all) {
                 await recordingExtras(page, { mobile, shot });
             }
-            await page.getByLabel('クリックして録音終了').click();
+            await page.getByLabel(L('クリックして録音終了', 'Click to stop recording')).click();
             if (!all) {
                 // stop が届く前に閉じると、モックサーバーがセッションを 60 秒持ち続けて次の録音を始められない
                 await page.waitForTimeout(1500);
@@ -150,13 +160,13 @@ const scenes = [
         name: 'quick-settings',
         async open(page, { mobile }) {
             await openSession(page, mobile, 'アルゴリズム 二分探索');
-            await page.getByRole('button', { name: /^モデルの設定を開く/ }).click();
+            await page.getByRole('button', { name: L(/^モデルの設定を開く/, /^Open model settings/) }).click();
         },
     },
     {
         name: 'settings',
         async open(page, { mobile }) {
-            await openSettings(page, mobile, '要約');
+            await openSettings(page, mobile, L('要約', 'Summary'));
         },
     },
     {
@@ -164,7 +174,9 @@ const scenes = [
         async open(page, { mobile }) {
             await openNewSession(page, mobile, 'meetings');
             await openMaterialsMenu(page);
-            await page.getByRole('button', { name: '資料を選んで新しく作る' }).click();
+            await page
+                .getByRole('button', { name: L('資料を選んで新しく作る', 'Choose files and create new') })
+                .click();
             // プロジェクトのフォルダ（meetings）は開いた状態で出る
             await page.getByText('release-plan.md').click();
         },
@@ -173,7 +185,7 @@ const scenes = [
         name: 'new-project',
         async open(page, { mobile }) {
             await openMenu(page, mobile);
-            await page.getByRole('button', { name: '新規プロジェクト作成' }).click();
+            await page.getByRole('button', { name: L('新規プロジェクト作成', 'Create project') }).click();
             await page.getByText('interviews', { exact: true }).click();
         },
     },
@@ -183,7 +195,7 @@ const scenes = [
         async open(page, { mobile }) {
             await openSession(page, mobile, '新機能のリリース計画');
             if (mobile) {
-                await page.getByLabel('メニューを開く').click();
+                await page.getByLabel(L('メニューを開く', 'Open menu')).click();
             } else {
                 await page.keyboard.press('Control+b');
             }
@@ -867,7 +879,7 @@ async function recordingExtras(page, { mobile, shot }) {
 // スマホの幅ではサイドバーが隠れているので、メニューを開く
 async function openMenu(page, mobile) {
     if (mobile) {
-        await page.getByLabel('メニューを開く').click();
+        await page.getByLabel(L('メニューを開く', 'Open menu')).click();
     }
 }
 
@@ -878,12 +890,12 @@ async function openSession(page, mobile, title) {
 
 async function openNewSession(page, mobile, project) {
     await openMenu(page, mobile);
-    await page.getByLabel(`${project}で新しく録音`).click();
+    await page.getByLabel(L(`${project}で新しく録音`, `New recording in ${project}`)).click();
 }
 
 async function openSettings(page, mobile, tab) {
     await openMenu(page, mobile);
-    await page.getByRole('button', { name: '設定', exact: true }).click();
+    await page.getByRole('button', { name: L('設定', 'Settings'), exact: true }).click();
     await page.getByRole('tab', { name: tab }).click();
 }
 
@@ -1035,7 +1047,14 @@ async function waitForPartial(page) {
 
 // マイクボタンのまわり（経過時間・終了のボタンを含む）
 function micClip(page) {
-    return page.locator('[aria-label^="クリック"], [aria-label*="録音中です"], [aria-label*="選んでください"]').first();
+    return page
+        .locator(
+            L(
+                '[aria-label^="クリック"], [aria-label*="録音中です"], [aria-label*="選んでください"]',
+                '[aria-label^="Click"], [aria-label^="Recording in"], [aria-label^="Choose"]',
+            ),
+        )
+        .first();
 }
 
 // --- ダミーデータに足すもの ---
@@ -1261,6 +1280,8 @@ for (const variant of variants) {
             permissions: ['microphone', 'notifications', 'clipboard-read', 'clipboard-write'],
         });
         await context.addInitScript(pageHelpers);
+        // 表示言語は端末ごと（localStorage の rw.language）。描く前に入れておく
+        await context.addInitScript((language) => localStorage.setItem('rw.language', language), args.language);
         const page = await context.newPage();
         try {
             let base = url;
@@ -1272,7 +1293,9 @@ for (const variant of variants) {
             target.searchParams.set('demo', '');
             await page.goto(target.toString());
             // 開発用パネルのボタンは写さない
-            await page.addStyleTag({ content: '[aria-label="開発用パネル"] { display: none !important; }' });
+            await page.addStyleTag({
+                content: '[aria-label="開発用パネル"], [aria-label="Developer panel"] { display: none !important; }',
+            });
             if (!scene.cloud || scene.cloud.me !== null) {
                 await page.waitForFunction(() => window.appStore || document.body.innerText.length > 0);
             }

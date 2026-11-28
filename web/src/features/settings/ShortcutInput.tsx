@@ -21,7 +21,9 @@ export function ShortcutInput({
     const [error, setError] = useState(false);
     // 決めている間に押したキーを離したとき、Space の keyup でボタンが押されたことにならないように
     const swallowKeyUp = useRef(false);
-    const modifiers = isMacPlatform() ? '⌃・⌥・⇧・⌘' : 'Ctrl・Alt・Shift・Win';
+    const modifiers = (isMacPlatform() ? ['⌃', '⌥', '⇧', '⌘'] : ['Ctrl', 'Alt', 'Shift', 'Win']).join(
+        t('shortcutInput.modifierSeparator'),
+    );
 
     function onKeyDown(e: React.KeyboardEvent<HTMLButtonElement>) {
         if (!capturing) {

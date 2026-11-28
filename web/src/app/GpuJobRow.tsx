@@ -1,5 +1,6 @@
 import type { JobSession } from '@/app/gpuJobs';
 import { appMessages } from '@/app/i18n';
+import { contentLang } from '@/i18n/contentLang';
 import { useT } from '@/i18n/messages';
 
 // 実行中・待ちの1行。セッションがあれば行全体がそのセッションのページへのリンクになる（#269）
@@ -27,7 +28,7 @@ export function GpuJobRow({
                     <p className='truncate'>{label}</p>
                     {session && (
                         <p className='truncate text-xs text-muted-foreground'>
-                            {session.title}
+                            <span lang={contentLang(session.title)}>{session.title}</span>
                             {session.href === null && t('gpuJobRow.notFound')}
                         </p>
                     )}

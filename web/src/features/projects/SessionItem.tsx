@@ -7,6 +7,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { projectsMessages } from '@/features/projects/i18n';
 import { type Dragging, pointerOnly } from '@/features/projects/projectDrag';
 import { sessionMeta } from '@/features/projects/sessionMeta';
+import { contentLang } from '@/i18n/contentLang';
 import { useT } from '@/i18n/messages';
 
 // サイドバーのセッションの 1 行。ほかのプロジェクトへドラッグして移せる（#172）
@@ -52,11 +53,15 @@ export function SessionItem({
             {showMeta ? (
                 // 録音日時と長さを、タイトルの下に小さく出す
                 <span className='flex min-w-0 flex-col'>
-                    <span className='truncate'>{session.title}</span>
+                    <span className='truncate' lang={contentLang(session.title)}>
+                        {session.title}
+                    </span>
                     <span className='truncate text-xs text-muted-foreground tabular-nums'>{sessionMeta(session)}</span>
                 </span>
             ) : (
-                <span className='truncate'>{session.title}</span>
+                <span className='truncate' lang={contentLang(session.title)}>
+                    {session.title}
+                </span>
             )}
             {/* 音声ファイルから作ったセッションには、録音したものと見分けられる印を付ける */}
             {session.uploaded && (

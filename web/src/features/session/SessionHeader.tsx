@@ -8,6 +8,7 @@ import { describeWatched } from '@/features/recording/watch';
 import { JoinedSourceChips } from '@/features/session/SourceList';
 import { sessionMessages } from '@/features/session/i18n';
 import { canJoin } from '@/features/session/sessionContent';
+import { contentLang } from '@/i18n/contentLang';
 import { useT } from '@/i18n/messages';
 import { formatDisplayDateTime } from '@/lib/time';
 
@@ -24,7 +25,8 @@ export function SessionHeader({ session }: { session: Session }) {
     return (
         <div>
             <h1 className='text-lg font-semibold'>
-                {session.title}
+                {/* タイトルは中身の言語で lang を付ける（#497） */}
+                <span lang={contentLang(session.title)}>{session.title}</span>
                 {session.provisionalTitle && (
                     <span className='ml-2 text-xs font-normal text-muted-foreground'>
                         {t('sessionHeader.provisionalTitle')}

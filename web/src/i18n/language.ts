@@ -18,12 +18,12 @@ export function detectLanguage(preferred: readonly string[]): Language {
     return first === 'ja' || first.startsWith('ja-') ? 'ja' : 'en';
 }
 
-// <html lang> に付ける言語。英訳が入る（#497）までは、どの表示言語でも画面の文は日本語なので ja のまま
-// （lang="en" の下の日本語は、ブラウザによって中国語の字形のフォントになるため）。#497 でこの中身だけを替える
-// （そのときは index.html の <html lang="ja"> も、描く前に表示言語で付けるようにする。src/i18n/language.test.ts が見る）
+// <html lang> に付ける言語。表示言語そのもの（#497 で英訳が入ったので）。
+// index.html も、描く前に同じ決め方で付ける（src/i18n/language.test.ts が突き合わせる）。
+// 文字起こし・要約・タイトルなど、ユーザーの言葉を出す要素には、別に中身の文字（仮名・漢字があれば ja）から
+// 決めた lang を付ける（contentLang.ts。セッションの言語は画面に届いていないため）
 export function htmlLang(language: Language): Language {
-    void language;
-    return 'ja';
+    return language;
 }
 
 export function loadLanguage(
