@@ -119,13 +119,14 @@ describe('SettingsDialog', () => {
         // 未設定（#498）は、表示言語が日本語以外なら自動判定で出す。選んだ値はそのまま
         setLanguage('en');
         try {
+            // 英語の表示なので、文も英語（#497）
             draw('whisper');
-            expect(screen.getByLabelText('文字起こしの言語').textContent).toContain('自動判定');
+            expect(screen.getByLabelText('Transcription language').textContent).toContain('Auto-detect');
             cleanup();
             draw('whisper', {
                 settings: { ...defaultSettings, whisper: { ...defaultSettings.whisper, language: 'ja' } },
             });
-            expect(screen.getByLabelText('文字起こしの言語').textContent).toContain('日本語');
+            expect(screen.getByLabelText('Transcription language').textContent).toContain('日本語');
             cleanup();
         } finally {
             setLanguage('ja');

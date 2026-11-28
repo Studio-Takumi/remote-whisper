@@ -194,15 +194,16 @@ describe('SessionView の新しいセッション', () => {
     it('文字起こしの言語が未設定なら、表示言語が日本語以外では自動判定から始める（#498）', () => {
         setLanguage('en');
         try {
+            // 英語の表示なので、文も英語（#497）
             draw();
-            expect(screen.getByLabelText('文字起こしの言語').textContent).toContain('自動判定');
+            expect(screen.getByLabelText('Transcription language').textContent).toContain('Auto-detect');
             cleanup();
             // 設定で選んだ値は表示言語にかかわらずそのまま
             useAppStore.setState({
                 settings: { ...defaultSettings, whisper: { ...defaultSettings.whisper, language: 'ja' } },
             });
             draw();
-            expect(screen.getByLabelText('文字起こしの言語').textContent).toContain('日本語');
+            expect(screen.getByLabelText('Transcription language').textContent).toContain('日本語');
         } finally {
             setLanguage('ja');
         }

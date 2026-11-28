@@ -124,6 +124,7 @@ export const en = defineTranslation<typeof ja>()({
 
     // settings.ts
     'settings.autoDetect': 'Auto-detect',
+    'settings.matchDisplayLanguage': 'Match display language',
     'settings.sameAsTranscript': 'Same as transcript',
 
     // settingsActions.ts
