@@ -186,8 +186,11 @@ class TranscriptMeta(_Meta):
     # あとの処理（文分けなど）は language を見る。以前のファイルにはない（ja）
     language_choice: Literal["ja", "auto"] = "ja"
     language: str = "ja"
+    # 録音を始めた（アップロードした）端末の表示言語（#498）。要約の言語が「表示言語に合わせる」の
+    # ときに見る。以前のファイルと、表示言語を送らない古い画面から始めたものは ja
+    display_language: str = "ja"
 
-    @field_validator("language_choice", "language", mode="before")
+    @field_validator("language_choice", "language", "display_language", mode="before")
     @classmethod
     def _known_language(cls, value: Any, info: ValidationInfo) -> Any:
         """手で書き換えた・知らない値は ja として読む（セッションごと読めなくならないように）"""

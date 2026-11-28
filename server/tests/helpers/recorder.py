@@ -23,8 +23,9 @@ def chunk(seq: int, samples: int = 8000, value: int = 0) -> bytes:
     return seq.to_bytes(4, "little") + value.to_bytes(2, "little", signed=True) * samples
 
 
-def start(ws, pid):
-    ws.send_json({"type": "start", "project": pid})
+def start(ws, pid, **extra):
+    """extra は start に足す項目（displayLanguage など）"""
+    ws.send_json({"type": "start", "project": pid, **extra})
     return receive_until(ws, of_type("started"))[-1]["session"]
 
 

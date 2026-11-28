@@ -6,6 +6,7 @@ import { api } from '@/api/api';
 import type { SettingsOptions } from '@/api/protocol';
 import { SettingsDialog } from '@/features/settings/SettingsDialog';
 import { type Settings, defaultSettings } from '@/features/settings/settings';
+import { setLanguage } from '@/i18n/language';
 
 const options: SettingsOptions = {
     whisper: { models: ['large-v3-turbo'], computeTypes: ['float16', 'int8'] },
@@ -115,13 +116,51 @@ describe('SettingsDialog', () => {
         draw('whisper');
         expect(screen.getByLabelText('文字起こしの言語').textContent).toContain('日本語');
         cleanup();
+        // 未設定（#498）は、表示言語が日本語以外なら自動判定で出す。選んだ値はそのまま
+        setLanguage('en');
+        try {
+            draw('whisper');
+            expect(screen.getByLabelText('文字起こしの言語').textContent).toContain('自動判定');
+            cleanup();
+            draw('whisper', {
+                settings: { ...defaultSettings, whisper: { ...defaultSettings.whisper, language: 'ja' } },
+            });
+            expect(screen.getByLabelText('文字起こしの言語').textContent).toContain('日本語');
+            cleanup();
+        } finally {
+            setLanguage('ja');
+        }
         const { language: _language, ...whisper } = defaultSettings.whisper;
         draw('whisper', { settings: { ...defaultSettings, whisper } });
         expect(screen.queryByText('文字起こしの言語')).toBeNull();
     });
 
+    it('文字起こしの言語が未設定でも、出ている「日本語」を選べば ja を保存する（#498）', () => {
+        // jsdom にないもの（Radix の Select が使う）
+        Element.prototype.hasPointerCapture ??= () => false;
+        Element.prototype.scrollIntoView ??= () => {};
+        const { onSave } = draw('whisper');
+        const select = screen.getByLabelText('文字起こしの言語');
+        expect(select.textContent).toContain('日本語');
+        act(() => {
+            fireEvent.pointerDown(select, { button: 0, ctrlKey: false, pointerType: 'mouse' });
+        });
+        act(() => {
+            fireEvent.click(screen.getByRole('option', { name: '日本語' }));
+        });
+        fireEvent.click(screen.getByRole('button', { name: '保存' }));
+        // 設定はまとめて PATCH /api/settings で送る（settingsActions）
+        expect((onSave.mock.calls[0][0] as Settings).whisper.language).toBe('ja');
+    });
+
     it('要約の言語は、古いサーバー（ollama.summaryLanguage がない）では出さない（#485）', () => {
+        // 初期値は「表示言語に合わせる」（#498）
         draw('ollama');
+        expect(screen.getByLabelText('要約の言語').textContent).toContain('表示言語に合わせる');
+        cleanup();
+        draw('ollama', {
+            settings: { ...defaultSettings, ollama: { ...defaultSettings.ollama, summaryLanguage: 'ja' } },
+        });
         expect(screen.getByLabelText('要約の言語').textContent).toContain('日本語');
         cleanup();
         draw('ollama', {

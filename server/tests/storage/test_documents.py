@@ -61,6 +61,8 @@ def test_old_files_are_read_as_japanese(tmp_path):
     path.write_text(SPEC_TRANSCRIPT.replace("language: ja\n", ""), encoding="utf-8")
     meta, _ = read_doc(path, TranscriptMeta)
     assert (meta.language_choice, meta.language) == ("ja", "ja")
+    # 表示言語（#498）のないものも ja
+    assert meta.display_language == "ja"
     final = tmp_path / "transcript-final-20261009-143012-20261009-160011.md"
     final.write_text(
         "---\nid: 20261009-143012\ngenerationId: 20261009-160011\nmodel: large-v3-turbo\n"

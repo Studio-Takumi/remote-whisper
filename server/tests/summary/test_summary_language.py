@@ -73,8 +73,17 @@ def test_summary_language_from_the_setting_and_the_transcript():
     assert (title_max("ja"), title_max("zh"), title_max("en"), title_max("fr")) == (15, 15, 50, 50)
 
 
-def test_old_settings_summarize_in_japanese():
-    assert Settings().ollama.summary_language == "ja"
+def test_display_follows_the_display_language_of_the_session():
+    # 表示言語に合わせる（#498）。文字起こしの言語は見ない。表示言語のない古いセッションは日本語
+    assert summary_language("display", "en", "ja") == "ja"
+    assert summary_language("display", "ja", "en") == "en"
+    assert summary_language("display", "ja", "fr") == "fr"
+    assert summary_language("display", "ja", "haw") == "en"
+    assert summary_language("display", "en", None) == "ja"
+
+
+def test_settings_follow_the_display_language_by_default():
+    assert Settings().ollama.summary_language == "display"
     loaded = Settings.model_validate({"version": 1, "ollama": {"summaryLanguage": "transcript"}})
     assert loaded.ollama.summary_language == "transcript"
 
@@ -140,7 +149,7 @@ def test_figure_with_nothing_to_write_in_english():
     assert clean_description("- A → B", "") == "- A → B"
 
 
-def final_run(home, fake, tmp_path, setting, transcript_language):
+def final_run(home, fake, tmp_path, setting, transcript_language, display_language="ja"):
     settings = SettingsStore(home)
     settings.update({"ollama": {"summaryLanguage": setting}})
     summarizer = FinalSummarizer(
@@ -148,6 +157,7 @@ def final_run(home, fake, tmp_path, setting, transcript_language):
     )
     writer = StubWriter(tmp_path)
     writer.meta.language = transcript_language
+    writer.meta.display_language = display_language
     writer.files.transcript.write_text(
         "---\nid: x\n---\n"
         "[00:00:00] Let us talk about the release plan.\n"
@@ -163,20 +173,23 @@ def final_run(home, fake, tmp_path, setting, transcript_language):
 
 
 @pytest.mark.parametrize(
-    ("setting", "transcript", "english"),
+    ("setting", "transcript", "display", "english"),
     [
-        ("en", "ja", True),
-        ("transcript", "en", True),
-        ("transcript", "ja", False),
-        ("ja", "en", False),
+        ("en", "ja", "ja", True),
+        ("transcript", "en", "ja", True),
+        ("transcript", "ja", "en", False),
+        ("ja", "en", "en", False),
+        # 表示言語に合わせる（#498）
+        ("display", "ja", "en", True),
+        ("display", "en", "ja", False),
     ],
 )
 def test_final_summary_and_title_use_the_summary_language(
-    home, fake, tmp_path, monkeypatch, setting, transcript, english
+    home, fake, tmp_path, monkeypatch, setting, transcript, display, english
 ):
     # 部分ごと・まとめ・概要・タイトルの全部（#485）
     monkeypatch.setattr(final_summary_body, "CHUNK_CHARS", 30)
-    chats = final_run(home, fake, tmp_path, setting, transcript)
+    chats = final_run(home, fake, tmp_path, setting, transcript, display)
     summaries = [b for b in chats if not b.get("format")]
     [title] = [b for b in chats if b.get("format")]
     assert len(summaries) >= 3
@@ -189,8 +202,11 @@ def test_final_summary_and_title_use_the_summary_language(
     assert ("in English" in title["messages"][0]["content"]) is english
 
 
-@pytest.mark.parametrize(("setting", "english"), [("transcript", True), ("ja", False)])
+@pytest.mark.parametrize(
+    ("setting", "english"), [("transcript", True), ("ja", False), ("display", False)]
+)
 def test_live_summary_and_its_title_use_the_summary_language(home, fake, setting, english):
+    # 文字起こしは英語、表示言語は日本語のセッション
     async def main():
         h = Harness(home, fake, language="en")
         h.settings.update({"ollama": {"summaryLanguage": setting}})

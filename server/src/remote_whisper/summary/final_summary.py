@@ -149,9 +149,11 @@ class FinalSummarizer:
             return None
         models = await self._resolve(models)
         context, density, pages = await self._inputs(writer)
-        # 書く言語（#485）。作り始めた時点の設定と、文字起こしの決まった言語で決める
+        # 書く言語（#485）。作り始めた時点の設定と、文字起こしの決まった言語・表示言語で決める
         language = summary_language(
-            self.settings.get().ollama.summary_language, writer.meta.language
+            self.settings.get().ollama.summary_language,
+            writer.meta.language,
+            writer.meta.display_language,
         )
         made = await self._make_body(writer, models, lines, context, send, density, pages, language)
         if made is None:

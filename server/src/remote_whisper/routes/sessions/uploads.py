@@ -7,6 +7,7 @@ from starlette.requests import ClientDisconnect
 
 from remote_whisper.api_errors import ApiError, api_error
 from remote_whisper.context import Pid
+from remote_whisper.display_language import parse_display_language
 from remote_whisper.recording.uploads import UploadError
 from remote_whisper.routes.sessions.common import Ctx, load_project, load_session, session_json
 from remote_whisper.settings import TranscriptionLanguage
@@ -32,15 +33,29 @@ async def upload(
     last_modified: Annotated[float | None, Query(alias="lastModified")] = None,
     sources: Annotated[int | None, Query(ge=2)] = None,
     language: TranscriptionLanguage | None = None,
+    display_language: Annotated[str | None, Query(alias="displayLanguage", max_length=16)] = None,
 ) -> dict[str, Any]:
     """音声ファイルをアップロードして、新しいセッションを作る（#180）。
     spec/flows.md 6.11・6.16（sources は複数のときの数。language は今回だけ変えた
-    文字起こしの言語で、省くと全体設定。#482）"""
+    文字起こしの言語で、省くと全体設定。#482。displayLanguage はアップロードした端末の
+    表示言語で、省くと ja。#498）"""
     if ctx.uploads is None:
         raise _unsupported()
     try:
+        display = parse_display_language(display_language)
+    except ValueError as e:
+        raise ApiError(
+            422, "upload.badDisplayLanguage", "displayLanguage は言語コードにしてください"
+        ) from e
+    try:
         uploaded = await ctx.uploads.receive(
-            pid, name, last_modified, request.stream(), sources=sources, language=language
+            pid,
+            name,
+            last_modified,
+            request.stream(),
+            sources=sources,
+            language=language,
+            display_language=display,
         )
     except (ProjectError, UploadError) as e:
         raise api_error(e) from e

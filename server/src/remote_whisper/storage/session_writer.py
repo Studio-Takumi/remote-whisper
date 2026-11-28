@@ -7,6 +7,7 @@ import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from remote_whisper.display_language import transcription_choice
 from remote_whisper.materials.toc import MaterialRange
 from remote_whisper.settings import Settings, TranscriptionLanguage
 from remote_whisper.storage.atomic_write import atomic_write_text
@@ -86,9 +87,11 @@ class SessionWriter:
         started: datetime,
         settings: Settings,
         language: TranscriptionLanguage | None = None,
+        display_language: str = "ja",
     ):
         """language は、録音を始めるときに今回だけ変えた文字起こしの言語（#482）。
-        None なら全体設定"""
+        None なら全体設定（未設定なら表示言語から決める）。display_language は録音を始めた
+        端末の表示言語（#498）"""
         self.store = store
         self.pid = pid
         self.id = sid
@@ -108,7 +111,10 @@ class SessionWriter:
             project=project.path,
             status="recording",
             started_at=iso(started),
-            language_choice=language or settings.whisper.language,
+            language_choice=transcription_choice(
+                language or settings.whisper.language, display_language
+            ),
+            display_language=display_language,
             whisper=WhisperUsed(
                 model=settings.whisper.model,
                 beam_size=settings.whisper.beam_size,

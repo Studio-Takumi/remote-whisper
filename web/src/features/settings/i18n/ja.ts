@@ -123,6 +123,7 @@ export const ja = defineDictionary({
 
     // settings.ts
     'settings.autoDetect': '自動判定',
+    'settings.matchDisplayLanguage': '表示言語に合わせる',
     'settings.sameAsTranscript': '文字起こしと同じ',
 
     // settingsActions.ts

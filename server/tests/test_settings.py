@@ -220,14 +220,42 @@ def test_display_session_meta(client):
 
 
 def test_summary_language(client):
-    # 要約の言語は既定で日本語。ja / en / transcript だけ受け付ける（#485）
-    assert client.get("/api/settings").json()["ollama"]["summaryLanguage"] == "ja"
-    res = client.patch("/api/settings", json={"ollama": {"summaryLanguage": "transcript"}})
-    assert res.json()["ollama"]["summaryLanguage"] == "transcript"
+    # 要約の言語は既定で「表示言語に合わせる」（#498）。ja / en / transcript / display だけ
+    # 受け付ける（#485）
+    assert client.get("/api/settings").json()["ollama"]["summaryLanguage"] == "display"
+    for value in ["ja", "display", "transcript"]:
+        res = client.patch("/api/settings", json={"ollama": {"summaryLanguage": value}})
+        assert res.json()["ollama"]["summaryLanguage"] == value
     for value in ["fr", "EN", None, 1]:
         res = client.patch("/api/settings", json={"ollama": {"summaryLanguage": value}})
         assert res.status_code == 422
     assert client.get("/api/settings").json()["ollama"]["summaryLanguage"] == "transcript"
+
+
+def test_transcription_language_can_be_unset(client):
+    # 文字起こしの言語は既定で未設定（null。#498）。選んだあとで null に戻せる
+    assert client.get("/api/settings").json()["whisper"]["language"] is None
+    res = client.patch("/api/settings", json={"whisper": {"language": "ja"}})
+    assert res.json()["whisper"]["language"] == "ja"
+    res = client.patch("/api/settings", json={"whisper": {"language": None}})
+    assert res.json()["whisper"]["language"] is None
+
+
+def test_languages_written_in_an_existing_file_are_kept(tmp_path):
+    # #482・#485 のあとの setting.json には ja が書き出されている。選んだ値として残し、
+    # 表示言語に合わせる方には変えない。項目のない古い設定は未設定と「表示言語に合わせる」（#498）
+    path = tmp_path / "setting.json"
+    path.write_text(
+        json.dumps(
+            {"version": 1, "whisper": {"language": "ja"}, "ollama": {"summaryLanguage": "ja"}}
+        ),
+        encoding="utf-8",
+    )
+    kept = SettingsStore(tmp_path).get()
+    assert (kept.whisper.language, kept.ollama.summary_language) == ("ja", "ja")
+    path.write_text(json.dumps({"version": 1}), encoding="utf-8")
+    old = SettingsStore(tmp_path).get()
+    assert (old.whisper.language, old.ollama.summary_language) == (None, "display")
 
 
 def test_display_show_picked_terms(client):

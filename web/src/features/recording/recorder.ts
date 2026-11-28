@@ -18,6 +18,7 @@ import type { ErrorMessage, Recorder, StartedMessage } from '@/features/recordin
 import { subscribeRecording } from '@/features/recording/recordingMessages';
 import { recordedSeconds } from '@/features/recording/recordingMetrics';
 import { finalModelLabel, llmModels } from '@/features/settings/settings';
+import { getLanguage } from '@/i18n/language';
 import { formatDateTime } from '@/lib/time';
 
 // 前の録音の残りをまだ送っていないときの知らせ（始めると、その残りが捨てられてしまう）
@@ -112,12 +113,13 @@ async function openRecording(r: Recorder, projectId: string, continueSessionId?:
     r.mic = await openMicrophone(r);
     r.unsubscribe = subscribeRecording(r);
     await connection.open();
-    // 今回だけ変えた文字起こしの言語（#482）。変えていなければ送らない（全体設定になる）
+    // 今回だけ変えた文字起こしの言語（#482）。変えていなければ送らない（全体設定になる）。
+    // 表示言語（#498）は、未設定の文字起こしの言語と「表示言語に合わせる」要約の言語に使う
     const language = r.store.getState().nextLanguage;
     connection.send(
         continueSessionId
             ? { type: 'continue', project: projectId, session: continueSessionId }
-            : { type: 'start', project: projectId, ...(language ? { language } : {}) },
+            : { type: 'start', project: projectId, ...(language ? { language } : {}), displayLanguage: getLanguage() },
     );
     const reply = await connection.waitFor(
         (m): m is StartedMessage | ErrorMessage => m.type === 'started' || m.type === 'error',

@@ -186,10 +186,12 @@ class UploadService:
         body: AsyncIterator[bytes],
         sources: int | None = None,
         language: TranscriptionLanguage | None = None,
+        display_language: str = "ja",
     ) -> Uploaded:
         """アップロードされたファイルを受け取り、セッションを作って、
         後ろで文字起こしと要約を始める（#241。sources は複数のときの数。
-        language は今回だけ変えた文字起こしの言語で、None なら全体設定。#482）"""
+        language は今回だけ変えた文字起こしの言語で、None なら全体設定。#482。
+        display_language はアップロードした端末の表示言語。#498）"""
         if sources is not None:
             limit = self.settings.get().recording.max_sources
             if not 2 <= sources <= limit:
@@ -215,7 +217,13 @@ class UploadService:
             try:
                 recording = await asyncio.to_thread(self._place, path, info, project_dir, sid)
                 writer = SessionWriter(
-                    self.projects, pid, sid, started, self.settings.get(), language
+                    self.projects,
+                    pid,
+                    sid,
+                    started,
+                    self.settings.get(),
+                    language,
+                    display_language,
                 )
                 writer.meta.recording = recording.name
                 writer.start_upload(info.duration_sec, Path(name).name, uploaded)

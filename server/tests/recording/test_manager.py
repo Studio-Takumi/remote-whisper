@@ -133,6 +133,49 @@ def test_the_transcription_language_comes_from_the_settings_or_the_start(client,
         assert receive_until(ws, of_type("error"))[-1]["code"] == "bad_message"
 
 
+def record_once(client, pid, d, message):
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        ws.send_json({"type": "start", "project": pid, **message})
+        sid = receive_until(ws, of_type("started"))[-1]["session"]
+        ws.send_json({"type": "stop"})
+        receive_until(ws, of_type("status", recordings=0))
+    finished(client, sid)
+    return read_doc(d / f"transcript-{sid}.md", TranscriptMeta)[0]
+
+
+def test_unset_transcription_language_follows_the_display_language(client, project):
+    # 未設定なら、録音を始めた端末の表示言語が日本語なら ja、それ以外は auto（#498）。
+    # 表示言語を送らない古い画面は ja
+    pid, d = project
+    assert client.get("/api/settings").json()["whisper"]["language"] is None
+    metas = [
+        record_once(client, pid, d, message)
+        for message in ({}, {"displayLanguage": "ja"}, {"displayLanguage": "en"})
+    ]
+    assert [(m.language_choice, m.display_language) for m in metas] == [
+        ("ja", "ja"),
+        ("ja", "ja"),
+        ("auto", "en"),
+    ]
+    # 今回だけ変えたものが先
+    meta = record_once(client, pid, d, {"displayLanguage": "en", "language": "ja"})
+    assert (meta.language_choice, meta.display_language) == ("ja", "en")
+    with client.websocket_connect("/ws") as ws:
+        ws.receive_json()
+        ws.send_json({"type": "start", "project": pid, "displayLanguage": "日本語"})
+        assert receive_until(ws, of_type("error"))[-1]["code"] == "bad_message"
+
+
+def test_a_chosen_transcription_language_is_kept_whatever_the_display_language(client, project):
+    # 設定で選んだ値（ja も）は、表示言語にかかわらずそのまま（#498）
+    pid, d = project
+    assert client.patch("/api/settings", json={"whisper": {"language": "ja"}}).status_code == 200
+    assert record_once(client, pid, d, {"displayLanguage": "en"}).language_choice == "ja"
+    assert client.patch("/api/settings", json={"whisper": {"language": "auto"}}).status_code == 200
+    assert record_once(client, pid, d, {"displayLanguage": "ja"}).language_choice == "auto"
+
+
 def test_continuing_keeps_the_transcription_language(client, project):
     # 続きを録音しても、始めたときの文字起こしの言語のまま（全体設定を変えていても）
     pid, d = project
