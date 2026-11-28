@@ -43,7 +43,7 @@ export const en = defineTranslation<typeof ja>()({
     'consentForm.agreeRequired': 'To continue, you need to agree to the terms of service and the privacy policy',
     'consentForm.consentFailed': "Couldn't send your consent: {message}",
     'consentForm.dataCollection':
-        'The cloud edition collects data to improve quality (it does not collect the text of transcripts, summaries, and the like)',
+        'The cloud edition collects data to improve quality (it does not collect the text of transcripts, summaries, or similar content)',
     'consentForm.introAfter': '.',
     'consentForm.introAnd': ' and the ',
     'consentForm.introBefore': 'Before you start, read the ',

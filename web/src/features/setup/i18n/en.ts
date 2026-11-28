@@ -35,7 +35,7 @@ export const en = defineTranslation<typeof ja>()({
         "{model} is used while recording. If it isn't installed, a larger model runs instead, so transcription gets slow on GPUs with about 6 GB of VRAM",
     'modelsStep.notInstalled': 'Not installed',
     'modelsStep.purpose': '{llm} models for summaries and more',
-    'modelsStep.stopInLmStudio': 'To stop it, stop it from LM Studio',
+    'modelsStep.stopInLmStudio': 'To stop it, use LM Studio',
     'modelsStep.title': 'Summary models',
 
     // pullModels.ts

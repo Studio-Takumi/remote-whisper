@@ -6,8 +6,8 @@ export const en = defineTranslation<typeof ja>()({
     'common.copy': 'Copy',
     'common.regenerate': 'Regenerate with {model}',
 
-    'corrections.lineOnlyFinal': '(polished line {n} only)',
-    'corrections.lineOnlyLive': '(real-time line {n} only)',
+    'corrections.lineOnlyFinal': ' (line {n} of the polished transcript only)',
+    'corrections.lineOnlyLive': ' (line {n} of the real-time transcript only)',
     'corrections.maxChars': 'Up to {n} characters',
     'corrections.rightEmpty': 'Enter the correct word',
     'corrections.rightSame': 'Same as the selected text',

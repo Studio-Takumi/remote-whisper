@@ -90,7 +90,7 @@ export const en = defineTranslation<typeof ja>()({
     'modelsPage.realTimeTranscript': 'Real-time transcript',
     'modelsPage.referenceMaterialsDescription': 'Creates a term list and context from files with {llm}',
     'modelsPage.restoreRecommended': 'Restore recommended',
-    'modelsPage.scope': 'Range selection',
+    'modelsPage.scope': 'Relevant parts',
     'modelsPage.scopeDescription': "Decides which parts of the files to use. Small models don't answer consistently",
     'modelsPage.switching': 'Once switched to {llm}, you can choose from the installed models',
     'modelsPage.termListFromMaterials': 'Term list (from materials)',

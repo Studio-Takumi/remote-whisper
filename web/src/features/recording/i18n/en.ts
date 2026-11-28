@@ -46,7 +46,8 @@ export const en = defineTranslation<typeof ja>()({
     'micAction.continueHint': 'Press to continue recording',
     'micAction.join': "{watched}. Click to join with this device's microphone",
     'micAction.joinHint': "Join with this device's microphone",
-    'micAction.joined': 'Joined as audio source {source}',
+    // 「音源 {n}」は、行の札（sources.label）と同じく短い Source {n} にそろえる
+    'micAction.joined': 'Joined as source {source}',
     'micAction.joining': 'Joining…',
     'micAction.leave': '{joined}. Click to stop joining',
     'micAction.micDenied': 'The microphone is not allowed. Allow it in your browser settings',
