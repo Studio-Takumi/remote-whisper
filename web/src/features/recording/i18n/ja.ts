@@ -2,6 +2,12 @@ import { defineDictionary } from '@/i18n/messages';
 
 // 録音（features/recording/）の文（日本語）。キーは「ファイル名.役割」（web/README.md の「表示言語（i18n）」）
 export const ja = defineDictionary({
+    // 複数のファイルで使う文
+    'common.chooseProject': '録音するプロジェクトをメニューから選んでください',
+    'common.continueRecording': '続きから録音',
+    'common.discard': '捨てる',
+    'common.newSession': '新しいセッション',
+
     // AudioUpload.tsx
     'audioUpload.cancel': 'キャンセル',
     'audioUpload.create': '作る',
@@ -146,10 +152,4 @@ export const ja = defineDictionary({
 
     // watcher.ts
     'watcher.disconnected': '{source} との接続が切れました。録音は続いています',
-
-    // 複数のファイルで使う文
-    'common.chooseProject': '録音するプロジェクトをメニューから選んでください',
-    'common.continueRecording': '続きから録音',
-    'common.discard': '捨てる',
-    'common.newSession': '新しいセッション',
 });

@@ -3,6 +3,12 @@ import { defineTranslation } from '@/i18n/messages';
 
 // 録音（features/recording/）の文（英語）。訳は docs/spec/i18n.md の用語集に合わせる
 export const en = defineTranslation<typeof ja>()({
+    // 複数のファイルで使う文
+    'common.chooseProject': 'Choose a project to record in from the menu',
+    'common.continueRecording': 'Continue recording',
+    'common.discard': 'Discard',
+    'common.newSession': 'New session',
+
     // AudioUpload.tsx
     'audioUpload.cancel': 'Cancel',
     'audioUpload.create': 'Create',
@@ -152,10 +158,4 @@ export const en = defineTranslation<typeof ja>()({
 
     // watcher.ts
     'watcher.disconnected': 'The connection to {source} was lost. Recording continues',
-
-    // 複数のファイルで使う文
-    'common.chooseProject': 'Choose a project to record in from the menu',
-    'common.continueRecording': 'Continue recording',
-    'common.discard': 'Discard',
-    'common.newSession': 'New session',
 });

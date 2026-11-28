@@ -74,7 +74,7 @@ export const recordingMessages = defineMessages({ ja, en });
 
 - `'<ファイル名>.<役割>'`。ファイル名は文を使うファイルの名前（拡張子なし）を lowerCamelCase にしたもの（`MicButton.tsx` → `micButton`、`micMessages.ts` → `micMessages`）。役割は英語の lowerCamelCase（`start`・`denied`・`tooltip`・`left`）
 - 同じファイルの中で同じ文を何度も使うときは、1 つのキーにまとめてよい。ファイルをまたいで同じ文（「保存」「キャンセル」など）を使うときは `'common.<役割>'` にまとめる（同じフォルダの中だけ）
-- `ja.ts` の中は、ファイルごとにまとめ、ファイル名の順（アルファベット順）に並べる
+- `ja.ts` の中は、ファイルごとにまとめ、ファイル名の順（アルファベット順）に並べる。`common.*` は一番上に置く。`en.ts` も `ja.ts` と同じ順にする
 - 文は今の日本語をそのまま移す（1 文字も変えない。`。` の有無・空白・全角半角も）
 
 ### 使い方

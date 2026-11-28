@@ -3,6 +3,20 @@ import { defineTranslation } from '@/i18n/messages';
 
 // 設定（features/settings/）の文（英語）。訳は docs/spec/i18n.md の用語集に合わせる
 export const en = defineTranslation<typeof ja>()({
+    // 複数のファイルで使う文
+    'common.detailedSummary': 'Detailed summary',
+    'common.figureReading': 'Figure reading',
+    'common.minutes': 'min',
+    'common.overview': 'Overview',
+    'common.polish': 'Polish',
+    'common.realTimeSummary': 'Real-time summary',
+    'common.referenceMaterials': 'Reference materials',
+    'common.speakerLabeling': 'Speaker labeling',
+    'common.summary': 'Summary',
+    'common.thisDevice': 'This device',
+    'common.thisDeviceDescription': 'Takes effect as soon as you change it, without pressing Save',
+    'common.transcript': 'Transcript',
+
     // DensitySelect.tsx
     'densitySelect.level1': '1 Very brief',
     'densitySelect.level2': '2 Brief',
@@ -209,18 +223,4 @@ export const en = defineTranslation<typeof ja>()({
     'whisperPage.speechThreshold': 'Speech detection',
     'whisperPage.speechThresholdDescription': 'Auto uses Silero VAD; manual uses volume',
     'whisperPage.unloadAfter': 'Time before stopping the model after recording stops',
-
-    // 複数のファイルで使う文
-    'common.detailedSummary': 'Detailed summary',
-    'common.figureReading': 'Figure reading',
-    'common.minutes': 'min',
-    'common.overview': 'Overview',
-    'common.polish': 'Polish',
-    'common.realTimeSummary': 'Real-time summary',
-    'common.referenceMaterials': 'Reference materials',
-    'common.speakerLabeling': 'Speaker labeling',
-    'common.summary': 'Summary',
-    'common.thisDevice': 'This device',
-    'common.thisDeviceDescription': 'Takes effect as soon as you change it, without pressing Save',
-    'common.transcript': 'Transcript',
 });

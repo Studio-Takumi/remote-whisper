@@ -3,6 +3,11 @@ import { defineTranslation } from '@/i18n/messages';
 
 // セットアップ（features/setup/）の文（英語）。訳は docs/spec/i18n.md の用語集に合わせる
 export const en = defineTranslation<typeof ja>()({
+    // 複数のファイルで使う文
+    'common.cancel': 'Cancel',
+    'common.installed': 'Installed',
+    'common.recheck': 'Check again',
+
     // GpuStep.tsx
     'gpuStep.getCudaBuild': 'Get the Windows (CUDA) build',
     'gpuStep.notFound':
@@ -100,9 +105,4 @@ export const en = defineTranslation<typeof ja>()({
     'whisperXStep.rolledBack':
         "Couldn't install, so it was rolled back (the log is log/whisperx-install.log in the data folder)",
     'whisperXStep.waitForRecording': 'You can install after recording stops',
-
-    // 複数のファイルで使う文
-    'common.cancel': 'Cancel',
-    'common.installed': 'Installed',
-    'common.recheck': 'Check again',
 });

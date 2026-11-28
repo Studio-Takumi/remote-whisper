@@ -2,6 +2,20 @@ import { defineDictionary } from '@/i18n/messages';
 
 // 設定（features/settings/）の文（日本語）。キーは「ファイル名.役割」（web/README.md の「表示言語（i18n）」）
 export const ja = defineDictionary({
+    // 複数のファイルで使う文
+    'common.detailedSummary': '要約詳細',
+    'common.figureReading': '図の読み取り',
+    'common.minutes': '分',
+    'common.overview': '全体概要',
+    'common.polish': '浄書',
+    'common.realTimeSummary': 'リアルタイム要約',
+    'common.referenceMaterials': '参考資料',
+    'common.speakerLabeling': '話者分け',
+    'common.summary': '要約',
+    'common.thisDevice': 'この端末',
+    'common.thisDeviceDescription': '保存を押さなくても、切り替えた時点で効きます',
+    'common.transcript': '文字起こし',
+
     // DensitySelect.tsx
     'densitySelect.level1': '1 ごく短く',
     'densitySelect.level2': '2 短め',
@@ -206,18 +220,4 @@ export const ja = defineDictionary({
     'whisperPage.speechThreshold': '話し声の判定',
     'whisperPage.speechThresholdDescription': '自動では Silero VAD で判定し、手動では音量で判定します',
     'whisperPage.unloadAfter': '録音終了後にモデルを停止するまでの時間',
-
-    // 複数のファイルで使う文
-    'common.detailedSummary': '要約詳細',
-    'common.figureReading': '図の読み取り',
-    'common.minutes': '分',
-    'common.overview': '全体概要',
-    'common.polish': '浄書',
-    'common.realTimeSummary': 'リアルタイム要約',
-    'common.referenceMaterials': '参考資料',
-    'common.speakerLabeling': '話者分け',
-    'common.summary': '要約',
-    'common.thisDevice': 'この端末',
-    'common.thisDeviceDescription': '保存を押さなくても、切り替えた時点で効きます',
-    'common.transcript': '文字起こし',
 });

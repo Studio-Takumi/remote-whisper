@@ -2,6 +2,11 @@ import { defineDictionary } from '@/i18n/messages';
 
 // セットアップ（features/setup/）の文（日本語）。キーは「ファイル名.役割」（web/README.md の「表示言語（i18n）」）
 export const ja = defineDictionary({
+    // 複数のファイルで使う文
+    'common.cancel': 'やめる',
+    'common.installed': '入っています',
+    'common.recheck': 'もう一度確かめる',
+
     // GpuStep.tsx
     'gpuStep.getCudaBuild': 'Windows（CUDA）版を入手',
     'gpuStep.notFound':
@@ -97,9 +102,4 @@ export const ja = defineDictionary({
     'whisperXStep.rolledBack':
         '入れられなかったため、元に戻しました（ログはデータのフォルダの log/whisperx-install.log）',
     'whisperXStep.waitForRecording': '録音が終わってから入れられます',
-
-    // 複数のファイルで使う文
-    'common.cancel': 'やめる',
-    'common.installed': '入っています',
-    'common.recheck': 'もう一度確かめる',
 });
