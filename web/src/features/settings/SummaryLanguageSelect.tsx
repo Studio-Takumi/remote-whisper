@@ -16,7 +16,8 @@ export function SummaryLanguageSelect({
     const t = useT(settingsMessages);
     return (
         <Select value={value} onValueChange={(v) => onChange(v as SummaryLanguage)}>
-            <SelectTrigger id={id} className='w-44'>
+            {/* 幅は w-44 で、英語の長い選択肢（Match display language。#497）のときだけ広げる */}
+            <SelectTrigger id={id} className='w-auto min-w-44'>
                 <SelectValue />
             </SelectTrigger>
             <SelectContent>

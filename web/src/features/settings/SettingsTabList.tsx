@@ -21,10 +21,11 @@ export function SettingsTabList({ isMobile }: { isMobile: boolean }) {
             variant='line'
             className={
                 // 横に並べたときは左寄せにする（中央寄せだと、はみ出したときに先頭が切れてスクロールできない）
-                // スクロールは並べた向きだけにする（#239）
+                // スクロールは並べた向きだけにする（#239）。
+                // 縦に並べたときの幅は w-40 で、それより長い名前（英語。#497）のときだけ名前に合わせて広げる
                 isMobile
                     ? 'w-full shrink-0 justify-start overflow-x-auto overflow-y-hidden'
-                    : 'w-40 shrink-0 items-stretch overflow-x-hidden overflow-y-auto'
+                    : 'w-max min-w-40 shrink-0 items-stretch overflow-x-hidden overflow-y-auto'
             }
         >
             {/* 並びは SETTINGS_PAGES と同じ（#239） */}
