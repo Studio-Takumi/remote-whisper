@@ -8,6 +8,7 @@ import { Streamdown } from 'streamdown';
 import { copySelection } from '@/components/copyMarkdown';
 import { componentsMessages } from '@/components/i18n';
 import { createRehypePlugins } from '@/components/markdownImages';
+import { contentLang } from '@/i18n/contentLang';
 import { useT } from '@/i18n/messages';
 
 // 講義の要約では $x$ のようなインライン数式が出てくるので、$ 1つでも数式として扱う
@@ -28,7 +29,8 @@ export function Markdown({ children, streaming = false }: { children: string; st
     // 画像のリンクの文字（「画像: <URL>」）は表示言語で変わるので、言語ごとに作る
     const rehypePlugins = useMemo(() => createRehypePlugins((href) => t('markdownImages.image', { href })), [t]);
     return (
-        <div onCopy={onCopy}>
+        // 中身（要約）の言語で lang を付ける（#497。英語の表示でも日本語の字形で出す）
+        <div onCopy={onCopy} lang={contentLang(children)}>
             <Streamdown plugins={{ code, math, cjk }} rehypePlugins={rehypePlugins} isAnimating={streaming}>
                 {children}
             </Streamdown>
