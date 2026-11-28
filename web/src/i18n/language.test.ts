@@ -130,4 +130,18 @@ describe('htmlLang', () => {
             });
         }
     });
+
+    it('navigator.languages が空なら navigator.language を見る（loadLanguage と同じ）', () => {
+        const script = /<script>([\s\S]*?)<\/script>/.exec(html)?.[1] ?? '';
+        localStorage.removeItem(LANGUAGE_KEY);
+        vi.spyOn(navigator, 'languages', 'get').mockReturnValue([]);
+        for (const language of ['ja-JP', 'en-US']) {
+            vi.spyOn(navigator, 'language', 'get').mockReturnValue(language);
+            document.documentElement.lang = '';
+            new Function(script)();
+            expect(document.documentElement.lang).toBe(language === 'ja-JP' ? 'ja' : 'en');
+            // loadLanguage の既定の引数（browserLanguages）も同じ
+            expect(loadLanguage(storageWith(null))).toBe(document.documentElement.lang);
+        }
+    });
 });
