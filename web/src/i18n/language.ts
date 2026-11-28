@@ -20,7 +20,8 @@ export function detectLanguage(preferred: readonly string[]): Language {
 
 // <html lang> に付ける言語。表示言語そのもの（#497 で英訳が入ったので）。
 // index.html も、描く前に同じ決め方で付ける（src/i18n/language.test.ts が突き合わせる）。
-// 文字起こし・要約・タイトルなど、ユーザーの言葉を出す要素には、別にセッションの言語で lang を付ける（contentLang）
+// 文字起こし・要約・タイトルなど、ユーザーの言葉を出す要素には、別に中身の文字（仮名・漢字があれば ja）から
+// 決めた lang を付ける（contentLang.ts。セッションの言語は画面に届いていないため）
 export function htmlLang(language: Language): Language {
     return language;
 }
