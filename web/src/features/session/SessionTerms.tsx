@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { describeCorrection } from '@/features/session/corrections';
 import { sessionMessages } from '@/features/session/i18n';
 import { addAll, describeInvalid, isSubmitKey, parseTermInput, remainingDraft } from '@/features/session/terms';
+import { contentLang } from '@/i18n/contentLang';
 import { useT } from '@/i18n/messages';
 
 // 用語リストの欄（#103・#175・#147。spec/flows.md 6.2・spec/ui.md 8）。手で足した語と拾った語を × で外せる。
@@ -119,7 +120,7 @@ export function SessionTerms({ session, showPicked }: { session: Session; showPi
                             key={JSON.stringify(c)}
                             className='flex items-center gap-0.5 rounded-full border border-border bg-muted/40 py-0.5 pr-1 pl-2'
                         >
-                            {describeCorrection(c)}
+                            <span lang={contentLang(c.from, c.to)}>{describeCorrection(c)}</span>
                             <button
                                 className='rounded-full p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground'
                                 aria-label={t('sessionTerms.replacementRemove', { from: c.from, to: c.to })}
@@ -158,7 +159,8 @@ function TermChip({
     const border = manual ? 'border-foreground/60 bg-muted' : 'border-border bg-muted/40';
     return (
         <span className={`flex items-center gap-0.5 rounded-full border py-0.5 pr-1 pl-2 ${border}`}>
-            {term}
+            {/* 語には中身の言語で lang を付ける（#497） */}
+            <span lang={contentLang(term)}>{term}</span>
             <button
                 className='rounded-full p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground'
                 aria-label={t('sessionTerms.termRemove', { term })}

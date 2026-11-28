@@ -24,7 +24,8 @@ export function SummaryLanguageSelect({
                 <SelectGroup>
                     {summaryLanguages.map((l) => (
                         <SelectItem key={l.value} value={l.value}>
-                            {'labelKey' in l ? t(l.labelKey) : l.label}
+                            {/* 言語の名前は、どの表示言語でもその言語の字形で出す（#497） */}
+                            {'labelKey' in l ? t(l.labelKey) : <span lang={l.value}>{l.label}</span>}
                         </SelectItem>
                     ))}
                 </SelectGroup>

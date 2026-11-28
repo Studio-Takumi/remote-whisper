@@ -24,7 +24,8 @@ export function LanguageRow() {
                     <SelectGroup>
                         {options.map((o) => (
                             <SelectItem key={o.value} value={o.value}>
-                                {o.label}
+                                {/* 言語の名前はその言語の字形で出す（#497） */}
+                                <span lang={o.value}>{o.label}</span>
                             </SelectItem>
                         ))}
                     </SelectGroup>

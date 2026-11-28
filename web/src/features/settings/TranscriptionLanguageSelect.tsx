@@ -23,7 +23,8 @@ export function TranscriptionLanguageSelect({
     const t = useT(settingsMessages);
     const label = (v: TranscriptionLanguage | undefined) => {
         const option = transcriptionLanguages.find((l) => l.value === v);
-        return option && ('labelKey' in option ? t(option.labelKey) : option.label);
+        // 言語の名前（日本語）は、どの表示言語でもその言語の字形で出す（#497）
+        return option && ('labelKey' in option ? t(option.labelKey) : <span lang={option.value}>{option.label}</span>);
     };
     return (
         <Select value={value ?? ''} onValueChange={(v) => onChange(v as TranscriptionLanguage)}>
